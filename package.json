@@ -3,18 +3,18 @@
 	"version": "1.0.0",
 	"description": "Compact, evidence-preserving tool presentation for OMP 17.2.12+",
 	"type": "module",
-	"main": "index.ts",
+	"main": ".omp-plugin/index.ts",
 	"omp": {
 		"extensions": [
-			"./index.ts"
+			"./.omp-plugin/index.ts"
 		]
 	},
 	"scripts": {
-		"omp": "env -u OMP_COMPACT_TOOL_CALLS -u OMP_FOLD_COMPLETED_TURNS -u OMP_TURN_SUMMARY -u OMP_COMPACT_MODE -u OMP_COMPACT_PLUGIN ./node_modules/.bin/omp --no-extensions -e ./index.ts",
-		"test": "OMP_STOCK_BIN=./node_modules/.bin/omp bun test --timeout=120000 ./*.test.ts",
+		"omp": "env -u OMP_COMPACT_TOOL_CALLS -u OMP_FOLD_COMPLETED_TURNS -u OMP_TURN_SUMMARY -u OMP_COMPACT_MODE -u OMP_COMPACT_PLUGIN ./node_modules/.bin/omp --no-extensions -e ./.omp-plugin/index.ts",
+		"test": "OMP_STOCK_BIN=./node_modules/.bin/omp bun test --timeout=120000 docs/tests",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
-		"lint": "biome lint ./*.ts replay",
-		"format:check": "biome format ./*.ts package.json replay",
+		"lint": "biome lint .omp-plugin docs/tests",
+		"format:check": "biome format .omp-plugin package.json docs/tests",
 		"check": "bun run typecheck && bun run lint && bun run format:check && bun run test"
 	},
 	"keywords": [
@@ -46,7 +46,7 @@
 		"typescript": "5.9.3"
 	},
 	"files": [
-		"*.ts",
+		".omp-plugin/*.ts",
 		"README.md",
 		"README.ru.md",
 		"CHANGELOG.md",

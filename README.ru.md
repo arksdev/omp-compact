@@ -2,7 +2,7 @@
 
 [English](README.md) · **Русский**
 
-![omp-compact](hero.jpg)
+![omp-compact](docs/assets/hero.jpg)
 
 ## Установка через Marketplace
 
@@ -191,12 +191,12 @@ bun install --frozen-lockfile
 bun run omp
 ```
 
-`bun run omp` загружает только `./index.ts` через `--no-extensions`, чтобы установленная копия плагина не загрузилась второй раз. Для постоянной marketplace/link-установки используйте обычный `omp`, чтобы остальные extensions оставались включены.
+`bun run omp` загружает только `./.omp-plugin/index.ts` через `--no-extensions`, чтобы установленная копия плагина не загрузилась второй раз. Для постоянной marketplace/link-установки используйте обычный `omp`, чтобы остальные extensions оставались включены.
 
 Direct launch на один запуск:
 
 ```bash
-omp -e /absolute/path/to/omp-compact/index.ts
+omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 ```
 
 ## Совместимость и документация

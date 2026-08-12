@@ -34,22 +34,21 @@ bun run format:check
 bun run test
 
 # A focused file (provide the same stock binary boundary)
-OMP_STOCK_BIN=./node_modules/.bin/omp bun test component-binding.test.ts
+OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test.ts
 ```
 
-The latest standalone release gate was 768 tests, 0 failures, and 3,378 assertions across 27 files. Treat the current command output as authoritative after further changes.
+The latest standalone release gate was 770 tests, 0 failures, and 3,388 assertions across 28 files. Treat the current command output as authoritative after further changes.
 
 ### Testing Locally
 
-Install plugin for manual testing:
+Install or link the checkout for manual testing:
 
 ```bash
-# One-time use
-omp --extension /absolute/path/to/omp-compact/index.ts
+# One-time isolated source launch
+omp --extension /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
-# User-wide
-mkdir -p ~/.omp/agent/extensions
-ln -s /absolute/path/to/omp-compact ~/.omp/agent/extensions/
+# Persistent user installation from the package root
+omp plugin link /absolute/path/to/omp-compact --scope user
 
 # Restart OMP, verify with /compact-settings
 ```
@@ -151,11 +150,13 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): void {
 
 ### Module Organization
 
+Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, and goldens live in `docs/tests/` so the repository root stays focused on public entry points and package metadata.
+
 **One responsibility per module:**
-- `runtime-adapter.ts` — host orchestration only
-- `runtime-session-state.ts` — state management only
-- `render-decision.ts` — decision tables only
-- `render.ts` — row construction only
+- `.omp-plugin/runtime-adapter.ts` — host orchestration only
+- `.omp-plugin/runtime-session-state.ts` — state management only
+- `.omp-plugin/render-decision.ts` — decision tables only
+- `.omp-plugin/render.ts` — row construction only
 
 **Avoid circular dependencies.** Import tree flows downward:
 ```
@@ -183,7 +184,7 @@ index.ts
 **Example:**
 ```typescript
 import { describe, expect, test } from "bun:test";
-import { classifyAgentEnd } from "./turn-ledger";
+import { classifyAgentEnd } from "../../.omp-plugin/turn-ledger";
 
 describe("classifyAgentEnd", () => {
     test("returns working when willContinue is true", () => {
@@ -341,7 +342,7 @@ export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
 };
 ```
 
-2. Add tests in `tool-presentation-rules.test.ts`:
+2. Add tests in `docs/tests/tool-presentation-rules.test.ts`:
 
 ```typescript
 describe("my_new_tool", () => {

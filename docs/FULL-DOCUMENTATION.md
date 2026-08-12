@@ -14,7 +14,7 @@
 
 ## Установка
 
-Репозиторий содержит полный плагин: `index.ts` импортирует соседние модули.
+Production-код плагина находится в `.omp-plugin/`: `index.ts` импортирует соседние модули из этой директории.
 
 ### Marketplace
 
@@ -36,35 +36,29 @@ bun install --frozen-lockfile
 bun run omp
 ```
 
-`bun run omp` изолирует локальную разработку: загружает только `./index.ts` через `--no-extensions`, не закрепляет display mode, не передаёт `--no-session` и снимает внешние `OMP_COMPACT_MODE`/`OMP_COMPACT_PLUGIN`. Это исключает двойную загрузку, если `omp-compact` уже установлен или связан в user scope. Для обычной работы после marketplace-установки или `omp plugin link .` запускайте простой `omp`, чтобы остальные extensions оставались включены.
+`bun run omp` изолирует локальную разработку: загружает только `./.omp-plugin/index.ts` через `--no-extensions`, не закрепляет display mode, не передаёт `--no-session` и снимает внешние `OMP_COMPACT_MODE`/`OMP_COMPACT_PLUGIN`. Это исключает двойную загрузку, если `omp-compact` уже установлен или связан в user scope. Для обычной работы после marketplace-установки или `omp plugin link .` запускайте простой `omp`, чтобы остальные extensions оставались включены.
 
 Альтернативный direct launch:
 
 ```bash
-omp --extension /absolute/path/to/omp-compact/index.ts
+omp --extension /absolute/path/to/omp-compact/.omp-plugin/index.ts
 # или
-omp -e /absolute/path/to/omp-compact/index.ts
+omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 ```
 
-### Для проекта
+### Для проекта или всех сессий пользователя
 
-Скопируйте директорию так, чтобы точкой входа был файл:
+Рекомендуемый способ — Marketplace: он устанавливает package manifest и скрытую production-директорию `.omp-plugin/` вместе и не требует ручного копирования отдельных файлов.
 
-```text
-<project>/.omp/extensions/omp-compact/index.ts
+Для ручного link-install используйте корень checkout:
+
+```bash
+omp plugin link /absolute/path/to/omp-compact --scope project
+# или
+omp plugin link /absolute/path/to/omp-compact --scope user
 ```
 
-Project extension discovery привязан к текущему `cwd` и не ищет `.omp/extensions` в родительских каталогах.
-
-### Для всех сессий пользователя
-
-Используйте active agent directory:
-
-```text
-~/.omp/agent/extensions/omp-compact/index.ts
-```
-
-Для `omp --profile <name>` путь имеет вид `~/.omp/profiles/<name>/agent/extensions/omp-compact/index.ts`. `PI_CODING_AGENT_DIR` переопределяет active agent directory. После установки через auto-discovery перезапустите OMP.
+Manifest `package.json` указывает OMP на `./.omp-plugin/index.ts`. При `--profile <name>` user scope хранится в соответствующей profile agent directory; `PI_CODING_AGENT_DIR` переопределяет active agent directory. После установки или link перезапустите OMP.
 
 Проверка загрузки: откройте `/compact-settings`. Если это имя уже занято, плагин последовательно использует `/omp-compact-settings`, затем `/omp-compact-settings-2` … `/omp-compact-settings-99`. Фактическое имя видно в списке slash-команд.
 
@@ -460,7 +454,7 @@ bun run format:check
 bun run test
 ```
 
-`bun run test` задаёт `OMP_STOCK_BIN=./node_modules/.bin/omp`, поэтому focused tests, redacted replay corpus и stock-host integration contracts запускаются одной командой.
+`bun run test` задаёт `OMP_STOCK_BIN=./node_modules/.bin/omp` и запускает корпус из `docs/tests/`, включая redacted replay fixtures и stock-host integration contracts.
 
 Ручной TUI smoke с сохранением обычной session history:
 

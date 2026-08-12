@@ -12,24 +12,24 @@ Stock OMP handles all tool execution. The plugin observes results and decides wh
 
 ## Module Structure
 
-```
+```text
 omp-compact/
-├── index.ts                      # Plugin entry point
-├── runtime-adapter.ts            # Host orchestration, event hooks
-├── runtime-session-state.ts      # Ledgers, tool states, projections
-├── component-binding.ts          # toolCallId ↔ component mapping
-├── turn-ledger.ts                # Per-run entry accumulation
-├── render-decision.ts            # Compact vs native decision tables
-├── render.ts                     # Row construction (mutations, git, stats)
-├── tool-presentation-rules.ts    # Typed tool registry
-├── config.ts                     # Bounded JSON config store
-├── display-path.ts               # Project-relative path projection
-├── transcript-fold.ts            # Native component discovery
-├── mode-policy.ts                # Mode snapshots
-├── run-stats.ts                  # Stats row construction
-├── messages.ts                   # Mutation/git message types
-├── hydration-bounds.ts           # Payload size guards
-└── compact.ts                    # Generic tool descriptions
+├── .omp-plugin/                   # Marketplace catalog and production TypeScript
+│   ├── marketplace.json
+│   ├── index.ts                   # Plugin entry point
+│   ├── runtime-adapter.ts         # Host orchestration, event hooks
+│   ├── runtime-session-state.ts   # Ledgers, tool states, projections
+│   ├── component-binding.ts       # toolCallId ↔ component mapping
+│   ├── turn-ledger.ts             # Per-run entry accumulation
+│   ├── render-decision.ts         # Compact vs native decision tables
+│   ├── render.ts                  # Row construction (mutations, git, stats)
+│   └── …                          # Remaining production modules
+├── docs/
+│   ├── tests/                     # Unit/integration tests and replay corpus
+│   └── assets/                    # Documentation images
+├── README.md / README.ru.md
+├── CHANGELOG.md / LICENSE
+└── package.json / bun.lock / tsconfig.json / .gitignore
 ```
 
 ---
