@@ -18,7 +18,14 @@
 
 ### Marketplace
 
-После добавления каталога, содержащего `arksdev/omp-compact`, установите плагин штатным менеджером OMP. Package manifest уже объявляет entry point через `omp.extensions`.
+Для первого релиза каталог публикуется из этого же репозитория. Добавьте его и установите плагин:
+
+```bash
+omp plugin marketplace add arksdev/omp-compact
+omp plugin install omp-compact@arksdev
+```
+
+Требуется stock OMP 17.2.12 — плагин рассчитан на private structural shape TUI именно этой версии.
 
 ### Из Git checkout на один запуск
 

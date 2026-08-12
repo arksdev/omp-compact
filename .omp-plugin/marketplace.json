@@ -1,0 +1,28 @@
+{
+	"name": "arksdev",
+	"owner": {
+		"name": "arksdev"
+	},
+	"plugins": [
+		{
+			"name": "omp-compact",
+			"source": "./",
+			"description": "Compact, evidence-preserving tool presentation for OMP 17.2.12",
+			"version": "1.0.0",
+			"author": {
+				"name": "arksdev"
+			},
+			"homepage": "https://github.com/arksdev/omp-compact#readme",
+			"repository": "git+https://github.com/arksdev/omp-compact.git",
+			"license": "MIT",
+			"keywords": [
+				"omp",
+				"plugin",
+				"presentation",
+				"compact",
+				"tool-log",
+				"terminal"
+			]
+		}
+	]
+}

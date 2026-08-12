@@ -6,11 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-### Fixed
-
-- Reject duplicate `TranscriptFold` ownership when the same checkout is loaded through both a user-installed symlink and an explicit `-e` path, preventing recursive finalization and stack overflow.
-- Run the source-checkout launcher with isolated extension discovery so it cannot double-load an ambient `omp-compact` installation.
-
 ## [1.0.0] - 2026-08-12
 
 ### Added
@@ -23,6 +18,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Persistent `/compact-settings` UI, environment overrides, and atomic config updates.
 - Same-session reconstruction after `/tree` and manual `/shake` without restarting OMP.
 - Redacted replay corpus plus focused and stock-host integration coverage.
+
+### Fixed
+
+- Reject duplicate `TranscriptFold` ownership when the same checkout is loaded through both a user-installed symlink and an explicit `-e` path, preventing recursive finalization and stack overflow.
+- Run the source-checkout launcher with isolated extension discovery so it cannot double-load an ambient `omp-compact` installation.
 
 ### Hardened
 
