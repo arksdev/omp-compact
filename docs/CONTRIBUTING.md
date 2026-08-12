@@ -320,7 +320,7 @@ Explain the minimal source-level correction and why native execution semantics r
 ```typescript
 export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
     // ...existing tools
-    
+
     my_new_tool: {
         route: "compact",              // or "read-group" or "native-live"
         audit: "write",                // or "edit" or "git-bash" or "none"
@@ -400,7 +400,7 @@ if (phase === "filtered" && !hasMutations) return "empty";         // 3
 ```typescript
 class RuntimeSessionState {
     readonly #allEvents: Event[] = [];
-    
+
     addEvent(event: Event): void {
         this.#allEvents.push(event);  // Unbounded
     }
@@ -411,7 +411,7 @@ class RuntimeSessionState {
 ```typescript
 class RuntimeSessionState {
     readonly #recentEvents: Event[] = [];
-    
+
     addEvent(event: Event): void {
         this.#recentEvents.push(event);
         if (this.#recentEvents.length > 100) {
@@ -464,7 +464,7 @@ Don't optimize without evidence. If you suspect performance issue:
 ```typescript
 /**
  * Finalize this ledger, applying retention policy based on mode.
- * 
+ *
  * @param mode - Display mode at run start
  * @param event - Terminal agent_end event (undefined for manual finalization)
  * @returns Finalized phase ("filtered" or "full")

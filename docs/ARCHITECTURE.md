@@ -203,14 +203,14 @@ function verifyWriteMutation(
     postSnapshot: FileSnapshot | undefined
 ): MutationStats {
     if (!preSnapshot || !postSnapshot) return { added: 0, removed: 0, exact: false };
-    
+
     const preStat = preSnapshot.stat;
     const postStat = postSnapshot.stat;
-    
+
     // Compare sizes, mtimes
     const added = Math.max(0, postStat.size - preStat.size);
     const removed = Math.max(0, preStat.size - postStat.size);
-    
+
     return { added, removed, exact: true };
 }
 ```
@@ -229,14 +229,14 @@ function parseUnifiedDiff(diff: string): MutationStats {
     let added = 0;
     let removed = 0;
     let inHunk = false;
-    
+
     for (const line of diff.split('\n')) {
         if (line.startsWith('@@')) { inHunk = true; continue; }
         if (!inHunk) continue;
         if (line.startsWith('+') && !line.startsWith('+++')) added++;
         if (line.startsWith('-') && !line.startsWith('---')) removed++;
     }
-    
+
     return { added, removed, exact: true };
 }
 ```
@@ -293,9 +293,9 @@ function parseBoundedJson(text: string, warn: (msg: string) => void): unknown {
         warn('Config file too large');
         return undefined;
     }
-    
+
     const parsed = JSON.parse(text);
-    
+
     function checkDepth(value: unknown, depth: number): boolean {
         if (depth > MAX_CONFIG_DEPTH) return false;
         if (typeof value === 'object' && value !== null) {
@@ -305,12 +305,12 @@ function parseBoundedJson(text: string, warn: (msg: string) => void): unknown {
         }
         return true;
     }
-    
+
     if (!checkDepth(parsed, 0)) {
         warn('Config nesting too deep');
         return undefined;
     }
-    
+
     return parsed;
 }
 ```
@@ -465,7 +465,7 @@ Any error triggers complete rollback:
     try {
         this.#warn?.(message);
     } catch {}
-    
+
     this.dispose(); // Remove all patches, clear state
 }
 ```
@@ -528,7 +528,7 @@ All external inputs bounded:
 ```typescript
 export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
     // ...existing tools
-    
+
     my_tool: {
         route: "compact",
         audit: "none",
