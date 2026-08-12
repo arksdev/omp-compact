@@ -43,7 +43,7 @@ describe("marketplace catalog", () => {
 		expect(await Bun.file(join(dir, "index.ts")).exists()).toBe(true);
 	});
 
-	test("plugin metadata mirrors package.json", () => {
+	test("plugin metadata mirrors package.json", async () => {
 		const plugin = catalog.plugins[0];
 		expect(plugin.version).toBe(pkg.version);
 		expect(plugin.description).toBe(pkg.description);
@@ -54,5 +54,9 @@ describe("marketplace catalog", () => {
 		expect(plugin.keywords).toEqual(pkg.keywords);
 		expect(pkg.engines.omp).toBe(">=17.2.12");
 		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("17.2.12");
+		expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
+		expect(await Bun.file(join(repoRoot, "CHANGELOG.md")).text()).toContain(
+			`## [${pkg.version}]`,
+		);
 	});
 });
