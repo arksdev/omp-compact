@@ -570,5 +570,5 @@ function decideToolRender(/* ... */): RenderDecision {
 
 - [Full Documentation](FULL-DOCUMENTATION.md) — User-facing feature reference
 - [Configuration](CONFIGURATION.md) — All settings and environment variables
-- [Code Review](CODE-REVIEW.md) — Quality assessment and detailed findings
+- [Repository README](../README.md) — Concise project overview and installation
 - [Contributing](CONTRIBUTING.md) — Development guide

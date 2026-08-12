@@ -512,9 +512,8 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 
 ## Getting Help
 
-- 💬 **Questions:** [GitHub Discussions](https://github.com/arksdev/omp-compact/discussions)
-- 🐛 **Bug reports:** [GitHub Issues](https://github.com/arksdev/omp-compact/issues)
-- 📖 **Documentation:** [docs/](docs/)
+- **Bug reports and questions:** [GitHub Issues](https://github.com/arksdev/omp-compact/issues)
+- **Documentation:** [Full guide](FULL-DOCUMENTATION.md) and the rest of [`docs/`](./)
 
 ---
 

@@ -35,8 +35,6 @@ logs/
 /runtime/
 /tools/
 /.github-tree.txt
-/README.new.md
-/README-GITHUB*.md
 
 # Local session handoff; the canonical OMP session remains under ~/.omp
 /.session-handoff/
