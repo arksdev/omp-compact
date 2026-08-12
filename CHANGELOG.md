@@ -34,7 +34,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Verified
 
 - OMP 17.2.12 compatibility.
-- 762 tests, 0 failures, and 3,344 assertions across 25 files before the standalone repository migration.
+- 768 tests, 0 failures, and 3,375 assertions across 27 files in the standalone release gate.
 - Strict TypeScript and Biome checks.
 - Persistent-session manual smoke covering prior-session resume, all three modes, `/tree`, `/shake`, and new live tool calls after both reconstruction paths.
 
