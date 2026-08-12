@@ -10,7 +10,7 @@
 		]
 	},
 	"scripts": {
-		"omp": "env -u OMP_COMPACT_TOOL_CALLS -u OMP_FOLD_COMPLETED_TURNS -u OMP_TURN_SUMMARY -u OMP_COMPACT_MODE -u OMP_COMPACT_PLUGIN ./node_modules/.bin/omp -e ./index.ts",
+		"omp": "env -u OMP_COMPACT_TOOL_CALLS -u OMP_FOLD_COMPLETED_TURNS -u OMP_TURN_SUMMARY -u OMP_COMPACT_MODE -u OMP_COMPACT_PLUGIN ./node_modules/.bin/omp --no-extensions -e ./index.ts",
 		"test": "OMP_STOCK_BIN=./node_modules/.bin/omp bun test --timeout=120000 ./*.test.ts",
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"lint": "biome lint ./*.ts replay",

@@ -12,6 +12,7 @@ test("omp launcher loads the plugin and honors persisted mode and sessions", () 
 	expect(command).toContain("-u OMP_COMPACT_PLUGIN");
 	expect(command).toContain("./node_modules/.bin/omp");
 	expect(command).toContain("-e ./index.ts");
+	expect(command).toContain("--no-extensions");
 	expect(command).not.toMatch(/OMP_COMPACT_MODE\s*=/);
 	expect(command).not.toContain("--no-session");
 	expect(scripts.live).toBeUndefined();

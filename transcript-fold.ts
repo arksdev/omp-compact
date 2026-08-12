@@ -81,6 +81,10 @@ interface BlockPatch {
 }
 
 const EMPTY_LINES: Lines = Object.freeze([]);
+// Cross-module-instance marker: a plugin may be both user-linked and loaded
+// explicitly with `-e`. The fold mutates only this exact transcript instance,
+// but duplicate module copies must still observe the same ownership key.
+const TRANSCRIPT_FOLD_OWNER = Symbol.for("omp-compact.transcript-fold.owner");
 const NON_BLANK = /\S/;
 
 function finiteRows(value: unknown): number {
@@ -148,53 +152,71 @@ export class TranscriptFold {
 
 	install(): void {
 		if (this.#installed) return;
-		const hostRender = this.#transcript.render;
-		const hostTail = this.#transcript.renderViewportTail;
-		const hostUncommitted = this.#transcript.isBlockUncommitted;
-		const wrappers: Record<string, PropertyDescriptor> = {
-			render: {
+		if (Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) !== undefined)
+			throw new Error("transcript already managed by omp-compact");
+		let ownsTranscript = false;
+		try {
+			Object.defineProperty(this.#transcript, TRANSCRIPT_FOLD_OWNER, {
 				configurable: true,
-				writable: true,
-				value: (width: number): Lines => {
-					this.#plan(width);
-					return hostRender.call(this.#transcript, width);
+				value: this,
+			});
+			ownsTranscript = true;
+			const hostRender = this.#transcript.render;
+			const hostTail = this.#transcript.renderViewportTail;
+			const hostUncommitted = this.#transcript.isBlockUncommitted;
+			const wrappers: Record<string, PropertyDescriptor> = {
+				render: {
+					configurable: true,
+					writable: true,
+					value: (width: number): Lines => {
+						this.#plan(width);
+						return hostRender.call(this.#transcript, width);
+					},
 				},
-			},
-			renderViewportTail: {
-				configurable: true,
-				writable: true,
-				value: (width: number, maxRows: number): Lines => {
-					this.#plan(width);
-					return hostTail.call(this.#transcript, width, maxRows);
+				renderViewportTail: {
+					configurable: true,
+					writable: true,
+					value: (width: number, maxRows: number): Lines => {
+						this.#plan(width);
+						return hostTail.call(this.#transcript, width, maxRows);
+					},
 				},
-			},
-			isBlockUncommitted: {
-				configurable: true,
-				writable: true,
-				value: (component: unknown): boolean => {
-					const role =
-						component && typeof component === "object"
-							? this.#roles.get(component)
-							: undefined;
-					return role && !role.carrier
-						? this.#memberUncommitted(role, component)
-						: hostUncommitted.call(this.#transcript, component);
+				isBlockUncommitted: {
+					configurable: true,
+					writable: true,
+					value: (component: unknown): boolean => {
+						const role =
+							component && typeof component === "object"
+								? this.#roles.get(component)
+								: undefined;
+						return role && !role.carrier
+							? this.#memberUncommitted(role, component)
+							: hostUncommitted.call(this.#transcript, component);
+					},
 				},
-			},
-		};
-		this.#transcriptPatch = new DescriptorPatch(
-			this.#transcript,
-			TRANSCRIPT_FOLD_METHODS,
-		);
-		this.#transcriptPatch.install(wrappers);
-		this.#installed = true;
+			};
+			this.#transcriptPatch = new DescriptorPatch(
+				this.#transcript,
+				TRANSCRIPT_FOLD_METHODS,
+			);
+			this.#transcriptPatch.install(wrappers);
+			this.#installed = true;
+		} catch (error) {
+			if (
+				ownsTranscript &&
+				Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) === this
+			)
+				Reflect.deleteProperty(this.#transcript, TRANSCRIPT_FOLD_OWNER);
+			throw error;
+		}
 	}
 
 	dispose(): void {
 		if (
 			!this.#installed &&
 			this.#patches.size === 0 &&
-			this.#transcriptPatch === undefined
+			this.#transcriptPatch === undefined &&
+			Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) !== this
 		)
 			return;
 		for (const [block, patch] of this.#patches) {
@@ -204,6 +226,8 @@ export class TranscriptFold {
 		this.#patches.clear();
 		this.#transcriptPatch?.restore();
 		this.#transcriptPatch = undefined;
+		if (Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) === this)
+			Reflect.deleteProperty(this.#transcript, TRANSCRIPT_FOLD_OWNER);
 		this.#installed = false;
 	}
 

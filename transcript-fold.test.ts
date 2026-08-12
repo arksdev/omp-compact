@@ -189,6 +189,34 @@ describe("TranscriptFold descriptor transactions", () => {
 		expect(() => fold.dispose()).not.toThrow();
 		expect(Object.hasOwn(transcript, "render")).toBe(false);
 	});
+
+	test("a second fold on the same transcript fails before wrapping native methods", () => {
+		const transcript = new FakeTranscript();
+		const passthrough = (): FoldCallbacks => ({
+			...callbacks(),
+			isFinalized: (_block, nativeFinalized) => nativeFinalized?.() ?? true,
+			settledRows: (_block, nativeSettledRows) => nativeSettledRows?.() ?? 0,
+			version: (_block, nativeVersion) => nativeVersion?.() ?? 0,
+		});
+		const first = new TranscriptFold(transcript, passthrough());
+		const second = new TranscriptFold(transcript, passthrough());
+		const block = new FakeBlock();
+		transcript.addChild(block);
+
+		first.install();
+		expect(transcript.render(80)).toEqual(["native-block"]);
+		expect(() => second.install()).toThrow(
+			"transcript already managed by omp-compact",
+		);
+
+		// The rejected instance must not compose wrappers with the owner: the
+		// original fold remains usable and native finalization stays finite.
+		expect(transcript.render(80)).toEqual(["native-block"]);
+		expect(block.isTranscriptBlockFinalized()).toBe(false);
+		first.dispose();
+		expect(() => second.install()).not.toThrow();
+		second.dispose();
+	});
 });
 
 describe("TranscriptFold committed-row gate (D03)", () => {

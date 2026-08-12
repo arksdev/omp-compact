@@ -29,7 +29,7 @@ bun install --frozen-lockfile
 bun run omp
 ```
 
-`bun run omp` загружает `./index.ts`, не закрепляет display mode, не передаёт `--no-session` и снимает внешние `OMP_COMPACT_MODE`/`OMP_COMPACT_PLUGIN`. Поэтому persisted settings и обычная session history сохраняются.
+`bun run omp` изолирует локальную разработку: загружает только `./index.ts` через `--no-extensions`, не закрепляет display mode, не передаёт `--no-session` и снимает внешние `OMP_COMPACT_MODE`/`OMP_COMPACT_PLUGIN`. Это исключает двойную загрузку, если `omp-compact` уже установлен или связан в user scope. Для обычной работы после marketplace-установки или `omp plugin link .` запускайте простой `omp`, чтобы остальные extensions оставались включены.
 
 Альтернативный direct launch:
 
