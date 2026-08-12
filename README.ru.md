@@ -13,7 +13,13 @@ omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Перезапустите OMP и откройте `/compact-settings`. Если меню открылось, плагин загружен. Сам Marketplace добавляется один раз; после этого плагин обновляется командой:
+Перезапустите OMP, затем откройте настройки плагина командой:
+
+```text
+/compact-settings
+```
+
+Если меню открылось, плагин загружен. Сам Marketplace добавляется один раз; после этого плагин обновляется командой:
 
 ```bash
 omp plugin upgrade omp-compact@arksdev
