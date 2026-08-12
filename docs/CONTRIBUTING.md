@@ -37,7 +37,7 @@ bun run test
 OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test.ts
 ```
 
-The latest standalone release gate was 770 tests, 0 failures, and 3,388 assertions across 28 files. Treat the current command output as authoritative after further changes.
+The latest standalone release gate was 772 tests, 0 failures, and 3,912 assertions across 28 files. Treat the current command output as authoritative after further changes.
 
 ### Testing Locally
 

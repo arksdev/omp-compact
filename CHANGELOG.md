@@ -40,7 +40,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ### Verified
 
 - Stock OMP 17.2.12 compatibility as the pinned release gate for the public `>=17.2.12` support range.
-- 770 tests, 0 failures, and 3,388 assertions across 28 files in the standalone release gate.
+- 772 tests, 0 failures, and 3,912 assertions across 28 files in the standalone release gate.
 - Strict TypeScript and Biome checks.
 - Persistent-session manual smoke covering prior-session resume, all three modes, `/tree`, `/shake`, and new live tool calls after both reconstruction paths.
 
