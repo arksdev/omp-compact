@@ -2,17 +2,15 @@
 
 Это расширенное руководство по установке, режимам, настройкам, evidence model, replay и сопровождению `omp-compact`. Краткий обзор доступен на [English](../README.md) и [Русском](../README.ru.md).
 
-`omp-compact` — presentation-плагин для stock OMP 17.2.12. Он показывает активность инструментов как компактный хронологический лог, а после завершения logical run оставляет только полезные для истории строки.
+`omp-compact` — presentation-плагин для OMP 17.2.12 и выше. Он показывает активность инструментов как компактный хронологический лог, а после завершения logical run оставляет только полезные для истории строки.
 
 Плагин не заменяет native tools и не меняет их выполнение. Schemas, approval, concurrency, progress, abort signals и tool results остаются под управлением stock OMP.
 
 ## Совместимость
 
-Поддерживаемая и проверенная версия: **OMP 17.2.12**.
+Поддерживаемый диапазон: **OMP 17.2.12 и выше**. Автоматический release gate и manual smoke закреплены на stock OMP 17.2.12; будущие версии считаются совместимыми, пока не меняют private TUI shape, от которого зависит presentation adapter.
 
-Плагин использует private structural shape TUI-компонентов этой версии. Перед установкой wrappers он проверяет capabilities живой сессии. Если shape несовместим, установка откатывается целиком, OMP продолжает показывать штатный интерфейс, а плагин выводит одно предупреждение.
-
-Для другой версии OMP необходимы повторные integration/replay checks и ручной TUI smoke. Нативный вывод вместо compact rows в неподдерживаемой версии считается безопасным fallback, а не поводом подменять инструменты.
+Перед установкой wrappers плагин проверяет capabilities живой сессии. Если новая версия OMP меняет shape несовместимым образом, установка wrappers откатывается целиком, OMP продолжает показывать штатный интерфейс, а плагин выводит одно предупреждение. Укажите exact OMP version и reproduction в GitHub issue, чтобы новый format можно было добавить в compatibility adapter.
 
 ## Установка
 
@@ -27,7 +25,7 @@ omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Требуется stock OMP 17.2.12 — плагин рассчитан на private structural shape TUI именно этой версии.
+Требуется OMP 17.2.12 или новее. Stock 17.2.12 остаётся pinned development/release host; newer hosts проходят runtime capability checks и fail-open при несовместимой private TUI shape.
 
 ### Из Git checkout на один запуск
 
@@ -410,7 +408,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 - Убедитесь, что загружен `index.ts`, а рядом находятся остальные `.ts` files плагина.
 - Проверьте alternative command names `/omp-compact-settings` и `/omp-compact-settings-N`.
 - Для project discovery запускайте OMP из того же directory, где находится `.omp`.
-- Проверьте, что runtime — stock OMP 17.2.12.
+- Проверьте, что runtime — OMP 17.2.12 или новее; для нового несовместимого shape приложите exact version и reproduction к GitHub issue.
 
 ### Меню сообщает, что нужен interactive terminal
 

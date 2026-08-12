@@ -511,8 +511,8 @@ All external inputs bounded:
 
 ## Compatibility and Capacity Notes
 
-- Private TUI shapes are pinned to OMP 17.2.12 and guarded by executable capability checks plus transactional rollback.
-- Unknown, expanded, interactive, mixed, or incompatible surfaces remain native.
+- The supported public range is OMP 17.2.12 and later. Private TUI shapes and the executable release gate are pinned to stock OMP 17.2.12; newer versions are accepted through the same capability probes and transactional rollback.
+- Unknown, expanded, interactive, mixed, or incompatible surfaces remain native. A future host-shape break is handled fail-open and becomes a compatibility issue to reproduce and add explicitly.
 - The spinner samples pending states at 80 ms while the adapter is active; profile real high-concurrency workloads before changing cadence or fairness.
 - Long transcripts retain lightweight display metadata linearly with visible history. The plugin releases it on reconstruction and session disposal, while heavy filtered payloads retire after terminal projection.
 - Stock-host integration contracts cover continuation, rebuild, `/tree`-like and `/shake`-like reconstruction, delayed terminal drains, and lifecycle disposal.

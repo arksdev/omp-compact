@@ -396,3 +396,9 @@ The bounded JSON scanner rejects a closing `}` or `]` that drives structural dep
 **Status:** active · **Evidence:** confirmed (configuration regression and stock shake/context-maintenance contracts)
 
 Keep auto-shake opt-in, but use `120000` tokens as the persisted default threshold once enabled. A threshold of `0` continues to mean every eligible logical run. **Reason:** the former 2,000,000-token default was above the useful operating range for ordinary sessions and made an enabled feature appear inert; 120k provides meaningful headroom while the terminal-answer, known-usage, main-session, and once-per-run gates still prevent premature shaking. **Rejected:** enabling auto-shake by default, treating it as OMP compaction, or adding a fallback strategy after the context limit is already exceeded.
+
+## Support OMP 17.2.12 and later with a pinned canary
+
+**Status:** active · **Evidence:** confirmed for stock 17.2.12, inferred for newer versions until a reported host-shape break
+
+Declare the public compatibility range as `>=17.2.12`, while pinning development dependencies, executable integration tests, and manual release smoke to stock 17.2.12. Newer OMP versions are considered compatible by default and pass through the same exact-instance capability probes; a changed private TUI shape rolls the adapter back to native rendering and becomes an issue-driven compatibility update. **Reason:** exact-pinning the public claim would unnecessarily block normal host upgrades even though the adapter already has transactional fail-open guards, while claiming older untested versions would extend below the known structural baseline. **Rejected:** `17.2.12`-only public support, an unbounded `latest` development dependency, or silent best-effort wrapping after a capability mismatch.

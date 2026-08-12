@@ -7,7 +7,7 @@
 		{
 			"name": "omp-compact",
 			"source": "./",
-			"description": "Compact, evidence-preserving tool presentation for OMP 17.2.12",
+			"description": "Compact, evidence-preserving tool presentation for OMP 17.2.12+",
 			"version": "1.0.0",
 			"author": {
 				"name": "arksdev"

@@ -201,7 +201,7 @@ omp -e /absolute/path/to/omp-compact/index.ts
 
 ## Совместимость и документация
 
-Поддерживаемая и проверенная версия — **OMP 17.2.05 и выше**. На неизвестной или несовместимой TUI shape плагин fail-open возвращается к native rendering.
+Поддерживаемый диапазон — **OMP 17.2.12 и выше**. Release gate закреплён на stock OMP 17.2.12; будущие версии считаются совместимыми, пока не изменят private TUI shape. При таком изменении capability checks fail-open возвращают native rendering — укажите версию OMP и reproduction в GitHub issue.
 
 - [Полная документация](docs/FULL-DOCUMENTATION.md)
 - [Конфигурация](docs/CONFIGURATION.md)

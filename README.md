@@ -201,7 +201,7 @@ omp -e /absolute/path/to/omp-compact/index.ts
 
 ## Compatibility and documentation
 
-The supported and verified range is **OMP 17.2.05 and later**. On an unknown or incompatible TUI shape, the plugin fails open and returns to native rendering.
+The supported range is **OMP 17.2.12 and later**. The release gate is pinned to stock OMP 17.2.12; newer versions are treated as compatible unless they change the private TUI shape. If that happens, capability checks fail open to native rendering—please report the OMP version and reproduction in a GitHub issue.
 
 - [Full documentation](docs/FULL-DOCUMENTATION.md)
 - [Configuration](docs/CONFIGURATION.md)

@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins OMP 17.2.12, TypeScript, Bun types, and Biome in `package.json`/`bun.lock`.
+The repository pins stock OMP 17.2.12 as its development and release-gate host while publicly supporting OMP 17.2.12 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -37,7 +37,7 @@ bun run test
 OMP_STOCK_BIN=./node_modules/.bin/omp bun test component-binding.test.ts
 ```
 
-The latest standalone release gate was 768 tests, 0 failures, and 3,375 assertions across 27 files. Treat the current command output as authoritative after further changes.
+The latest standalone release gate was 768 tests, 0 failures, and 3,378 assertions across 27 files. Treat the current command output as authoritative after further changes.
 
 ### Testing Locally
 
