@@ -13,7 +13,7 @@
  * - "compact"     — routine tools rendered as compact rows.
  * - "read-group"  — read streams rendered through the native read group.
  * - "native-live" — interactive surfaces (ask/resolve/reject/computer/
- *   browser/task) that stay native during the live phase. The 10 real
+ *   browser/task) that stay native during the live phase. The real
  *   histories in this corpus exercise only "ask"; the exact native-live
  *   set observed is asserted below.
  *
@@ -170,10 +170,29 @@ function classifyFixture(fixture: ReplayFixture): ShapeFailure[] {
 
 const PRIVACY_PATTERNS: Array<[RegExp, string]> = [
 	[/\/Users\/[A-Za-z0-9._-]+/, "absolute user path"],
+	[/\/Volumes\/Storage2T\/Projects\//, "absolute project path"],
+	[/20\d{2}-\d{2}-\d{2}T[\d:.]+Z?[_-][0-9a-fA-F-]{20,}/, "session filename"],
 	[
-		/\/Volumes\/Storage2T\/Projects\/(?!orca-plugins)/,
-		"other-project absolute path",
+		/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/,
+		"session uuid",
 	],
+	[/--[A-Za-z0-9]+(?:-[A-Za-z0-9]+){2,}--/, "encoded session dir"],
+	[/abs-[A-Za-z0-9_-]+-[0-9a-f]{64}/, "encoded session-dir hash"],
+	[/omp-patch/, "legacy plugin/runtime namespace"],
+	[/orca-plugins/, "legacy workspace namespace"],
+	[/docs\/omp-shell/, "legacy host-docs namespace"],
+	[/oh-my-pi/, "legacy host-source namespace"],
+	[/\bAsyncRaceContracts\b/, "worker label"],
+	[/\bWriteAuditLifecycle\b/, "worker label"],
+	[/\bSettingsFoundation\b/, "worker label"],
+	[/\bRoutineVisualRenderer\b/, "worker label"],
+	[/\bCompactReadGroups\b/, "worker label"],
+	[/\bGitCommitOnlyRetention\b/, "worker label"],
+	[/\bMultiGitRetention\b/, "worker label"],
+	[/\bPostTurnShake\b/, "worker label"],
+	[/\bRelativePaths\b/, "worker label"],
+	[/\bRunStats\b/, "worker label"],
+	[/\bMain\b/, "worker label"],
 	[/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, "email"],
 	[/sk-[A-Za-z0-9_-]{8,}/, "API key"],
 	[/ghp_[A-Za-z0-9]{20,}/, "GitHub token"],
@@ -199,6 +218,10 @@ function walkStrings(value: unknown, visit: (text: string) => void): void {
 }
 
 const fixtureFiles = readdirSync(fixturesDir)
+	.filter((file) => file.endsWith(".json"))
+	.sort();
+
+const goldenFiles = readdirSync(goldenDir)
 	.filter((file) => file.endsWith(".json"))
 	.sort();
 
@@ -337,9 +360,6 @@ test("inventory: every fixture has a golden and every golden has a fixture", () 
 	const fixtureIds = new Set(
 		fixtureFiles.map((file) => file.replace(/\.json$/, "")),
 	);
-	const goldenFiles = readdirSync(goldenDir)
-		.filter((file) => file.endsWith(".json"))
-		.sort();
 	const missingGoldens = fixtureFiles.filter(
 		(file) => !existsSync(join(goldenDir, file)),
 	);
@@ -350,21 +370,82 @@ test("inventory: every fixture has a golden and every golden has a fixture", () 
 	expect(orphanGoldens, "goldens without a fixture").toEqual([]);
 });
 
-test("inventory: corpus is redacted — no user paths, emails, or tokens", () => {
-	for (const file of fixtureFiles) {
-		const fixture = JSON.parse(
-			readFileSync(join(fixturesDir, file), "utf8"),
-		) as ReplayFixture;
+test("inventory: corpus is redacted — no user paths, emails, tokens, or provenance markers", () => {
+	const replayDir = join(import.meta.dir, "replay");
+	const scan = (label: string, value: unknown): void => {
 		const leaks: string[] = [];
-		walkStrings(fixture, (text) => {
-			for (const [pattern, label] of PRIVACY_PATTERNS) {
+		walkStrings(value, (text) => {
+			for (const [pattern, what] of PRIVACY_PATTERNS) {
 				if (pattern.test(text)) {
-					leaks.push(`${label}: ${text.slice(0, 80)}`);
+					leaks.push(`${what}: ${text.slice(0, 80)}`);
 					break;
 				}
 			}
 		});
-		expect(leaks, `${file} leaked identifiers`).toEqual([]);
+		expect(leaks, `${label} leaked identifiers`).toEqual([]);
+	};
+	for (const file of fixtureFiles) {
+		scan(
+			`fixture ${file}`,
+			JSON.parse(readFileSync(join(fixturesDir, file), "utf8")),
+		);
+	}
+	for (const file of goldenFiles) {
+		scan(
+			`golden ${file}`,
+			JSON.parse(readFileSync(join(goldenDir, file), "utf8")),
+		);
+	}
+	// Tracked replay source must not carry hardcoded provenance either: raw
+	// session locations live only in the external untracked manifest.
+	for (const file of ["extract.ts", "harness.ts"]) {
+		scan(`source ${file}`, readFileSync(join(replayDir, file), "utf8"));
+	}
+});
+
+test("inventory: fixture meta carries generic provenance only", () => {
+	for (const file of fixtureFiles) {
+		const fixture = JSON.parse(
+			readFileSync(join(fixturesDir, file), "utf8"),
+		) as ReplayFixture;
+		expect(fixture.meta.source).toBe("<session>");
+		expect("captureDate" in fixture.meta).toBe(false);
+		expect(fixture.meta.sourceKind).toBe("session-jsonl");
+	}
+});
+
+test("inventory: toolCallIds are per-fixture normalized (call_N, fc_ composite kept)", () => {
+	// Raw session ids are never tracked: every id is a per-fixture
+	// `call_N`, optionally carrying the preserved provisional|real `|fc_`
+	// composite delimiter shape (`call_N|fc_<hash>`). Raw long ids
+	// (`call_00_…`, `toolu_…`, uuid suffixes) are rejected.
+	const idShape = /^call_\d+(\|fc_<hash>)?$/;
+	for (const file of fixtureFiles) {
+		const fixture = JSON.parse(
+			readFileSync(join(fixturesDir, file), "utf8"),
+		) as ReplayFixture;
+		const startIds: string[] = [];
+		for (const event of fixture.events) {
+			if (event.t !== "tool_start" && event.t !== "tool_result") continue;
+			const id = String(event.id);
+			expect(idShape.test(id), `${file}: raw toolCallId ${id}`).toBe(true);
+			if (event.t === "tool_start") startIds.push(id);
+		}
+		expect(new Set(startIds).size).toBe(startIds.length);
+	}
+	// Golden carriers reference the same normalized ids.
+	for (const file of goldenFiles) {
+		const golden = JSON.parse(readFileSync(join(goldenDir, file), "utf8")) as {
+			rows: string[];
+			carriers: Array<{ customType: string; data?: unknown }>;
+		};
+		walkStrings(golden, (text) => {
+			if (/^(call_|toolu_)/.test(text) || text.includes("|fc_")) {
+				expect(idShape.test(text), `${file}: raw carrier id ${text}`).toBe(
+					true,
+				);
+			}
+		});
 	}
 });
 

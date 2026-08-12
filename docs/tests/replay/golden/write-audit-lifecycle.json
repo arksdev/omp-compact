@@ -1,20 +1,20 @@
 {
 	"rows": [
-		"• grep: ? · in omp-patch · 3 matches",
-		"• bash: ls omp-patch/runtime/omp-17.2.12/.omp-compact-test/ 2>/dev/null | head; echo ---; cat omp-patch/runtime/omp-17.…",
-		"• write: omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
-		"• edit: omp-patch/plugins/omp-compact/audit-lifecycle.test.ts +3|0",
-		"• write: omp-patch/plugins/omp-compact/audit-lifecycle.ts",
+		"• grep: ? · in work · 3 matches",
+		"• bash: ls host/.omp-compact-test/ 2>/dev/null | head; echo ---; cat host/.omp-compact-test/tsconfig.json 2>/dev/null ·…",
+		"• write: plugin/audit-lifecycle.test.ts",
+		"• edit: plugin/audit-lifecycle.test.ts +3|0",
+		"• write: plugin/audit-lifecycle.ts",
 		"• bash: bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -40 · 0.1s",
-		"• write: omp-patch/plugins/omp-compact/audit-lifecycle.ts",
+		"• write: plugin/audit-lifecycle.ts",
 		"• bash: bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -20 · 0.1s",
-		"• edit: omp-patch/plugins/omp-compact/audit-lifecycle.test.ts +0|2",
-		"• edit: omp-patch/plugins/omp-compact/audit-lifecycle.test.ts +0|4",
+		"• edit: plugin/audit-lifecycle.test.ts +0|2",
+		"• edit: plugin/audit-lifecycle.test.ts +0|4",
 		"• bash: bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -12 · 0.1s",
-		"• edit: omp-patch/plugins/omp-compact/index.ts +2|2",
-		"• edit: omp-patch/plugins/omp-compact/index.ts +3|0",
-		"✗ edit: omp-patch/plugins/omp-compact/index.ts · [shaken]",
-		"• grep: ? · in omp-patch/plugins/omp-compact/turn-ledger.ts · 5 matches",
+		"• edit: plugin/index.ts +2|2",
+		"• edit: plugin/index.ts +3|0",
+		"✗ edit: plugin/index.ts · [shaken]",
+		"• grep: ? · in plugin/turn-ledger.ts · 5 matches",
 		"• hub"
 	],
 	"carriers": [
@@ -22,9 +22,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_rQUBNzHTEPw6paMeiGCZ8176",
+				"toolCallId": "call_4",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+				"path": "/repo/plugin/audit-lifecycle.test.ts",
 				"added": 3,
 				"removed": 0,
 				"exact": true
@@ -34,9 +34,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_kNazbxBIag6E9BjzPugT1891",
+				"toolCallId": "call_9",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+				"path": "/repo/plugin/audit-lifecycle.test.ts",
 				"added": 0,
 				"removed": 2,
 				"exact": true
@@ -46,9 +46,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_ET_W8EJDFgqAFURreISFnSJ5774",
+				"toolCallId": "call_10",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+				"path": "/repo/plugin/audit-lifecycle.test.ts",
 				"added": 0,
 				"removed": 4,
 				"exact": true
@@ -58,9 +58,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_sEstL1jdU7zAeKWk0ZMe8482",
+				"toolCallId": "call_12",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.ts",
+				"path": "/repo/plugin/index.ts",
 				"added": 2,
 				"removed": 2,
 				"exact": true
@@ -70,9 +70,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_ET_JnToIe8N1b3jnU5KIa0U6871",
+				"toolCallId": "call_13",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.ts",
+				"path": "/repo/plugin/index.ts",
 				"added": 3,
 				"removed": 0,
 				"exact": true

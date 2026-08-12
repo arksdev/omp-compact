@@ -264,9 +264,15 @@ export function assistant(
 
 export interface ReplayFixtureMeta {
 	id: string;
+	/**
+	 * Provenance marker: every fixture is derived from a raw OMP session
+	 * transcript whose location lives only in the external regeneration
+	 * manifest (`OMP_REPLAY_MANIFEST`). Tracked fixtures never reference
+	 * the raw file — `source` is the literal `"<session>"` and no capture
+	 * date or machine path is stored.
+	 */
 	source: string;
 	sourceKind: string;
-	captureDate: string;
 	cwd: string;
 	mode: "live" | "compact" | "clear";
 	stats: boolean;

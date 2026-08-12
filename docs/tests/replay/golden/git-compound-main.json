@@ -5,7 +5,7 @@
 			"customType": "omp-compact-git",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_esPasZhTXbsDhYn58GMYtOa2|fc_<hash>e8b4c84d54",
+				"toolCallId": "call_7|fc_<hash>",
 				"subcommand": "status",
 				"text": "git status --short --untracked-files=all",
 				"isError": false,
@@ -22,14 +22,14 @@
 			"customType": "omp-compact-git",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_U4NnF5nR5H6xTZnPPdQtELS2|fc_<hash>f377d8d248",
+				"toolCallId": "call_8|fc_<hash>",
 				"subcommand": "add",
-				"text": "git add omp-patch/PLUGIN-CODE-REVIEW.md",
+				"text": "git add work/PLUGIN-CODE-REVIEW.md",
 				"isError": false,
 				"records": [
 					{
 						"subcommand": "add",
-						"text": "git add omp-patch/PLUGIN-CODE-REVIEW.md",
+						"text": "git add work/PLUGIN-CODE-REVIEW.md",
 						"isError": false
 					},
 					{
@@ -44,7 +44,7 @@
 			"customType": "omp-compact-git",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_StkIx7M7NtFpiQo4XBJuKp9R|fc_<hash>a69f79acc1",
+				"toolCallId": "call_10|fc_<hash>",
 				"subcommand": "status",
 				"text": "git status --short --untracked-files=all",
 				"isError": false,
@@ -61,7 +61,7 @@
 			"customType": "omp-compact-git",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_6UG3C9nuJmf9lH4wzq1Pmemd|fc_<hash>1cb57e403f",
+				"toolCallId": "call_14|fc_<hash>",
 				"subcommand": "status",
 				"text": "git status --short --untracked-files=all",
 				"isError": false,
@@ -78,14 +78,14 @@
 			"customType": "omp-compact-git",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_5bVIinvKqWDEkb1eJIUnnatw|fc_<hash>24341df2f3",
+				"toolCallId": "call_15|fc_<hash>",
 				"subcommand": "add",
-				"text": "git add omp-patch/goal.md",
+				"text": "git add work/goal.md",
 				"isError": false,
 				"records": [
 					{
 						"subcommand": "add",
-						"text": "git add omp-patch/goal.md",
+						"text": "git add work/goal.md",
 						"isError": false
 					},
 					{

@@ -18,6 +18,7 @@ build/
 logs/
 *.tmp
 *.temp
+omp-replay-manifest.json
 .cache/
 
 # Editors and operating systems

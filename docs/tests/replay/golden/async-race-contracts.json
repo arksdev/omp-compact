@@ -1,13 +1,13 @@
 {
 	"rows": [
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +3|0",
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +1|0",
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +1|1",
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|1",
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|2",
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|2",
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|2",
-		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|1",
+		"• edit: plugin/index.integration.test.ts +3|0",
+		"• edit: plugin/index.integration.test.ts +1|0",
+		"• edit: plugin/index.integration.test.ts +1|1",
+		"• edit: plugin/index.integration.test.ts +0|1",
+		"• edit: plugin/index.integration.test.ts +0|2",
+		"• edit: plugin/index.integration.test.ts +0|2",
+		"• edit: plugin/index.integration.test.ts +0|2",
+		"• edit: plugin/index.integration.test.ts +0|1",
 		"<answer 1>",
 		"• bash: OMP_STOCK_BIN=./node_modules/.bin/omp bun test ../../plugins/omp-compact/index.integration.test.ts -t \"fire-and…"
 	],
@@ -16,9 +16,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_VMBgjRNEaUXA8qKAx8uC0803",
+				"toolCallId": "call_1",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 3,
 				"removed": 0,
 				"exact": true
@@ -28,9 +28,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_s2DyME3kkgdUhvRqqJgM1144",
+				"toolCallId": "call_3",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 1,
 				"removed": 0,
 				"exact": true
@@ -40,9 +40,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_GPewNJu12DBCoupfiPKt4525",
+				"toolCallId": "call_5",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 1,
 				"removed": 1,
 				"exact": true
@@ -52,9 +52,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_XOFQDGKAwkUYgc7HLunO9898",
+				"toolCallId": "call_6",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 0,
 				"removed": 1,
 				"exact": true
@@ -64,9 +64,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_EtynLP4arODVqYtn3NuD6736",
+				"toolCallId": "call_33",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 0,
 				"removed": 2,
 				"exact": true
@@ -76,9 +76,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_ET_VyXCxM0oWBrl6HASdjq72530",
+				"toolCallId": "call_34",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 0,
 				"removed": 2,
 				"exact": true
@@ -88,9 +88,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_ET_70bkrFzVFiqWWKUuJFDC3938",
+				"toolCallId": "call_35",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 0,
 				"removed": 2,
 				"exact": true
@@ -100,9 +100,9 @@
 			"customType": "omp-compact-write",
 			"data": {
 				"version": 1,
-				"toolCallId": "call_00_9lpOswSF9gTDmFzzsOh55670",
+				"toolCallId": "call_36",
 				"toolName": "edit",
-				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"path": "/repo/plugin/index.integration.test.ts",
 				"added": 0,
 				"removed": 1,
 				"exact": true

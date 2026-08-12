@@ -1,9 +1,8 @@
 {
 	"meta": {
 		"id": "write-audit-lifecycle",
-		"source": "2026-08-10T17-50-32-859Z_019feccc-319b-7000-8623-b23e831714bf/WriteAuditLifecycle.jsonl",
+		"source": "<session>",
 		"sourceKind": "session-jsonl",
-		"captureDate": "2026-08-11",
 		"cwd": "/repo",
 		"mode": "live",
 		"stats": false,
@@ -17,7 +16,7 @@
 			"grep": 2,
 			"hub": 1
 		},
-		"redaction": "absolute repo paths -> /repo; other absolute roots -> /projects/N|/abs/N; secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
+		"redaction": "session source -> <session>; absolute repo paths -> /repo + canonical namespaces (plugin|host|host-source|host-docs|work); other absolute roots -> /abs/N; worker labels -> peer-N; toolCallIds -> call_N (fc_ composite shape kept); secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
 		"note": "write events audited against an empty sandbox (no-op evidence path); compaction label in source"
 	},
 	"events": [
@@ -26,16 +25,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_RAZYMwLym4abl9A95aYX1638",
+			"id": "call_1",
 			"name": "grep",
 			"args": {
-				"path": "omp-patch"
+				"path": "work"
 			},
 			"intent": "Find plugin tsconfig generation reference"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_RAZYMwLym4abl9A95aYX1638",
+			"id": "call_1",
 			"name": "grep",
 			"result": {
 				"content": [
@@ -45,24 +44,24 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch",
-					"searchPath": "/repo/omp-patch",
+					"scopePath": "work",
+					"searchPath": "/repo/work",
 					"cwd": "/repo",
 					"matchCount": 3,
 					"fileCount": 2,
-					"files": ["omp-patch/refactoring.md", "omp-patch/task.md"],
+					"files": ["work/refactoring.md", "work/task.md"],
 					"fileMatches": [
 						{
-							"path": "omp-patch/refactoring.md",
+							"path": "work/refactoring.md",
 							"count": 1
 						},
 						{
-							"path": "omp-patch/task.md",
+							"path": "work/task.md",
 							"count": 2
 						}
 					],
 					"truncated": false,
-					"displayContent": "[output 724 chars]"
+					"displayContent": "[output 719 chars]"
 				}
 			},
 			"isError": false,
@@ -88,16 +87,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_KcQ1bCRbEni35czLdNGI5941",
+			"id": "call_2",
 			"name": "bash",
 			"args": {
-				"command": "ls omp-patch/runtime/omp-17.2.12/.omp-compact-test/ 2>/dev/null | head; echo ---; cat omp-patch/runtime/omp-17.2.12/.omp-compact-test/tsconfig.json 2>/dev/null"
+				"command": "ls host/.omp-compact-test/ 2>/dev/null | head; echo ---; cat host/.omp-compact-test/tsconfig.json 2>/dev/null"
 			},
 			"intent": "Inspect generated plugin test tsconfig"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_KcQ1bCRbEni35czLdNGI5941",
+			"id": "call_2",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -134,16 +133,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_4lQeAT4RYYXxvcITW3392859",
+			"id": "call_3",
 			"name": "write",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+				"path": "plugin/audit-lifecycle.test.ts"
 			},
 			"intent": "Write lifecycle contract tests"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_4lQeAT4RYYXxvcITW3392859",
+			"id": "call_3",
 			"name": "write",
 			"result": {
 				"content": [
@@ -153,7 +152,7 @@
 					}
 				],
 				"details": {
-					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+					"resolvedPath": "/repo/plugin/audit-lifecycle.test.ts"
 				}
 			},
 			"isError": false,
@@ -179,16 +178,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_rQUBNzHTEPw6paMeiGCZ8176",
+			"id": "call_4",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+				"path": "plugin/audit-lifecycle.test.ts"
 			},
 			"intent": "Replace inline cast with checked narrowing"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_rQUBNzHTEPw6paMeiGCZ8176",
+			"id": "call_4",
 			"name": "edit",
 			"result": {
 				"content": [
@@ -199,7 +198,7 @@
 				],
 				"details": {
 					"diff": " 194|describe(\"agent_end drain\", () => {\n\n 367|});\n 368|\n+369|function gitCommand(payload: unknown): string {\n+370|\tif (payload && typeof payload === \"object\" && \"command\" in payload) {\n+371|\t\tconst c…<+756 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+					"path": "/repo/plugin/audit-lifecycle.test.ts",
 					"firstChangedLine": 369,
 					"oldText": "[output 12517 chars]",
 					"newText": "[output 12742 chars]"
@@ -228,16 +227,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_93W0Xh35Q3jalPh74c1e5762",
+			"id": "call_5",
 			"name": "write",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+				"path": "plugin/audit-lifecycle.ts"
 			},
 			"intent": "Write red-phase stub with old semantics"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_93W0Xh35Q3jalPh74c1e5762",
+			"id": "call_5",
 			"name": "write",
 			"result": {
 				"content": [
@@ -247,7 +246,7 @@
 					}
 				],
 				"details": {
-					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+					"resolvedPath": "/repo/plugin/audit-lifecycle.ts"
 				}
 			},
 			"isError": false,
@@ -255,7 +254,7 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_mBJu7LYlSQLNMEqX2lca1267",
+			"id": "call_6",
 			"name": "bash",
 			"args": {
 				"command": "bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -40"
@@ -264,7 +263,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_mBJu7LYlSQLNMEqX2lca1267",
+			"id": "call_6",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -283,16 +282,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_agTMbV8MaG4qeo4utsmd7850",
+			"id": "call_7",
 			"name": "write",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+				"path": "plugin/audit-lifecycle.ts"
 			},
 			"intent": "Write real lifecycle implementation"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_agTMbV8MaG4qeo4utsmd7850",
+			"id": "call_7",
 			"name": "write",
 			"result": {
 				"content": [
@@ -302,7 +301,7 @@
 					}
 				],
 				"details": {
-					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+					"resolvedPath": "/repo/plugin/audit-lifecycle.ts"
 				}
 			},
 			"isError": false,
@@ -310,7 +309,7 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_tiaSm1Ap77T0hpuYbJDZ1220",
+			"id": "call_8",
 			"name": "bash",
 			"args": {
 				"command": "bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -20"
@@ -319,7 +318,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_tiaSm1Ap77T0hpuYbJDZ1220",
+			"id": "call_8",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -338,16 +337,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_kNazbxBIag6E9BjzPugT1891",
+			"id": "call_9",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+				"path": "plugin/audit-lifecycle.test.ts"
 			},
 			"intent": "Replace flawed race probe in timeout test"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_kNazbxBIag6E9BjzPugT1891",
+			"id": "call_9",
 			"name": "edit",
 			"result": {
 				"content": [
@@ -358,7 +357,7 @@
 				],
 				"details": {
 					"diff": " 247|\ttest(\"drain fails closed at the bound when a write's end never arrives\", async () => {\n\n 263|\n 264|\t\t// The abandoned record does not block a later run's drain.\n-265|\t\tawait expect(\n-266|\t\t\tProm…<+418 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+					"path": "/repo/plugin/audit-lifecycle.test.ts",
 					"firstChangedLine": 265,
 					"oldText": "[output 12742 chars]",
 					"newText": "[output 12792 chars]"
@@ -369,16 +368,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_W8EJDFgqAFURreISFnSJ5774",
+			"id": "call_10",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+				"path": "plugin/audit-lifecycle.test.ts"
 			},
 			"intent": "Replace flawed race probe in snapshot test"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_W8EJDFgqAFURreISFnSJ5774",
+			"id": "call_10",
 			"name": "edit",
 			"result": {
 				"content": [
@@ -389,7 +388,7 @@
 				],
 				"details": {
 					"diff": " 311|\t\texpect(h.published).toEqual([[evidence(\"old\")]]);\n 312|\n-313|\t\tawait expect(\n-314|\t\t\tPromise.race([\n-315|\t\t\t\th.life.barrier(runIds).then(() => \"done\"),\n-316|\t\t\t\tPromise.resolve(\"pending\"),\n-317…<+434 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+					"path": "/repo/plugin/audit-lifecycle.test.ts",
 					"firstChangedLine": 313,
 					"oldText": "[output 12792 chars]",
 					"newText": "[output 12935 chars]"
@@ -400,7 +399,7 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_70aymYbPoaiQy5oUn5c73014",
+			"id": "call_11",
 			"name": "bash",
 			"args": {
 				"command": "bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -12"
@@ -409,7 +408,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_70aymYbPoaiQy5oUn5c73014",
+			"id": "call_11",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -428,16 +427,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_sEstL1jdU7zAeKWk0ZMe8482",
+			"id": "call_12",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.ts"
+				"path": "plugin/index.ts"
 			},
 			"intent": "Swap audit imports for lifecycle"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_sEstL1jdU7zAeKWk0ZMe8482",
+			"id": "call_12",
 			"name": "edit",
 			"result": {
 				"content": [
@@ -448,10 +447,10 @@
 				],
 				"details": {
 					"diff": " 6|\n 7|import {\n-8|\tcaptureWriteCandidate,\n 9|\tcompleteEditMutations,\n+9|\tcaptureWriteCandidate,\n 10|\tcompleteWriteCandidate,\n-11|\ttype MutationCandidate,\n 12|} from \"./audit\";\n+12|import { AuditLifec…<+158 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/index.ts",
+					"path": "/repo/plugin/index.ts",
 					"firstChangedLine": 8,
-					"oldText": "[output 8304 chars]",
-					"newText": "[output 8331 chars]"
+					"oldText": "[output 8300 chars]",
+					"newText": "[output 8327 chars]"
 				}
 			},
 			"isError": false,
@@ -459,16 +458,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_JnToIe8N1b3jnU5KIa0U6871",
+			"id": "call_13",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.ts"
+				"path": "plugin/index.ts"
 			},
 			"intent": "Replace pending maps with lifecycle instance"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_JnToIe8N1b3jnU5KIa0U6871",
+			"id": "call_13",
 			"name": "edit",
 			"result": {
 				"content": [
@@ -479,10 +478,10 @@
 				],
 				"details": {
 					"diff": " 33|const MAX_GIT_RESULT_TEXT = 8_192;\n 34|\n+35|function pendingGitFrom(payload: unknown): PendingGit | undefined {\n+36|\tif (payload && typeof payload === \"object\" && \"command\" in payload) {\n+37|\t\tcon…<+296 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/index.ts",
+					"path": "/repo/plugin/index.ts",
 					"firstChangedLine": 35,
-					"oldText": "[output 8331 chars]",
-					"newText": "[output 8617 chars]"
+					"oldText": "[output 8327 chars]",
+					"newText": "[output 8613 chars]"
 				}
 			},
 			"isError": false,
@@ -490,16 +489,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_wy22Srj0VUttxgsR5BbA8929",
+			"id": "call_14",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.ts"
+				"path": "plugin/index.ts"
 			},
 			"intent": "Swap pendingWrites/pendingGit for lifecycle + chain"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_wy22Srj0VUttxgsR5BbA8929",
+			"id": "call_14",
 			"name": "edit",
 			"result": {
 				"content": [
@@ -519,16 +518,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_o5CxM0cKldSN3poWTSSW0658",
+			"id": "call_15",
 			"name": "grep",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/turn-ledger.ts"
+				"path": "plugin/turn-ledger.ts"
 			},
 			"intent": "Find classifyAgentEnd in turn-ledger"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_o5CxM0cKldSN3poWTSSW0658",
+			"id": "call_15",
 			"name": "grep",
 			"result": {
 				"content": [
@@ -538,15 +537,15 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch/plugins/omp-compact/turn-ledger.ts",
-					"searchPath": "/repo/omp-patch/plugins/omp-compact/turn-ledger.ts",
+					"scopePath": "plugin/turn-ledger.ts",
+					"searchPath": "/repo/plugin/turn-ledger.ts",
 					"cwd": "/repo",
 					"matchCount": 5,
 					"fileCount": 1,
-					"files": ["omp-patch/plugins/omp-compact/turn-ledger.ts"],
+					"files": ["plugin/turn-ledger.ts"],
 					"fileMatches": [
 						{
-							"path": "omp-patch/plugins/omp-compact/turn-ledger.ts",
+							"path": "plugin/turn-ledger.ts",
 							"count": 5
 						}
 					],
@@ -559,13 +558,13 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_vCoJyZmvcsflMYcmM9kr8552",
+			"id": "call_16",
 			"name": "hub",
 			"intent": "Confirm drain semantics with race contracts"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_vCoJyZmvcsflMYcmM9kr8552",
+			"id": "call_16",
 			"name": "hub",
 			"result": {
 				"content": [
@@ -576,11 +575,11 @@
 				],
 				"details": {
 					"op": "send",
-					"from": "WriteAuditLifecycle",
-					"to": "AsyncRaceContracts",
+					"from": "peer-1",
+					"to": "peer-2",
 					"receipts": [
 						{
-							"to": "AsyncRaceContracts",
+							"to": "peer-2",
 							"outcome": "injected"
 						}
 					]

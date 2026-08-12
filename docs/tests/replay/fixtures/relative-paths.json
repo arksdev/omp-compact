@@ -1,9 +1,8 @@
 {
 	"meta": {
 		"id": "relative-paths",
-		"source": "2026-08-10T17-50-32-859Z_019feccc-319b-7000-8623-b23e831714bf/RelativePaths.jsonl",
+		"source": "<session>",
 		"sourceKind": "session-jsonl",
-		"captureDate": "2026-08-11",
 		"cwd": "/repo",
 		"mode": "live",
 		"stats": false,
@@ -19,7 +18,7 @@
 			"hub": 1,
 			"edit": 1
 		},
-		"redaction": "absolute repo paths -> /repo; other absolute roots -> /projects/N|/abs/N; secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
+		"redaction": "session source -> <session>; absolute repo paths -> /repo + canonical namespaces (plugin|host|host-source|host-docs|work); other absolute roots -> /abs/N; worker labels -> peer-N; toolCallIds -> call_N (fc_ composite shape kept); secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
 		"note": "absolute repo paths normalized to /repo; cwd-relative display under replay"
 	},
 	"events": [
@@ -28,7 +27,7 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_dK1uUcZMQlmLLkPPkvgm0577",
+			"id": "call_1",
 			"name": "read",
 			"args": {
 				"path": "local://<file>"
@@ -37,7 +36,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_dK1uUcZMQlmLLkPPkvgm0577",
+			"id": "call_1",
 			"name": "read",
 			"result": {
 				"content": [
@@ -48,7 +47,7 @@
 				],
 				"details": {
 					"displayContent": {
-						"text": "[output 6071 chars]",
+						"text": "[output 6017 chars]",
 						"startLine": 1,
 						"lineNumbers": [1, 2, 3, 4, 5, "<+115 items>"]
 					},
@@ -83,16 +82,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_AmGDlpBXyVDqJs4IRXwU1497",
+			"id": "call_2",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts:140-260"
+				"path": "plugin/index.integration.test.ts:140-260"
 			},
 			"intent": "Read integration test boot helper"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_AmGDlpBXyVDqJs4IRXwU1497",
+			"id": "call_2",
 			"name": "read",
 			"result": {
 				"content": [
@@ -122,7 +121,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts"
+							"value": "/repo/plugin/index.integration.test.ts"
 						},
 						"truncation": {
 							"direction": "head",
@@ -162,16 +161,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_8boNq4lxD6odcKFNK9iq4477",
+			"id": "call_3",
 			"name": "grep",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts"
+				"path": "plugin/index.integration.test.ts"
 			},
 			"intent": "Find rendered path assertions in integration tests"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_8boNq4lxD6odcKFNK9iq4477",
+			"id": "call_3",
 			"name": "grep",
 			"result": {
 				"content": [
@@ -181,15 +180,15 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch/plugins/omp-compact/index.integration.test.ts",
-					"searchPath": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+					"scopePath": "plugin/index.integration.test.ts",
+					"searchPath": "/repo/plugin/index.integration.test.ts",
 					"cwd": "/repo",
 					"matchCount": 84,
 					"fileCount": 1,
-					"files": ["omp-patch/plugins/omp-compact/index.integration.test.ts"],
+					"files": ["plugin/index.integration.test.ts"],
 					"fileMatches": [
 						{
-							"path": "omp-patch/plugins/omp-compact/index.integration.test.ts",
+							"path": "plugin/index.integration.test.ts",
 							"count": 84
 						}
 					],
@@ -219,25 +218,25 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_1urjRe7cAANFrN2vUA0U9688",
+			"id": "call_4",
 			"name": "grep",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts"
+				"path": "plugin/index.integration.test.ts"
 			},
 			"intent": "Find absolute path assertions in rendered rows"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_01_VrC4in1VTnIhy8xRc7cz8529",
+			"id": "call_5",
 			"name": "grep",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts"
+				"path": "plugin/index.integration.test.ts"
 			},
 			"intent": "Find how mutations render in integration tests"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_01_VrC4in1VTnIhy8xRc7cz8529",
+			"id": "call_5",
 			"name": "grep",
 			"result": {
 				"content": [
@@ -247,15 +246,15 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch/plugins/omp-compact/index.integration.test.ts",
-					"searchPath": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+					"scopePath": "plugin/index.integration.test.ts",
+					"searchPath": "/repo/plugin/index.integration.test.ts",
 					"cwd": "/repo",
 					"matchCount": 27,
 					"fileCount": 1,
-					"files": ["omp-patch/plugins/omp-compact/index.integration.test.ts"],
+					"files": ["plugin/index.integration.test.ts"],
 					"fileMatches": [
 						{
-							"path": "omp-patch/plugins/omp-compact/index.integration.test.ts",
+							"path": "plugin/index.integration.test.ts",
 							"count": 27
 						}
 					],
@@ -285,7 +284,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_1urjRe7cAANFrN2vUA0U9688",
+			"id": "call_4",
 			"name": "grep",
 			"result": {
 				"content": [
@@ -295,8 +294,8 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch/plugins/omp-compact/index.integration.test.ts",
-					"searchPath": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+					"scopePath": "plugin/index.integration.test.ts",
+					"searchPath": "/repo/plugin/index.integration.test.ts",
 					"cwd": "/repo",
 					"matchCount": 0,
 					"fileCount": 0,
@@ -309,37 +308,37 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_YAIzuUp8zBHhf48inpKU3402",
+			"id": "call_6",
 			"name": "glob",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/*.ts"
+				"path": "plugin/*.ts"
 			},
 			"intent": "Check whether config.ts landed yet"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_01_slTrSpH15hJGVfaHjrqT9266",
+			"id": "call_7",
 			"name": "hub",
-			"intent": "Coordinate index.ts store binding with SettingsFoundation"
+			"intent": "Coordinate index.ts store binding with peer-2"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_01_slTrSpH15hJGVfaHjrqT9266",
+			"id": "call_7",
 			"name": "hub",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Delivered to 1 peer(s):\n- SettingsFoundation: injected"
+						"text": "Delivered to 1 peer(s):\n- peer-2: injected"
 					}
 				],
 				"details": {
 					"op": "send",
-					"from": "RelativePaths",
-					"to": "SettingsFoundation",
+					"from": "peer-1",
+					"to": "peer-2",
 					"receipts": [
 						{
-							"to": "SettingsFoundation",
+							"to": "peer-2",
 							"outcome": "injected"
 						}
 					]
@@ -349,7 +348,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_YAIzuUp8zBHhf48inpKU3402",
+			"id": "call_6",
 			"name": "glob",
 			"result": {
 				"content": [
@@ -359,14 +358,14 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch/plugins/omp-compact",
+					"scopePath": "plugin",
 					"fileCount": 20,
 					"files": [
-						"omp-patch/plugins/omp-compact/config.test.ts",
-						"omp-patch/plugins/omp-compact/index.integration.test.ts",
-						"omp-patch/plugins/omp-compact/runtime-adapter.ts",
-						"omp-patch/plugins/omp-compact/render.test.ts",
-						"omp-patch/plugins/omp-compact/render.ts",
+						"plugin/config.test.ts",
+						"plugin/index.integration.test.ts",
+						"plugin/runtime-adapter.ts",
+						"plugin/render.test.ts",
+						"plugin/render.ts",
 						"<+15 items>"
 					],
 					"truncated": false,
@@ -377,22 +376,22 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_JkEsiNn4kSbMZLMtB1RZ2942",
+			"id": "call_8",
 			"name": "bash",
 			"args": {
-				"command": "ls -la omp-patch/plugins/omp-compact/config.ts omp-patch/plugins/omp-compact/config.test.ts omp-patch/plugins/omp-compact/settings-ui.ts 2>&1"
+				"command": "ls -la plugin/config.ts plugin/config.test.ts plugin/settings-ui.ts 2>&1"
 			},
 			"intent": "Check config.ts existence"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_JkEsiNn4kSbMZLMtB1RZ2942",
+			"id": "call_8",
 			"name": "bash",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "[output 321 chars]"
+						"text": "ls: cannot access 'plugin/config.ts': No such file or directory\nls: cannot access 'plugin/settings-ui.ts': No such file or directory\n-rw-r--r-- 1 admin staff 11852 Aug 11 02:39 plugin/config.test.ts\n\n\nWall time: 0.01 seconds\n\nCommand exited with code 2"
 					}
 				],
 				"details": {
@@ -405,16 +404,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ABLhJ8DNYxGOVu5j7U655348",
+			"id": "call_9",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/compact.test.ts:1-60"
+				"path": "plugin/compact.test.ts:1-60"
 			},
 			"intent": "Read compact.test.ts conventions"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ABLhJ8DNYxGOVu5j7U655348",
+			"id": "call_9",
 			"name": "read",
 			"result": {
 				"content": [
@@ -433,7 +432,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/compact.test.ts"
+							"value": "/repo/plugin/compact.test.ts"
 						}
 					}
 				}
@@ -442,16 +441,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_D4isy8nlb0Y77rxKIfCO9131",
+			"id": "call_10",
 			"name": "write",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/display-path.test.ts"
+				"path": "plugin/display-path.test.ts"
 			},
 			"intent": "Create display-path tests (red first)"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_D4isy8nlb0Y77rxKIfCO9131",
+			"id": "call_10",
 			"name": "write",
 			"result": {
 				"content": [
@@ -470,42 +469,42 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_QRkyxNzeZ6E47H66dnna9432",
+			"id": "call_11",
 			"name": "write",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/display-path.test.ts"
+				"path": "plugin/display-path.test.ts"
 			},
 			"intent": "Create display-path tests (red first)"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_QRkyxNzeZ6E47H66dnna9432",
+			"id": "call_11",
 			"name": "write",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Successfully wrote 6178 bytes to omp-patch/plugins/omp-compact/display-path.test.ts"
+						"text": "Successfully wrote 6178 bytes to plugin/display-path.test.ts"
 					}
 				],
 				"details": {
-					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/display-path.test.ts"
+					"resolvedPath": "/repo/plugin/display-path.test.ts"
 				}
 			},
 			"isError": false
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_y9BVOW1KrTj9amfcBmDI1087",
+			"id": "call_12",
 			"name": "bash",
 			"args": {
-				"command": "cd omp-patch/plugins/omp-compact && bun test display-path.test.ts 2>&1 | tail -20"
+				"command": "cd plugin && bun test display-path.test.ts 2>&1 | tail -20"
 			},
 			"intent": "Run display-path tests (expect red)"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_y9BVOW1KrTj9amfcBmDI1087",
+			"id": "call_12",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -523,42 +522,42 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_2OqhSFvsI9wGfwQcgAH16930",
+			"id": "call_13",
 			"name": "write",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/display-path.ts"
+				"path": "plugin/display-path.ts"
 			},
 			"intent": "Implement display-path.ts"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_2OqhSFvsI9wGfwQcgAH16930",
+			"id": "call_13",
 			"name": "write",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Successfully wrote 2685 bytes to omp-patch/plugins/omp-compact/display-path.ts"
+						"text": "Successfully wrote 2685 bytes to plugin/display-path.ts"
 					}
 				],
 				"details": {
-					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/display-path.ts"
+					"resolvedPath": "/repo/plugin/display-path.ts"
 				}
 			},
 			"isError": false
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_VJJ4TWcIKkeU55HSUpuD9671",
+			"id": "call_14",
 			"name": "bash",
 			"args": {
-				"command": "cd omp-patch/plugins/omp-compact && bun test display-path.test.ts 2>&1 | tail -25"
+				"command": "cd plugin && bun test display-path.test.ts 2>&1 | tail -25"
 			},
 			"intent": "Run display-path tests (expect green)"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_VJJ4TWcIKkeU55HSUpuD9671",
+			"id": "call_14",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -576,27 +575,27 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_3JWw8Lc3HyurB3DP5bvD3403",
+			"id": "call_15",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/display-path.ts"
+				"path": "plugin/display-path.ts"
 			},
 			"intent": "Filter dot segments lexically"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_3JWw8Lc3HyurB3DP5bvD3403",
+			"id": "call_15",
 			"name": "edit",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/display-path.ts."
+						"text": "Successfully replaced text in plugin/display-path.ts."
 					}
 				],
 				"details": {
 					"diff": " 27|export function relativizePath(path: string, cwd: string): string | undefined {\n 28|\tif (!path.startsWith(\"/\") || !cwd.startsWith(\"/\")) return undefined;\n-29|\tconst pathSegments = path.split(\"/\").…<+795 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/display-path.ts",
+					"path": "/repo/plugin/display-path.ts",
 					"firstChangedLine": 29,
 					"oldText": "[output 2685 chars]",
 					"newText": "[output 2714 chars]"
@@ -606,16 +605,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_morfIl5zFn17qLeJChy27693",
+			"id": "call_16",
 			"name": "bash",
 			"args": {
-				"command": "cd omp-patch/plugins/omp-compact && bun test display-path.test.ts 2>&1 | tail -8"
+				"command": "cd plugin && bun test display-path.test.ts 2>&1 | tail -8"
 			},
 			"intent": "Re-run display-path tests"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_morfIl5zFn17qLeJChy27693",
+			"id": "call_16",
 			"name": "bash",
 			"result": {
 				"content": [

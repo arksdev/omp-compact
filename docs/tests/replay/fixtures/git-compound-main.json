@@ -1,9 +1,8 @@
 {
 	"meta": {
 		"id": "git-compound-main",
-		"source": "2026-08-10T17-50-32-859Z_019feccc-319b-7000-8623-b23e831714bf.jsonl",
+		"source": "<session>",
 		"sourceKind": "session-jsonl",
-		"captureDate": "2026-08-11",
 		"cwd": "/repo",
 		"mode": "live",
 		"stats": false,
@@ -16,8 +15,8 @@
 			"glob": 2,
 			"write": 2
 		},
-		"redaction": "absolute repo paths -> /repo; other absolute roots -> /projects/N|/abs/N; secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
-		"note": "real git add/commit compound + status; composite call_U…|fc_… toolCallIds; two terminal runs"
+		"redaction": "session source -> <session>; absolute repo paths -> /repo + canonical namespaces (plugin|host|host-source|host-docs|work); other absolute roots -> /abs/N; worker labels -> peer-N; toolCallIds -> call_N (fc_ composite shape kept); secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
+		"note": "real git add/commit compound + status; composite call_N|fc_<hash> toolCallIds; two terminal runs"
 	},
 	"events": [
 		{
@@ -25,25 +24,25 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_bd38Vsy0HezEyGBg5LNlAlaJ|fc_<hash>231f934f04",
+			"id": "call_1|fc_<hash>",
 			"name": "glob",
 			"args": {
-				"path": "/repo/omp-patch/PLUGIN-CODE-REVIEW.md"
+				"path": "/repo/work/PLUGIN-CODE-REVIEW.md"
 			},
 			"intent": "Проверяю имя файла отчета"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_79Lv16oXC5x7bLaqOjXqQ7v3|fc_<hash>058050f7b2",
+			"id": "call_2|fc_<hash>",
 			"name": "read",
 			"args": {
-				"path": "/repo/omp-patch"
+				"path": "/repo/work"
 			},
 			"intent": "Сверяю названия соседних отчетов"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_bd38Vsy0HezEyGBg5LNlAlaJ|fc_<hash>231f934f04",
+			"id": "call_1|fc_<hash>",
 			"name": "glob",
 			"result": {
 				"content": [
@@ -77,7 +76,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_79Lv16oXC5x7bLaqOjXqQ7v3|fc_<hash>058050f7b2",
+			"id": "call_2|fc_<hash>",
 			"name": "read",
 			"result": {
 				"content": [
@@ -88,11 +87,11 @@
 				],
 				"details": {
 					"isDirectory": true,
-					"resolvedPath": "/repo/omp-patch",
+					"resolvedPath": "/repo/work",
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch"
+							"value": "/repo/work"
 						}
 					}
 				}
@@ -102,16 +101,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_Db10yW6FgnclHM13vhdWg6wb|fc_<hash>037e5b4bc6",
+			"id": "call_3|fc_<hash>",
 			"name": "write",
 			"args": {
-				"path": "/repo/omp-patch/PLUGIN-CODE-REVIEW.md"
+				"path": "/repo/work/PLUGIN-CODE-REVIEW.md"
 			},
 			"intent": "Записываю полный отчет код-ревью"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_Db10yW6FgnclHM13vhdWg6wb|fc_<hash>037e5b4bc6",
+			"id": "call_3|fc_<hash>",
 			"name": "write",
 			"result": {
 				"content": [
@@ -121,7 +120,7 @@
 					}
 				],
 				"details": {
-					"resolvedPath": "/repo/omp-patch/PLUGIN-CODE-REVIEW.md"
+					"resolvedPath": "/repo/work/PLUGIN-CODE-REVIEW.md"
 				}
 			},
 			"isError": false,
@@ -147,25 +146,25 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_1FokAUvE4y11Duc4XQ42Op05|fc_<hash>8d54ea7e5c",
+			"id": "call_4|fc_<hash>",
 			"name": "read",
 			"args": {
-				"path": "/repo/omp-patch/PLUGIN-CODE-REVIEW.md:1-35"
+				"path": "/repo/work/PLUGIN-CODE-REVIEW.md:1-35"
 			},
 			"intent": "Проверяю начало сохраненного отчета"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_002pjLwmaObJqqAGSpunZdcP|fc_<hash>b7d199cbc4",
+			"id": "call_5|fc_<hash>",
 			"name": "read",
 			"args": {
-				"path": "/repo/omp-patch/PLUGIN-CODE-REVIEW.md:250-330"
+				"path": "/repo/work/PLUGIN-CODE-REVIEW.md:250-330"
 			},
 			"intent": "Проверяю финал сохраненного отчета"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_7ioCSSc30TIN4vAo0LcWULvZ|fc_<hash>4f12fa0753",
+			"id": "call_6|fc_<hash>",
 			"name": "bash",
 			"args": {
 				"command": "wc -l -c PLUGIN-CODE-REVIEW.md"
@@ -174,7 +173,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_1FokAUvE4y11Duc4XQ42Op05|fc_<hash>8d54ea7e5c",
+			"id": "call_4|fc_<hash>",
 			"name": "read",
 			"result": {
 				"content": [
@@ -185,7 +184,7 @@
 				],
 				"details": {
 					"truncation": {
-						"content": "[output 1201 chars]",
+						"content": "[output 1190 chars]",
 						"truncated": true,
 						"truncatedBy": "lines",
 						"totalLines": 292,
@@ -196,7 +195,7 @@
 						"firstLineExceedsLimit": false
 					},
 					"displayContent": {
-						"text": "[output 1546 chars]",
+						"text": "[output 1535 chars]",
 						"startLine": 1,
 						"lineNumbers": [1, 2, 3, 4, 5, "<+39 items>"]
 					},
@@ -204,7 +203,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/PLUGIN-CODE-REVIEW.md"
+							"value": "/repo/work/PLUGIN-CODE-REVIEW.md"
 						},
 						"truncation": {
 							"direction": "head",
@@ -245,7 +244,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_002pjLwmaObJqqAGSpunZdcP|fc_<hash>b7d199cbc4",
+			"id": "call_5|fc_<hash>",
 			"name": "read",
 			"result": {
 				"content": [
@@ -264,7 +263,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/PLUGIN-CODE-REVIEW.md"
+							"value": "/repo/work/PLUGIN-CODE-REVIEW.md"
 						}
 					}
 				}
@@ -274,7 +273,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_7ioCSSc30TIN4vAo0LcWULvZ|fc_<hash>4f12fa0753",
+			"id": "call_6|fc_<hash>",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -293,7 +292,7 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_esPasZhTXbsDhYn58GMYtOa2|fc_<hash>e8b4c84d54",
+			"id": "call_7|fc_<hash>",
 			"name": "bash",
 			"args": {
 				"command": "git status --short --untracked-files=all"
@@ -302,7 +301,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_esPasZhTXbsDhYn58GMYtOa2|fc_<hash>e8b4c84d54",
+			"id": "call_7|fc_<hash>",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -339,16 +338,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_U4NnF5nR5H6xTZnPPdQtELS2|fc_<hash>f377d8d248",
+			"id": "call_8|fc_<hash>",
 			"name": "bash",
 			"args": {
-				"command": "git add omp-patch/PLUGIN-CODE-REVIEW.md && git commit -m \"docs: add omp compact code review\""
+				"command": "git add work/PLUGIN-CODE-REVIEW.md && git commit -m \"docs: add omp compact code review\""
 			},
 			"intent": "Фиксирую отчет отдельным коммитом"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_U4NnF5nR5H6xTZnPPdQtELS2|fc_<hash>f377d8d248",
+			"id": "call_8|fc_<hash>",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -375,16 +374,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_REdxzhaRktAwVa3Lr8dMticU|fc_<hash>60fe074f8a",
+			"id": "call_9|fc_<hash>",
 			"name": "glob",
 			"args": {
-				"path": "/repo/omp-patch/goal.md"
+				"path": "/repo/work/goal.md"
 			},
 			"intent": "Проверяю наличие goal файла"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_StkIx7M7NtFpiQo4XBJuKp9R|fc_<hash>a69f79acc1",
+			"id": "call_10|fc_<hash>",
 			"name": "bash",
 			"args": {
 				"command": "git status --short --untracked-files=all"
@@ -393,7 +392,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_REdxzhaRktAwVa3Lr8dMticU|fc_<hash>60fe074f8a",
+			"id": "call_9|fc_<hash>",
 			"name": "glob",
 			"result": {
 				"content": [
@@ -427,7 +426,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_StkIx7M7NtFpiQo4XBJuKp9R|fc_<hash>a69f79acc1",
+			"id": "call_10|fc_<hash>",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -446,16 +445,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_qgWSYpz6uwAn2U58xWZjpsG0|fc_<hash>d656138f0a",
+			"id": "call_11|fc_<hash>",
 			"name": "write",
 			"args": {
-				"path": "/repo/omp-patch/goal.md"
+				"path": "/repo/work/goal.md"
 			},
 			"intent": "Записываю цель и поведение плагина"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_qgWSYpz6uwAn2U58xWZjpsG0|fc_<hash>d656138f0a",
+			"id": "call_11|fc_<hash>",
 			"name": "write",
 			"result": {
 				"content": [
@@ -465,7 +464,7 @@
 					}
 				],
 				"details": {
-					"resolvedPath": "/repo/omp-patch/goal.md"
+					"resolvedPath": "/repo/work/goal.md"
 				}
 			},
 			"isError": false,
@@ -491,25 +490,25 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_zYwNi2CYs7xi31sPus3Uf2Ok|fc_<hash>2c747e6f4d",
+			"id": "call_12|fc_<hash>",
 			"name": "read",
 			"args": {
-				"path": "/repo/omp-patch/goal.md:1-35"
+				"path": "/repo/work/goal.md:1-35"
 			},
 			"intent": "Проверяю начало goal файла"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_GoJRUhk2KvrDcU47JsPt9e6o|fc_<hash>76c73ee7ca",
+			"id": "call_13|fc_<hash>",
 			"name": "read",
 			"args": {
-				"path": "/repo/omp-patch/goal.md:145-190"
+				"path": "/repo/work/goal.md:145-190"
 			},
 			"intent": "Проверяю итоговую формулировку цели"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_6UG3C9nuJmf9lH4wzq1Pmemd|fc_<hash>1cb57e403f",
+			"id": "call_14|fc_<hash>",
 			"name": "bash",
 			"args": {
 				"command": "git status --short --untracked-files=all"
@@ -518,7 +517,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_GoJRUhk2KvrDcU47JsPt9e6o|fc_<hash>76c73ee7ca",
+			"id": "call_13|fc_<hash>",
 			"name": "read",
 			"result": {
 				"content": [
@@ -537,7 +536,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/goal.md"
+							"value": "/repo/work/goal.md"
 						}
 					}
 				}
@@ -565,7 +564,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_zYwNi2CYs7xi31sPus3Uf2Ok|fc_<hash>2c747e6f4d",
+			"id": "call_12|fc_<hash>",
 			"name": "read",
 			"result": {
 				"content": [
@@ -595,7 +594,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/goal.md"
+							"value": "/repo/work/goal.md"
 						},
 						"truncation": {
 							"direction": "head",
@@ -618,7 +617,7 @@
 		},
 		{
 			"t": "tool_result",
-			"id": "call_6UG3C9nuJmf9lH4wzq1Pmemd|fc_<hash>1cb57e403f",
+			"id": "call_14|fc_<hash>",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -637,16 +636,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_5bVIinvKqWDEkb1eJIUnnatw|fc_<hash>24341df2f3",
+			"id": "call_15|fc_<hash>",
 			"name": "bash",
 			"args": {
-				"command": "git add omp-patch/goal.md && git commit -m \"docs: document omp compact goal\""
+				"command": "git add work/goal.md && git commit -m \"docs: document omp compact goal\""
 			},
 			"intent": "Фиксирую goal документ"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_5bVIinvKqWDEkb1eJIUnnatw|fc_<hash>24341df2f3",
+			"id": "call_15|fc_<hash>",
 			"name": "bash",
 			"result": {
 				"content": [

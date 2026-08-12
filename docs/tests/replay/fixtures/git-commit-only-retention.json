@@ -1,9 +1,8 @@
 {
 	"meta": {
 		"id": "git-commit-only-retention",
-		"source": "2026-08-10T17-50-32-859Z_019feccc-319b-7000-8623-b23e831714bf/GitCommitOnlyRetention.jsonl",
+		"source": "<session>",
 		"sourceKind": "session-jsonl",
-		"captureDate": "2026-08-11",
 		"cwd": "/repo",
 		"mode": "live",
 		"stats": false,
@@ -16,7 +15,7 @@
 			"bash": 3,
 			"grep": 2
 		},
-		"redaction": "absolute repo paths -> /repo; other absolute roots -> /projects/N|/abs/N; secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
+		"redaction": "session source -> <session>; absolute repo paths -> /repo + canonical namespaces (plugin|host|host-source|host-docs|work); other absolute roots -> /abs/N; worker labels -> peer-N; toolCallIds -> call_N (fc_ composite shape kept); secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
 		"note": "real edit details.diff carriers; failed bash (exit 2); read path selectors; ends at yield (working phase)"
 	},
 	"events": [
@@ -25,16 +24,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_5mQZ88RlZmANZfAzgMjR6031",
+			"id": "call_1",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts:560-1040"
+				"path": "plugin/runtime-adapter.ts:560-1040"
 			},
 			"intent": "Read adapter core install and render hooks"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_5mQZ88RlZmANZfAzgMjR6031",
+			"id": "call_1",
 			"name": "read",
 			"result": {
 				"content": [
@@ -64,7 +63,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts"
+							"value": "/repo/plugin/runtime-adapter.ts"
 						},
 						"truncation": {
 							"direction": "head",
@@ -104,16 +103,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_VDCRWwf5pgmgjwS8b46U3679",
+			"id": "call_2",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts:1-260"
+				"path": "plugin/index.integration.test.ts:1-260"
 			},
 			"intent": "Read integration harness helpers"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_VDCRWwf5pgmgjwS8b46U3679",
+			"id": "call_2",
 			"name": "read",
 			"result": {
 				"content": [
@@ -124,7 +123,7 @@
 				],
 				"details": {
 					"truncation": {
-						"content": "[output 7196 chars]",
+						"content": "[output 7199 chars]",
 						"truncated": true,
 						"truncatedBy": "lines",
 						"totalLines": 3907,
@@ -135,7 +134,7 @@
 						"firstLineExceedsLimit": false
 					},
 					"displayContent": {
-						"text": "[output 7204 chars]",
+						"text": "[output 7207 chars]",
 						"startLine": 1,
 						"lineNumbers": [1, 2, 3, 4, 5, "<+261 items>"]
 					},
@@ -143,7 +142,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts"
+							"value": "/repo/plugin/index.integration.test.ts"
 						},
 						"truncation": {
 							"direction": "head",
@@ -183,16 +182,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_mwgl3ibD0DvzP1QY8KaD9002",
+			"id": "call_3",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts:263-484"
+				"path": "plugin/index.integration.test.ts:263-484"
 			},
 			"intent": "Read remaining harness helpers"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_mwgl3ibD0DvzP1QY8KaD9002",
+			"id": "call_3",
 			"name": "read",
 			"result": {
 				"content": [
@@ -203,7 +202,7 @@
 				],
 				"details": {
 					"truncation": {
-						"content": "[output 6255 chars]",
+						"content": "[output 6258 chars]",
 						"truncated": true,
 						"truncatedBy": "lines",
 						"totalLines": 3646,
@@ -214,7 +213,7 @@
 						"firstLineExceedsLimit": false
 					},
 					"displayContent": {
-						"text": "[output 6334 chars]",
+						"text": "[output 6337 chars]",
 						"startLine": 180,
 						"lineNumbers": [180, null, 185, null, 260, "<+230 items>"]
 					},
@@ -222,7 +221,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts"
+							"value": "/repo/plugin/index.integration.test.ts"
 						},
 						"truncation": {
 							"direction": "head",
@@ -261,16 +260,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_GEdVaVfToUT5EwwirJ6L7290",
+			"id": "call_4",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/render.test.ts:240-330"
+				"path": "plugin/render.test.ts:240-330"
 			},
 			"intent": "Read mutation color assertions"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_GEdVaVfToUT5EwwirJ6L7290",
+			"id": "call_4",
 			"name": "read",
 			"result": {
 				"content": [
@@ -300,7 +299,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/render.test.ts"
+							"value": "/repo/plugin/render.test.ts"
 						},
 						"truncation": {
 							"direction": "head",
@@ -340,25 +339,25 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_Nf8dF75IvwSKYzLO1IA41606",
+			"id": "call_5",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts:1-60"
+				"path": "plugin/runtime-adapter.ts:1-60"
 			},
 			"intent": "Read adapter imports"
 		},
 		{
 			"t": "tool_start",
-			"id": "call_01_XHYvD5ApDr1SgjqA53Sg0442",
+			"id": "call_6",
 			"name": "grep",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit.ts"
+				"path": "plugin/audit.ts"
 			},
 			"intent": "Find completeEditMutations diff parsing"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_01_XHYvD5ApDr1SgjqA53Sg0442",
+			"id": "call_6",
 			"name": "grep",
 			"result": {
 				"content": [
@@ -368,27 +367,27 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch/plugins/omp-compact/audit.ts",
-					"searchPath": "/repo/omp-patch/plugins/omp-compact/audit.ts",
+					"scopePath": "plugin/audit.ts",
+					"searchPath": "/repo/plugin/audit.ts",
 					"cwd": "/repo",
 					"matchCount": 16,
 					"fileCount": 1,
-					"files": ["omp-patch/plugins/omp-compact/audit.ts"],
+					"files": ["plugin/audit.ts"],
 					"fileMatches": [
 						{
-							"path": "omp-patch/plugins/omp-compact/audit.ts",
+							"path": "plugin/audit.ts",
 							"count": 16
 						}
 					],
 					"truncated": false,
-					"displayContent": "[output 1855 chars]"
+					"displayContent": "[output 1847 chars]"
 				}
 			},
 			"isError": false
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_Nf8dF75IvwSKYzLO1IA41606",
+			"id": "call_5",
 			"name": "read",
 			"result": {
 				"content": [
@@ -399,7 +398,7 @@
 				],
 				"details": {
 					"truncation": {
-						"content": "[output 1573 chars]",
+						"content": "[output 1569 chars]",
 						"truncated": true,
 						"truncatedBy": "lines",
 						"totalLines": 1254,
@@ -410,7 +409,7 @@
 						"firstLineExceedsLimit": false
 					},
 					"displayContent": {
-						"text": "[output 1575 chars]",
+						"text": "[output 1571 chars]",
 						"startLine": 1,
 						"lineNumbers": [1, 2, 3, 4, 5, "<+59 items>"]
 					},
@@ -418,7 +417,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts"
+							"value": "/repo/plugin/runtime-adapter.ts"
 						},
 						"truncation": {
 							"direction": "head",
@@ -440,16 +439,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_79lPAvCbks5ICKTxsTmd2161",
+			"id": "call_7",
 			"name": "grep",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/audit-diff.ts"
+				"path": "plugin/audit-diff.ts"
 			},
 			"intent": "Read completeEditMutations implementation"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_79lPAvCbks5ICKTxsTmd2161",
+			"id": "call_7",
 			"name": "grep",
 			"result": {
 				"content": [
@@ -459,15 +458,15 @@
 					}
 				],
 				"details": {
-					"scopePath": "omp-patch/plugins/omp-compact/audit-diff.ts",
-					"searchPath": "/repo/omp-patch/plugins/omp-compact/audit-diff.ts",
+					"scopePath": "plugin/audit-diff.ts",
+					"searchPath": "/repo/plugin/audit-diff.ts",
 					"cwd": "/repo",
 					"matchCount": 40,
 					"fileCount": 1,
-					"files": ["omp-patch/plugins/omp-compact/audit-diff.ts"],
+					"files": ["plugin/audit-diff.ts"],
 					"fileMatches": [
 						{
-							"path": "omp-patch/plugins/omp-compact/audit-diff.ts",
+							"path": "plugin/audit-diff.ts",
 							"count": 40
 						}
 					],
@@ -479,16 +478,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_U0TW83UM9ElXeKcjc0cv6855",
+			"id": "call_8",
 			"name": "bash",
 			"args": {
-				"command": "ls omp-patch/plugins/omp-compact/../ && cat omp-patch/plugins/omp-compact/package.json 2>/dev/null; echo ---; ls omp-patch/runtime/omp-17.2.12/ | head; echo ---; env | grep -i omp"
+				"command": "ls plugin/../ && cat plugin/package.json 2>/dev/null; echo ---; ls host/ | head; echo ---; env | grep -i omp"
 			},
 			"intent": "Check test runner setup and stock binary"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_U0TW83UM9ElXeKcjc0cv6855",
+			"id": "call_8",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -513,16 +512,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_fa4njClirsQV7ENnrU1x6244",
+			"id": "call_9",
 			"name": "bash",
 			"args": {
-				"command": "cat omp-patch/runtime/omp-17.2.12/package.json; echo ---; ls omp-patch/runtime/omp-17.2.12/node_modules/.bin/ 2>/dev/null | head -20; echo ---; ls /tmp/omp-compact* 2>/dev/null | head"
+				"command": "cat host/package.json; echo ---; ls host/node_modules/.bin/ 2>/dev/null | head -20; echo ---; ls /tmp/omp-compact* 2>/dev/null | head"
 			},
 			"intent": "Inspect runtime package and bins"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_fa4njClirsQV7ENnrU1x6244",
+			"id": "call_9",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -540,16 +539,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_XMj2NXj00INj2DlKatVA6885",
+			"id": "call_10",
 			"name": "bash",
 			"args": {
-				"command": "ls -la omp-patch/runtime/omp-17.2.12/node_modules/.bin/omp; echo ---; grep -n \"OMP_STOCK_BIN\\|bun test\" omp-patch/goal.md omp-patch/refactoring.md 2>/dev/null | head -30"
+				"command": "ls -la host/node_modules/.bin/omp; echo ---; grep -n \"OMP_STOCK_BIN\\|bun test\" work/goal.md work/refactoring.md 2>/dev/null | head -30"
 			},
 			"intent": "Check stock binary and documented test commands"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_XMj2NXj00INj2DlKatVA6885",
+			"id": "call_10",
 			"name": "bash",
 			"result": {
 				"content": [
@@ -567,16 +566,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_YiiNOmckYEBYhok1i2lx5373",
+			"id": "call_11",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/goal.md"
+				"path": "work/goal.md"
 			},
 			"intent": "Read goal doc for current contract"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_YiiNOmckYEBYhok1i2lx5373",
+			"id": "call_11",
 			"name": "read",
 			"result": {
 				"content": [
@@ -587,7 +586,7 @@
 				],
 				"details": {
 					"displayContent": {
-						"text": "[output 8404 chars]",
+						"text": "[output 8413 chars]",
 						"startLine": 1,
 						"lineNumbers": [1, 2, 3, 4, 5, "<+202 items>"]
 					},
@@ -595,7 +594,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/goal.md"
+							"value": "/repo/work/goal.md"
 						}
 					}
 				}
@@ -604,16 +603,16 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_F6GSjETtFs2swKgjvCOL7214",
+			"id": "call_12",
 			"name": "read",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/render.test.ts:330-454"
+				"path": "plugin/render.test.ts:330-454"
 			},
 			"intent": "Read render tests tail"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_F6GSjETtFs2swKgjvCOL7214",
+			"id": "call_12",
 			"name": "read",
 			"result": {
 				"content": [
@@ -632,7 +631,7 @@
 					"meta": {
 						"source": {
 							"type": "path",
-							"value": "/repo/omp-patch/plugins/omp-compact/render.test.ts"
+							"value": "/repo/plugin/render.test.ts"
 						}
 					}
 				}
@@ -641,87 +640,87 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_UYtyUjvI9VLwY7M99vhI2304",
+			"id": "call_13",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/render.test.ts"
+				"path": "plugin/render.test.ts"
 			},
 			"intent": "Add new render exports to test interface"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_UYtyUjvI9VLwY7M99vhI2304",
+			"id": "call_13",
 			"name": "edit",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/render.test.ts."
+						"text": "Successfully replaced text in plugin/render.test.ts."
 					}
 				],
 				"details": {
 					"diff": " 23|\tgitMessageComponent(\n\n 25|\t\ttheme: Theme,\n 26|\t): Component | undefined;\n+27|\tgitCommitHashes(details: GitMessageDetails): string[];\n+28|\tterminalGitSummaryLine(\n+29|\t\thashes: readonly string[],\n…<+161 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/render.test.ts",
+					"path": "/repo/plugin/render.test.ts",
 					"firstChangedLine": 27,
-					"oldText": "[output 12690 chars]",
-					"newText": "[output 12846 chars]"
+					"oldText": "[output 12681 chars]",
+					"newText": "[output 12837 chars]"
 				}
 			},
 			"isError": false
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_gYyUMYRKyAlLUwvNBi5Z9269",
+			"id": "call_14",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/render.test.ts"
+				"path": "plugin/render.test.ts"
 			},
 			"intent": "Append terminal git summary unit tests"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_gYyUMYRKyAlLUwvNBi5Z9269",
+			"id": "call_14",
 			"name": "edit",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/render.test.ts."
+						"text": "Successfully replaced text in plugin/render.test.ts."
 					}
 				],
 				"details": {
 					"diff": " 397|describe(\"pending rows\", () => {\n\n 446|\ttest(\"pending rows stay on the transparent terminal background\", () => {\n\n 458|\t});\n 459|});\n+460|\n+461|describe(\"terminal Git commit summary\", () => {\n+46…<+4084 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/render.test.ts",
+					"path": "/repo/plugin/render.test.ts",
 					"firstChangedLine": 460,
-					"oldText": "[output 12846 chars]",
-					"newText": "[output 16338 chars]"
+					"oldText": "[output 12837 chars]",
+					"newText": "[output 16329 chars]"
 				}
 			},
 			"isError": false
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_P9u0bEJl3UVyXeOJdtHZ2239",
+			"id": "call_15",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts"
+				"path": "plugin/index.integration.test.ts"
 			},
 			"intent": "Flip migrated git row assertion to filtered-away"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_P9u0bEJl3UVyXeOJdtHZ2239",
+			"id": "call_15",
 			"name": "edit",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/index.integration.test.ts."
+						"text": "Successfully replaced text in plugin/index.integration.test.ts."
 					}
 				],
 				"details": {
 					"diff": " 982|\tawait finishRun(booted, \"done\");\n 983|\tconst completed = visibleRows(booted.transcript).join(\"\\n\");\n-984|\texpect(completed).toContain(\"git status M migrated.ts\");\n+984|\t// the non-commit Git row…<+279 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+					"path": "/repo/plugin/index.integration.test.ts",
 					"firstChangedLine": 984,
 					"snapshotsPruned": true
 				}
@@ -730,27 +729,27 @@
 		},
 		{
 			"t": "tool_start",
-			"id": "call_00_ET_7KAorVGDDVFKFTAcwJ0q3910",
+			"id": "call_16",
 			"name": "edit",
 			"args": {
-				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts"
+				"path": "plugin/index.integration.test.ts"
 			},
 			"intent": "Update recognized Git retention test to commit summary"
 		},
 		{
 			"t": "tool_result",
-			"id": "call_00_ET_7KAorVGDDVFKFTAcwJ0q3910",
+			"id": "call_16",
 			"name": "edit",
 			"result": {
 				"content": [
 					{
 						"type": "text",
-						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/index.integration.test.ts."
+						"text": "Successfully replaced text in plugin/index.integration.test.ts."
 					}
 				],
 				"details": {
 					"diff": " 1322|stockTest(\n\n 1371|);\n 1372|\n-1373|stockTest(\"recognized Git rows survive, including failures\", async () => {\n-1374|\tconst success = await bootWithTranscript();\n-1375|\tawait beginRun(success);\n-1…<+4475 chars>",
-					"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+					"path": "/repo/plugin/index.integration.test.ts",
 					"firstChangedLine": 1373,
 					"snapshotsPruned": true
 				}

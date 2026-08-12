@@ -1,21 +1,21 @@
 {
 	"rows": [
-		"• bash: grep -n \"^export\" /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/main.ts · 0.0s",
-		"• bash: sed -n 100,112p /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/package.json; echo =…",
-		"• grep: ? · in omp-patch/plugins/omp-compact/runtime-adapter.ts · 1 match",
-		"• read omp-patch/plugins/omp-compact/runtime-adapter.ts:1320-1400",
-		"• read omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/modes/controllers/extension-ui-controll…",
-		"• read omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/registry/agent-registry.ts:243-288",
-		"• read omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/slash-commands/builtin-lifecycle.ts:160…",
-		"• read omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/session/session-maintenance.ts:440-570",
-		"• read omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/sdk.ts:2530-2600",
-		"• bash: grep -rn \"setWidget\" /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/modes/contr…",
-		"• bash: grep -rn \"setHookWidget\" /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/modes/c…",
-		"• bash: ls /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-tui/src/ | head -40 · 0.0s",
-		"• bash: grep -n \"class TUI\" /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-tui/src/tui.ts; grep -n \"sess…",
-		"• bash: grep -rn \"registry\" /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/sdk.ts | gre…",
-		"• bash: grep -rn \"handleShakeCommand\\|shake\" /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent…",
-		"• bash: grep -rn \"shake\" /repo/omp-patch/runtime/omp-17.2.12/node_modules/@oh-my-pi/pi-coding-agent/src/slash-commands/…"
+		"• bash: grep -n \"^export\" /repo/host/node_modules/@host/pi-coding-agent/src/main.ts · 0.0s",
+		"• bash: sed -n 100,112p /repo/host/node_modules/@host/pi-coding-agent/package.json; echo ===; grep -n '\"\\./\\*\"\\|\"\\./src…",
+		"• grep: ? · in plugin/runtime-adapter.ts · 1 match",
+		"• read plugin/runtime-adapter.ts:1320-1400",
+		"• read host/node_modules/@host/pi-coding-agent/src/modes/controllers/extension-ui-controller.ts:305-380",
+		"• read host/node_modules/@host/pi-coding-agent/src/registry/agent-registry.ts:243-288",
+		"• read host/node_modules/@host/pi-coding-agent/src/slash-commands/builtin-lifecycle.ts:160-220",
+		"• read host/node_modules/@host/pi-coding-agent/src/session/session-maintenance.ts:440-570",
+		"• read host/node_modules/@host/pi-coding-agent/src/sdk.ts:2530-2600",
+		"• bash: grep -rn \"setWidget\" /repo/host/node_modules/@host/pi-coding-agent/src/modes/controllers/extension-ui-controlle…",
+		"• bash: grep -rn \"setHookWidget\" /repo/host/node_modules/@host/pi-coding-agent/src/modes/controllers/extension-ui-contr…",
+		"• bash: ls /repo/host/node_modules/@host/pi-tui/src/ | head -40 · 0.0s",
+		"• bash: grep -n \"class TUI\" /repo/host/node_modules/@host/pi-tui/src/tui.ts; grep -n \"session\\|controller\\|context\" /ab…",
+		"• bash: grep -rn \"registry\" /repo/host/node_modules/@host/pi-coding-agent/src/sdk.ts | grep -i \"export\\|from\" | head; e…",
+		"• bash: grep -rn \"handleShakeCommand\\|shake\" /repo/host/node_modules/@host/pi-coding-agent/src/modes/controllers/comman…",
+		"• bash: grep -rn \"shake\" /repo/host/node_modules/@host/pi-coding-agent/src/slash-commands/*.ts | head -20 · 0.0s"
 	],
 	"carriers": []
 }

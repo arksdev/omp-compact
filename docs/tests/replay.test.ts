@@ -11,6 +11,9 @@
  *
  * Regenerate goldens after intentional behavior changes:
  *   OMP_REPLAY_UPDATE=1 bun run test -- replay.test.ts
+ * Regenerate fixtures (raw session locations come from the untracked
+ * `OMP_REPLAY_MANIFEST` JSON, never from this repo):
+ *   OMP_REPLAY_MANIFEST=/path/to/manifest.json bun run docs/tests/replay/extract.ts
  */
 import { expect, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -70,7 +73,8 @@ stockTest("fixture corpus stays bounded and hermetic", () => {
 		expect(fixture.meta.cwd).toBe("/repo");
 		expect(["live", "compact", "clear"]).toContain(fixture.meta.mode);
 		expect(fixture.meta.sourceKind).toBe("session-jsonl");
-		expect(fixture.meta.source.length).toBeGreaterThan(0);
+		expect(fixture.meta.source).toBe("<session>");
+		expect("captureDate" in fixture.meta).toBe(false);
 		const bytes = readFileSync(join(fixturesDir, file)).byteLength;
 		expect(bytes).toBeLessThan(120_000);
 	}
