@@ -390,3 +390,9 @@ Stats rows require insertion before an existing native answer, but raw `children
 **Status:** active · **Evidence:** confirmed (config load regression contract)
 
 The bounded JSON scanner rejects a closing `}` or `]` that drives structural depth below zero before calling `JSON.parse`. **Reason:** malformed input must fail at the bounded structural boundary rather than continuing to scan an invalid shape; this keeps the scanner's depth invariant explicit and fail-closed. **Rejected:** relying on the later parser failure alone, which produces the same defaults but leaves the scanner's own structural accounting invalid.
+
+## Default auto-shake threshold to 120k tokens
+
+**Status:** active · **Evidence:** confirmed (configuration regression and stock shake/context-maintenance contracts)
+
+Keep auto-shake opt-in, but use `120000` tokens as the persisted default threshold once enabled. A threshold of `0` continues to mean every eligible logical run. **Reason:** the former 2,000,000-token default was above the useful operating range for ordinary sessions and made an enabled feature appear inert; 120k provides meaningful headroom while the terminal-answer, known-usage, main-session, and once-per-run gates still prevent premature shaking. **Rejected:** enabling auto-shake by default, treating it as OMP compaction, or adding a fallback strategy after the context limit is already exceeded.

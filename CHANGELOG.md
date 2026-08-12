@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Reworked the repository README around marketplace installation, plain-language behavior, mode differences, additional settings, and safe removal.
+- Changed the opt-in auto-shake threshold default from 2,000,000 to 120,000 tokens; `0` still means every eligible logical run.
+
 ## [1.0.0] - 2026-08-12
 
 ### Added

@@ -14,7 +14,7 @@ Complete reference for all omp-compact settings, config file format, and environ
 - Project-relative paths: on
 - Git summary: on
 - Statistics: on (all fields)
-- Auto-shake: off
+- Auto-shake: off; configured threshold: `120000` tokens
 
 **Open settings menu:** `/compact-settings` in any OMP session
 
@@ -41,16 +41,16 @@ Complete reference for all omp-compact settings, config file format, and environ
 | **mode** | `"live"` | `compact`, `live`, or `clear` |
 | **compactPaths** | `true` | Show project-relative paths |
 | **retainGitLive** | `true` | Show Git operations and commit summary |
-| **autoShake.enabled** | `false` | Trigger automatic context cleanup |
-| **autoShake.thresholdTokens** | `2000000` | Min context usage for auto-shake |
+| **autoShake.enabled** | `false` | Run stock `shake("elide")` after an eligible successful logical run |
+| **autoShake.thresholdTokens** | `120000` | Minimum context usage for auto-shake; `0` means every eligible run |
 | **stats.enabled** | `true` | Show one-line stats summary |
 | **stats.actions** | `true` | Count of tool executions |
 | **stats.sent** | `true` | Input token usage |
 | **stats.received** | `true` | Output token usage |
 | **stats.cache** | `true` | Cache hit % and count |
 | **stats.time** | `true` | Wall time duration |
-| **host.recapEnabled** | `true` | Mirror of OMP's recap setting |
-| **host.thinkingBlocksVisible** | `true` | Inverse of OMP's hideThinkingBlock |
+| **host.recapEnabled** | `true` | Mirror and save OMP `recap.enabled`; takes effect immediately |
+| **host.thinkingBlocksVisible** | `true` | Inverse of OMP `hideThinkingBlock`; restart OMP after changing |
 
 ---
 
@@ -75,7 +75,7 @@ Complete reference for all omp-compact settings, config file format, and environ
   },
   "autoShake": {
     "enabled": false,
-    "thresholdTokens": 2000000
+    "thresholdTokens": 120000
   },
   "host": {
     "recapEnabled": true,
@@ -104,6 +104,10 @@ Complete reference for all omp-compact settings, config file format, and environ
 | `OMP_COMPACT_CONFIG` | path | Override config file path |
 
 **Precedence:** Env vars override config file. Menu saves don't write env vars to JSON.
+
+`OMP_COMPACT_SHAKE` overrides only the enabled flag. The threshold still comes from JSON. Auto-shake uses `shake("elide")`; it does not produce a compaction summary or provide a fallback after a context limit has already been exceeded.
+
+The two `host.*` values are mirrors of stock OMP settings. Saving them through `/compact-settings` writes OMP's live `session.settings` first, then updates plugin JSON. `omp-compact` does not manage Browser Relay or Collab Relay settings.
 
 ---
 

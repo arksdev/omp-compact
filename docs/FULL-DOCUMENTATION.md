@@ -198,7 +198,7 @@ Git распознаётся консервативно из уже выполн
 | `Compact paths` / `compactPaths` | `true` | Сокращает отображаемые absolute paths внутри session `cwd`. |
 | `Retain Git rows` / `retainGitLive` | `true` | Показывает Git rows и aggregate commit summary в `live`. |
 | `Auto-shake` / `autoShake.enabled` | `false` | Запускает native `shake("elide")` после eligible run. |
-| `Shake threshold` / `autoShake.thresholdTokens` | `2000000` | Минимальный current context usage; `0` означает каждый eligible run. |
+| `Shake threshold` / `autoShake.thresholdTokens` | `120000` | Минимальный current context usage; `0` означает каждый eligible run. |
 | `Run statistics` / `stats.enabled` | `true` | Включает terminal stats row. |
 | `Actions` / `stats.actions` | `true` | Число distinct tool executions, включая failures и unmapped tools. |
 | `Sent tokens` / `stats.sent` | `true` | Сумма `usage.input` уникальных assistant completions. |
@@ -244,7 +244,7 @@ Default path:
   },
   "autoShake": {
     "enabled": false,
-    "thresholdTokens": 2000000
+    "thresholdTokens": 120000
   },
   "host": {
     "recapEnabled": true,
@@ -307,13 +307,15 @@ Line/raw/conflict selectors после `:` сохраняются byte-for-byte.
 
 ## Auto-shake
 
-Auto-shake — отдельный opt-in maintenance module. Он не меняет режим сворачивания и не имитирует ввод `/shake`.
+Auto-shake — отдельный opt-in maintenance module. По умолчанию он выключен; настроенный default threshold равен `120000` токенов. Значение `0` означает каждый eligible logical run.
 
 Плагин вызывает public API:
 
 ```ts
 AgentSession.shake("elide", { signal })
 ```
+
+`shake("elide")` заменяет тяжёлые старые tool results и крупные fenced/XML blocks короткими placeholders с `artifact://` recovery link. Он не создаёт LLM summary и не является OMP compaction strategy. Если context уже превысил лимит, auto-shake не выбирает другую compaction strategy или model fallback; дальнейшее восстановление остаётся за stock OMP context maintenance.
 
 Вызов происходит, только если одновременно выполнены условия:
 
@@ -334,14 +336,12 @@ Auto-shake выключен по умолчанию, потому что уда�
 
 Меню управляет ровно двумя stock settings:
 
-- `Recap summary` -> `recap.enabled`;
-- `Thinking blocks` -> inverse `hideThinkingBlock`.
+- `Recap summary` -> `recap.enabled`: разрешает OMP после idle period сгенерировать краткое LLM recap текущего состояния; применяется без restart;
+- `Thinking blocks` -> inverse `hideThinkingBlock`: показывает или скрывает reasoning/thinking blocks; требует restart OMP.
 
-Плагин получает их только через initialized `session.settings` identity-matched main session. Он не импортирует global settings proxy и не вызывает `Settings.init()`.
+Плагин получает и сохраняет их только через initialized `session.settings` identity-matched main session. Host flush выполняется до записи mirror в plugin JSON; при failure host values откатываются, JSON не меняется и success notification не показывается. Плагин не импортирует global settings proxy и не вызывает `Settings.init()`.
 
-Если verified host settings instance недоступен, строки показывают `n/a`; остальные plugin settings остаются рабочими. Host flush выполняется до записи plugin JSON. Если он не удался, host values откатываются, JSON не меняется и success notification не показывается.
-
-`hideThinkingBlock` не имеет безопасного live refresh в stock 17.2.12. После изменения `Thinking blocks` перезапустите OMP.
+Если verified host settings instance недоступен, строки показывают `n/a`; остальные plugin settings остаются рабочими. Browser Relay (`browser.relay`) и Collab Relay (`collab.relayUrl`) — отдельные stock OMP settings, которыми `omp-compact` не управляет.
 
 ## Presentation routes
 

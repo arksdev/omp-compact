@@ -177,7 +177,7 @@ async function bootAdapter(options?: {
 					cache: true,
 					time: true,
 				},
-				autoShake: { enabled: false, thresholdTokens: 2_000_000 },
+				autoShake: { enabled: false, thresholdTokens: 120_000 },
 				host: { recapEnabled: true, thinkingBlocksVisible: true },
 			}),
 		);

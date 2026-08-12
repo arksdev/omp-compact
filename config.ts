@@ -61,7 +61,7 @@ const DEFAULT_STATS: CompactStatsSettings = Object.freeze({
 
 const DEFAULT_AUTO_SHAKE: CompactAutoShakeSettings = Object.freeze({
 	enabled: false,
-	thresholdTokens: 2_000_000,
+	thresholdTokens: 120_000,
 });
 
 const DEFAULT_HOST: CompactHostSettings = Object.freeze({

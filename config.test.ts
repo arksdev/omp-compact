@@ -45,6 +45,7 @@ describe("defaults", () => {
 		expect(DEFAULT_SETTINGS.retainGitLive).toBe(true);
 		expect(DEFAULT_SETTINGS.autoShake.enabled).toBe(false);
 		expect(DEFAULT_SETTINGS.stats.enabled).toBe(true);
+		expect(DEFAULT_SETTINGS.autoShake.thresholdTokens).toBe(120_000);
 	});
 
 	test("defaults are deeply frozen", () => {
@@ -568,8 +569,8 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		const dir = await tempDir();
 		const { a, b } = await twoStores(dir);
 		await a.store.update({ autoShake: { thresholdTokens: 1000 } });
-		// b's stale snapshot says 2000000, so this save is a real writer of
-		// the same leaf a just wrote; its rename lands last and wins.
+		// b's stale snapshot still has the 120000 default, so this save is a
+		// real writer of the same leaf a just wrote; its rename lands last and wins.
 		await b.store.update({ autoShake: { thresholdTokens: 500 } });
 		expect((await readStored(dir)).autoShake.thresholdTokens).toBe(500);
 		await rm(dir, { recursive: true, force: true });
