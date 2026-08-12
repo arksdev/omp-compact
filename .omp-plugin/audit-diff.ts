@@ -142,7 +142,6 @@ export function countUnifiedDiff(
 	for (let index = 0; index <= diff.length; ) {
 		if (++rows > MAX_DIFF_ROWS) return undefined;
 		const end = diff.indexOf("\n", index);
-		const _lineEnd = end === -1 ? diff.length : end;
 		if (diff.startsWith("@@", index)) {
 			inHunk = true;
 			sawHunk = true;

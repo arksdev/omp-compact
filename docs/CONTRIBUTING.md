@@ -298,7 +298,7 @@ Explain the minimal source-level correction and why native execution semantics r
 ### 5. Code Review
 
 **Review process:**
-1. Automated checks run (tests, typecheck, lint)
+1. Contributor runs `bun run check` (typecheck, lint, format check, and the full suite) before pushing
 2. Maintainer reviews code, tests, documentation
 3. Requested changes addressed
 4. PR merged
@@ -319,7 +319,7 @@ Explain the minimal source-level correction and why native execution semantics r
 1. Add rule to `tool-presentation-rules.ts`:
 
 ```typescript
-export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
+export const TOOL_RULES: Readonly<Partial<Record<string, ToolPresentationRule>>> = Object.freeze({
     // ...existing tools
 
     my_new_tool: {
@@ -328,18 +328,17 @@ export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
         knownArgs: ["path", "content"],
         knownDetails: ["resolvedPath", "size"],
         describe(args: unknown): ToolDescription {
-            const path = stringValue(args, "path");
-            return {
-                label: "my_new_tool",
-                details: path ? [path] : []
-            };
+            const path = stringValue(record(args), "path");
+            return { title: "my_new_tool", description: path, meta: [] };
         },
         resultMeta(result: unknown): readonly string[] {
-            const size = numberValue(result, "size");
-            return size ? [`${size} bytes`] : [];
-        }
+            const details = record(record(result).details);
+            return typeof details.size === "number"
+                ? [`${details.size} bytes`]
+                : [];
+        },
     },
-};
+});
 ```
 
 2. Add tests in `docs/tests/tool-presentation-rules.test.ts`:
@@ -347,14 +346,16 @@ export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
 ```typescript
 describe("my_new_tool", () => {
     test("describes with path", () => {
-        const desc = TOOL_REGISTRY.my_new_tool.describe({ path: "file.txt" });
-        expect(desc.label).toBe("my_new_tool");
-        expect(desc.details).toEqual(["file.txt"]);
+        const desc = TOOL_RULES.my_new_tool?.describe({ path: "file.txt" });
+        expect(desc?.title).toBe("my_new_tool");
+        expect(desc?.description).toBe("file.txt");
+        expect(desc?.meta).toEqual([]);
     });
 
     test("describes without path", () => {
-        const desc = TOOL_REGISTRY.my_new_tool.describe({});
-        expect(desc.details).toEqual([]);
+        const desc = TOOL_RULES.my_new_tool?.describe({});
+        expect(desc?.description).toBe("");
+        expect(desc?.meta).toEqual([]);
     });
 });
 ```

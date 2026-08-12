@@ -169,7 +169,7 @@ Host orchestrator. Installs and manages patches.
 
 ### Render Decision (render-decision.ts)
 
-Pure decision tables map `(route, phase, mode, state)` → `RenderDecision`.
+Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
 
 **Decision outcomes:**
 - `"tool-rows"` — show compact rows
@@ -499,11 +499,11 @@ function isRenderableBlock(component: unknown): boolean {
 
 All external inputs bounded:
 
-- Config file: 65,536 bytes, 16 depth
-- Tool result payload: 128 KB
-- Tool name: 256 chars
-- toolCallId: 256 chars
-- Mutation entries: 10,000 max
+- Config file: `MAX_CONFIG_BYTES` 65,536 bytes, `MAX_CONFIG_DEPTH` 16
+- Tool result payload: `MAX_PAYLOAD_BYTES` 1 MiB (1,048,576 bytes)
+- Tool name: `MAX_TOOL_NAME_LENGTH` 128 chars
+- toolCallId: `MAX_TOOL_CALL_ID_LENGTH` 256 chars
+- Mutation entries: `MAX_MUTATION_ENTRIES` 1,000 max
 
 **Outcome:** DoS-resistant. Oversized inputs rejected with warning.
 
@@ -526,7 +526,9 @@ All external inputs bounded:
 1. Add rule to `tool-presentation-rules.ts`:
 
 ```typescript
-export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
+export const TOOL_RULES: Readonly<
+    Partial<Record<string, ToolPresentationRule>>
+> = Object.freeze({
     // ...existing tools
 
     my_tool: {
@@ -535,11 +537,11 @@ export const TOOL_REGISTRY: Record<string, ToolPresentationRule> = {
         knownArgs: ["arg1", "arg2"],
         knownDetails: ["detail1"],
         describe(args: unknown): ToolDescription {
-            const a1 = stringValue(args, "arg1");
-            return { label: "my_tool", details: a1 ? [a1] : [] };
+            const a1 = stringValue(record(args), "arg1");
+            return { title: "my_tool", description: a1, meta: [] };
         },
     },
-};
+});
 ```
 
 2. No other changes needed. Decision tables use registry lookup.
@@ -555,10 +557,11 @@ export type CompactMode = "compact" | "live" | "clear" | "my_mode";
 2. Update decision tables in `render-decision.ts`:
 
 ```typescript
-function decideToolRender(/* ... */): RenderDecision {
+function decideToolRender(/* ... */): ToolRenderDecision {
     // Add rules for new mode
-    if (mode === "my_mode" && /* condition */) return "tool-rows";
-    // ...
+    if (mode === "my_mode" && /* condition */) {
+        return { kind: "tool-rows", filtered: false, summary: false, includeGit: false };
+    }
 }
 ```
 
