@@ -1,0 +1,100 @@
+{
+	"rows": ["<answer 1>", "<answer 2>"],
+	"carriers": [
+		{
+			"customType": "omp-compact-git",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_esPasZhTXbsDhYn58GMYtOa2|fc_<hash>e8b4c84d54",
+				"subcommand": "status",
+				"text": "git status --short --untracked-files=all",
+				"isError": false,
+				"records": [
+					{
+						"subcommand": "status",
+						"text": "git status --short --untracked-files=all",
+						"isError": false
+					}
+				]
+			}
+		},
+		{
+			"customType": "omp-compact-git",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_U4NnF5nR5H6xTZnPPdQtELS2|fc_<hash>f377d8d248",
+				"subcommand": "add",
+				"text": "git add omp-patch/PLUGIN-CODE-REVIEW.md",
+				"isError": false,
+				"records": [
+					{
+						"subcommand": "add",
+						"text": "git add omp-patch/PLUGIN-CODE-REVIEW.md",
+						"isError": false
+					},
+					{
+						"subcommand": "commit",
+						"text": "git commit -m docs: add omp compact code review",
+						"isError": false
+					}
+				]
+			}
+		},
+		{
+			"customType": "omp-compact-git",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_StkIx7M7NtFpiQo4XBJuKp9R|fc_<hash>a69f79acc1",
+				"subcommand": "status",
+				"text": "git status --short --untracked-files=all",
+				"isError": false,
+				"records": [
+					{
+						"subcommand": "status",
+						"text": "git status --short --untracked-files=all",
+						"isError": false
+					}
+				]
+			}
+		},
+		{
+			"customType": "omp-compact-git",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_6UG3C9nuJmf9lH4wzq1Pmemd|fc_<hash>1cb57e403f",
+				"subcommand": "status",
+				"text": "git status --short --untracked-files=all",
+				"isError": false,
+				"records": [
+					{
+						"subcommand": "status",
+						"text": "git status --short --untracked-files=all",
+						"isError": false
+					}
+				]
+			}
+		},
+		{
+			"customType": "omp-compact-git",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_5bVIinvKqWDEkb1eJIUnnatw|fc_<hash>24341df2f3",
+				"subcommand": "add",
+				"text": "git add omp-patch/goal.md",
+				"isError": false,
+				"records": [
+					{
+						"subcommand": "add",
+						"text": "git add omp-patch/goal.md",
+						"isError": false
+					},
+					{
+						"subcommand": "commit",
+						"text": "git commit -m docs: document omp compact goal",
+						"isError": false
+					}
+				]
+			}
+		}
+	]
+}

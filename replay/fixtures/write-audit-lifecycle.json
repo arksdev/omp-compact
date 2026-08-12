@@ -1,0 +1,596 @@
+{
+	"meta": {
+		"id": "write-audit-lifecycle",
+		"source": "2026-08-10T17-50-32-859Z_019feccc-319b-7000-8623-b23e831714bf/WriteAuditLifecycle.jsonl",
+		"sourceKind": "session-jsonl",
+		"captureDate": "2026-08-11",
+		"cwd": "/repo",
+		"mode": "live",
+		"stats": false,
+		"terminal": "none",
+		"events": 38,
+		"tools": 16,
+		"toolNames": {
+			"edit": 6,
+			"bash": 4,
+			"write": 3,
+			"grep": 2,
+			"hub": 1
+		},
+		"redaction": "absolute repo paths -> /repo; other absolute roots -> /projects/N|/abs/N; secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
+		"note": "write events audited against an empty sandbox (no-op evidence path); compaction label in source"
+	},
+	"events": [
+		{
+			"t": "run_start"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_RAZYMwLym4abl9A95aYX1638",
+			"name": "grep",
+			"args": {
+				"path": "omp-patch"
+			},
+			"intent": "Find plugin tsconfig generation reference"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_RAZYMwLym4abl9A95aYX1638",
+			"name": "grep",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"scopePath": "omp-patch",
+					"searchPath": "/repo/omp-patch",
+					"cwd": "/repo",
+					"matchCount": 3,
+					"fileCount": 2,
+					"files": ["omp-patch/refactoring.md", "omp-patch/task.md"],
+					"fileMatches": [
+						{
+							"path": "omp-patch/refactoring.md",
+							"count": 1
+						},
+						{
+							"path": "omp-patch/task.md",
+							"count": 2
+						}
+					],
+					"truncated": false,
+					"displayContent": "[output 724 chars]"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 306,
+				"output": 243,
+				"cacheRead": 137856,
+				"cacheWrite": 0,
+				"totalTokens": 138405,
+				"reasoningTokens": 98,
+				"cost": {
+					"input": 0.00004284,
+					"output": 0.00006804,
+					"cacheRead": 0.0003859968,
+					"cacheWrite": 0,
+					"total": 0.0004968768
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_KcQ1bCRbEni35czLdNGI5941",
+			"name": "bash",
+			"args": {
+				"command": "ls omp-patch/runtime/omp-17.2.12/.omp-compact-test/ 2>/dev/null | head; echo ---; cat omp-patch/runtime/omp-17.2.12/.omp-compact-test/tsconfig.json 2>/dev/null"
+			},
+			"intent": "Inspect generated plugin test tsconfig"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_KcQ1bCRbEni35czLdNGI5941",
+			"name": "bash",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"timeoutSeconds": 300,
+					"wallTimeMs": 12.975167002528906
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 297,
+				"output": 245,
+				"cacheRead": 138368,
+				"cacheWrite": 0,
+				"totalTokens": 138910,
+				"reasoningTokens": 120,
+				"cost": {
+					"input": 0.000041580000000000005,
+					"output": 0.0000686,
+					"cacheRead": 0.0003874304,
+					"cacheWrite": 0,
+					"total": 0.0004976104
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_4lQeAT4RYYXxvcITW3392859",
+			"name": "write",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+			},
+			"intent": "Write lifecycle contract tests"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_4lQeAT4RYYXxvcITW3392859",
+			"name": "write",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 239,
+				"output": 5917,
+				"cacheRead": 138880,
+				"cacheWrite": 0,
+				"totalTokens": 145036,
+				"reasoningTokens": 2151,
+				"cost": {
+					"input": 0.00003346,
+					"output": 0.0016567600000000002,
+					"cacheRead": 0.000388864,
+					"cacheWrite": 0,
+					"total": 0.002079084
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_rQUBNzHTEPw6paMeiGCZ8176",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+			},
+			"intent": "Replace inline cast with checked narrowing"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_rQUBNzHTEPw6paMeiGCZ8176",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"diff": " 194|describe(\"agent_end drain\", () => {\n\n 367|});\n 368|\n+369|function gitCommand(payload: unknown): string {\n+370|\tif (payload && typeof payload === \"object\" && \"command\" in payload) {\n+371|\t\tconst c…<+756 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+					"firstChangedLine": 369,
+					"oldText": "[output 12517 chars]",
+					"newText": "[output 12742 chars]"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 779,
+				"output": 1028,
+				"cacheRead": 145024,
+				"cacheWrite": 0,
+				"totalTokens": 146831,
+				"reasoningTokens": 545,
+				"cost": {
+					"input": 0.00010906,
+					"output": 0.00028784000000000004,
+					"cacheRead": 0.0004060672,
+					"cacheWrite": 0,
+					"total": 0.0008029672
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_93W0Xh35Q3jalPh74c1e5762",
+			"name": "write",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+			},
+			"intent": "Write red-phase stub with old semantics"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_93W0Xh35Q3jalPh74c1e5762",
+			"name": "write",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_mBJu7LYlSQLNMEqX2lca1267",
+			"name": "bash",
+			"args": {
+				"command": "bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -40"
+			},
+			"intent": "Run lifecycle tests (expect red)"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_mBJu7LYlSQLNMEqX2lca1267",
+			"name": "bash",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"timeoutSeconds": 300,
+					"wallTimeMs": 88.12770900130272
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_agTMbV8MaG4qeo4utsmd7850",
+			"name": "write",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+			},
+			"intent": "Write real lifecycle implementation"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_agTMbV8MaG4qeo4utsmd7850",
+			"name": "write",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"resolvedPath": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.ts"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_tiaSm1Ap77T0hpuYbJDZ1220",
+			"name": "bash",
+			"args": {
+				"command": "bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -20"
+			},
+			"intent": "Run lifecycle tests (expect green)"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_tiaSm1Ap77T0hpuYbJDZ1220",
+			"name": "bash",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"timeoutSeconds": 300,
+					"wallTimeMs": 82.93979100137949
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_kNazbxBIag6E9BjzPugT1891",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+			},
+			"intent": "Replace flawed race probe in timeout test"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_kNazbxBIag6E9BjzPugT1891",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"diff": " 247|\ttest(\"drain fails closed at the bound when a write's end never arrives\", async () => {\n\n 263|\n 264|\t\t// The abandoned record does not block a later run's drain.\n-265|\t\tawait expect(\n-266|\t\t\tProm…<+418 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+					"firstChangedLine": 265,
+					"oldText": "[output 12742 chars]",
+					"newText": "[output 12792 chars]"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_W8EJDFgqAFURreISFnSJ5774",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit-lifecycle.test.ts"
+			},
+			"intent": "Replace flawed race probe in snapshot test"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_W8EJDFgqAFURreISFnSJ5774",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"diff": " 311|\t\texpect(h.published).toEqual([[evidence(\"old\")]]);\n 312|\n-313|\t\tawait expect(\n-314|\t\t\tPromise.race([\n-315|\t\t\t\th.life.barrier(runIds).then(() => \"done\"),\n-316|\t\t\t\tPromise.resolve(\"pending\"),\n-317…<+434 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/audit-lifecycle.test.ts",
+					"firstChangedLine": 313,
+					"oldText": "[output 12792 chars]",
+					"newText": "[output 12935 chars]"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_70aymYbPoaiQy5oUn5c73014",
+			"name": "bash",
+			"args": {
+				"command": "bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -12"
+			},
+			"intent": "Re-run lifecycle tests"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_70aymYbPoaiQy5oUn5c73014",
+			"name": "bash",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"timeoutSeconds": 300,
+					"wallTimeMs": 72.92216600105166
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_sEstL1jdU7zAeKWk0ZMe8482",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.ts"
+			},
+			"intent": "Swap audit imports for lifecycle"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_sEstL1jdU7zAeKWk0ZMe8482",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"diff": " 6|\n 7|import {\n-8|\tcaptureWriteCandidate,\n 9|\tcompleteEditMutations,\n+9|\tcaptureWriteCandidate,\n 10|\tcompleteWriteCandidate,\n-11|\ttype MutationCandidate,\n 12|} from \"./audit\";\n+12|import { AuditLifec…<+158 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/index.ts",
+					"firstChangedLine": 8,
+					"oldText": "[output 8304 chars]",
+					"newText": "[output 8331 chars]"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_JnToIe8N1b3jnU5KIa0U6871",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.ts"
+			},
+			"intent": "Replace pending maps with lifecycle instance"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_JnToIe8N1b3jnU5KIa0U6871",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"diff": " 33|const MAX_GIT_RESULT_TEXT = 8_192;\n 34|\n+35|function pendingGitFrom(payload: unknown): PendingGit | undefined {\n+36|\tif (payload && typeof payload === \"object\" && \"command\" in payload) {\n+37|\t\tcon…<+296 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/index.ts",
+					"firstChangedLine": 35,
+					"oldText": "[output 8331 chars]",
+					"newText": "[output 8617 chars]"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_wy22Srj0VUttxgsR5BbA8929",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.ts"
+			},
+			"intent": "Swap pendingWrites/pendingGit for lifecycle + chain"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_wy22Srj0VUttxgsR5BbA8929",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"__synthetic": true,
+					"source": "interrupt_skipped",
+					"executed": false
+				}
+			},
+			"isError": true,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_o5CxM0cKldSN3poWTSSW0658",
+			"name": "grep",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/turn-ledger.ts"
+			},
+			"intent": "Find classifyAgentEnd in turn-ledger"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_o5CxM0cKldSN3poWTSSW0658",
+			"name": "grep",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"scopePath": "omp-patch/plugins/omp-compact/turn-ledger.ts",
+					"searchPath": "/repo/omp-patch/plugins/omp-compact/turn-ledger.ts",
+					"cwd": "/repo",
+					"matchCount": 5,
+					"fileCount": 1,
+					"files": ["omp-patch/plugins/omp-compact/turn-ledger.ts"],
+					"fileMatches": [
+						{
+							"path": "omp-patch/plugins/omp-compact/turn-ledger.ts",
+							"count": 5
+						}
+					],
+					"truncated": false,
+					"displayContent": "[output 881 chars]"
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_vCoJyZmvcsflMYcmM9kr8552",
+			"name": "hub",
+			"intent": "Confirm drain semantics with race contracts"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_vCoJyZmvcsflMYcmM9kr8552",
+			"name": "hub",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[shaken]"
+					}
+				],
+				"details": {
+					"op": "send",
+					"from": "WriteAuditLifecycle",
+					"to": "AsyncRaceContracts",
+					"receipts": [
+						{
+							"to": "AsyncRaceContracts",
+							"outcome": "injected"
+						}
+					]
+				}
+			},
+			"isError": false,
+			"pruned": true
+		},
+		{
+			"t": "session_shutdown"
+		}
+	]
+}

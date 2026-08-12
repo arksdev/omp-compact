@@ -1,0 +1,190 @@
+{
+	"rows": [
+		"• hub",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +1|1",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|1",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|1",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +3|0",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +3|0",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +1|1",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +0|1",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +0|1",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +2|0",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +1|0",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +1|0",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +1|1",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +2|0",
+		"• edit: omp-patch/plugins/omp-compact/runtime-adapter.ts +3|0",
+		"• grep: ? · in omp-patch/plugins/omp-compact/runtime-adapter.ts · 0 matches"
+	],
+	"carriers": [
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_5E0y3FY1WUyTwTjbQXNw4162",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 1,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_0ZjiUYD23NKS5WUxH0u22850",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_iTMmHiXIi04aIGKudgQf8151",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_NDd9o64qiXyVqHf3bjUO6980",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 3,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_cRJq2eWC4M38ofpXkDMX6312",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 3,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_3ufptQlNXKzRJ0GdLfQX8507",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 1,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_Hjcwd8VGl8ZrWD9iQQBm8461",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 0,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_NJ19aqFOmDJ6GwSdYmT35772",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 0,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_iByUVwgCGZkCyFmx3xhl0986",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 2,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_f9j58JsUd09cSImmx6xk8042",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 1,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_4Mziy2uHxt5oeOxkWDDJ6456",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 1,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_n6WAVxYihWQe1dzzd14o4989",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 1,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_ztTuJp6d91uflC6EBn5g2740",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 2,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_QdxgzH2r2c07u8Z8zjiR0265",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+				"added": 3,
+				"removed": 0,
+				"exact": true
+			}
+		}
+	]
+}

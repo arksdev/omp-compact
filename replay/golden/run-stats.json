@@ -1,0 +1,25 @@
+{
+	"rows": [
+		"[ 16 actions · 3.2k sent · 1.9k received · 99% cache (386.3k hit) · 0s ]",
+		"<answer 3>"
+	],
+	"carriers": [
+		{
+			"customType": "omp-compact-stats",
+			"data": {
+				"version": 1,
+				"runId": "omp-compact-run-1",
+				"actions": 16,
+				"sent": 3207,
+				"received": 1919,
+				"cacheRead": 386304,
+				"cacheWrite": 0,
+				"hitRate": 0.9917665996595731,
+				"durationMs": 0,
+				"hasError": false,
+				"messages": 4,
+				"completedAt": 0
+			}
+		}
+	]
+}

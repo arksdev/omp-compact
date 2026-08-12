@@ -1,0 +1,70 @@
+{
+	"rows": [
+		"• read omp-patch/plugins/omp-compact/runtime-adapter.ts:560-1040",
+		"• read omp-patch/plugins/omp-compact/index.integration.test.ts:1-260",
+		"• read omp-patch/plugins/omp-compact/index.integration.test.ts:263-484",
+		"• read omp-patch/plugins/omp-compact/render.test.ts:240-330",
+		"• read omp-patch/plugins/omp-compact/runtime-adapter.ts:1-60",
+		"• read omp-patch/goal.md",
+		"• read omp-patch/plugins/omp-compact/render.test.ts:330-454",
+		"• grep: ? · in omp-patch/plugins/omp-compact/audit.ts · 16 matches",
+		"• grep: ? · in omp-patch/plugins/omp-compact/audit-diff.ts · 40 matches",
+		"• bash: ls omp-patch/plugins/omp-compact/../ && cat omp-patch/plugins/omp-compact/package.json 2>/dev/null; echo ---; l…",
+		"• bash: cat omp-patch/runtime/omp-17.2.12/package.json; echo ---; ls omp-patch/runtime/omp-17.2.12/node_modules/.bin/ 2…",
+		"• bash: ls -la omp-patch/runtime/omp-17.2.12/node_modules/.bin/omp; echo ---; grep -n \"OMP_STOCK_BIN\\|bun test\" omp-pat…",
+		"• edit: omp-patch/plugins/omp-compact/render.test.ts +3|0",
+		"• edit: omp-patch/plugins/omp-compact/render.test.ts +2|0",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +1|1",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|3"
+	],
+	"carriers": [
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_UYtyUjvI9VLwY7M99vhI2304",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/render.test.ts",
+				"added": 3,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_gYyUMYRKyAlLUwvNBi5Z9269",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/render.test.ts",
+				"added": 2,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_P9u0bEJl3UVyXeOJdtHZ2239",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 1,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_7KAorVGDDVFKFTAcwJ0q3910",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 3,
+				"exact": true
+			}
+		}
+	]
+}

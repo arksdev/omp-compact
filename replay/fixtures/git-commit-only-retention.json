@@ -1,0 +1,764 @@
+{
+	"meta": {
+		"id": "git-commit-only-retention",
+		"source": "2026-08-10T17-50-32-859Z_019feccc-319b-7000-8623-b23e831714bf/GitCommitOnlyRetention.jsonl",
+		"sourceKind": "session-jsonl",
+		"captureDate": "2026-08-11",
+		"cwd": "/repo",
+		"mode": "live",
+		"stats": false,
+		"terminal": "none",
+		"events": 38,
+		"tools": 16,
+		"toolNames": {
+			"read": 7,
+			"edit": 4,
+			"bash": 3,
+			"grep": 2
+		},
+		"redaction": "absolute repo paths -> /repo; other absolute roots -> /projects/N|/abs/N; secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
+		"note": "real edit details.diff carriers; failed bash (exit 2); read path selectors; ends at yield (working phase)"
+	},
+	"events": [
+		{
+			"t": "run_start"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_5mQZ88RlZmANZfAzgMjR6031",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts:560-1040"
+			},
+			"intent": "Read adapter core install and render hooks"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_5mQZ88RlZmANZfAzgMjR6031",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 16716 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 16559 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 696,
+						"totalBytes": 16569,
+						"outputLines": 485,
+						"outputBytes": 16569,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 16659 chars]",
+						"startLine": 556,
+						"lineNumbers": [556, null, 558, 559, 560, "<+485 items>"]
+					},
+					"fileSize": 39172,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 1254,
+							"totalBytes": 16569,
+							"outputLines": 485,
+							"outputBytes": 16569,
+							"shownRange": {
+								"start": 559,
+								"end": 1043
+							},
+							"nextOffset": 1044
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 276,
+				"output": 3523,
+				"cacheRead": 95104,
+				"cacheWrite": 0,
+				"totalTokens": 98903,
+				"reasoningTokens": 3397,
+				"cost": {
+					"input": 0.00003864,
+					"output": 0.00098644,
+					"cacheRead": 0.0002662912,
+					"cacheWrite": 0,
+					"total": 0.0012913712
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_VDCRWwf5pgmgjwS8b46U3679",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts:1-260"
+			},
+			"intent": "Read integration harness helpers"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_VDCRWwf5pgmgjwS8b46U3679",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 7257 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 7196 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 3907,
+						"totalBytes": 7196,
+						"outputLines": 263,
+						"outputBytes": 7196,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 7204 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+261 items>"]
+					},
+					"fileSize": 116460,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 3907,
+							"totalBytes": 7196,
+							"outputLines": 263,
+							"outputBytes": 7196,
+							"shownRange": {
+								"start": 1,
+								"end": 263
+							},
+							"nextOffset": 264
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 4696,
+				"output": 8151,
+				"cacheRead": 98816,
+				"cacheWrite": 0,
+				"totalTokens": 111663,
+				"reasoningTokens": 8053,
+				"cost": {
+					"input": 0.00065744,
+					"output": 0.0022822800000000002,
+					"cacheRead": 0.00027668479999999997,
+					"cacheWrite": 0,
+					"total": 0.0032164048000000002
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_mwgl3ibD0DvzP1QY8KaD9002",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts:263-484"
+			},
+			"intent": "Read remaining harness helpers"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_mwgl3ibD0DvzP1QY8KaD9002",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 6389 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 6255 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 3646,
+						"totalBytes": 6259,
+						"outputLines": 226,
+						"outputBytes": 6259,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 6334 chars]",
+						"startLine": 180,
+						"lineNumbers": [180, null, 185, null, 260, "<+230 items>"]
+					},
+					"fileSize": 116460,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 3907,
+							"totalBytes": 6259,
+							"outputLines": 226,
+							"outputBytes": 6259,
+							"shownRange": {
+								"start": 262,
+								"end": 487
+							},
+							"nextOffset": 488
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 2078,
+				"output": 80,
+				"cacheRead": 111616,
+				"cacheWrite": 0,
+				"totalTokens": 113774,
+				"cost": {
+					"input": 0.00029092,
+					"output": 0.000022400000000000002,
+					"cacheRead": 0.0003125248,
+					"cacheWrite": 0,
+					"total": 0.0006258448
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_GEdVaVfToUT5EwwirJ6L7290",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/render.test.ts:240-330"
+			},
+			"intent": "Read mutation color assertions"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_GEdVaVfToUT5EwwirJ6L7290",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 2376 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 2146 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 216,
+						"totalBytes": 2157,
+						"outputLines": 95,
+						"outputBytes": 2157,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 2321 chars]",
+						"startLine": 119,
+						"lineNumbers": [119, null, 232, 233, null, "<+101 items>"]
+					},
+					"fileSize": 12809,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/render.test.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 454,
+							"totalBytes": 2157,
+							"outputLines": 95,
+							"outputBytes": 2157,
+							"shownRange": {
+								"start": 239,
+								"end": 333
+							},
+							"nextOffset": 334
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 1804,
+				"output": 256,
+				"cacheRead": 113664,
+				"cacheWrite": 0,
+				"totalTokens": 115724,
+				"reasoningTokens": 178,
+				"cost": {
+					"input": 0.00025256000000000003,
+					"output": 0.00007168,
+					"cacheRead": 0.0003182592,
+					"cacheWrite": 0,
+					"total": 0.0006424992
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_Nf8dF75IvwSKYzLO1IA41606",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts:1-60"
+			},
+			"intent": "Read adapter imports"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_01_XHYvD5ApDr1SgjqA53Sg0442",
+			"name": "grep",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit.ts"
+			},
+			"intent": "Find completeEditMutations diff parsing"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_01_XHYvD5ApDr1SgjqA53Sg0442",
+			"name": "grep",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1809 chars]"
+					}
+				],
+				"details": {
+					"scopePath": "omp-patch/plugins/omp-compact/audit.ts",
+					"searchPath": "/repo/omp-patch/plugins/omp-compact/audit.ts",
+					"cwd": "/repo",
+					"matchCount": 16,
+					"fileCount": 1,
+					"files": ["omp-patch/plugins/omp-compact/audit.ts"],
+					"fileMatches": [
+						{
+							"path": "omp-patch/plugins/omp-compact/audit.ts",
+							"count": 16
+						}
+					],
+					"truncated": false,
+					"displayContent": "[output 1855 chars]"
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_Nf8dF75IvwSKYzLO1IA41606",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1626 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 1573 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 1254,
+						"totalBytes": 1573,
+						"outputLines": 63,
+						"outputBytes": 1573,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 1575 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+59 items>"]
+					},
+					"fileSize": 39172,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 1254,
+							"totalBytes": 1573,
+							"outputLines": 63,
+							"outputBytes": 1573,
+							"shownRange": {
+								"start": 1,
+								"end": 63
+							},
+							"nextOffset": 64
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_79lPAvCbks5ICKTxsTmd2161",
+			"name": "grep",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/audit-diff.ts"
+			},
+			"intent": "Read completeEditMutations implementation"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_79lPAvCbks5ICKTxsTmd2161",
+			"name": "grep",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 3483 chars]"
+					}
+				],
+				"details": {
+					"scopePath": "omp-patch/plugins/omp-compact/audit-diff.ts",
+					"searchPath": "/repo/omp-patch/plugins/omp-compact/audit-diff.ts",
+					"cwd": "/repo",
+					"matchCount": 40,
+					"fileCount": 1,
+					"files": ["omp-patch/plugins/omp-compact/audit-diff.ts"],
+					"fileMatches": [
+						{
+							"path": "omp-patch/plugins/omp-compact/audit-diff.ts",
+							"count": 40
+						}
+					],
+					"truncated": false,
+					"displayContent": "[output 3606 chars]"
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_U0TW83UM9ElXeKcjc0cv6855",
+			"name": "bash",
+			"args": {
+				"command": "ls omp-patch/plugins/omp-compact/../ && cat omp-patch/plugins/omp-compact/package.json 2>/dev/null; echo ---; ls omp-patch/runtime/omp-17.2.12/ | head; echo ---; env | grep -i omp"
+			},
+			"intent": "Check test runner setup and stock binary"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_U0TW83UM9ElXeKcjc0cv6855",
+			"name": "bash",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1209 chars]"
+					}
+				],
+				"details": {
+					"timeoutSeconds": 300,
+					"wallTimeMs": 60.22929099947214,
+					"meta": {
+						"limits": {
+							"columnTruncated": {
+								"maxColumn": 768
+							}
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_fa4njClirsQV7ENnrU1x6244",
+			"name": "bash",
+			"args": {
+				"command": "cat omp-patch/runtime/omp-17.2.12/package.json; echo ---; ls omp-patch/runtime/omp-17.2.12/node_modules/.bin/ 2>/dev/null | head -20; echo ---; ls /tmp/omp-compact* 2>/dev/null | head"
+			},
+			"intent": "Inspect runtime package and bins"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_fa4njClirsQV7ENnrU1x6244",
+			"name": "bash",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 416 chars]"
+					}
+				],
+				"details": {
+					"timeoutSeconds": 300,
+					"wallTimeMs": 15.860084000974894
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_XMj2NXj00INj2DlKatVA6885",
+			"name": "bash",
+			"args": {
+				"command": "ls -la omp-patch/runtime/omp-17.2.12/node_modules/.bin/omp; echo ---; grep -n \"OMP_STOCK_BIN\\|bun test\" omp-patch/goal.md omp-patch/refactoring.md 2>/dev/null | head -30"
+			},
+			"intent": "Check stock binary and documented test commands"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_XMj2NXj00INj2DlKatVA6885",
+			"name": "bash",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 396 chars]"
+					}
+				],
+				"details": {
+					"timeoutSeconds": 300,
+					"wallTimeMs": 5.838084001094103
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_YiiNOmckYEBYhok1i2lx5373",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/goal.md"
+			},
+			"intent": "Read goal doc for current contract"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_YiiNOmckYEBYhok1i2lx5373",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 8404 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 8404 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+202 items>"]
+					},
+					"fileSize": 11304,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/goal.md"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_F6GSjETtFs2swKgjvCOL7214",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/render.test.ts:330-454"
+			},
+			"intent": "Read render tests tail"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_F6GSjETtFs2swKgjvCOL7214",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 3505 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 3504 chars]",
+						"startLine": 246,
+						"lineNumbers": [246, null, 319, 320, 321, "<+129 items>"]
+					},
+					"fileSize": 12809,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/render.test.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_UYtyUjvI9VLwY7M99vhI2304",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/render.test.ts"
+			},
+			"intent": "Add new render exports to test interface"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_UYtyUjvI9VLwY7M99vhI2304",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/render.test.ts."
+					}
+				],
+				"details": {
+					"diff": " 23|\tgitMessageComponent(\n\n 25|\t\ttheme: Theme,\n 26|\t): Component | undefined;\n+27|\tgitCommitHashes(details: GitMessageDetails): string[];\n+28|\tterminalGitSummaryLine(\n+29|\t\thashes: readonly string[],\n…<+161 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/render.test.ts",
+					"firstChangedLine": 27,
+					"oldText": "[output 12690 chars]",
+					"newText": "[output 12846 chars]"
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_gYyUMYRKyAlLUwvNBi5Z9269",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/render.test.ts"
+			},
+			"intent": "Append terminal git summary unit tests"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_gYyUMYRKyAlLUwvNBi5Z9269",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/render.test.ts."
+					}
+				],
+				"details": {
+					"diff": " 397|describe(\"pending rows\", () => {\n\n 446|\ttest(\"pending rows stay on the transparent terminal background\", () => {\n\n 458|\t});\n 459|});\n+460|\n+461|describe(\"terminal Git commit summary\", () => {\n+46…<+4084 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/render.test.ts",
+					"firstChangedLine": 460,
+					"oldText": "[output 12846 chars]",
+					"newText": "[output 16338 chars]"
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_P9u0bEJl3UVyXeOJdtHZ2239",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts"
+			},
+			"intent": "Flip migrated git row assertion to filtered-away"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_P9u0bEJl3UVyXeOJdtHZ2239",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/index.integration.test.ts."
+					}
+				],
+				"details": {
+					"diff": " 982|\tawait finishRun(booted, \"done\");\n 983|\tconst completed = visibleRows(booted.transcript).join(\"\\n\");\n-984|\texpect(completed).toContain(\"git status M migrated.ts\");\n+984|\t// the non-commit Git row…<+279 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+					"firstChangedLine": 984,
+					"snapshotsPruned": true
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_7KAorVGDDVFKFTAcwJ0q3910",
+			"name": "edit",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.integration.test.ts"
+			},
+			"intent": "Update recognized Git retention test to commit summary"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_7KAorVGDDVFKFTAcwJ0q3910",
+			"name": "edit",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "Successfully replaced text in omp-patch/plugins/omp-compact/index.integration.test.ts."
+					}
+				],
+				"details": {
+					"diff": " 1322|stockTest(\n\n 1371|);\n 1372|\n-1373|stockTest(\"recognized Git rows survive, including failures\", async () => {\n-1374|\tconst success = await bootWithTranscript();\n-1375|\tawait beginRun(success);\n-1…<+4475 chars>",
+					"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+					"firstChangedLine": 1373,
+					"snapshotsPruned": true
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "session_shutdown"
+		}
+	]
+}

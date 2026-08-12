@@ -1,0 +1,112 @@
+{
+	"rows": [
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +3|0",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +1|0",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +1|1",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|1",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|2",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|2",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|2",
+		"• edit: omp-patch/plugins/omp-compact/index.integration.test.ts +0|1",
+		"<answer 1>",
+		"• bash: OMP_STOCK_BIN=./node_modules/.bin/omp bun test ../../plugins/omp-compact/index.integration.test.ts -t \"fire-and…"
+	],
+	"carriers": [
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_VMBgjRNEaUXA8qKAx8uC0803",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 3,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_s2DyME3kkgdUhvRqqJgM1144",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 1,
+				"removed": 0,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_GPewNJu12DBCoupfiPKt4525",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 1,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_XOFQDGKAwkUYgc7HLunO9898",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 1,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_EtynLP4arODVqYtn3NuD6736",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 2,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_VyXCxM0oWBrl6HASdjq72530",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 2,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_ET_70bkrFzVFiqWWKUuJFDC3938",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 2,
+				"exact": true
+			}
+		},
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_9lpOswSF9gTDmFzzsOh55670",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/index.integration.test.ts",
+				"added": 0,
+				"removed": 1,
+				"exact": true
+			}
+		}
+	]
+}

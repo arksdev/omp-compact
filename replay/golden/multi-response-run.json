@@ -1,0 +1,85 @@
+{
+	"rows": [
+		"• read omp-patch/runtime/omp-17.2.12/test.md",
+		"• read docs/omp-shell",
+		"• read docs/omp-shell/README.md",
+		"• read docs/omp-shell/rpc.md",
+		"• read docs/omp-shell/tui-options.md",
+		"• read docs/omp-shell/commands.md",
+		"• read docs/omp-shell/models.md",
+		"• read docs/omp-shell/sessions-on-disk.md",
+		"• read docs/omp-shell/messages.md",
+		"• read docs/omp-shell/events-statuses.md",
+		"• read docs/omp-shell/cli.md",
+		"• read docs/omp-shell/events-statuses.md:1-20",
+		"• read omp-patch/plugins",
+		"• todo",
+		"• bash: git status --porcelain && echo \"---BRANCH---\" && git branch --show-current · 0.4s",
+		"• todo",
+		"• git add -A",
+		"• git commit -m chore: safe commit of dirty tree before test run --quiet",
+		"• git log --oneline -1",
+		"• todo",
+		"• bash: stat -f \"%m %N\" /repo/docs/omp-shell/*.md | sort -n · 0.0s",
+		"• bash: cd /repo/docs/omp-shell && for f in README.md rpc.md tui-options.md commands.md models.md sessions-on-disk.md m…",
+		"• bash: date '+%Y-%m-%d %H:%M:%S %Z (%z)' · 0.0s",
+		"• write: docs/omp-shell/example.md",
+		"• write: omp-patch/runtime/omp-17.2.12/count-omp.sh",
+		"• bash: ./count-omp.sh · 3.5s",
+		"• todo",
+		"• todo",
+		"• todo",
+		"• todo",
+		"✗ bash: rm /repo/docs/omp-shell/example.md /repo/omp-patch/runtime/omp-17.2.12/count-omp.sh && echo \"deleted\" && ls /ab…",
+		"• todo",
+		"• bash: git status --porcelain; echo \"---\"; git log --oneline -1 · 0.8s",
+		"[ 31 actions · 54.6k sent · 11.1k received · 93% cache (720.5k hit) · 0s ]",
+		"<answer 1>"
+	],
+	"carriers": [
+		{
+			"customType": "omp-compact-git",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_01_tKPKnsLuDvxePsAmqYnh6221|54b39474-9f66-42b3-9b48-a385ba48ef01",
+				"subcommand": "add",
+				"text": "git add -A",
+				"isError": false,
+				"records": [
+					{
+						"subcommand": "add",
+						"text": "git add -A",
+						"isError": false
+					},
+					{
+						"subcommand": "commit",
+						"text": "git commit -m chore: safe commit of dirty tree before test run --quiet",
+						"isError": false
+					},
+					{
+						"subcommand": "log",
+						"text": "git log --oneline -1",
+						"isError": false
+					}
+				]
+			}
+		},
+		{
+			"customType": "omp-compact-stats",
+			"data": {
+				"version": 1,
+				"runId": "omp-compact-run-1",
+				"actions": 31,
+				"sent": 54610,
+				"received": 11120,
+				"cacheRead": 720512,
+				"cacheWrite": 0,
+				"hitRate": 0.9295465746037398,
+				"durationMs": 0,
+				"hasError": true,
+				"messages": 16,
+				"completedAt": 0
+			}
+		}
+	]
+}

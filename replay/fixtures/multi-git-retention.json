@@ -1,0 +1,818 @@
+{
+	"meta": {
+		"id": "multi-git-retention",
+		"source": "2026-08-10T17-50-32-859Z_019feccc-319b-7000-8623-b23e831714bf/MultiGitRetention.jsonl",
+		"sourceKind": "session-jsonl",
+		"captureDate": "2026-08-11",
+		"cwd": "/repo",
+		"mode": "live",
+		"stats": false,
+		"terminal": "stop",
+		"events": 39,
+		"tools": 16,
+		"toolNames": {
+			"read": 15,
+			"grep": 1
+		},
+		"redaction": "absolute repo paths -> /repo; other absolute roots -> /projects/N|/abs/N; secrets/emails/hashes -> <placeholders>; assistant prose -> deterministic <answer N>/dropped; shaken markers -> [shaken]; strings capped (args 200, result 300, arrays 5); entry envelope fields (ids/timestamps) dropped",
+		"note": "terminal stop answer; eval + edit + read mix"
+	},
+	"events": [
+		{
+			"t": "run_start"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_o4400KL7tXB0YGSCGUvO9245",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/git-records.ts:224-476"
+			},
+			"intent": "read rest of git-records"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_o4400KL7tXB0YGSCGUvO9245",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 6881 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 6881 chars]",
+						"startLine": 223,
+						"lineNumbers": [223, 224, 225, 226, 227, "<+249 items>"]
+					},
+					"fileSize": 11980,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/git-records.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 197,
+				"output": 152,
+				"cacheRead": 34048,
+				"cacheWrite": 0,
+				"totalTokens": 34397,
+				"reasoningTokens": 71,
+				"cost": {
+					"input": 0.00002758,
+					"output": 0.000042560000000000006,
+					"cacheRead": 0.00009533439999999999,
+					"cacheWrite": 0,
+					"total": 0.0001654744
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_Xk8ZxgyClv0EVFMqfHpu1298",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.ts"
+			},
+			"intent": "read index.ts"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_Xk8ZxgyClv0EVFMqfHpu1298",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1370 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 1273 chars]",
+						"startLine": 1
+					},
+					"summary": {
+						"lines": 54,
+						"elidedSpans": 6,
+						"elidedLines": 233
+					},
+					"fileSize": 8149,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/index.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 2028,
+				"output": 169,
+				"cacheRead": 34304,
+				"cacheWrite": 0,
+				"totalTokens": 36501,
+				"reasoningTokens": 98,
+				"cost": {
+					"input": 0.00028392,
+					"output": 0.00004732,
+					"cacheRead": 0.00009605119999999999,
+					"cacheWrite": 0,
+					"total": 0.0004272912
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_lV8LY1Lf4lQ4DizNYgY89366",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/index.ts:1-280"
+			},
+			"intent": "read full index.ts"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_lV8LY1Lf4lQ4DizNYgY89366",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 8058 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 7997 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 294,
+						"totalBytes": 7997,
+						"outputLines": 283,
+						"outputBytes": 7997,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 8006 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+282 items>"]
+					},
+					"fileSize": 8149,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/index.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 294,
+							"totalBytes": 7997,
+							"outputLines": 283,
+							"outputBytes": 7997,
+							"shownRange": {
+								"start": 1,
+								"end": 283
+							},
+							"nextOffset": 284
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 376,
+				"output": 76,
+				"cacheRead": 36480,
+				"cacheWrite": 0,
+				"totalTokens": 36932,
+				"cost": {
+					"input": 0.000052640000000000004,
+					"output": 0.000021280000000000003,
+					"cacheRead": 0.00010214399999999999,
+					"cacheWrite": 0,
+					"total": 0.000176064
+				}
+			}
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_aIlpMgcsXZ9Sht9f5PU88483",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/messages.ts"
+			},
+			"intent": "read messages.ts"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_01_mgUjXC0Ca1rLBi1dGzs83878",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/git-records.test.ts"
+			},
+			"intent": "read git-records tests"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_01_mgUjXC0Ca1rLBi1dGzs83878",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1720 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 1613 chars]",
+						"startLine": 1
+					},
+					"summary": {
+						"lines": 50,
+						"elidedSpans": 7,
+						"elidedLines": 77
+					},
+					"fileSize": 3613,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/git-records.test.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "continue",
+			"usage": {
+				"input": 2252,
+				"output": 164,
+				"cacheRead": 36864,
+				"cacheWrite": 0,
+				"totalTokens": 39280,
+				"reasoningTokens": 29,
+				"cost": {
+					"input": 0.00031528000000000003,
+					"output": 0.00004592,
+					"cacheRead": 0.00010321919999999999,
+					"cacheWrite": 0,
+					"total": 0.00046441920000000005
+				}
+			}
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_aIlpMgcsXZ9Sht9f5PU88483",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1700 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 1700 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+63 items>"]
+					},
+					"fileSize": 1700,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/messages.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_4UK21hJOazUY0suEcCAv1713",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/git-records.test.ts:1-140"
+			},
+			"intent": "read full git-records test"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_4UK21hJOazUY0suEcCAv1713",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 3607 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 3603 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+130 items>"]
+					},
+					"fileSize": 3613,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/git-records.test.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_6WMWygNgzuikz7xqRc7a8759",
+			"name": "grep",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts"
+			},
+			"intent": "find git handling in runtime-adapter"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_6WMWygNgzuikz7xqRc7a8759",
+			"name": "grep",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1982 chars]"
+					}
+				],
+				"details": {
+					"scopePath": "omp-patch/plugins/omp-compact/runtime-adapter.ts",
+					"searchPath": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts",
+					"cwd": "/repo",
+					"matchCount": 16,
+					"fileCount": 1,
+					"files": ["omp-patch/plugins/omp-compact/runtime-adapter.ts"],
+					"fileMatches": [
+						{
+							"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts",
+							"count": 16
+						}
+					],
+					"truncated": false,
+					"displayContent": "[output 2087 chars]"
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_l5zF4gRD185wIKesKL4g6193",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts:1-140"
+			},
+			"intent": "read runtime-adapter header and types"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_l5zF4gRD185wIKesKL4g6193",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 3784 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 3717 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 1254,
+						"totalBytes": 3719,
+						"outputLines": 143,
+						"outputBytes": 3719,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 3731 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+141 items>"]
+					},
+					"fileSize": 39172,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 1254,
+							"totalBytes": 3719,
+							"outputLines": 143,
+							"outputBytes": 3719,
+							"shownRange": {
+								"start": 1,
+								"end": 143
+							},
+							"nextOffset": 144
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_BrfuHd9PSk564irOqS3j4052",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts:360-520"
+			},
+			"intent": "read hydrate and setGit area"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_01_IdOJjwiYvNEMnMwDRbNI3379",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/runtime-adapter.ts:1040-1130"
+			},
+			"intent": "read render/lines area"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_01_IdOJjwiYvNEMnMwDRbNI3379",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 3275 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 3146 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 216,
+						"totalBytes": 3150,
+						"outputLines": 95,
+						"outputBytes": 3150,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 3217 chars]",
+						"startLine": 1024,
+						"lineNumbers": [1024, null, 1039, 1040, 1041, "<+101 items>"]
+					},
+					"fileSize": 39172,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 1254,
+							"totalBytes": 3150,
+							"outputLines": 95,
+							"outputBytes": 3150,
+							"shownRange": {
+								"start": 1039,
+								"end": 1133
+							},
+							"nextOffset": 1134
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_BrfuHd9PSk564irOqS3j4052",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 5135 chars]"
+					}
+				],
+				"details": {
+					"truncation": {
+						"content": "[output 4891 chars]",
+						"truncated": true,
+						"truncatedBy": "lines",
+						"totalLines": 896,
+						"totalBytes": 4891,
+						"outputLines": 165,
+						"outputBytes": 4891,
+						"lastLinePartial": false,
+						"firstLineExceedsLimit": false
+					},
+					"displayContent": {
+						"text": "[output 5080 chars]",
+						"startLine": 276,
+						"lineNumbers": [276, null, 286, null, 345, "<+180 items>"]
+					},
+					"fileSize": 39172,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/runtime-adapter.ts"
+						},
+						"truncation": {
+							"direction": "head",
+							"truncatedBy": "lines",
+							"totalLines": 1254,
+							"totalBytes": 4891,
+							"outputLines": 165,
+							"outputBytes": 4891,
+							"shownRange": {
+								"start": 359,
+								"end": 523
+							},
+							"nextOffset": 524
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_9jqMyzB7UyqdVCXPQ70E3102",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/render.ts"
+			},
+			"intent": "read render.ts"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_01_Vn3mEUdw2foZXlAliyNT7606",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/turn-ledger.ts"
+			},
+			"intent": "read turn-ledger.ts"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_9jqMyzB7UyqdVCXPQ70E3102",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 2262 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 2166 chars]",
+						"startLine": 1
+					},
+					"summary": {
+						"lines": 80,
+						"elidedSpans": 17,
+						"elidedLines": 189
+					},
+					"fileSize": 8298,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/render.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_result",
+			"id": "call_01_Vn3mEUdw2foZXlAliyNT7606",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1383 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 1280 chars]",
+						"startLine": 1
+					},
+					"summary": {
+						"lines": 50,
+						"elidedSpans": 12,
+						"elidedLines": 129
+					},
+					"fileSize": 4968,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/turn-ledger.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_KDdXqG3TxCBActPjbbv23016",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/turn-ledger.ts"
+			},
+			"intent": "read full turn-ledger"
+		},
+		{
+			"t": "tool_start",
+			"id": "call_01_ET_SeUdQ3u8NGYiPJwLwe6M2948",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/render.ts"
+			},
+			"intent": "read full render.ts"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_01_ET_SeUdQ3u8NGYiPJwLwe6M2948",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 2262 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 2166 chars]",
+						"startLine": 1
+					},
+					"summary": {
+						"lines": 80,
+						"elidedSpans": 17,
+						"elidedLines": 189
+					},
+					"fileSize": 8298,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/render.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_KDdXqG3TxCBActPjbbv23016",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 1383 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 1280 chars]",
+						"startLine": 1
+					},
+					"summary": {
+						"lines": 50,
+						"elidedSpans": 12,
+						"elidedLines": 129
+					},
+					"fileSize": 4968,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/turn-ledger.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_s5DfQffMmXUgn8Bru10M2643",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/turn-ledger.ts:raw"
+			},
+			"intent": "read raw turn-ledger"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_s5DfQffMmXUgn8Bru10M2643",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 4966 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 4966 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+187 items>"]
+					},
+					"fileSize": 4968,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/turn-ledger.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "tool_start",
+			"id": "call_00_ET_C3aocZLAUSBs1eZPGgDw9013",
+			"name": "read",
+			"args": {
+				"path": "omp-patch/plugins/omp-compact/render.ts:raw"
+			},
+			"intent": "read raw render.ts"
+		},
+		{
+			"t": "tool_result",
+			"id": "call_00_ET_C3aocZLAUSBs1eZPGgDw9013",
+			"name": "read",
+			"result": {
+				"content": [
+					{
+						"type": "text",
+						"text": "[output 8260 chars]"
+					}
+				],
+				"details": {
+					"displayContent": {
+						"text": "[output 8260 chars]",
+						"startLine": 1,
+						"lineNumbers": [1, 2, 3, 4, 5, "<+278 items>"]
+					},
+					"fileSize": 8298,
+					"meta": {
+						"source": {
+							"type": "path",
+							"value": "/repo/omp-patch/plugins/omp-compact/render.ts"
+						}
+					}
+				}
+			},
+			"isError": false
+		},
+		{
+			"t": "answer",
+			"text": "<answer 1>",
+			"stop": "stop"
+		},
+		{
+			"t": "session_shutdown"
+		}
+	]
+}

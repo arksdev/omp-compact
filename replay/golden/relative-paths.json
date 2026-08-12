@@ -1,0 +1,34 @@
+{
+	"rows": [
+		"• read local://<file>",
+		"• read omp-patch/plugins/omp-compact/index.integration.test.ts:140-260",
+		"• read omp-patch/plugins/omp-compact/compact.test.ts:1-60",
+		"• grep: ? · in omp-patch/plugins/omp-compact/index.integration.test.ts · 84 matches",
+		"• grep: ? · in omp-patch/plugins/omp-compact/index.integration.test.ts · 0 matches",
+		"• grep: ? · in omp-patch/plugins/omp-compact/index.integration.test.ts · 27 matches",
+		"• glob: omp-patch/plugins/omp-compact/*.ts · 20 files",
+		"• hub",
+		"✗ bash: ls -la omp-patch/plugins/omp-compact/config.ts omp-patch/plugins/omp-compact/config.test.ts omp-patch/plugins/o…",
+		"✗ write: omp-patch/plugins/omp-compact/display-path.test.ts · Skipped due to pending peer interrupt. Do not count this …",
+		"• write: omp-patch/plugins/omp-compact/display-path.test.ts",
+		"• bash: cd omp-patch/plugins/omp-compact && bun test display-path.test.ts 2>&1 | tail -20 · 0.1s",
+		"• write: omp-patch/plugins/omp-compact/display-path.ts",
+		"• bash: cd omp-patch/plugins/omp-compact && bun test display-path.test.ts 2>&1 | tail -25 · 0.1s",
+		"• edit: omp-patch/plugins/omp-compact/display-path.ts +0|1",
+		"• bash: cd omp-patch/plugins/omp-compact && bun test display-path.test.ts 2>&1 | tail -8 · 0.1s"
+	],
+	"carriers": [
+		{
+			"customType": "omp-compact-write",
+			"data": {
+				"version": 1,
+				"toolCallId": "call_00_3JWw8Lc3HyurB3DP5bvD3403",
+				"toolName": "edit",
+				"path": "/repo/omp-patch/plugins/omp-compact/display-path.ts",
+				"added": 0,
+				"removed": 1,
+				"exact": true
+			}
+		}
+	]
+}
