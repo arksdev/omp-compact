@@ -52,6 +52,22 @@ After a successful answer, the default `live` mode keeps only useful history:
 <assistant answer>
 ```
 
+## Before and after
+
+The same kind of OMP session before and after enabling `omp-compact`:
+
+### Without omp-compact
+
+[![OMP transcript before omp-compact](docs/assets/before.gif)](docs/assets/before.mp4)
+
+[Open the original MP4](docs/assets/before.mp4)
+
+### With omp-compact
+
+[![OMP transcript with omp-compact](docs/assets/after.gif)](docs/assets/after.mp4)
+
+[Open the original MP4](docs/assets/after.mp4)
+
 ## Three modes
 
 Choose a mode in `/compact-settings`. The selected mode is fixed for the current logical run, from the moment the agent starts working until its final answer.

@@ -52,4 +52,19 @@ describe("public repository layout", () => {
 			"no tracked path may live under context/ or .github/workflows/",
 		).toEqual([]);
 	});
+
+	test("ships the README demonstration media", async () => {
+		for (const file of ["before.gif", "after.gif", "before.mp4", "after.mp4"]) {
+			expect(
+				await exists(join(repoRoot, "docs", "assets", file)),
+				`missing docs/assets/${file}`,
+			).toBe(true);
+		}
+		const english = await Bun.file(join(repoRoot, "README.md")).text();
+		const russian = await Bun.file(join(repoRoot, "README.ru.md")).text();
+		for (const file of ["before.gif", "after.gif", "before.mp4", "after.mp4"]) {
+			expect(english).toContain(`docs/assets/${file}`);
+			expect(russian).toContain(`docs/assets/${file}`);
+		}
+	});
 });

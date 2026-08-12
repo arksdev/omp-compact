@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-12
+
+### Changed
+
+- Corrected public architecture limits, extension examples, upgrade instructions, and contributor verification guidance.
+- Normalized all 11 public replay fixtures and golden projections to remove raw session provenance, machine paths, timestamps, worker labels, internal namespaces, and long tool-call identifiers while preserving behavioral coverage.
+- Made replay regeneration manifest-driven through an external untracked `OMP_REPLAY_MANIFEST` and added regression contracts preventing provenance reintroduction.
+- Enabled `noUnusedLocals`, removed the discovered dead audit local, and made publication-layout checks inspect Git-tracked paths rather than harmless local ignored directories.
+- Added before/after GIF demonstrations to both READMEs, linked to their original MP4 recordings.
+
+### Verified
+
+- Stock OMP 17.2.12 release gate: 774 tests, 0 failures, and 3,928 assertions across 28 files.
+- Strict TypeScript, Biome lint/format, Markdown links, package payload, and Marketplace dry-run checks.
+
 ## [1.0.0] - 2026-08-12
 
 ### Added
@@ -49,5 +64,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The plugin supports OMP 17.2.12 and later; its known private TUI shape and executable release gate are pinned to stock 17.2.12.
 - A future incompatible host shape rolls back the presentation adapter, leaves native rendering active, and should be reported with the exact OMP version and reproduction.
 
-[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/arksdev/omp-compact/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/arksdev/omp-compact/releases/tag/v1.0.0

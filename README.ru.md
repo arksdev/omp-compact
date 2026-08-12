@@ -52,6 +52,22 @@ Working… read src/index.ts
 <assistant answer>
 ```
 
+## До и после
+
+Одинаковый тип сессии OMP до и после включения `omp-compact`:
+
+### Без omp-compact
+
+[![Transcript OMP без omp-compact](docs/assets/before.gif)](docs/assets/before.mp4)
+
+[Открыть исходное MP4](docs/assets/before.mp4)
+
+### С omp-compact
+
+[![Transcript OMP с omp-compact](docs/assets/after.gif)](docs/assets/after.mp4)
+
+[Открыть исходное MP4](docs/assets/after.mp4)
+
 ## Три режима
 
 Режим выбирается в `/compact-settings` и фиксируется на весь текущий logical run — от начала работы агента до его финального ответа.

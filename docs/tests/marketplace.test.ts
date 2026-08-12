@@ -61,4 +61,14 @@ describe("marketplace catalog", () => {
 			`## [${pkg.version}]`,
 		);
 	});
+
+	test("current patch release metadata is synchronized", async () => {
+		expect(pkg.version).toBe("1.0.1");
+		expect(catalog.plugins[0].version).toBe("1.0.1");
+		const changelog = await Bun.file(join(repoRoot, "CHANGELOG.md")).text();
+		expect(changelog).toContain("## [1.0.1] - 2026-08-12");
+		expect(changelog).toContain(
+			"[1.0.1]: https://github.com/arksdev/omp-compact/compare/v1.0.0...v1.0.1",
+		);
+	});
 });
