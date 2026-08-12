@@ -37,5 +37,8 @@ omp-replay-manifest.json
 /tools/
 /.github-tree.txt
 
+# Local decision records; public project decisions belong in documentation.
+/context/
+
 # Local session handoff; the canonical OMP session remains under ~/.omp
 /.session-handoff/
