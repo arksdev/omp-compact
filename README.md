@@ -1,31 +1,33 @@
 # omp-compact
 
+**English** · [Русский](README.ru.md)
+
 ![omp-compact](hero.jpg)
 
-## Установка через Marketplace
+## Install from the Marketplace
 
-Требуется **установленный OMP - [https://omp.sh/](https://omp.sh/)**.
+You need **OMP installed — [https://omp.sh/](https://omp.sh/)**.
 
 ```bash
 omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Перезапустите OMP и откройте `/compact-settings`. Если меню открылось, плагин загружен. Сам Marketplace добавляется один раз; после этого плагин можно обновлять штатными командами OMP.
+Restart OMP and open `/compact-settings`. If the menu opens, the plugin is loaded. You only need to add the Marketplace once; after that, you can update the plugin with the standard OMP commands.
 
-## Что делает плагин
+## What the plugin does
 
-Во время большой задачи OMP показывает много отдельных карточек: какие файлы он читал, что искал, какие команды запускал и что редактировал. Через несколько шагов такой журнал становится длинным, и важные изменения в нём сложно заметить.
+During a large task, OMP shows many separate cards: which files it read, what it searched for, which commands it ran, and what it edited. After a few steps, that log becomes long and the important changes are hard to spot.
 
-`omp-compact` делает этот журнал короче и понятнее:
+`omp-compact` makes the log shorter and easier to read:
 
-- пока задача выполняется, показывает действия по одной короткой строке и сохраняет их порядок;
-- когда OMP закончил отвечать, может убрать временные чтения, поиски и команды;
-- оставляет подтверждённые изменения файлов, созданные Git-коммиты и итоговую статистику;
-- если задача прервалась или завершилась ошибкой без ответа, ничего диагностически важного не скрывает;
-- не заменяет инструменты OMP и не меняет разрешения, выполнение команд или результаты.
+- while a task is running, it shows each action as one short line and keeps the original order;
+- when OMP finishes its answer, it can remove temporary reads, searches, and commands;
+- it keeps verified file changes, created Git commits, and final statistics;
+- if the task is interrupted or ends with an error and no final answer, it does not hide anything needed for diagnosis;
+- it does not replace OMP tools or change permissions, command execution, or results.
 
-Пример во время работы:
+Example while OMP is working:
 
 ```text
 Working… read src/index.ts
@@ -36,7 +38,7 @@ Working… read src/index.ts
 • edit: src/theme.css +2|0
 ```
 
-После успешного ответа в стандартном режиме `live` остаётся только полезная история:
+After a successful answer, the default `live` mode keeps only useful history:
 
 ```text
 • write: src/app.ts +17|0
@@ -46,34 +48,32 @@ Working… read src/index.ts
 <assistant answer>
 ```
 
-## Три режима
+## Three modes
 
-Режим выбирается в `/compact-settings` и фиксируется на весь текущий logical run — от начала работы агента до его финального ответа.
+Choose a mode in `/compact-settings`. The selected mode is fixed for the current logical run, from the moment the agent starts working until its final answer.
 
+| Mode | While OMP is working | After a successful answer | Best for |
+| --- | --- | --- | --- |
+| `compact` | All supported actions appear as short lines | The entire compact log remains | Keeping a complete action history without large native cards |
+| `live` — default | The same complete compact log | File changes, Git summary, and statistics remain; temporary actions are removed | Everyday use: you can watch the process while keeping the transcript clean |
+| `clear` | Ordinary tool lines are hidden | The answer and, if enabled, statistics remain | The quietest possible interface |
 
-| Режим                 | Пока OMP работает                                       | После успешного ответа                                                            | Для чего подходит                                                |
-| --------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `compact`             | Все поддерживаемые действия показаны короткими строками | Весь короткий журнал остаётся                                                     | Когда нужна полная история действий без больших native-карточек  |
-| `live` — по умолчанию | Тот же полный короткий журнал                           | Остаются изменения файлов, Git summary и статистика; временные действия удаляются | Для обычной работы: видно процесс, но transcript остаётся чистым |
-| `clear`               | Обычные строки инструментов скрыты                      | Остаётся ответ и, при включении, статистика                                       | Когда нужен максимально спокойный интерфейс                      |
+Unknown, interactive, expanded, or incompatible tools remain in OMP's native interface. In every mode, an abort or error without a final answer preserves the diagnostic log.
 
+## Additional options
 
-Unknown, interactive, expanded или несовместимые инструменты остаются в штатном интерфейсе OMP. В любом режиме abort/error без финального ответа сохраняет diagnostic log.
+All settings are available through `/compact-settings`. Plugin-only values are stored in `~/.omp/agent/omp-compact/config.json`; profiles and `PI_CODING_AGENT_DIR` change this path according to OMP's normal rules.
 
-## Дополнительные опции
+### Short file names — `Compact paths`
 
-Все настройки доступны в `/compact-settings`. Plugin-only значения сохраняются в `~/.omp/agent/omp-compact/config.json`; при профиле или `PI_CODING_AGENT_DIR` путь меняется по правилам OMP.
-
-### Короткие имена файлов — `Compact paths`
-
-Когда опция включена, полный путь внутри текущего проекта сокращается:
+When enabled, an absolute path inside the current project is shortened:
 
 ```text
 /Volumes/work/project/src/index.ts:10-20
 -> src/index.ts:10-20
 ```
 
-Меняется только отображение. Плагин не переписывает аргументы инструментов, файлы или сохранённые evidence. Внешние пути, URI, archive/SQLite selectors и небезопасные пути с `..` остаются как есть.
+This changes display only. The plugin does not rewrite tool arguments, files, or stored evidence. External paths, URIs, archive or SQLite selectors, and unsafe paths containing `..` remain unchanged.
 
 JSON:
 
@@ -83,13 +83,13 @@ JSON:
 
 ### Git — `Retain Git rows`
 
-Плагин распознаёт Git по уже выполненным Bash-командам и их результатам. Он не запускает скрытые `git log`, `rev-parse` или другие проверки.
+The plugin recognizes Git activity from Bash commands that already ran and their results. It does not run hidden `git log`, `rev-parse`, or other probes.
 
-- В `live` Git-действия видны во время работы, а после ответа заменяются одной строкой с подтверждёнными hashes созданных commits.
-- Неуспешный commit или commit без hash в итоговую строку не попадает.
-- Если выключить опцию, в `live` не будет ни промежуточных Git rows, ни terminal Git summary.
-- В `compact` полный короткий Git-журнал сохраняется независимо от этой опции; в `clear` он скрыт вместе с остальными обычными строками.
-- Самый последний добавленный коммит из серии коммитов выделяется цветом.
+- In `live`, Git actions are visible while OMP is working and are replaced after the answer by one line containing verified hashes for created commits.
+- A failed commit or a commit without a hash is not included in the final line.
+- If you disable this option, `live` shows neither intermediate Git rows nor the terminal Git summary.
+- `compact` keeps the complete short Git log regardless of this option; `clear` hides it with the other ordinary rows.
+- The newest commit in a series is highlighted with color.
 
 JSON:
 
@@ -99,16 +99,16 @@ JSON:
 
 ### Auto-shake
 
-Auto-shake автоматически вызывает штатный `AgentSession.shake("elide")` после подходящего успешного logical run. Он заменяет тяжёлые старые tool results и крупные блоки короткими placeholders с recovery-ссылкой `artifact://`; это освобождает model context, но не удаляет визуальную историю плагина.
+Auto-shake automatically calls OMP's native `AgentSession.shake("elide")` after an eligible successful logical run. It replaces heavy old tool results and large blocks with short placeholders containing an `artifact://` recovery link. This frees model context without removing the plugin's visual history.
 
-По умолчанию auto-shake **выключен**, а порог при включении равен **120 000 токенов**.
+Auto-shake is **disabled by default**. When enabled, its default threshold is **120,000 tokens**.
 
-В `/compact-settings`:
+In `/compact-settings`:
 
-1. Включите `Auto-shake`.
-2. В `Shake threshold` задайте число токенов. После завершения logical run, если число токенов в текущем контексте больше чем заданный лимит, автоматически выполнится однократный shake. Чтобы запускать автоматически после каждого logical run, просто установите 0 в значении лимита.
+1. Enable `Auto-shake`.
+2. Set `Shake threshold` to a token count. After a logical run completes, the plugin performs one shake if the current context is above that limit. Set the limit to `0` to run it after every eligible logical run.
 
-Примеры JSON:
+Example JSON with a 120,000-token threshold:
 
 ```json
 {
@@ -119,7 +119,7 @@ Auto-shake автоматически вызывает штатный `AgentSess
 }
 ```
 
-Чтобы запускать shake после каждого подходящего logical run:
+To shake after every eligible logical run:
 
 ```json
 {
@@ -130,59 +130,59 @@ Auto-shake автоматически вызывает штатный `AgentSess
 }
 ```
 
-`OMP_COMPACT_SHAKE=1` включает auto-shake поверх config, `OMP_COMPACT_SHAKE=0` выключает. Threshold всё равно читается из JSON.
+`OMP_COMPACT_SHAKE=1` enables auto-shake on top of the config; `OMP_COMPACT_SHAKE=0` disables it. The threshold still comes from JSON.
 
-**Отличие от compact-стратегии OMP:** auto-shake не создаёт LLM summary и не заменяет текущую сессию сжатым пересказом. Это хирургическое удаление тяжёлого старого содержимого через `shake("elide")`. Оно запускается только после успешного финального ответа; для subagents, continuation, abort/error или неизвестного token usage при положительном threshold операция пропускается. Если контекст уже превысил лимит, auto-shake не имеет отдельной fallback-стратегии compaction/model switch — дальнейшее восстановление остаётся за штатной context-maintenance конфигурацией OMP.
+**How this differs from OMP's compact strategy:** auto-shake does not create an LLM summary and does not replace the current session with a compressed recap. It surgically removes heavy old content through `shake("elide")`. It runs only after a successful final answer; it is skipped for subagents, continuations, aborts or errors, and unknown token usage when the threshold is positive. If the context has already exceeded its limit, auto-shake has no separate compaction or model-switch fallback; recovery remains the responsibility of OMP's standard context-maintenance configuration.
 
-### Thinking blocks и Recap summary
+### Thinking blocks and Recap summary
 
-Эти два переключателя меняют **штатный config OMP**, а не только JSON плагина:
+These two switches change **OMP's own configuration**, not only the plugin JSON:
 
-- `Thinking blocks` управляет видимостью reasoning/thinking блоков. Плагин записывает обратное значение в OMP setting `hideThinkingBlock`. Изменение вступает в силу после перезапуска OMP.
-- `Recap summary` (в OMP эта настройка называется `Idle Recap`) управляет OMP setting `recap.enabled`. Когда включено, OMP может после периода бездействия сгенерировать краткое резюме текущего состояния. Изменение применяется без перезапуска.
+- `Thinking blocks` controls whether reasoning/thinking blocks are visible. The plugin writes the inverse value to OMP's `hideThinkingBlock` setting. Restart OMP after changing it.
+- `Recap summary` (called `Idle Recap` in OMP) controls OMP's `recap.enabled` setting. When enabled, OMP can generate a short summary of the current state after an idle period. This change takes effect without a restart.
 
-Плагин сначала сохраняет эти значения через live `session.settings` OMP и только затем обновляет их mirror в собственном JSON. Он не вызывает `Settings.init()` и не трогает другие настройки OMP. Если подходящая main session недоступна, в меню будет `n/a`, и host settings не изменятся.
+The plugin first saves these values through OMP's live `session.settings` and only then updates their mirror in its own JSON. It does not call `Settings.init()` or alter other OMP settings. If a suitable main session is unavailable, the menu shows `n/a` and the host settings are not changed.
 
-### Статистика
+### Statistics
 
-`Run statistics` добавляет одну строку после завершённого run. Отдельно можно включать actions, sent/received tokens, cache hit и elapsed time. Ошибка хотя бы одного инструмента отмечается warning color.
+`Run statistics` adds one line after a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color.
 
-## Безопасное удаление
+## Safe removal
 
-Сначала можно просто выключить плагин без удаления:
+You can disable the plugin first without uninstalling it:
 
 ```bash
 omp plugin disable omp-compact@arksdev
 ```
 
-Для полного удаления marketplace-установки:
+To remove a Marketplace installation completely:
 
 ```bash
 omp plugin uninstall omp-compact@arksdev
 ```
 
-Если плагин был установлен одновременно в user и project scope, удалите нужную копию явно:
+If the plugin is installed in both user and project scope, remove the required copy explicitly:
 
 ```bash
 omp plugin uninstall --scope user omp-compact@arksdev
 omp plugin uninstall --scope project omp-compact@arksdev
 ```
 
-После удаления перезапустите OMP. Плагин больше не устанавливает wrappers, и интерфейс полностью возвращается к native OMP. По желанию удалите только его сохранённые настройки:
+Restart OMP after uninstalling. The plugin no longer installs its wrappers, and the interface returns completely to native OMP. You can optionally remove only the plugin's saved settings:
 
 ```bash
 rm ~/.omp/agent/omp-compact/config.json
 ```
 
-Для профиля config находится в `~/.omp/profiles/<name>/agent/omp-compact/config.json`. Удаление этого файла не меняет stock settings `recap.enabled` и `hideThinkingBlock`, потому что они уже сохранены в конфиге OMP. При необходимости верните их через штатные настройки OMP. Marketplace-каталог можно оставить для будущей переустановки или убрать отдельно:
+For a profile, the config is stored at `~/.omp/profiles/<name>/agent/omp-compact/config.json`. Removing this file does not change the stock OMP settings `recap.enabled` and `hideThinkingBlock`, because those values have already been saved in OMP's own config. Restore them through OMP's standard settings if needed. You can keep the Marketplace catalog for a future reinstall or remove it separately:
 
 ```bash
 omp plugin marketplace remove arksdev
 ```
 
-## Другие способы установки
+## Other installation methods
 
-Из Git checkout:
+From a Git checkout:
 
 ```bash
 git clone https://github.com/arksdev/omp-compact.git
@@ -191,25 +191,25 @@ bun install --frozen-lockfile
 bun run omp
 ```
 
-`bun run omp` загружает только `./index.ts` через `--no-extensions`, чтобы установленная копия плагина не загрузилась второй раз. Для постоянной marketplace/link-установки используйте обычный `omp`, чтобы остальные extensions оставались включены.
+`bun run omp` loads only `./index.ts` through `--no-extensions`, preventing a second copy from loading when the plugin is already installed. For a permanent Marketplace or linked installation, use ordinary `omp` so the rest of your extensions remain enabled.
 
-Direct launch на один запуск:
+Direct launch for one run:
 
 ```bash
 omp -e /absolute/path/to/omp-compact/index.ts
 ```
 
-## Совместимость и документация
+## Compatibility and documentation
 
-Поддерживаемая и проверенная версия — **OMP 17.2.05 и выше**. На неизвестной или несовместимой TUI shape плагин fail-open возвращается к native rendering.
+The supported and verified range is **OMP 17.2.05 and later**. On an unknown or incompatible TUI shape, the plugin fails open and returns to native rendering.
 
-- [Полная документация](docs/FULL-DOCUMENTATION.md)
-- [Конфигурация](docs/CONFIGURATION.md)
-- [Архитектура](docs/ARCHITECTURE.md)
-- [Разработка](docs/CONTRIBUTING.md)
-- [Изменения](CHANGELOG.md)
+- [Full documentation](docs/FULL-DOCUMENTATION.md)
+- [Configuration](docs/CONFIGURATION.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Contributing](docs/CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
-Проверка repository checkout:
+To verify a repository checkout:
 
 ```bash
 bun install --frozen-lockfile

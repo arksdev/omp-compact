@@ -483,7 +483,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 - Breaking change
 
 **Where to update:**
-- Main README.md (high-level)
+- README.md (English default) and README.ru.md (Russian translation)
 - docs/FULL-DOCUMENTATION.md (complete reference)
 - docs/CONFIGURATION.md (if config change)
 - docs/ARCHITECTURE.md (if internal change)
