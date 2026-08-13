@@ -443,6 +443,9 @@ function flowHarness(overrides: {
 	} as unknown as CompactSettingsStore;
 	const deps = {
 		bridge: {
+			// Pre-save host values the flow must restore when the plugin
+			// JSON persist fails (the real bridge's read never writes).
+			read: () => ({ recapEnabled: true, thinkingBlocksVisible: true }),
 			apply: async (host: CompactHostSettings) => {
 				order.push(`bridge.apply:${host.recapEnabled}`);
 				if (overrides.apply) return overrides.apply();
@@ -503,7 +506,7 @@ describe("save flow ordering and failure contract", () => {
 		expect(notifies).toEqual([]);
 	});
 
-	test("JSON persist failure skips the notify and reports no success", async () => {
+	test("JSON persist failure rolls host settings back, skips the notify and reports no success", async () => {
 		const { deps, order, notifies } = flowHarness({
 			apply: async () => ({ restartRequired: true }),
 			update: async () => {
@@ -511,7 +514,14 @@ describe("save flow ordering and failure contract", () => {
 			},
 		});
 		await expect(saveSettingsFlow(draft, deps)).rejects.toThrow("disk full");
-		expect(order).toEqual(["bridge.apply:false", "store.update"]);
+		// The failed save's apply ran, the store rejected, and the
+		// compensating rollback re-applied the pre-save host values
+		// (recapEnabled true) — the host side never diverges from the JSON.
+		expect(order).toEqual([
+			"bridge.apply:false",
+			"store.update",
+			"bridge.apply:true",
+		]);
 		expect(notifies).toEqual([]);
 	});
 
@@ -526,7 +536,7 @@ describe("save flow ordering and failure contract", () => {
 		expect(notifies).toEqual([["info", "omp-compact settings saved"]]);
 	});
 
-	test("store write failure after host apply leaves JSON unchanged, no success notice", async () => {
+	test("store write failure after host apply rolls host settings back; JSON unchanged, no success notice", async () => {
 		const dir = await mkdtemp(join(tmpdir(), "omp-compact-flow-"));
 		const configDir = join(dir, "omp-compact");
 		const configPath = join(configDir, "config.json");
@@ -534,10 +544,17 @@ describe("save flow ordering and failure contract", () => {
 		const order: string[] = [];
 		const notifies: Array<[string, string]> = [];
 		const applied: CompactHostSettings[] = [];
+		// Stateful fake of the real bridge: apply() performs set (in-memory)
+		// + flush (persistent), so a successful apply has changed BOTH the
+		// live values read() returns and what a reload would persist. A
+		// compensating rollback through apply() therefore restores both.
+		let live: CompactHostSettings = { recapEnabled: true };
 		const bridge: HostBridgeLike = {
+			read: () => ({ ...live }),
 			apply: async (host) => {
 				order.push("bridge.apply");
 				applied.push(host);
+				live = { ...host };
 				return { restartRequired: false };
 			},
 		};
@@ -559,20 +576,84 @@ describe("save flow ordering and failure contract", () => {
 				}),
 			).rejects.toThrow();
 			await chmod(configDir, 0o700);
-			expect(order).toEqual(["bridge.apply"]);
+			// The host apply ran twice: the failed save, then the
+			// compensating rollback with the pre-save host values.
+			expect(order).toEqual(["bridge.apply", "bridge.apply"]);
 			expect(applied).toEqual([
 				{ recapEnabled: false, thinkingBlocksVisible: true },
+				{ recapEnabled: true },
 			]);
 			expect(notifies).toEqual([]);
-			// The plugin JSON is byte-identical: the new host values were
-			// never recorded, so the settings UI can roll host fields back
-			// without the plugin contradicting them.
+			// Persistent (plugin JSON) is byte-identical: the new host
+			// values were never recorded.
 			expect(await readFile(configPath, "utf8")).toBe(before);
 			expect(store.snapshot().host.recapEnabled).toBe(true);
+			// In-memory host settings restored to the pre-save values too:
+			// host state and plugin JSON agree again.
+			expect(bridge.read()).toEqual({ recapEnabled: true });
 		} finally {
 			await chmod(configDir, 0o700).catch(() => undefined);
 			await rm(dir, { recursive: true, force: true });
 		}
+	});
+
+	test("store update failure after a flushed host apply rolls persistent and in-memory host settings back", async () => {
+		// The host bridge successfully applied AND flushed the new host
+		// values (set + flush changed the live values read() returns and
+		// what a reload would persist), then the plugin config store.update
+		// fails. The save must restore the pre-save host values through the
+		// bridge again — persistent AND in-memory — so host config and the
+		// unchanged plugin JSON never diverge, then surface the error.
+		const order: string[] = [];
+		const notifies: Array<[string, string]> = [];
+		let live: CompactHostSettings = {
+			recapEnabled: true,
+			thinkingBlocksVisible: true,
+		};
+		const bridge: HostBridgeLike = {
+			read: () => ({ ...live }),
+			apply: async (host) => {
+				order.push(`apply:${host.recapEnabled}:${host.thinkingBlocksVisible}`);
+				live = { ...host };
+				return { restartRequired: false };
+			},
+		};
+		const store = {
+			update: async () => {
+				order.push("store.update");
+				throw new Error("disk full");
+			},
+			overrides: () => ({ enabledBy: [], modeBy: undefined }),
+		} as unknown as CompactSettingsStore;
+		const saveDraft: CompactSettings = {
+			...DEFAULT_SETTINGS,
+			host: { recapEnabled: false, thinkingBlocksVisible: false },
+		};
+		await expect(
+			saveSettingsFlow(saveDraft, {
+				bridge,
+				store,
+				notify: (level, message) => notifies.push([level, message]),
+			}),
+		).rejects.toThrow("disk full");
+		// 1. the failed save applied and flushed the new host values,
+		// 2. the plugin JSON persist rejected,
+		// 3. the compensating rollback re-applied the pre-save host values.
+		expect(order).toEqual([
+			"apply:false:false",
+			"store.update",
+			"apply:true:true",
+		]);
+		// In-memory host settings restored: read() mirrors the pre-save state.
+		expect(bridge.read()).toEqual({
+			recapEnabled: true,
+			thinkingBlocksVisible: true,
+		});
+		// Persistent host settings restored: the rollback went through the
+		// same apply (set + flush) path that persisted the failed values.
+		expect(live).toEqual({ recapEnabled: true, thinkingBlocksVisible: true });
+		// No success notification for a failed save.
+		expect(notifies).toEqual([]);
 	});
 });
 
@@ -689,6 +770,7 @@ describe("dialog save notification contract", () => {
 	interface FlowDialog {
 		dialog: SettingsDialog;
 		notifies: Array<[string, string]>;
+		warnings: string[];
 		doneResult: CompactSettings | undefined;
 	}
 
@@ -702,10 +784,13 @@ describe("dialog save notification contract", () => {
 		update?: (next: CompactSettings) => CompactSettings;
 		/** Effective snapshot the menu opens with (store.load contract). */
 		initial?: CompactSettings;
+		/** Optional host bridge, as the command handler wires in index.ts. */
+		bridge?: HostBridgeLike;
 	}): FlowDialog {
 		const harness: FlowDialog = {
 			dialog: undefined as never,
 			notifies: [],
+			warnings: [],
 			doneResult: undefined,
 		};
 		const store = {
@@ -721,12 +806,14 @@ describe("dialog save notification contract", () => {
 				settings: overrides.initial ?? DEFAULT_SETTINGS,
 				onSave: async (next) => {
 					await saveSettingsFlow(next, {
+						bridge: overrides.bridge,
 						store,
 						notify: (level, message) => {
 							harness.notifies.push([level, message]);
 						},
 					});
 				},
+				warn: (message) => harness.warnings.push(message),
 				theme: fakeTheme(),
 				keybindings: noopKeybindings(),
 			},
@@ -768,6 +855,51 @@ describe("dialog save notification contract", () => {
 		await harness.dialog.settled();
 		expect(harness.doneResult?.enabled).toBe(false);
 		expect(harness.notifies).toEqual([["info", "omp-compact settings saved"]]);
+	});
+
+	test("failed save after a flushed host apply rolls the host back and keeps the dialog open with the error shown", async () => {
+		// Stateful fake of the real bridge: apply() = set (in-memory) +
+		// flush (persistent), so it models both layers changing together.
+		let live: CompactHostSettings = {
+			recapEnabled: true,
+			thinkingBlocksVisible: true,
+		};
+		const bridge: HostBridgeLike = {
+			read: () => ({ ...live }),
+			apply: async (host) => {
+				live = { ...host };
+				return { restartRequired: false };
+			},
+		};
+		const harness = dialogWithFlow({
+			bridge,
+			initial: {
+				...DEFAULT_SETTINGS,
+				host: { recapEnabled: true, thinkingBlocksVisible: true },
+			},
+			// The host bridge applied and flushed, then the plugin JSON
+			// persist fails — the compensating rollback must restore the
+			// pre-save host values and the dialog must surface the error.
+			update: () => {
+				throw new Error("disk full");
+			},
+		});
+		focus(harness.dialog, "Recap summary");
+		harness.dialog.handleInput(KEY_SPACE); // recap off in the draft
+		harness.dialog.handleInput(KEY_S);
+		await harness.dialog.settled();
+		// Host settings restored: persistent (apply re-flushed the pre-save
+		// values) and in-memory (read() mirrors them again).
+		expect(live).toEqual({ recapEnabled: true, thinkingBlocksVisible: true });
+		// UI stayed consistent: the dialog did NOT finish with the failed
+		// draft — unsaved state is kept and the error is shown.
+		expect(harness.doneResult).toBeUndefined();
+		expect(lines(harness.dialog).some((l) => l.includes("disk full"))).toBe(
+			true,
+		);
+		expect(harness.warnings.some((w) => w.includes("disk full"))).toBe(true);
+		// No success notification for a failed save.
+		expect(harness.notifies).toEqual([]);
 	});
 });
 
