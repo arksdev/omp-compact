@@ -1,3 +1,6 @@
+import * as path from "node:path";
+import { YAML } from "bun";
+
 import type { CompactHostSettings } from "./config";
 import {
 	createSessionResolver,
@@ -14,6 +17,11 @@ import {
  *   (`session/agent-session.ts`: `readonly settings: Settings`), whose
  *   `get`/`set`/`flush` act on the live per-session Settings instance and
  *   persist through stock `config/settings.ts`.
+ * - `Settings.getAgentDir()` is public and locates the profile directory;
+ *   stock persists global settings to `<agentDir>/config.yml` (falling back
+ *   to `config.yaml`; pi-utils `MAIN_CONFIG_FILENAMES`). The bridge reads
+ *   that file for the raw persistent pre-image, so project/runtime overrides
+ *   can never mask rollback values.
  * - The exported global `settings` Proxy (`config/settings.ts` `export const
  *   settings = new Proxy(...)`) throws `Settings not initialized. Call
  *   Settings.init() first.` on ANY property access until `Settings.init()`
@@ -50,19 +58,63 @@ import {
  * error is rethrown (the plugin JSON must not claim host-save success). A
  * no-op apply writes nothing; concurrent applies coalesce so save and flush
  * each happen at most once per logical save.
+ *
+ * Rollback safety: before any mutation the bridge captures the raw persistent
+ * pre-image of the changed paths via {@link HostSettingsApi.persistent} — the
+ * active profile YAML (`<agentDir>/config.yml` / `config.yaml`, the same files
+ * stock persists to), never the effective values that project/runtime
+ * overrides can mask. A failed flush then restores each path verbatim
+ * (present -> exact raw value, absent -> key removed via
+ * `Settings.set(path, undefined)`, which drops the leaf from the YAML on
+ * save). If the pre-image cannot be read or parsed, the bridge fails closed
+ * BEFORE `set()` with an actionable error rather than risking config
+ * corruption. Concurrency tradeoff: the pre-image read is lock-free (stock
+ * writes atomically, so no torn reads) but an external edit to one of these
+ * paths between capture and flush is a last-writer-wins race — rollback
+ * restores the captured pre-image over that concurrent edit, matching stock's
+ * own per-path overwrite semantics.
  */
 
 /** The two stock settings this bridge is allowed to touch. */
 export type HostSettingPath = "recap.enabled" | "hideThinkingBlock";
 
+/**
+ * Raw persistent (global config) state of one host path before an apply.
+ * Reads come from the active profile YAML (`<agentDir>/config.yml` or
+ * `config.yaml`), never from effective values, so project/runtime overrides
+ * cannot mask the pre-image that a failed flush must restore.
+ */
+export interface PersistentSettingState {
+	/** True when the path is explicitly present in the profile YAML. */
+	present: boolean;
+	/** Raw stored value (boolean, null, malformed string…); undefined when absent. */
+	value: unknown;
+}
+
+/** Exact persistent pre-image of every host path, captured before mutation. */
+export type PersistentPreImage = Record<HostSettingPath, PersistentSettingState>;
+
 /** Minimal surface of the stock Settings singleton (public package export). */
 export interface HostSettingsApi {
 	/** Raw effective value (schema default when unset); may be malformed. */
 	get(path: HostSettingPath): unknown;
-	/** Persist a whole-value boolean through the stock Settings layer. */
-	set(path: HostSettingPath, value: boolean): void;
+	/**
+	 * Persist a whole-value through the stock Settings layer: boolean on
+	 * forward applies; the exact raw persistent value (or `undefined` to
+	 * remove the key — stock YAML.stringify drops undefined leaves) on
+	 * rollback.
+	 */
+	set(path: HostSettingPath, value: unknown): void;
 	/** Flush pending stock saves; rethrows on persistence failure. */
 	flush(): Promise<void>;
+	/**
+	 * Raw persistent pre-image of the host paths from the active profile YAML
+	 * (global config only — never masked by project/runtime overrides). Must
+	 * be captured before any mutation so a failed flush can restore the exact
+	 * persisted values. Rejects (fail closed) when the config cannot be read
+	 * or parsed, or when the resolved path cannot be trusted.
+	 */
+	persistent(): Promise<PersistentPreImage>;
 }
 
 export interface HostApplyResult {
@@ -100,6 +152,8 @@ export interface SessionSettingsLike {
 	get(path: string): unknown;
 	set(path: string, value: unknown): void;
 	flush(): Promise<void>;
+	/** Stock `Settings.getAgentDir()`: directory holding config.yml/config.yaml. */
+	getAgentDir(): string;
 }
 
 /** The parts of the command context the resolver verifies against. */
@@ -116,6 +170,45 @@ const HOST_SETTING_DEFAULTS: Record<HostSettingPath, boolean> = {
 	"recap.enabled": DEFAULT_RECAP_ENABLED,
 	hideThinkingBlock: DEFAULT_HIDE_THINKING_BLOCK,
 };
+
+/**
+ * Stock main config filenames (pi-utils `MAIN_CONFIG_FILENAMES`), tried in
+ * order exactly like stock `Settings.#loadExistingMainYaml`.
+ */
+const MAIN_CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
+
+/** YAML-path segments for each host path, matching stock `setByPath`. */
+const HOST_SETTING_SEGMENTS: Record<HostSettingPath, readonly string[]> = {
+	"recap.enabled": ["recap", "enabled"],
+	hideThinkingBlock: ["hideThinkingBlock"],
+};
+
+/**
+ * Extract the raw persistent state of a path from a parsed profile YAML
+ * (mirrors stock `getByPath` semantics, tracking presence: `null`, scalar, or
+ * absent leaf at any level is "absent" exactly as stock resolves it, while an
+ * explicitly present leaf — even `null` or a malformed string — is preserved
+ * verbatim so rollback can restore it exactly).
+ */
+function rawPersistentState(
+	root: unknown,
+	segments: readonly string[],
+): PersistentSettingState {
+	let current: unknown = root;
+	for (const segment of segments) {
+		if (
+			current === null ||
+			current === undefined ||
+			typeof current !== "object" ||
+			Array.isArray(current) ||
+			!Object.hasOwn(current as Record<string, unknown>, segment)
+		) {
+			return { present: false, value: undefined };
+		}
+		current = (current as Record<string, unknown>)[segment];
+	}
+	return { present: true, value: current };
+}
 
 /** Flush failed AND restoring the previous values also failed to persist. */
 export class HostSettingsApplyError extends Error {
@@ -180,7 +273,7 @@ export function createHostSettingsBridge(
 	}
 
 	function setBoth(
-		changes: Array<{ path: HostSettingPath; value: boolean }>,
+		changes: Array<{ path: HostSettingPath; value: unknown }>,
 	): void {
 		for (const change of changes) {
 			api.set(change.path, change.value);
@@ -215,18 +308,39 @@ export function createHostSettingsBridge(
 			return { changed: [], restartRequired: false };
 		}
 
+		// Capture the raw persistent pre-image BEFORE any mutation. Rollback
+		// must restore the exact persisted values — never effective values,
+		// which project/runtime overrides can mask. If the pre-image cannot be
+		// read, fail closed before set(): an unverifiable rollback could
+		// corrupt the global config.
+		let preImage: PersistentPreImage;
+		try {
+			preImage = await api.persistent();
+		} catch (cause) {
+			throw new HostSettingsApplyError(
+				`Refusing to apply host settings (${changes.map((c) => c.path).join(", ")}): cannot read the persistent pre-image required for rollback safety: ${
+					cause instanceof Error ? cause.message : String(cause)
+				}`,
+				{ cause },
+			);
+		}
+
 		setBoth(changes);
 		try {
 			await api.flush();
 		} catch (cause) {
-			// Exact rollback of the values this apply changed, best-effort flush.
-			const rollbackChanges = changes.map((change) => ({
-				path: change.path,
-				value:
-					change.path === "recap.enabled"
-						? (previous.recapEnabled ?? DEFAULT_RECAP_ENABLED)
-						: !(previous.thinkingBlocksVisible ?? true),
-			}));
+			// Exact rollback of the raw persistent pre-image: a present path is
+			// restored verbatim (including malformed values); an absent path is
+			// restored by removing the key (stock Settings.set(path, undefined)
+			// drops the leaf from the YAML on save) so the schema default
+			// applies again. Best-effort flush.
+			const rollbackChanges = changes.map((change) => {
+				const state = preImage[change.path];
+				return {
+					path: change.path,
+					value: state.present ? state.value : undefined,
+				};
+			});
 			let rollbackFailed = false;
 			try {
 				setBoth(rollbackChanges);
@@ -307,14 +421,25 @@ export function createSessionSettingsResolver(
 			// A hostile/broken registry must never propagate.
 			return undefined;
 		}
-		const settings = (session as { settings?: SessionSettingsLike } | null)
-			?.settings;
+		let settings: SessionSettingsLike | undefined;
+		try {
+			settings = (session as { settings?: SessionSettingsLike } | null)
+				?.settings;
+		} catch {
+			// A throwing session.settings getter must fail open to unavailable,
+			// exactly like every other resolution failure.
+			return undefined;
+		}
 		if (
 			!settings ||
 			typeof settings.get !== "function" ||
 			typeof settings.set !== "function" ||
-			typeof settings.flush !== "function"
+			typeof settings.flush !== "function" ||
+			typeof settings.getAgentDir !== "function"
 		) {
+			// Without getAgentDir the adapter cannot read the raw persistent
+			// pre-image, so rollback safety cannot be guaranteed. Fail open to
+			// "host settings unavailable" rather than expose an unsafe bridge.
 			return undefined;
 		}
 		return settings;
@@ -325,6 +450,15 @@ export function createSessionSettingsResolver(
  * Adapt an initialized per-session `Settings` instance (resolved from the
  * live main AgentSession) to {@link HostSettingsApi}. Values flow through
  * that exact instance's get/set/flush — never through any exported global.
+ *
+ * `persistent()` is the raw pre-image seam: it reads the active profile YAML
+ * (`<getAgentDir()>/config.yml`, falling back to `config.yaml`, the same
+ * files and order stock `Settings.#loadExistingMainYaml` uses) and extracts
+ * the exact persisted values of the host paths, including key absence.
+ * Stock writes config atomically (temp file + rename), so a plain read never
+ * observes torn content; a missing profile is a trustworthy all-absent
+ * pre-image. Unreadable or invalid YAML rejects so the bridge can fail closed
+ * before mutating.
  */
 export function createSessionSettingsApi(
 	sessionSettings: SessionSettingsLike,
@@ -333,5 +467,60 @@ export function createSessionSettingsApi(
 		get: (path) => sessionSettings.get(path),
 		set: (path, value) => sessionSettings.set(path, value),
 		flush: () => sessionSettings.flush(),
+		persistent: async () => {
+			const preImage: PersistentPreImage = {
+				"recap.enabled": { present: false, value: undefined },
+				hideThinkingBlock: { present: false, value: undefined },
+			};
+			const agentDir = sessionSettings.getAgentDir();
+			let root: unknown;
+			let configPath: string | undefined;
+			for (const filename of MAIN_CONFIG_FILENAMES) {
+				const candidate = path.join(agentDir, filename);
+				let content: string;
+				try {
+					const file = Bun.file(candidate);
+					if (!(await file.exists())) continue;
+					content = await file.text();
+				} catch (error) {
+					throw new Error(
+						`Cannot read persistent host settings config ${candidate}: ${
+							error instanceof Error ? error.message : String(error)
+						}`,
+						error instanceof Error ? { cause: error } : undefined,
+					);
+				}
+				configPath = candidate;
+				try {
+					root = YAML.parse(content);
+				} catch (error) {
+					throw new Error(
+						`Persistent host settings config ${candidate} is not valid YAML: ${
+							error instanceof Error ? error.message : String(error)
+						}`,
+						error instanceof Error ? { cause: error } : undefined,
+					);
+				}
+				break;
+			}
+			// No profile yet: nothing is persisted, every path is absent.
+			if (configPath === undefined || root === null || root === undefined) {
+				return preImage;
+			}
+			if (typeof root !== "object" || Array.isArray(root)) {
+				throw new Error(
+					`Persistent host settings config ${configPath} must contain a YAML mapping at the root`,
+				);
+			}
+			for (const hostPath of Object.keys(
+				HOST_SETTING_SEGMENTS,
+			) as HostSettingPath[]) {
+				preImage[hostPath] = rawPersistentState(
+					root,
+					HOST_SETTING_SEGMENTS[hostPath],
+				);
+			}
+			return preImage;
+		},
 	};
 }
