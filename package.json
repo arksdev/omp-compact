@@ -4,7 +4,6 @@
 	"description": "Compact, evidence-preserving tool presentation for OMP 17.2.12+",
 	"type": "module",
 	"main": ".omp-plugin/index.ts",
-	"sideEffects": false,
 	"omp": {
 		"extensions": [
 			"./.omp-plugin/index.ts"

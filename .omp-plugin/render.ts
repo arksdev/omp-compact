@@ -36,13 +36,15 @@ function stripAnsi(value: string): string {
 		result += value.slice(segStart, index);
 		index++;
 		const kind = value.charCodeAt(index);
-		if (kind === 91) { // CSI ESC[
+		if (kind === 91) {
+			// CSI ESC[
 			index++;
 			while (index < value.length) {
 				const code = value.charCodeAt(index++);
 				if (code >= 64 && code <= 126) break;
 			}
-		} else if (kind === 93) { // OSC ESC]
+		} else if (kind === 93) {
+			// OSC ESC]
 			index++;
 			while (index < value.length) {
 				const code = value.charCodeAt(index++);
@@ -142,9 +144,12 @@ function settledMeta(
 	return meta;
 }
 
+// Only the foreground is opened, so only the foreground is closed: `[39m`
+// keeps any surrounding dim/bold intact and never resets the background,
+// matching the transparent-row contract in `fitTransparentLine`.
 function fixedForeground(hex: string, text: string): string {
 	const ansi = Bun.color(hex, "ansi-16m");
-	return ansi ? `${ansi}${text}\u001b[0m` : text;
+	return ansi ? `${ansi}${text}\u001b[39m` : text;
 }
 
 function mutationStat(
@@ -288,9 +293,8 @@ function pendingFrame(theme: Theme, tick: number): string {
 	return frame ?? "•";
 }
 
-// Intentional per-module copy of fitTransparentLine for tree-shakeability;
-// identical logic in render.ts and run-stats.ts (package.json declares
-// "sideEffects": false so each module stays independently droppable).
+// Intentional per-module copy of fitTransparentLine; identical logic in
+// render.ts and run-stats.ts.
 /**
  * Keep compact rows on the terminal's ordinary transparent background while
  * still fitting overlong content to the component width. Short rows are never
