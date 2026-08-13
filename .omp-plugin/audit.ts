@@ -1,6 +1,8 @@
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
+// External dependency: peelWriteUrlSelector/unwrapHashlineHeaderPath from
+// @oh-my-pi/pi-coding-agent. API stability: integration tests cover contract.
 import { peelWriteUrlSelector } from "@oh-my-pi/pi-coding-agent/tools/path-utils";
 import { unwrapHashlineHeaderPath } from "@oh-my-pi/pi-coding-agent/tools/plan-mode-guard";
 import { diffLines } from "@oh-my-pi/pi-natives";
@@ -58,7 +60,10 @@ async function canonicalPath(path: string): Promise<string> {
 	} catch {
 		const suffix: string[] = [];
 		let current = absolutePath;
+		let depth = 0;
+		const MAX_DEPTH = 100; // Defensive: typical max path depth
 		for (;;) {
+			if (++depth > MAX_DEPTH) return absolutePath;
 			const parent = dirname(current);
 			if (parent === current) return absolutePath;
 			suffix.unshift(basename(current));
@@ -192,6 +197,9 @@ export async function completeWriteCandidate(
 		canonicalPath(candidate.absolutePath),
 		canonicalPath(resolvedPath),
 	]);
+	// Triple equality check defends against race: effectiveCandidate and
+	// effectiveResult resolve symlinks independently (timing-sensitive on
+	// network mounts), and both must match the snapshot-time canonical path.
 	if (
 		effectiveCandidate !== effectiveResult ||
 		effectiveResult !== candidate.canonicalPath

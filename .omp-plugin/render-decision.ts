@@ -109,6 +109,8 @@ function effectiveHashes(input: ToolRenderInput): number {
 		: 0;
 }
 
+// Rules evaluated top-to-bottom; first match wins. Order is critical:
+// specific conditions (registry routing, clear mode) before fallbacks.
 const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	{
 		// Registry routing: only explicitly registered tools get compact
@@ -196,6 +198,8 @@ export function decideToolRender(input: ToolRenderInput): ToolRenderDecision {
 	};
 }
 
+// Rules evaluated top-to-bottom; first match wins. Clear mode and
+// expanded checks precede the default filtered/working decisions.
 const READ_GROUP_RENDER_TABLE: readonly {
 	readonly when?: (input: ReadGroupRenderInput) => boolean;
 	readonly decide: () => ReadGroupRenderDecision;

@@ -58,6 +58,8 @@ export class ModePolicy {
 	 * policy object is reused across session switches, so the first
 	 * prime/ready/prepareRun of the new session must observe store
 	 * notifications again. No-op while subscribed.
+	 * Called implicitly at the start of prime/ready/prepareRun so callers
+	 * never need to invoke it directly.
 	 */
 	#resubscribe(): void {
 		if (!this.#disposed) return;
@@ -111,6 +113,10 @@ export class ModePolicy {
 	}
 
 	#resolve(): Promise<CompactSettings> {
+		// #resolved is cleared by dispose() and re-populated on the next call.
+		// A concurrent prepareRun() after dispose() may race to call store.load()
+		// twice; both resolve to the same data and the last write to #current wins,
+		// so the race is benign. A proper once-guard is not needed here.
 		if (!this.#resolved) {
 			this.#resolved = this.#store.load().then((settings) => {
 				this.#current = settings;

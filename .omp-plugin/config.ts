@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -133,7 +134,16 @@ export function resolveConfigPath(env: EnvLike): string {
 	return join(agentBase, "omp-compact", "config.json");
 }
 
-/** Parse JSON bounded by byte size and nesting depth. Returns undefined on violation. */
+/**
+ * Parse JSON bounded by byte size and nesting depth. Returns undefined on violation.
+ *
+ * Two-pass approach: a linear scan first rejects oversized or over-deep
+ * JSON without allocating a parse tree; `JSON.parse` then runs only on
+ * input that passed both structural checks. The pre-scan is not a
+ * substitute JSON parser — it only counts bytes and brackets; malformed
+ * JSON that passes the scan is caught by `JSON.parse` and returns
+ * undefined with a warn.
+ */
 function parseBoundedJson(
 	text: string,
 	warn: (message: string) => void,
@@ -382,6 +392,8 @@ async function withUpdateQueue<T>(
 		return await operation();
 	} finally {
 		release();
+		// Only the last queued operation cleans up the path entry; earlier
+		// operations find a newer tail and correctly skip the delete.
 		if (updateQueues.get(path) === tail) updateQueues.delete(path);
 	}
 }
@@ -599,7 +611,7 @@ export function createSettingsStore(
 	async function persist(settings: CompactSettings): Promise<void> {
 		const tmp = join(
 			dirname(path),
-			`.${basename(path)}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`,
+			`.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`,
 		);
 		try {
 			await writeFile(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");

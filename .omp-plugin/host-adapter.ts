@@ -341,6 +341,13 @@ export class HostAdapter17212 {
 		return candidates;
 	}
 
+	/**
+	 * Full-tree transcript discovery (used by collectTranscriptCandidates).
+	 * Visits every reachable children-bearing node; does NOT stop at first
+	 * match, so callers can detect multiple transcript candidates and
+	 * treat that as a hard failure. Contrast with `observeTree`, which
+	 * stops at the first transcript and returns true.
+	 */
 	#collect(
 		value: unknown,
 		depth: number,
@@ -395,6 +402,26 @@ export class HostAdapter17212 {
 	}
 
 	/**
+	 * Build a wrapper descriptor for `addChild` that calls the original
+	 * then `onChildAdded`. Used by both transcript and discovery-container
+	 * patching; the observer must not throw (rollback policy is the caller's).
+	 */
+	#makeAddChildWrapper(
+		original: (...args: unknown[]) => unknown,
+		onChildAdded: (child: unknown) => void,
+	): PropertyDescriptor {
+		return {
+			configurable: true,
+			writable: true,
+			value(this: object, child: unknown, ...rest: unknown[]): unknown {
+				const result = original.call(this, child, ...rest);
+				onChildAdded(child);
+				return result;
+			},
+		};
+	}
+
+	/**
 	 * Exact-instance transcript `addChild` wrapper: calls the original,
 	 * then `onChildAdded(child)`. The observer must not throw; rollback
 	 * policy is the caller's. Throws (transactionally clean) when the
@@ -409,17 +436,7 @@ export class HostAdapter17212 {
 		const original = resolveMethod(transcript, ADD_CHILD);
 		if (!original) throw new Error("transcript addChild missing");
 		const patch = new DescriptorPatch(transcript, [ADD_CHILD]);
-		patch.install({
-			[ADD_CHILD]: {
-				configurable: true,
-				writable: true,
-				value(this: object, child: unknown, ...rest: unknown[]): unknown {
-					const result = original.call(this, child, ...rest);
-					onChildAdded(child);
-					return result;
-				},
-			},
-		});
+		patch.install({ [ADD_CHILD]: this.#makeAddChildWrapper(original, onChildAdded) });
 		return patch;
 	}
 
@@ -453,7 +470,12 @@ export class HostAdapter17212 {
 		return patch;
 	}
 
-	/** Capability-checked insertion for plugin-owned terminal carriers. */
+	/**
+	 * Capability-checked insertion for plugin-owned terminal carriers.
+	 * Delegates to the module-level `insertTranscriptChildAt` function;
+	 * exposed as an instance method so callers can use the adapter as a
+	 * single dependency surface without importing the free function.
+	 */
 	insertTranscriptChildAt(
 		transcript: unknown,
 		index: number,
@@ -490,17 +512,7 @@ export class HostAdapter17212 {
 		if (!original || !Object.isExtensible(container))
 			throw new Error("unpatchable TUI container");
 		const patch = new DescriptorPatch(container, [ADD_CHILD]);
-		patch.install({
-			[ADD_CHILD]: {
-				configurable: true,
-				writable: true,
-				value(this: object, child: unknown, ...rest: unknown[]): unknown {
-					const result = original.call(this, child, ...rest);
-					onChildAdded(child);
-					return result;
-				},
-			},
-		});
+		patch.install({ [ADD_CHILD]: this.#makeAddChildWrapper(original, onChildAdded) });
 		return patch;
 	}
 

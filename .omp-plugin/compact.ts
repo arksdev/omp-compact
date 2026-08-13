@@ -38,10 +38,14 @@ export function listValue(
 }
 
 export function editPathsFromInput(input: string): string[] {
+	const seen = new Set<string>();
 	const paths: string[] = [];
 	const bounded = input.slice(0, 16_384);
 	const addPath = (path: string): void => {
-		if (!paths.includes(path)) paths.push(path);
+		if (!seen.has(path)) {
+			seen.add(path);
+			paths.push(path);
+		}
 	};
 	for (const match of bounded.matchAll(/^\[([^\]\r\n]+)\]\s*$/gm)) {
 		const header = match[1];
@@ -76,6 +80,8 @@ function shortValue(value: unknown): string {
 function unknownArgs(value: Record<string, unknown>): string {
 	const parts: string[] = [];
 	for (const [key, item] of Object.entries(value)) {
+		// Convention: skip keys starting with "__" (internal/private fields)
+		// and undefined values (unset optionals).
 		if (key.startsWith("__") || item === undefined) continue;
 		parts.push(`${key}: ${shortValue(item)}`);
 		if (parts.length >= 4) break;
@@ -86,9 +92,13 @@ function unknownArgs(value: Record<string, unknown>): string {
 /**
  * Bounded generic tool description: lowercase label (underscore and hyphen
  * spellings share one title) plus at most four compact `key: value` pairs.
- * Only a direct helper fallback — tool presentation rules live in
- * `tool-presentation-rules.ts`; unknown tools must never be routed through
- * this by the runtime adapter.
+ *
+ * This is a direct helper fallback for unknown/unrecognized tools only.
+ * Tool presentation rules live in `tool-presentation-rules.ts`. The runtime
+ * adapter MUST NOT route known tools through this function — doing so bypasses
+ * specialized presentation logic and bounds.
+ *
+ * @internal
  */
 export function genericToolDescription(
 	name: string,

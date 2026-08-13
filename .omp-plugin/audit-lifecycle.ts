@@ -263,16 +263,21 @@ export class AuditLifecycle {
 	): Promise<boolean> {
 		const ids = runIds ?? this.snapshot();
 		const start = this.#options.now();
-		for (;;) {
-			if (terminal) {
-				for (const token of ids) {
-					const record = token as AuditRecord;
-					if (this.#pending.get(record.toolCallId) === record) {
-						record.abandoned = true;
-						this.#removeIfCurrent(record);
-					}
+
+		// Terminal boundary: purge pending records immediately before the drain.
+		// Stock may reorder a continuation end, but a terminal transcript must
+		// never resurrect evidence after commit.
+		if (terminal) {
+			for (const token of ids) {
+				const record = token as AuditRecord;
+				if (this.#pending.get(record.toolCallId) === record) {
+					record.abandoned = true;
+					this.#removeIfCurrent(record);
 				}
 			}
+		}
+
+		for (;;) {
 			let outstanding = false;
 			for (const token of ids) {
 				const record = token as AuditRecord;
@@ -395,12 +400,20 @@ export class AuditLifecycle {
 		this.#signalChange();
 	}
 
+	/**
+	 * Wait for state change or timeout, whichever comes first. Waiters are
+	 * removed from the queue on completion to prevent memory accumulation in
+	 * long-lived sessions with frequent drain cycles.
+	 */
 	#waitForChangeOrTimeout(ms: number): Promise<void> {
 		return new Promise((resolve) => {
 			let done = false;
 			const finish = (): void => {
 				if (done) return;
 				done = true;
+				// Remove waiter from queue to prevent memory accumulation.
+				const index = this.#changeWaiters.indexOf(finish);
+				if (index >= 0) this.#changeWaiters.splice(index, 1);
 				resolve();
 			};
 			this.#changeWaiters.push(finish);

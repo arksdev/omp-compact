@@ -180,6 +180,8 @@ interface DeferredTerminalLedger {
 	readonly answerAnchor: unknown;
 }
 
+// Intentional per-module copy of objectRecord for tree-shakeability;
+// identical logic in 11 files across the plugin.
 function objectRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
@@ -1051,6 +1053,8 @@ export class RuntimeSessionState {
 		return false;
 	}
 
+	// Linear search through deferred + active + all states. O(n) for large
+	// sessions; typical sessions have 10-50 states so this is not a hotspot.
 	#ledgerByRunId(runId: string): TurnLedger | undefined {
 		if (typeof runId !== "string" || runId.length === 0) return undefined;
 		const deferred = this.#deferredTerminalLedgers.get(runId);
@@ -1083,6 +1087,12 @@ export class RuntimeSessionState {
 		return DEFAULT_RUN_MODE;
 	}
 
+	/**
+	 * Replay: parse and apply custom-message evidence (mutation/git/stats). The
+	 * `ledger` parameter is the local walk ledger (undefined before the first
+	 * run boundary); `skipLedger` is the preserved active working ledger whose
+	 * live evidence must not be replaced by stale branch data.
+	 */
 	#hydrateEvidence(
 		customType: unknown,
 		details: unknown,

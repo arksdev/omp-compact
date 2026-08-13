@@ -80,6 +80,22 @@ describe("unified edit audit", () => {
 		).toEqual({ added: 1, removed: 1 });
 	});
 
+
+	test("malformed hunk header returns undefined", () => {
+		expect(countUnifiedDiff("@@ not-a-hunk\n+fake\n")).toBeUndefined();
+		expect(countUnifiedDiff("@@\n+line\n")).toBeUndefined();
+	});
+
+	test("well-formed hunk with - or + range succeeds", () => {
+		expect(countUnifiedDiff("@@ -1 +1 @@\n-old\n+new\n")).toEqual({
+			added: 1,
+			removed: 1,
+		});
+		expect(countUnifiedDiff("@@ +1 @@\n+added\n")).toEqual({
+			added: 1,
+			removed: 0,
+		});
+	});
 	test("retains successful per-file mutations from an aggregate error", () => {
 		const entries = completeEditMutations(
 			"edit-1",
@@ -810,6 +826,41 @@ describe("edit evidence budgets", () => {
 		).toBe(false);
 	});
 
+
+	test("oversized file is skipped but smaller subsequent files are scanned", () => {
+		const { MAX_TOTAL_SCAN_BYTES } = require("../../.omp-plugin/audit-diff");
+		// Test that continue logic allows smaller files after a too-large file.
+		// Create files with oldText to control exact byte cost without hitting
+		// MAX_DIFF_BYTES or MAX_DIFF_ROWS limits on the diff itself.
+		const smallDiff = "+1|x\n"; // ~5 bytes
+		const mediumOldText = "a".repeat(Math.floor(MAX_TOTAL_SCAN_BYTES * 0.25)); // 1MB each
+		const hugeOldText = "b".repeat(Math.floor(MAX_TOTAL_SCAN_BYTES * 0.35)); // 1.4MB
+		const entries = completeEditMutations(
+			"edit-skip-1",
+			{
+				details: {
+					perFileResults: [
+						// 3 files at 1MB each = 3MB total (75% of 4MB budget)
+						{ path: "src/a.ts", diff: smallDiff, oldText: mediumOldText },
+						{ path: "src/b.ts", diff: smallDiff, oldText: mediumOldText },
+						{ path: "src/c.ts", diff: smallDiff, oldText: mediumOldText },
+						// huge would add 1.4MB → 4.4MB > 4MB budget, skip it
+						{ path: "src/huge.ts", diff: smallDiff, oldText: hugeOldText },
+						// small adds ~5 bytes, fits at 3MB
+						{ path: "src/e.ts", diff: smallDiff },
+					],
+				},
+			},
+			false,
+		);
+		// Expect a.ts, b.ts, c.ts, e.ts (huge.ts skipped due to budget).
+		expect(entries.map((e) => e.path)).toEqual([
+			"src/a.ts",
+			"src/b.ts",
+			"src/c.ts",
+			"src/e.ts",
+		]);
+	});
 	test("perFileResults accumulation stops at the total scan budget", () => {
 		// Five files, each with a valid numbered diff exactly at the per-file
 		// byte cap: the cumulative budget allows only the first four, even

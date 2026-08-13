@@ -19,6 +19,11 @@ import {
 
 const ADDED_STAT_COLOR = "#A4D734";
 const REMOVED_STAT_COLOR = "#A1471A";
+/**
+ * Strip ANSI CSI (ESC[) and OSC (ESC]) sequences. Simpler than git-records.ts
+ * `oneLine` (which also handles partial escapes and skip logic); this variant
+ * is pure stripping for display sanitization.
+ */
 function stripAnsi(value: string): string {
 	const output: string[] = [];
 	for (let index = 0; index < value.length; ) {
@@ -281,6 +286,8 @@ function pendingFrame(theme: Theme, tick: number): string {
 	return frame ?? "•";
 }
 
+// Intentional per-module copy of fitTransparentLine for tree-shakeability;
+// identical logic in render.ts and run-stats.ts.
 /**
  * Keep compact rows on the terminal's ordinary transparent background while
  * still fitting overlong content to the component width. Short rows are never

@@ -56,6 +56,15 @@ export const MAX_MUTATION_ENTRIES = 1_000;
 export const MAX_PAYLOAD_BYTES = 1_048_576;
 export const MAX_PAYLOAD_DEPTH = 32;
 
+/**
+ * Maximum walk steps in isPayloadWithinBudget. Bounds the total number
+ * of nodes visited in a single payload check, independent of byte budget,
+ * to prevent event-loop stall on adversarially wide-but-shallow objects.
+ * Set equal to MAX_PAYLOAD_BYTES so the existing byte guard still wins
+ * first for typical payloads; the step guard is a belt-and-suspenders cap.
+ */
+export const MAX_PAYLOAD_STEPS = MAX_PAYLOAD_BYTES;
+
 export function isBoundedString(value: unknown, max: number): value is string {
 	return typeof value === "string" && value.length <= max;
 }
@@ -75,6 +84,10 @@ export function isBoundedCount(value: unknown, max: number): value is number {
  * depth budget is exhausted, so a hostile cyclic or deeply nested object
  * terminates after a bounded number of steps. Never allocates a copy and
  * never reads values — string lengths and key names only.
+ *
+ * A step counter (MAX_PAYLOAD_STEPS) provides an independent cap on total
+ * nodes visited, guarding against adversarially wide-but-shallow objects
+ * that stay within depth and byte limits while causing excessive iteration.
  */
 export function isPayloadWithinBudget(
 	value: unknown,
@@ -85,7 +98,7 @@ export function isPayloadWithinBudget(
 	let steps = 0;
 	const walk = (node: unknown, depth: number): boolean => {
 		if (depth > maxDepth) return false;
-		if (++steps > maxBytes) return false;
+		if (++steps > MAX_PAYLOAD_STEPS) return false;
 		if (typeof node === "string") {
 			bytes += node.length;
 			return bytes <= maxBytes;

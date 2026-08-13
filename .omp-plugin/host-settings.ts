@@ -258,6 +258,13 @@ export function createHostSettingsBridge(
 
 	return {
 		read,
+		/**
+		 * Persist host-facing toggles; flush; roll back on flush failure.
+		 * Concurrent calls are coalesced: a second apply that arrives while
+		 * one is in flight receives the first call's result — its `host`
+		 * argument is ignored. Callers that need independent saves must
+		 * await the current apply before issuing the next one.
+		 */
 		apply(host: CompactHostSettings): Promise<HostApplyResult> {
 			// Coalesce concurrent applies (double-save guard): the in-flight
 			// save owns the single set + single flush.

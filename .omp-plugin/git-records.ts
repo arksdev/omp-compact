@@ -378,27 +378,35 @@ function skipEscapeSequence(value: string, index: number): number {
 	return value.length;
 }
 
+/**
+ * Collapse whitespace and strip ANSI escapes into a single bounded line.
+ * Uses array accumulation to avoid O(n²) string concatenation for long
+ * inputs near MAX_RECORD_LENGTH.
+ */
 function oneLine(value: string, limit = MAX_RECORD_LENGTH): string {
-	let result = "";
+	const parts: string[] = [];
+	let length = 0;
 	let pendingSpace = false;
-	for (let index = 0; index < value.length && result.length < limit; index++) {
+	for (let index = 0; index < value.length && length < limit; index++) {
 		const code = value.charCodeAt(index);
 		if (code === 0x1b) {
 			index = skipEscapeSequence(value, index);
 			continue;
 		}
 		if (code <= 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029) {
-			if (result) pendingSpace = true;
+			if (parts.length > 0 || length > 0) pendingSpace = true;
 			continue;
 		}
 		if (pendingSpace) {
-			if (result.length >= limit) break;
-			result += " ";
+			if (length >= limit) break;
+			parts.push(" ");
+			length++;
 			pendingSpace = false;
 		}
-		result += value[index];
+		parts.push(value[index]);
+		length++;
 	}
-	return result;
+	return parts.join("");
 }
 
 function appendDetail(base: string, detail: string): string {

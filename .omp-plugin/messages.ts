@@ -8,8 +8,16 @@ import {
 	MAX_GIT_SUBCOMMAND_LENGTH,
 	MAX_MUTATION_COUNT,
 	MAX_TOOL_CALL_ID_LENGTH,
+	MAX_TOOL_NAME_LENGTH,
 } from "./hydration-bounds";
 
+/**
+ * Persisted message-type discriminators. The `omp-compact-` prefix scopes
+ * them to this plugin; OMP does not provide cross-plugin namespace
+ * isolation, so the prefix is the only collision guard. Never change
+ * these values without a migration: existing JSONL branches use them as
+ * persistent keys.
+ */
 export const MUTATION_MESSAGE_TYPE = "omp-compact-write";
 export const GIT_MESSAGE_TYPE = "omp-compact-git";
 
@@ -39,6 +47,16 @@ export interface GitRecordDetails {
 	isError: boolean;
 }
 
+/**
+ * Details for an "omp-compact-git" message.
+ *
+ * The top-level `subcommand`, `text`, and `isError` fields are legacy
+ * single-record fields kept for backward compatibility. When `records` is
+ * present, it carries the ordered per-command rows from a single Bash call
+ * that ran several Git commands; consumers MUST use `records` whenever it
+ * is present, falling back to the top-level fields only for legacy
+ * single-record entries.
+ */
 export interface GitMessageDetails {
 	version: 1;
 	toolCallId: string;
@@ -81,6 +99,26 @@ export function isMutationMessageDetails(
 	);
 }
 
+export function isLegacyMutationMessageDetails(
+	value: unknown,
+): value is LegacyMutationMessageDetails {
+	if (!value || typeof value !== "object") return false;
+	const details = value as Partial<LegacyMutationMessageDetails>;
+	return (
+		(details.toolCallId === undefined ||
+			isBoundedString(details.toolCallId, MAX_TOOL_CALL_ID_LENGTH)) &&
+		isBoundedString(details.toolName, MAX_TOOL_NAME_LENGTH) &&
+		isBoundedString(details.path, MAX_EVIDENCE_PATH_LENGTH) &&
+		(details.added === undefined ||
+			isBoundedCount(details.added, MAX_MUTATION_COUNT)) &&
+		(details.removed === undefined ||
+			isBoundedCount(details.removed, MAX_MUTATION_COUNT)) &&
+		(details.lineCount === undefined ||
+			isBoundedCount(details.lineCount, MAX_MUTATION_COUNT)) &&
+		typeof details.exact === "boolean"
+	);
+}
+
 export function isGitMessageDetails(
 	value: unknown,
 ): value is GitMessageDetails {
@@ -89,6 +127,7 @@ export function isGitMessageDetails(
 	const recordsValid =
 		details.records === undefined ||
 		(Array.isArray(details.records) &&
+			details.records.length > 0 &&
 			details.records.length <= MAX_GIT_RECORDS &&
 			details.records.every(isGitRecordDetails));
 	return (

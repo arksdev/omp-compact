@@ -236,7 +236,11 @@ export class ComponentBinding {
 			this.#unboundComponents.length === 0 &&
 			!unresolvedStates &&
 			!unresolvedGroups;
+		// Drain both queues unconditionally: components and ledgers that could
+		// not be paired stay native. Ledgers not cleared would corrupt the next
+		// hydration's cardinality check.
 		this.#unboundComponents.length = 0;
+		this.#hydratedReadLedgers.length = 0;
 		return mapped;
 	}
 
@@ -313,7 +317,8 @@ export class ComponentBinding {
 			} else if (id) {
 				const state = this.#states.get(id);
 				if (state) {
-					this.bind(component, state);
+					const bindStatus = this.bind(component, state);
+					if (bindStatus !== "bound") return bindStatus;
 					state.args = updateArgsPayload(args);
 					state.version++;
 				}
@@ -342,6 +347,9 @@ export class ComponentBinding {
 	 * Read group method observation (runs before the native method).
 	 * Observed-id ownership, streamed-ID migration through `renameEntry`,
 	 * entry removal and expansion tracking.
+	 *
+	 * Note: `""` (empty string) is a valid provisional id per stock OMP
+	 * event-controller.ts semantics; only `undefined` skips id tracking.
 	 */
 	observeReadMethod(
 		group: GroupState,
@@ -356,10 +364,12 @@ export class ComponentBinding {
 					: updateResultToolCallId(args);
 			const state = id ? this.#states.get(id) : undefined;
 			if (id !== undefined) group.observedIds.add(id);
+			// Only claim unclaimed read states to avoid corrupting an existing
+			// tool binding (e.g., a state already bound to another component).
 			// A read group may observe an id emitted by an incompatible host
-			// surface. Only typed read state can be claimed; otherwise this group
-			// remains native without corrupting an existing tool binding.
-			if (state?.toolName === "read") {
+			// surface: only typed, unclaimed read states can be claimed,
+			// otherwise this group remains native.
+			if (state?.toolName === "read" && !state.component) {
 				group.ledger = state.ledger;
 				state.component = component;
 			}
@@ -499,7 +509,6 @@ export class ComponentBinding {
 				state.entry.state = existing.entry.state;
 			if (this.#states.get(existing.id) === existing)
 				this.#states.delete(existing.id);
-			this.#delegates.unmarkPending(existing);
 			existing.ledger.removeEntry(existing.entry);
 		}
 		if (this.#states.get(state.id) === state) this.#states.delete(state.id);

@@ -100,6 +100,8 @@ export interface RuntimeAdapterOptions {
 	getBranch?: () => readonly unknown[] | undefined;
 }
 
+// Intentional per-module copy of objectRecord for tree-shakeability;
+// identical logic in 11 files across the plugin.
 function objectRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
@@ -741,6 +743,9 @@ export class RuntimeAdapter {
 		}
 	}
 
+	// Discovery recursion: depth tracking and cycle detection are the
+	// responsibility of HostAdapter.observeTree, not this orchestration
+	// layer. The adapter fails closed on any discovery exception.
 	#observeTree(value: unknown, depth: number): void {
 		if (this.#transcript) return;
 		this.#host.observeTree(
@@ -879,6 +884,8 @@ export class RuntimeAdapter {
 		} catch {
 			// Capability failure must never prevent descriptor restoration.
 		}
+		// dispose() catches every exception internally and never throws into
+		// rollback; the warn above is the only user-visible failure signal.
 		this.dispose();
 	}
 }

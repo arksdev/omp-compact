@@ -185,6 +185,8 @@ function fixedForeground(hex: string, text: string): string {
 	return ansi ? `${ansi}${text}\u001b[39m` : text;
 }
 
+// Intentional per-module copy of fitTransparentLine for tree-shakeability;
+// identical logic in render.ts and run-stats.ts.
 /**
  * Keep the row on the terminal's ordinary transparent background while still
  * fitting overlong content to the component width. Short rows are never
@@ -306,12 +308,7 @@ export function isRunStatsEvidence(value: unknown): value is RunStatsEvidence {
 export function createStatsCarrier(line: string): StatsCarrier {
 	return {
 		message: { customType: STATS_MESSAGE_TYPE },
-		render: (width: number) => {
-			const safeWidth = Math.max(1, width);
-			return visibleWidth(line) > safeWidth
-				? [`${truncateToWidth(line, safeWidth)}\u001b[39m`]
-				: [line];
-		},
+		render: (width: number) => [fitTransparentLine(line, width)],
 	};
 }
 

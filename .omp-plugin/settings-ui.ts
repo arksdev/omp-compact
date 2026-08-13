@@ -73,6 +73,10 @@ const ESCAPE = String.fromCharCode(27);
 const ANSI_SGR_RE = new RegExp(`${ESCAPE}\\[[0-9;]*m`, "g");
 const ANSI_SGR_PREFIX_RE = new RegExp(`^${ESCAPE}\\[[0-9;]*m`);
 
+/**
+ * Strip ANSI SGR sequences. Third variant (render.ts and git-records.ts
+ * have others); this one is the simplest regex-only version.
+ */
 export function stripAnsi(text: string): string {
 	return text.replace(ANSI_SGR_RE, "");
 }
@@ -118,6 +122,8 @@ const MAX_NUMBERED_FALLBACK = 99;
  * `compact-settings`, else `omp-compact-settings`, else a deterministic
  * numbered `omp-compact-settings-N` (N from 2). Always returns a usable name
  * (last-resort highest number) rather than throwing.
+ * When all 99 numbered fallbacks are occupied, returns the highest number
+ * as a last resort rather than throwing.
  */
 export function chooseSettingsCommandName(
 	registered: readonly string[],

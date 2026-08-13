@@ -128,6 +128,12 @@ export function trimmedMiddleLines(
 	};
 }
 
+/**
+ * Count added/removed lines from a unified diff. Returns undefined if the diff
+ * exceeds budget or contains malformed hunks. `exact: true` in the returned
+ * result means "parsed without overflow", not "validated against declared hunk
+ * line counts"; the parser is intentionally fail-open for well-formed SDK output.
+ */
 export function countUnifiedDiff(
 	diff: string,
 ): { added: number; removed: number } | undefined {
@@ -142,9 +148,20 @@ export function countUnifiedDiff(
 	for (let index = 0; index <= diff.length; ) {
 		if (++rows > MAX_DIFF_ROWS) return undefined;
 		const end = diff.indexOf("\n", index);
+		const lineEnd = end === -1 ? diff.length : end;
 		if (diff.startsWith("@@", index)) {
-			inHunk = true;
-			sawHunk = true;
+			// Validate @@ -a,b +c,d @@ format: must have space after @@, and at least
+			// one - or + range. This rejects malformed hunks like "@@ not-a-hunk".
+			const line = diff.slice(index, lineEnd);
+			const hasMinusRange = line.includes(" -");
+			const hasPlusRange = line.includes(" +");
+			if (hasMinusRange || hasPlusRange) {
+				inHunk = true;
+				sawHunk = true;
+			} else {
+				// Malformed hunk header: fail open by returning undefined.
+				return undefined;
+			}
 		} else if (inHunk) {
 			if (
 				diff.startsWith("diff --git ", index) ||
@@ -228,6 +245,16 @@ export function countDiffChanges(
 	return countNumberedDiff(diff);
 }
 
+/**
+ * Derive mutation evidence from a single edit operation. Returns undefined
+ * when evidence is malformed, oversized, or represents a zero-change diff
+ * (both added and removed are 0) — fail open: the entry keeps native
+ * presentation rather than invented stats.
+ *
+ * `exact: true` means the counts were derived from the actual applied diff or
+ * pre-image, not estimated or sampled. Consumers may trust these counts for
+ * aggregation and metrics without revalidation.
+ */
 function editEntry(
 	toolCallId: string,
 	path: unknown,
@@ -254,6 +281,15 @@ function editEntry(
 	};
 }
 
+/**
+ * Derive mutation evidence from a delete operation using the full pre-image.
+ * Returns undefined when the path is invalid, oldText is missing/pruned, or
+ * oversized per F02 budgets.
+ *
+ * `exact: true` means `removed` was counted from the complete unpruned
+ * pre-image — not estimated, not sampled. When snapshotsPruned is true or
+ * oldText is unavailable, we return undefined rather than approximating.
+ */
 function deleteEntry(
 	toolCallId: string,
 	path: unknown,
@@ -268,7 +304,7 @@ function deleteEntry(
 		return undefined;
 	// Exact stats require the unpruned pre-image; without it we must not
 	// fabricate a removal count.
-	if (typeof oldText !== "string" || snapshotsPruned === true) return undefined;
+	if (typeof oldText !== "string" || snapshotsPruned) return undefined;
 	if (
 		oldText.length > MAX_DELETE_BYTES ||
 		lineCount(oldText) > MAX_DELETE_LINES
@@ -319,7 +355,8 @@ export function completeEditMutations(
 			const diff = typeof file.diff === "string" ? file.diff : "";
 			const oldText = typeof file.oldText === "string" ? file.oldText : "";
 			const cost = diff.length + oldText.length;
-			if (scannedBytes + cost > MAX_TOTAL_SCAN_BYTES) break;
+			// Skip oversized file but continue scanning remaining files within budget.
+			if (scannedBytes + cost > MAX_TOTAL_SCAN_BYTES) continue;
 			scannedBytes += cost;
 			const entry =
 				file.op === "delete"

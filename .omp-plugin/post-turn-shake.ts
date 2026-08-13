@@ -293,11 +293,13 @@ export class PostTurnShake {
 		this.#settings = { enabled: false, thresholdTokens: 0 };
 		this.#globalEnabled = false;
 		this.#inFlight = undefined;
+		this.#warned.clear();
 	}
 
 	async #dispatch(session: ShakeableSession, ctx: ShakeContext): Promise<void> {
-		// Reentrancy guard: a second dispatch awaits the running shake
-		// instead of starting a new one.
+		// Reentrancy guard: if a second dispatch arrives while the first is
+		// still in flight, await the running shake instead of starting a new
+		// one. The second caller receives the first's result (success or error).
 		if (this.#inFlight) {
 			await this.#inFlight;
 			return;

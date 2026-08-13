@@ -101,6 +101,9 @@ function isRenderableBlock(value: unknown): value is RenderableBlock {
 	);
 }
 
+// Prototype chain walk: assumes no cycles (Object.setPrototypeOf cycles are
+// caller responsibility). Stock host objects have acyclic prototypes; the
+// fold fails closed on any method-wrapping exception.
 function inheritedMethod<T extends (...args: never[]) => unknown>(
 	block: object,
 	name: string,

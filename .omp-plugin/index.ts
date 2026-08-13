@@ -79,6 +79,9 @@ function pendingGitFrom(payload: unknown): PendingGit | undefined {
 	return undefined;
 }
 
+// Note: objectRecord is intentionally duplicated per-module (no shared
+// util) to keep each module independently tree-shakeable and avoid a
+// cross-cutting import that would couple otherwise unrelated modules.
 function objectRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
@@ -100,6 +103,11 @@ function textFromResult(result: unknown): string {
 	return text;
 }
 
+/**
+ * Resolve a method from an opaque host root and return a bound caller.
+ * The returned function always calls the method with `root` as receiver,
+ * so the caller does not need to track the host object.
+ */
 function requestMethod(
 	root: unknown,
 	name: string,
@@ -149,6 +157,11 @@ function rollbackAdapterFailure(
 	}
 }
 
+/**
+ * Extract short hash and subject from a pre-formatted git commit row
+ * produced by `formatGitRecords`. Matches the `git commit <hash> <subject>`
+ * pattern emitted by commitSummary in git-records.ts.
+ */
 function commitDetails(
 	text: string,
 ): Pick<GitMessageDetails, "shortHash" | "subject"> {
@@ -177,7 +190,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// The store is per plugin INSTANCE: two sessions in one process must never
 	// share settings state (cross-session/subagent contamination).
 	const settingsStore = createSettingsStore({ env: Bun.env });
-	const settingsStoreRef = settingsStore;
 	registerSettingsCommand<ExtensionCommandContext>(pi, {
 		description: "Open omp-compact plugin settings",
 		handler: async (_args, ctx) => {
@@ -203,7 +215,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						api: createSessionSettingsApi(hostSettings),
 					})
 				: undefined;
-			const initial = await settingsStoreRef.load();
+			const initial = await settingsStore.load();
 			// E01: the dialog's save outcome (including the single success
 			// notification) is fully handled by saveSettingsFlow inside
 			// onSave, so the dialog result needs no post-processing here.
@@ -228,7 +240,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					// nothing is notified again after the dialog closes.
 					await saveSettingsFlow(next, {
 						bridge: hostBridge,
-						store: settingsStoreRef,
+						store: settingsStore,
 						notify: (level, message) => {
 							try {
 								ctx.ui.notify(message, level);
