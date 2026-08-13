@@ -42,6 +42,7 @@ omp-replay-manifest.json
 
 # Local decision records; public project decisions belong in documentation.
 /context/
+/docs/PRD-tool-presentation.md
 
 # Local session handoff; the canonical OMP session remains under ~/.omp
 /.session-handoff/
