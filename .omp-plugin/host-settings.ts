@@ -1,4 +1,4 @@
-import * as path from "node:path";
+import { join } from "node:path";
 import { YAML } from "bun";
 
 import type { CompactHostSettings } from "./config";
@@ -92,7 +92,10 @@ export interface PersistentSettingState {
 }
 
 /** Exact persistent pre-image of every host path, captured before mutation. */
-export type PersistentPreImage = Record<HostSettingPath, PersistentSettingState>;
+export type PersistentPreImage = Record<
+	HostSettingPath,
+	PersistentSettingState
+>;
 
 /** Minimal surface of the stock Settings singleton (public package export). */
 export interface HostSettingsApi {
@@ -184,11 +187,11 @@ const HOST_SETTING_SEGMENTS: Record<HostSettingPath, readonly string[]> = {
 };
 
 /**
- * Extract the raw persistent state of a path from a parsed profile YAML
- * (mirrors stock `getByPath` semantics, tracking presence: `null`, scalar, or
- * absent leaf at any level is "absent" exactly as stock resolves it, while an
- * explicitly present leaf — even `null` or a malformed string — is preserved
- * verbatim so rollback can restore it exactly).
+ * Extract the raw persistent state of a path from a parsed profile YAML,
+ * mirroring stock `getByPath` resolution: a non-object or absent segment at
+ * any intermediate level makes the path "absent" (schema default applies),
+ * while an explicitly present leaf — even `null` or a malformed string — is
+ * preserved verbatim so rollback can restore it exactly.
  */
 function rawPersistentState(
 	root: unknown,
@@ -476,7 +479,7 @@ export function createSessionSettingsApi(
 			let root: unknown;
 			let configPath: string | undefined;
 			for (const filename of MAIN_CONFIG_FILENAMES) {
-				const candidate = path.join(agentDir, filename);
+				const candidate = join(agentDir, filename);
 				let content: string;
 				try {
 					const file = Bun.file(candidate);

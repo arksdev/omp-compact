@@ -56,7 +56,10 @@ class FakeHostSettingsApi implements HostSettingsApi {
 				? { present: true, value: this.persistentValues.get("recap.enabled") }
 				: { present: false, value: undefined },
 			hideThinkingBlock: this.persistentValues.has("hideThinkingBlock")
-				? { present: true, value: this.persistentValues.get("hideThinkingBlock") }
+				? {
+						present: true,
+						value: this.persistentValues.get("hideThinkingBlock"),
+					}
 				: { present: false, value: undefined },
 		};
 	}
@@ -204,7 +207,9 @@ describe("applyHostSettings: save, flush, no reload", () => {
 	});
 
 	test("changes only the paths that differ from the effective host values", async () => {
-		const { bridge, api } = makeHarness({ persistent: { "recap.enabled": true } });
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": true },
+		});
 		const result = await bridge.apply({
 			recapEnabled: false,
 			thinkingBlocksVisible: true, // unchanged: hideThinkingBlock already false
@@ -675,7 +680,10 @@ describe("createSessionSettingsApi", () => {
 	test("persistent() falls back to config.yaml when config.yml is absent", async () => {
 		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
 		try {
-			await writeFile(join(agentDir, "config.yaml"), "hideThinkingBlock: true\n");
+			await writeFile(
+				join(agentDir, "config.yaml"),
+				"hideThinkingBlock: true\n",
+			);
 			const api = createSessionSettingsApi({
 				getAgentDir: () => agentDir,
 				get: () => undefined,
