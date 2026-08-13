@@ -25,23 +25,24 @@ const REMOVED_STAT_COLOR = "#A1471A";
  * is pure stripping for display sanitization.
  */
 function stripAnsi(value: string): string {
-	const output: string[] = [];
+	let result = "";
+	let segStart = 0;
 	for (let index = 0; index < value.length; ) {
 		if (value.charCodeAt(index) !== 27) {
-			const character = value[index];
-			if (character) output.push(character);
 			index++;
 			continue;
 		}
+		// Flush the clean segment before this ESC.
+		result += value.slice(segStart, index);
 		index++;
 		const kind = value.charCodeAt(index);
-		if (kind === 91) {
+		if (kind === 91) { // CSI ESC[
 			index++;
 			while (index < value.length) {
 				const code = value.charCodeAt(index++);
 				if (code >= 64 && code <= 126) break;
 			}
-		} else if (kind === 93) {
+		} else if (kind === 93) { // OSC ESC]
 			index++;
 			while (index < value.length) {
 				const code = value.charCodeAt(index++);
@@ -54,8 +55,10 @@ function stripAnsi(value: string): string {
 		} else {
 			index++;
 		}
+		segStart = index;
 	}
-	return output.join("");
+	result += value.slice(segStart);
+	return result;
 }
 
 function stripControl(value: string): string {
@@ -98,6 +101,7 @@ export function sanitizeOneLine(
 	value: unknown,
 	limit = MAX_DESCRIPTION,
 ): string {
+	// Non-string inputs (numbers, objects, undefined) are intentionally silenced to "".
 	const text = typeof value === "string" ? value : "";
 	const clean = stripControl(stripAnsi(text)).replace(/\s+/g, " ").trim();
 	if (clean.length <= limit) return clean;
@@ -105,7 +109,7 @@ export function sanitizeOneLine(
 }
 
 function record(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
+	return value !== null && typeof value === "object" && !Array.isArray(value)
 		? (value as Record<string, unknown>)
 		: {};
 }
@@ -116,8 +120,7 @@ function resultText(result: unknown): string {
 	for (const item of content) {
 		const text = record(item).text;
 		if (typeof text !== "string") continue;
-		const bounded = text.slice(0, 4_096);
-		if (bounded.trim()) return sanitizeOneLine(bounded, 120);
+		if (text.trim()) return sanitizeOneLine(text, 120);
 	}
 	return "";
 }
@@ -141,7 +144,7 @@ function settledMeta(
 
 function fixedForeground(hex: string, text: string): string {
 	const ansi = Bun.color(hex, "ansi-16m");
-	return ansi ? `${ansi}${text}\u001b[39m` : text;
+	return ansi ? `${ansi}${text}\u001b[0m` : text;
 }
 
 function mutationStat(
@@ -161,13 +164,11 @@ export function mutationLine(
 ): string {
 	const added = entry.added ?? 0;
 	const removed = entry.removed ?? 0;
+	const addedStr = mutationStat(added, "+", ADDED_STAT_COLOR, theme);
+	const removedStr = mutationStat(removed, "", REMOVED_STAT_COLOR, theme);
+	const sep = theme.fg("dim", "|");
 	const stats = entry.exact
-		? `${mutationStat(added, "+", ADDED_STAT_COLOR, theme)}${theme.fg("dim", "|")}${mutationStat(
-				removed,
-				"",
-				REMOVED_STAT_COLOR,
-				theme,
-			)}`
+		? `${addedStr}${sep}${removedStr}`
 		: theme.fg("dim", `${entry.lineCount ?? 0} lines`);
 	const path = displayPathValue(entry.path, displayPaths);
 	return `${theme.fg("dim", "•")} ${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: ${theme.fg(
@@ -280,14 +281,16 @@ function pendingFrame(theme: Theme, tick: number): string {
 			: undefined;
 	const frames =
 		(activity && activity.length > 0 ? activity : undefined) ??
-		(Array.isArray(theme.spinnerFrames) ? theme.spinnerFrames : undefined);
-	const frame =
-		frames && frames.length > 0 ? frames[tick % frames.length] : "•";
+		(Array.isArray(theme.spinnerFrames) && theme.spinnerFrames.length > 0
+			? theme.spinnerFrames
+			: undefined);
+	const frame = frames ? frames[tick % frames.length] : "•";
 	return frame ?? "•";
 }
 
 // Intentional per-module copy of fitTransparentLine for tree-shakeability;
-// identical logic in render.ts and run-stats.ts.
+// identical logic in render.ts and run-stats.ts (package.json declares
+// "sideEffects": false so each module stays independently droppable).
 /**
  * Keep compact rows on the terminal's ordinary transparent background while
  * still fitting overlong content to the component width. Short rows are never

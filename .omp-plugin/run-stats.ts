@@ -182,11 +182,12 @@ export function formatDuration(milliseconds: number): string {
 
 function fixedForeground(hex: string, text: string): string {
 	const ansi = Bun.color(hex, "ansi-16m");
-	return ansi ? `${ansi}${text}\u001b[39m` : text;
+	return ansi ? `${ansi}${text}\u001b[0m` : text;
 }
 
 // Intentional per-module copy of fitTransparentLine for tree-shakeability;
-// identical logic in render.ts and run-stats.ts.
+// identical logic in render.ts and run-stats.ts (package.json declares
+// "sideEffects": false so each module stays independently droppable).
 /**
  * Keep the row on the terminal's ordinary transparent background while still
  * fitting overlong content to the component width. Short rows are never
