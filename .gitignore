@@ -38,7 +38,7 @@ omp-replay-manifest.json
 /.github-tree.txt
 
 # Local code-review plan artifact
-/code-review/plugin-review-rewrite-loop-plan.md
+/code-review/
 
 # Local decision records; public project decisions belong in documentation.
 /context/
