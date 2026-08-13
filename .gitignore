@@ -46,3 +46,6 @@ omp-replay-manifest.json
 
 # Local session handoff; the canonical OMP session remains under ~/.omp
 /.session-handoff/
+
+# Local runtime-version comparison material (not part of the plugin repository)
+/omp-17.3.1-tool-output-delta.md
