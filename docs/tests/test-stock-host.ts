@@ -9,17 +9,17 @@
  * `@oh-my-pi/*` in its root `node_modules`), and isolated generated
  * settings/config state under `.omp-compact-test`.
  *
- * The component instance interfaces mirror the pinned 17.2.12 declarations
+ * The component instance interfaces mirror the pinned OMP 17.3.1 declarations
  * (`node_modules/@oh-my-pi/pi-coding-agent/dist/types/modes/components/*`)
  * so the test boundary is the same API the plugin adapts, not a hand-copied
  * subset: `ToolExecutionComponent`'s ctor takes an optional `toolCallId`,
  * `ReadToolGroupComponent` exposes `setExpanded`/`setArgsComplete`, and
  * `TranscriptContainer` exposes `clear`/`isBlockUncommitted`/
- * `renderViewportTail`.
+ * `renderViewportTail` plus container-owned tool-activity forwarding.
  *
  * Test scaffolding only — no production code is imported at module load.
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -61,6 +61,7 @@ export interface TranscriptInstance extends Renderable {
 	addChild(child: unknown): void;
 	children: unknown[];
 	clear(): void;
+	setToolActivityVisible(visible: boolean): void;
 	/**
 	 * Optional capability: hosts check presence before patching (see
 	 * host-adapter's capability guard), and seam transcripts may lack it.
@@ -111,6 +112,16 @@ export function isStockHostPresent(): boolean {
 function packageRoot(): string {
 	if (!binary) throw new Error("OMP_STOCK_BIN is required");
 	return resolve(dirname(binary), "..", "@oh-my-pi", "pi-coding-agent");
+}
+
+/** Version declared by the package selected through OMP_STOCK_BIN. */
+export function stockHostVersion(): string {
+	const manifest = JSON.parse(
+		readFileSync(join(packageRoot(), "package.json"), "utf8"),
+	) as { version?: unknown };
+	if (typeof manifest.version !== "string")
+		throw new Error("pinned stock host package has no version");
+	return manifest.version;
 }
 
 /** Generated temp dir beside the root node_modules directory. */

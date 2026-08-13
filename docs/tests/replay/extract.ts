@@ -415,7 +415,7 @@ const namespaceReplacements: Array<[RegExp, string]> = [
 	[new RegExp(`${NS_WORK}/plugins/${NS_PLUGIN}`, "g"), "plugin"],
 	[new RegExp(`${NS_WORK}/plugins`, "g"), "plugin"],
 	// Pinned host runtime.
-	[new RegExp(`${NS_WORK}/runtime/omp-17\\.2\\.12`, "g"), "host"],
+	[new RegExp(`${NS_WORK}/runtime/omp-17\\.\\d+\\.\\d+`, "g"), "host"],
 	// Host docs.
 	[new RegExp(`docs/${NS_HOST_DOCS}`, "g"), "host-docs"],
 	[new RegExp(`\\b${NS_HOST_DOCS}\\b`, "g"), "host-docs"],

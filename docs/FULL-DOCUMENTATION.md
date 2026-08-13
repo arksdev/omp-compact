@@ -8,7 +8,7 @@
 
 ## Совместимость
 
-Поддерживаемый диапазон: **OMP 17.2.12 и выше**. Автоматический release gate и manual smoke закреплены на stock OMP 17.2.12; будущие версии считаются совместимыми, пока не меняют private TUI shape, от которого зависит presentation adapter.
+Поддерживаемый диапазон: **OMP 17.2.12 и выше**. Автоматический release gate и manual smoke закреплены на stock OMP 17.3.1; будущие версии считаются совместимыми, пока не меняют private TUI shape, от которого зависит presentation adapter.
 
 Перед установкой wrappers плагин проверяет capabilities живой сессии. Если новая версия OMP меняет shape несовместимым образом, установка wrappers откатывается целиком, OMP продолжает показывать штатный интерфейс, а плагин выводит одно предупреждение. Укажите exact OMP version и reproduction в GitHub issue, чтобы новый format можно было добавить в compatibility adapter.
 
@@ -25,7 +25,7 @@ omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Требуется OMP 17.2.12 или новее. Stock 17.2.12 остаётся pinned development/release host; newer hosts проходят runtime capability checks и fail-open при несовместимой private TUI shape.
+Требуется OMP 17.2.12 или новее. Stock 17.3.1 остаётся pinned development/release host; newer hosts проходят runtime capability checks и fail-open при несовместимой private TUI shape.
 
 ### Из Git checkout на один запуск
 
@@ -380,7 +380,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `index.ts` | Extension entrypoint, events, command и session wiring. |
 | `tool-presentation-rules.ts` | Typed routes, aliases, audit selectors и known structured shapes. |
 | `runtime-adapter.ts` | Public lifecycle façade, exact-instance wrappers and terminal replay seam. |
-| `host-adapter.ts` | Pinned 17.2.12 capability probes and transactional descriptor patches. |
+| `host-adapter.ts` | Pinned 17.3.1 capability probes and transactional descriptor patches. |
 | `component-binding.ts` | Exact-ID/proven-order component mapping and native fail-open statuses. |
 | `runtime-session-state.ts` | Ledgers, rebuild generations, terminal projections and bounded payload retirement. |
 | `render-decision.ts` | Pure mode/route projection decisions. |

@@ -1,14 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { join, resolve } from "node:path";
 import * as os from "node:os";
-
-import pkg from "../../package.json";
+import { join, resolve } from "node:path";
 import { parseMarketplaceCatalog } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace/fetcher";
 import { resolvePluginSource } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace/source-resolver";
 import {
 	buildPluginId,
 	type MarketplaceCatalog,
 } from "@oh-my-pi/pi-coding-agent/extensibility/plugins/marketplace/types";
+import pkg from "../../package.json";
 
 const repoRoot = resolve(import.meta.dir, "../..");
 const catalogPath = join(repoRoot, ".omp-plugin", "marketplace.json");
@@ -55,7 +54,7 @@ describe("marketplace catalog", () => {
 		expect(plugin.license).toBe(pkg.license);
 		expect(plugin.keywords).toEqual(pkg.keywords);
 		expect(pkg.engines.omp).toBe(">=17.2.12");
-		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("17.2.12");
+		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("17.3.1");
 		expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
 		expect(await Bun.file(join(repoRoot, "CHANGELOG.md")).text()).toContain(
 			`## [${pkg.version}]`,

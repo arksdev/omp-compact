@@ -2,7 +2,7 @@ import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 
 import type { DisplayPathOptions } from "./display-path";
 import {
-	HostAdapter17212,
+	HostAdapter1731,
 	isReadGroupComponent,
 	isToolComponent,
 	isTranscriptHost,
@@ -128,7 +128,7 @@ function isCompactCustomMessage(value: unknown): value is RenderableBlock {
  * requests and the C rebuild boundary.
  */
 export class RuntimeAdapter {
-	readonly #host: HostAdapter17212;
+	readonly #host: HostAdapter1731;
 	readonly #ui: AdapterUI;
 	readonly #timers: TimerContext | undefined;
 	readonly #warn: ((message: string) => void) | undefined;
@@ -158,7 +158,7 @@ export class RuntimeAdapter {
 	readonly #onRunFinalized: ((runId: string) => void) | undefined;
 
 	constructor(options: RuntimeAdapterOptions) {
-		this.#host = new HostAdapter17212(options.root);
+		this.#host = new HostAdapter1731(options.root);
 		this.#ui = options.ui;
 		this.#timers = options.timers;
 		this.#warn = options.warn;

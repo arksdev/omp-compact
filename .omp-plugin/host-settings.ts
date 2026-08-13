@@ -12,7 +12,7 @@ import {
  * Host-settings bridge (upgrade2 item 6): menu controls for stock
  * `recap.enabled` and `hideThinkingBlock`.
  *
- * Stock seam (OMP 17.2.12, oh-my-pi reference):
+ * Stock seam (OMP 17.3.1, oh-my-pi reference):
  * - Every live `AgentSession` owns an initialized `session.settings`
  *   (`session/agent-session.ts`: `readonly settings: Settings`), whose
  *   `get`/`set`/`flush` act on the live per-session Settings instance and

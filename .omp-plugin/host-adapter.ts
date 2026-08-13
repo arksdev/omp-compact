@@ -1,5 +1,5 @@
 /**
- * B02: pinned OMP 17.2.12 host capability adapter.
+ * B02: pinned OMP 17.3.1 host capability adapter.
  *
  * Single module tree for every private host shape, method name and
  * argument-position mapping the plugin knows about:
@@ -54,7 +54,7 @@ export const TRANSCRIPT_FOLD_METHODS = [
 	"isBlockUncommitted",
 ] as const;
 
-/** OMP 17.2.12 tool execution component surface. */
+/** OMP 17.3.1 tool execution component surface. */
 export const TOOL_METHODS = [
 	"updateArgs",
 	"updateResult",
@@ -72,7 +72,7 @@ export const TOOL_PATCH_METHODS = [
 	"setExpanded",
 ] as const;
 
-/** OMP 17.2.12 read group component surface. */
+/** OMP 17.3.1 read group component surface. */
 export const READ_GROUP_METHODS = [
 	"updateArgs",
 	"updateResult",
@@ -90,7 +90,7 @@ export const READ_GROUP_PATCH_METHODS = [
 ] as const;
 
 /**
- * OMP 17.2.12 transcript block fold surface. All optional: the fold reads
+ * OMP 17.3.1 transcript block fold surface. All optional: the fold reads
  * them through the prototype chain and falls back to native behavior when
  * absent.
  */
@@ -256,7 +256,7 @@ export function isReadGroupComponent(value: unknown): value is RenderableBlock {
 }
 
 /**
- * OMP 17.2.12 argument positions. `updateArgs` carries
+ * OMP 17.3.1 argument positions. `updateArgs` carries
  * `(payload, toolCallId)`; the read group's `updateResult` carries
  * `(result, isPartial, toolCallId)` while the tool component's
  * `updateResult` carries `(result, isPartial)`. `renameEntry` takes
@@ -305,15 +305,15 @@ export function setExpandedValue(args: readonly unknown[]): boolean {
 }
 
 /**
- * Pinned host adapter for stock OMP 17.2.12. Instance-scoped to the host
+ * Pinned host adapter for stock OMP 17.3.1. Instance-scoped to the host
  * root of one session; all patching is exact-instance and transactional.
  */
-export class HostAdapter17212 {
+export class HostAdapter1731 {
 	/**
 	 * Pinned host release this adapter targets. Capability probes, not
 	 * this string, drive every decision.
 	 */
-	static readonly hostVersion = "17.2.12";
+	static readonly hostVersion = "17.3.1";
 
 	readonly #root: unknown;
 
@@ -436,7 +436,9 @@ export class HostAdapter17212 {
 		const original = resolveMethod(transcript, ADD_CHILD);
 		if (!original) throw new Error("transcript addChild missing");
 		const patch = new DescriptorPatch(transcript, [ADD_CHILD]);
-		patch.install({ [ADD_CHILD]: this.#makeAddChildWrapper(original, onChildAdded) });
+		patch.install({
+			[ADD_CHILD]: this.#makeAddChildWrapper(original, onChildAdded),
+		});
 		return patch;
 	}
 
@@ -512,7 +514,9 @@ export class HostAdapter17212 {
 		if (!original || !Object.isExtensible(container))
 			throw new Error("unpatchable TUI container");
 		const patch = new DescriptorPatch(container, [ADD_CHILD]);
-		patch.install({ [ADD_CHILD]: this.#makeAddChildWrapper(original, onChildAdded) });
+		patch.install({
+			[ADD_CHILD]: this.#makeAddChildWrapper(original, onChildAdded),
+		});
 		return patch;
 	}
 

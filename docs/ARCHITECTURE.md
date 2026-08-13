@@ -511,7 +511,7 @@ All external inputs bounded:
 
 ## Compatibility and Capacity Notes
 
-- The supported public range is OMP 17.2.12 and later. Private TUI shapes and the executable release gate are pinned to stock OMP 17.2.12; newer versions are accepted through the same capability probes and transactional rollback.
+- The supported public range is OMP 17.2.12 and later. Private TUI shapes and the executable release gate are pinned to stock OMP 17.3.1; newer versions are accepted through the same capability probes and transactional rollback.
 - Unknown and incompatible surfaces remain native. Ordinary compact tools may use expanded as a native inspection escape hatch; browser, computer, resolve, and reject explicitly remain compact when expanded. A future host-shape break is handled fail-open and becomes a compatibility issue to reproduce and add explicitly.
 - The spinner samples pending states at 80 ms while the adapter is active; profile real high-concurrency workloads before changing cadence or fairness.
 - Long transcripts retain lightweight display metadata linearly with visible history. The plugin releases it on reconstruction and session disposal, while heavy filtered payloads retire after terminal projection.
