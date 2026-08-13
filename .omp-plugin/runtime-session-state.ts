@@ -475,24 +475,27 @@ export class RuntimeSessionState {
 	 * (ledger + its states, same object identity) and retires historical
 	 * bindings: finalized states/ledgers leave the state map, terminal
 	 * projections and stats carriers are dropped, unbound-component
-	 * bookkeeping is reset and every state loses its component ref so
-	 * re-added instances re-bind. Never touches the ledger phase, the
-	 * pending set of the active run, or the transcript instance.
+	 * bookkeeping is reset, every state loses its component ref, and the
+	 * exact active component ↔ state associations are preserved so a
+	 * synchronously re-added instance restores its binding by object
+	 * identity (stock re-adds live components without replaying
+	 * updateArgs). Never touches the ledger phase, the pending set of the
+	 * active run, or the transcript instance.
 	 */
 	beginRebuild(): RebuildSnapshot {
 		if (this.#rebuildInProgress) {
 			// C02 two-quick-clears: a newer clear supersedes the pending
 			// rebuild. The preserved active ownership is unchanged (the
 			// first beginRebuild kept it in the state map), but components
-			// re-added since may have bound — reset the bindings and
-			// re-capture the same snapshot under a fresh generation token
-			// so only the latest settlement commits and stale microtasks
-			// abort on the token guard.
+			// re-added since may have bound — re-capture the identity map
+			// from the current bindings and reset, under a fresh
+			// generation token so only the latest settlement commits and
+			// stale microtasks abort on the token guard.
 			this.#generation++;
-			this.binding.reset();
 			const activeLedger =
 				this.#ledger?.phase === "working" ? this.#ledger : undefined;
 			const activeStates = activeLedger ? this.ledgerStates(activeLedger) : [];
+			this.binding.preserveActive(activeStates);
 			return { generation: this.#generation, activeLedger, activeStates };
 		}
 		this.#generation++;
@@ -506,7 +509,11 @@ export class RuntimeSessionState {
 		this.#terminalProjections.clear();
 		this.#liveStatsLines.clear();
 		this.#hydratedStatsEvidence.length = 0;
-		this.binding.reset();
+		// Preserve the exact active component ↔ state associations before
+		// detaching: stock re-adds the same live objects after the clear
+		// without replaying their updateArgs callback, so object identity
+		// is the only exact evidence left to restore the compact binding.
+		this.binding.preserveActive(activeStates);
 		return { generation: this.#generation, activeLedger, activeStates };
 	}
 
@@ -694,6 +701,10 @@ export class RuntimeSessionState {
 		const mapped = this.binding.bindHydrated(
 			snapshot.activeStates.length === 0,
 		);
+		// Settlement closes the identity window: the synchronous repopulation
+		// is over, so preserved active ownership must not bind components of
+		// any later generation or logical run.
+		this.binding.clearPreserved();
 		this.#insertHydratedStatsCarriers();
 		return { generation: this.#generation, mapped };
 	}
@@ -701,12 +712,20 @@ export class RuntimeSessionState {
 	/**
 	 * Rebuild lifecycle: abort. Never throws. The C rebuild phase owns the
 	 * rollback (its dispose path restores stock presentation); this method
-	 * only clears the in-progress marker so a later rebuild can start.
+	 * clears the in-progress marker so a later rebuild can start, and closes
+	 * the preserved identity window — the exact component ↔ state map is
+	 * only valid until the rebuild is cancelled or settled, so it must never
+	 * outlive an aborted generation. The unresolved backlog stays: states
+	 * that lost their host callback remain exact evidence and must keep
+	 * excluding themselves from new-tool fallbacks until the logical-run
+	 * boundary (dispose clears it anyway).
 	 */
 	abortRebuild(snapshot: RebuildSnapshot): void {
 		try {
-			if (snapshot.generation === this.#generation)
+			if (snapshot.generation === this.#generation) {
 				this.#rebuildInProgress = false;
+				this.binding.clearPreserved();
+			}
 		} catch {
 			// Abort must never throw into the clear wrapper.
 		}

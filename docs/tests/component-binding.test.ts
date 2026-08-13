@@ -444,6 +444,150 @@ describe("ComponentBinding: order fallbacks", () => {
 	});
 });
 
+describe("ComponentBinding: rebuild identity window", () => {
+	test("preserveActive restores the exact re-added component by identity", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.bind(component, state);
+		binding.preserveActive([state]);
+		expect(state.component).toBeUndefined();
+		// stock re-adds the exact live object without replaying updateArgs
+		binding.registerUnboundComponent(component);
+		expect(binding.componentState(component)).toBe(state);
+		expect(state.component).toBe(component);
+		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("clearPreserved closes the identity window", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.bind(component, state);
+		binding.preserveActive([state]);
+		binding.clearPreserved();
+		// a re-add after settlement is never identity-bound
+		binding.registerUnboundComponent(component);
+		expect(binding.componentState(component)).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([component]);
+	});
+
+	test("discardUnboundComponents closes the identity window", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.bind(component, state);
+		binding.preserveActive([state]);
+		binding.discardUnboundComponents();
+		binding.registerUnboundComponent(component);
+		expect(binding.componentState(component)).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([component]);
+	});
+
+	test("reset closes the identity window", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.bind(component, state);
+		binding.preserveActive([state]);
+		binding.reset();
+		binding.registerUnboundComponent(component);
+		expect(binding.componentState(component)).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([component]);
+	});
+
+	test("an unresolved preserved state never poisons a fresh start's fallback", () => {
+		const { binding, states } = makeBinding();
+		const ledger = new TurnLedger("run-1");
+		const staleComponent = new FakeToolComponent();
+		const stale = makeState({ id: "stale-1", toolName: "bash", ledger });
+		states.set("stale-1", stale);
+		binding.bind(staleComponent, stale);
+		binding.preserveActive([stale]);
+		binding.clearPreserved(); // rebuild settled; stale never re-added
+		const freshComponent = new FakeToolComponent();
+		const fresh = makeState({ id: "fresh-1", toolName: "bash", ledger });
+		states.set("fresh-1", fresh);
+		binding.registerUnboundComponent(freshComponent);
+		// the single-pair fallback sees only the fresh candidate — the
+		// backlog must not inflate cardinality or be guessed against
+		expect(binding.tryBindByOrder(ledger)).toBe("bound");
+		expect(fresh.component).toBe(freshComponent);
+		expect(stale.component).toBeUndefined();
+	});
+
+	test("a newer exact binding supersedes an older preserved object identity", () => {
+		const { binding, states } = makeBinding();
+		const ledger = new TurnLedger("run-1");
+		const a = new FakeToolComponent();
+		const b = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash", ledger });
+		states.set("call-1", state);
+		binding.bind(a, state); // original object A
+		binding.preserveActive([state]); // clear 1: preserves {A -> state}
+		expect(state.component).toBeUndefined();
+		// between the clears the host exact-binds a replacement component B
+		binding.bind(b, state);
+		binding.preserveActive([state]); // clear 2: only B may survive
+		// re-adding the older object A first must not steal the state
+		binding.registerUnboundComponent(a);
+		expect(binding.componentState(a)).toBeUndefined();
+		expect(state.component).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([a]);
+		// only the current identity B restores
+		binding.registerUnboundComponent(b);
+		expect(binding.componentState(b)).toBe(state);
+		expect(state.component).toBe(b);
+	});
+
+	test("a previous pair whose state is no longer preserved is never carried", () => {
+		const { binding, states } = makeBinding();
+		const a = new FakeToolComponent();
+		const old = makeState({ id: "old-1", toolName: "bash" });
+		states.set("old-1", old);
+		binding.bind(a, old);
+		binding.preserveActive([old]);
+		// the next generation preserves a different state; the old state
+		// stays in #states as evidence but is not in the active set
+		const other = makeState({ id: "other-1", toolName: "bash" });
+		states.set("other-1", other);
+		binding.preserveActive([other]);
+		binding.registerUnboundComponent(a);
+		expect(binding.componentState(a)).toBeUndefined();
+		expect(old.component).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([a]);
+	});
+
+	test("a restored backlog state binds and leaves the fallback exclusion", () => {
+		const { binding, states } = makeBinding();
+		const ledger = new TurnLedger("run-1");
+		const preservedComponent = new FakeToolComponent();
+		const preserved = makeState({
+			id: "stale-1",
+			toolName: "bash",
+			ledger,
+		});
+		states.set("stale-1", preserved);
+		binding.bind(preservedComponent, preserved);
+		binding.preserveActive([preserved]);
+		// the host re-adds the exact object synchronously: identity restore
+		binding.registerUnboundComponent(preservedComponent);
+		expect(binding.componentState(preservedComponent)).toBe(preserved);
+		expect(binding.unboundComponents()).toEqual([]);
+		// the resolved state no longer blocks a fresh start's fallback
+		const freshComponent = new FakeToolComponent();
+		const fresh = makeState({ id: "fresh-1", toolName: "bash", ledger });
+		states.set("fresh-1", fresh);
+		binding.registerUnboundComponent(freshComponent);
+		expect(binding.tryBindByOrder(ledger)).toBe("bound");
+		expect(fresh.component).toBe(freshComponent);
+	});
+});
+
 describe("ComponentBinding: reset", () => {
 	test("reset drops every association and component ref", () => {
 		const { binding, states } = makeBinding();

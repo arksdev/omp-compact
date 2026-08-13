@@ -549,6 +549,26 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		session.abortRebuild(again);
 	});
 
+	test("abortRebuild closes the preserved identity window", () => {
+		const session = makeSession();
+		session.beginRun();
+		const component = new FakeToolComponent();
+		const state = session.startState({
+			toolCallId: "live-1",
+			toolName: "bash",
+			args: {},
+		});
+		session.binding.bind(component, state);
+		const snapshot = session.beginRebuild();
+		expect(state.component).toBeUndefined();
+		session.abortRebuild(snapshot);
+		// after abort a re-add is never identity-bound: the exact component
+		// map is only valid until the rebuild is cancelled or settled
+		session.binding.registerUnboundComponent(component);
+		expect(session.binding.componentState(component)).toBeUndefined();
+		expect(session.binding.unboundComponents()).toEqual([component]);
+	});
+
 	test("commitRebuild rebuilds historical ledgers and restores the active one", () => {
 		const session = makeSession();
 		session.beginRun();

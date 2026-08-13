@@ -7221,6 +7221,239 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+stockTest(
+	"mid-run rebuild restores two exact active components and binds a new same-run tool",
+	async () => {
+		const booted = await bootForRebuild("compact");
+		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf first" },
+			"bash-1",
+		);
+		const second = await addTool(
+			booted,
+			"bash",
+			{ command: "printf second" },
+			"bash-2",
+		);
+
+		booted.transcript.clear();
+		// Stock re-adds the exact live objects synchronously without replaying
+		// updateArgs(args, toolCallId) for either historical component.
+		booted.transcript.addChild(first);
+		booted.transcript.addChild(second);
+		await flushMicrotasks();
+		const rebuilt = visibleRows(booted.transcript).join("\n");
+		expect(rebuilt).toContain("bash: printf first");
+		expect(rebuilt).toContain("bash: printf second");
+		expect(rebuilt.match(/printf first/g)).toHaveLength(1);
+		expect(rebuilt.match(/printf second/g)).toHaveLength(1);
+
+		// A new same-run component must bind without requiring another
+		// historical-ID callback from either preserved component.
+		const afterRebuild = await addTool(
+			booted,
+			"bash",
+			{ command: "printf after-rebuild" },
+			"bash-3",
+		);
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("bash: printf after-rebuild");
+		expect(live.match(/printf after-rebuild/g)).toHaveLength(1);
+
+		for (const [component, toolCallId] of [
+			[first, "bash-1"],
+			[second, "bash-2"],
+			[afterRebuild, "bash-3"],
+		] as const) {
+			await finishTool(booted, component, {
+				toolCallId,
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "ok" }] },
+				isError: false,
+			});
+		}
+		addAnswer(booted, "done");
+		await finishRun(booted, "done");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"fresh logical run ignores unresolved active rebuild states when binding a new tool",
+	async () => {
+		const booted = await bootForRebuild("compact");
+		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf stale-first" },
+			"stale-1",
+		);
+		const second = await addTool(
+			booted,
+			"bash",
+			{ command: "printf stale-second" },
+			"stale-2",
+		);
+
+		booted.transcript.clear();
+		// These active components are not reconstructed in this generation;
+		// their unresolved states must remain evidence, not block a later run.
+		await flushMicrotasks();
+		await finishTool(booted, first, {
+			toolCallId: "stale-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		await finishTool(booted, second, {
+			toolCallId: "stale-2",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "stale done");
+		await finishRun(booted, "stale done");
+
+		await beginRun(booted);
+		const fresh = await addTool(
+			booted,
+			"bash",
+			{ command: "printf fresh" },
+			"fresh-1",
+		);
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("bash: printf fresh");
+		expect(live.match(/printf fresh/g)).toHaveLength(1);
+		await finishTool(booted, fresh, {
+			toolCallId: "fresh-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "fresh done");
+		await finishRun(booted, "fresh done");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"two quick clears carry the exact active components into the latest generation",
+	async () => {
+		const booted = await bootForRebuild("compact");
+		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf first" },
+			"bash-1",
+		);
+		const second = await addTool(
+			booted,
+			"bash",
+			{ command: "printf second" },
+			"bash-2",
+		);
+		// Both clears land before any re-add: the second generation
+		// supersedes the first, but the exact active identity captured by
+		// the first clear must carry into the latest generation — stock
+		// re-adds the same live objects after the final clear without
+		// replaying updateArgs for either component.
+		booted.transcript.clear();
+		booted.transcript.clear();
+		expect(booted.harness.clears).toBe(2);
+		booted.transcript.addChild(first);
+		booted.transcript.addChild(second);
+		await flushMicrotasks();
+		const rebuilt = visibleRows(booted.transcript).join("\n");
+		expect(rebuilt).toContain("bash: printf first");
+		expect(rebuilt).toContain("bash: printf second");
+		expect(rebuilt.match(/printf first/g)).toHaveLength(1);
+		expect(rebuilt.match(/printf second/g)).toHaveLength(1);
+		// exactly one replay, for the latest generation only
+		expect(booted.harness.resetCalls).toBe(1);
+		for (const [component, toolCallId] of [
+			[first, "bash-1"],
+			[second, "bash-2"],
+		] as const) {
+			await finishTool(booted, component, {
+				toolCallId,
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "ok" }] },
+				isError: false,
+			});
+		}
+		addAnswer(booted, "done");
+		await finishRun(booted, "done");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a new same-run tool binds after a partial rebuild without poisoning from the unresolved state",
+	async () => {
+		const booted = await bootForRebuild("compact");
+		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf first" },
+			"bash-1",
+		);
+		const second = await addTool(
+			booted,
+			"bash",
+			{ command: "printf second" },
+			"bash-2",
+		);
+		booted.transcript.clear();
+		// Only the first object is reconstructed synchronously; the second
+		// active state loses its host callback and stays unresolved evidence
+		// for the rest of the run.
+		booted.transcript.addChild(first);
+		await flushMicrotasks();
+		const rebuilt = visibleRows(booted.transcript).join("\n");
+		expect(rebuilt).toContain("bash: printf first");
+		expect(rebuilt.match(/printf first/g)).toHaveLength(1);
+		// The genuinely new tool of the same logical run must bind compactly:
+		// the unresolved preserved state must not inflate the single-pair
+		// cardinality, and must never be guessed against by ordinal.
+		const fresh = await addTool(
+			booted,
+			"bash",
+			{ command: "printf fresh" },
+			"bash-3",
+		);
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("bash: printf fresh");
+		expect(live.match(/printf fresh/g)).toHaveLength(1);
+		for (const [component, toolCallId] of [
+			[first, "bash-1"],
+			[second, "bash-2"],
+			[fresh, "bash-3"],
+		] as const) {
+			await finishTool(booted, component, {
+				toolCallId,
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "ok" }] },
+				isError: false,
+			});
+		}
+		addAnswer(booted, "done");
+		await finishRun(booted, "done");
+		const settled = visibleRows(booted.transcript).join("\n");
+		expect(settled).toContain("bash: printf first");
+		expect(settled).toContain("bash: printf fresh");
+		expect(settled.match(/printf first/g)).toHaveLength(1);
+		expect(settled.match(/printf fresh/g)).toHaveLength(1);
+		// the unresolved state contributes no phantom row
+		expect(settled).not.toContain("printf second");
+		await shutdown(booted);
+	},
+);
 
 stockTest(
 	"session_tree intent alone never advances the presentation generation",

@@ -63,6 +63,36 @@ export class ComponentBinding {
 	readonly #groups = new Set<GroupState>();
 	#unboundComponents: RenderableBlock[] = [];
 	#hydratedReadLedgers: TurnLedger[] = [];
+	/**
+	 * Rebuild identity window: the exact active component ↔ state
+	 * associations captured by `preserveActive` before a rebuild detaches
+	 * presentation. A re-added component restores its binding only when it
+	 * is the same object (`registerUnboundComponent`) — stock re-adds live
+	 * `ToolExecutionComponent` instances without replaying the historical
+	 * `updateArgs(args, toolCallId)` callback, and object identity is exact
+	 * evidence that never weakens the fail-open ambiguity guards. A plain
+	 * (strong) Map because the window is bounded — cleared by
+	 * `clearPreserved` (rebuild settlement), `discardUnboundComponents`
+	 * (logical-run boundary) and `reset` (dispose) — so stale active
+	 * ownership can never bind a later generation's components and the
+	 * references cannot leak past the window.
+	 */
+	#preservedActive: Map<object, ToolState> | undefined;
+	/**
+	 * Rebuild backlog: active working states preserved across a rebuild
+	 * that never found their host component again (identity restore failed
+	 * or the object was never re-added). They stay full evidence in the
+	 * ledger, but as unresolved candidates they must never join — or
+	 * poison — the single-pair order fallback of a genuinely new tool in
+	 * the same logical run: `tryBindByOrder` scopes its candidates to
+	 * fresh starts only. A state leaves the backlog the moment it binds
+	 * (`bind`), so exact-ID replays and identity restores resolve
+	 * normally; the backlog itself closes at the logical-run boundary
+	 * (`discardUnboundComponents`) and on dispose (`reset`). Rebuild
+	 * settlement and abort intentionally keep it: the unresolved states
+	 * keep protecting later new tools until the run is over.
+	 */
+	#rebuildBacklog = new Set<ToolState>();
 
 	constructor(states: Map<string, ToolState>, delegates: BindingDelegates) {
 		this.#states = states;
@@ -101,20 +131,35 @@ export class ComponentBinding {
 
 	/**
 	 * Queue a newly seen tool component for binding (insertion order).
-	 * Components leave the queue when bound or when `bindHydrated` drains
-	 * it; anything still queued stays native rather than being guessed.
+	 * During the rebuild identity window a preserved active component is
+	 * restored by exact object identity instead of being queued: stock
+	 * re-adds the same live instance without replaying the historical
+	 * `updateArgs` callback, and identity is exact evidence that never
+	 * weakens the fail-open ambiguity guards (`bind` stays conflict-safe).
+	 * Other components leave the queue when bound or when `bindHydrated`
+	 * drains it; anything still queued stays native rather than being
+	 * guessed.
 	 */
 	registerUnboundComponent(component: RenderableBlock): void {
+		const preserved = this.#preservedActive?.get(component);
+		if (preserved && this.#states.get(preserved.id) === preserved) {
+			this.bind(component, preserved);
+			return;
+		}
 		this.#unboundComponents.push(component);
 	}
 
 	/**
 	 * A positional fallback is valid only within one logical run. A terminal
 	 * boundary discards unresolved host components so they stay native instead
-	 * of being guessed against the next run's first state.
+	 * of being guessed against the next run's first state, closes the rebuild
+	 * identity window and drops the unresolved backlog so preserved active
+	 * ownership can never bind a later run's components.
 	 */
 	discardUnboundComponents(): void {
 		this.#unboundComponents.length = 0;
+		this.#preservedActive = undefined;
+		this.#rebuildBacklog.clear();
 	}
 
 	/**
@@ -144,6 +189,10 @@ export class ComponentBinding {
 		if (existing && existing !== state) return "ambiguous";
 		state.component = component;
 		this.#componentStates.set(component, state);
+		// A backlog state that found its host component again — identity
+		// restore or an exact-ID replay — is resolved evidence, not an
+		// unresolved poison, and leaves the fresh-candidate exclusion.
+		this.#rebuildBacklog.delete(state);
 		const index = this.#unboundComponents.indexOf(component);
 		if (index >= 0) this.#unboundComponents.splice(index, 1);
 		return "bound";
@@ -152,7 +201,13 @@ export class ComponentBinding {
 	/**
 	 * Single-pair order fallback: exactly one unbound tool state and exactly
 	 * one unbound tool component bind to each other. This is the only
-	 * positional guess allowed without full-cardinality proof.
+	 * positional guess allowed without full-cardinality proof. Candidates
+	 * are scoped to fresh starts: preserved active states that lost their
+	 * host callback across a rebuild (`#rebuildBacklog`) never join the
+	 * candidate set, so a genuinely new post-rebuild tool binds against its
+	 * own start instead of being poisoned by the unresolved backlog (and is
+	 * never positionally bound to a delayed/replacement historical
+	 * component).
 	 */
 	tryBindByOrder(ledger: TurnLedger | undefined): BindingStatus {
 		const unboundStates = [...this.#states.values()].filter(
@@ -161,7 +216,7 @@ export class ComponentBinding {
 		// Read states bind to a group only through a matching
 		// `updateArgs`/`updateResult` ID; they never use the order fallback.
 		const toolStates = unboundStates.filter(
-			(state) => state.toolName !== "read",
+			(state) => state.toolName !== "read" && !this.#rebuildBacklog.has(state),
 		);
 		if (toolStates.length !== 1 || this.#unboundComponents.length !== 1)
 			return "unmapped";
@@ -461,10 +516,78 @@ export class ComponentBinding {
 
 	/**
 	 * Rebuild retirement: drop every component association and queue so
-	 * re-added instances re-bind from scratch. All states (active included)
-	 * lose their component ref; the caller owns ledger/state retention.
+	 * re-added instances re-bind. All states (active included) lose their
+	 * component ref; the caller owns ledger/state retention. Also closes
+	 * the rebuild identity window and the unresolved backlog
+	 * (`preserveActive` never survives a plain reset).
 	 */
 	reset(): void {
+		this.#preservedActive = undefined;
+		this.#rebuildBacklog.clear();
+		this.#resetAssociations();
+	}
+
+	/**
+	 * Rebuild identity preservation: capture the exact active component ↔
+	 * state associations before the rebuild detaches presentation, then
+	 * retire every association. Only these objects can be re-bound by
+	 * identity (`registerUnboundComponent`) during the synchronous
+	 * repopulation that follows the transcript clear; everything else
+	 * binds from scratch or stays native. The caller passes exactly the
+	 * preserved active working states — historical/finalized ownership is
+	 * never identity-retained.
+	 *
+	 * Two-quick-clears: a newer clear supersedes the pending rebuild, but
+	 * the identity captured by the superseded generation is still exact
+	 * evidence — stock may not have re-added anything between the clears,
+	 * so the previous map must carry forward every pair whose state is
+	 * still preserved this generation AND has no newer captured component
+	 * (a replacement component that exact-bound between the clears
+	 * supersedes the older object identity), while the current-bindings
+	 * pass above recaptures any component that was re-bound since. A stale
+	 * pair (state no longer in the active set, or re-keyed away from this
+	 * id) never survives.
+	 */
+	preserveActive(activeStates: readonly ToolState[]): void {
+		const previous = this.#preservedActive;
+		const preserved = new Map<object, ToolState>();
+		const activeSet = new Set(activeStates);
+		for (const state of activeStates) {
+			if (state.component) preserved.set(state.component, state);
+		}
+		if (previous) {
+			for (const [component, state] of previous) {
+				if (
+					activeSet.has(state) &&
+					state.component === undefined &&
+					this.#states.get(state.id) === state &&
+					!preserved.has(component)
+				) {
+					preserved.set(component, state);
+				}
+			}
+		}
+		this.#preservedActive = preserved;
+		this.#resetAssociations();
+		// Every preserved active state is unbound after the reset; until one
+		// finds its host component again it is backlog — exact evidence that
+		// must never join (or poison) the single-pair fallback of a later
+		// fresh start in the same run.
+		this.#rebuildBacklog = new Set(activeStates);
+	}
+
+	/**
+	 * Rebuild settlement/abort: the identity window is closed — a component
+	 * re-added outside the synchronous repopulation is never identity-bound.
+	 * The unresolved backlog intentionally survives: preserved active states
+	 * that lost their host callback keep excluding themselves from the
+	 * single-pair fallback until the logical-run boundary.
+	 */
+	clearPreserved(): void {
+		this.#preservedActive = undefined;
+	}
+
+	#resetAssociations(): void {
 		this.#componentStates = new WeakMap<object, ToolState>();
 		this.#groupStates = new WeakMap<object, GroupState>();
 		this.#groups.clear();
