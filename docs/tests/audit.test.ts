@@ -80,7 +80,6 @@ describe("unified edit audit", () => {
 		).toEqual({ added: 1, removed: 1 });
 	});
 
-
 	test("malformed hunk header returns undefined", () => {
 		expect(countUnifiedDiff("@@ not-a-hunk\n+fake\n")).toBeUndefined();
 		expect(countUnifiedDiff("@@\n+line\n")).toBeUndefined();
@@ -825,7 +824,6 @@ describe("edit evidence budgets", () => {
 			entries.some((entry) => entry.path === `src/f${MAX_PER_FILE_RESULTS}.ts`),
 		).toBe(false);
 	});
-
 
 	test("oversized file is skipped but smaller subsequent files are scanned", () => {
 		const { MAX_TOTAL_SCAN_BYTES } = require("../../.omp-plugin/audit-diff");

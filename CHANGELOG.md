@@ -7,12 +7,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Формат соответствует [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), а выпуски следуют [семантическому версионированию](https://semver.org/).
 
 ## [Unreleased]
-### Changed
-
-- Rendered `browser`, `computer`, `resolve`, and `reject` as compact one-line tool rows; highlighted only the requested tool labels, kept payloads neutral, and preserved `ask` as the native interactive surface.
-- Инструменты `browser`, `computer`, `resolve` и `reject` переведены в компактные однострочные строки: выделяются только названия, payload остаётся нейтральным, а `ask` сохраняет нативную интерактивную поверхность.
-- Moved the pinned development and release-gate host to stock OMP 17.3.1 while retaining the public `>=17.2.12` compatibility floor; added a stock-host canary for container-owned tool-activity visibility forwarding.
-- Закреплённый development/release host переведён на штатный OMP 17.3.1 при сохранении публичного порога совместимости `>=17.2.12`; добавлен stock-host canary для container-owned forwarding видимости tool activity.
 
 ## [1.0.2] - 2026-08-13
 
@@ -20,6 +14,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Fixed an issue where, after compaction in long sessions, the plugin could lose track of a logical run, stop reporting statistics, and switch tool output back to the native view.
 - Исправлена ошибка, из-за которой в длинных сессиях после компакта плагин мог терять отслеживание одного логического хода, не выводить статистику и переключать вывод инструментов на нативный вид.
+
+### Changed
+
+- Rendered `browser`, `computer`, `resolve`, and `reject` as compact one-line tool rows; highlighted only the requested tool labels, kept payloads neutral, and preserved `ask` as the native interactive surface.
+- Инструменты `browser`, `computer`, `resolve` и `reject` переведены в компактные однострочные строки: выделяются только названия, payload остаётся нейтральным, а `ask` сохраняет нативную интерактивную поверхность.
+- Moved the pinned development and release-gate host to stock OMP 17.3.1 while retaining the public `>=17.2.12` compatibility floor; added a stock-host canary for container-owned tool-activity visibility forwarding.
+- Закреплённый development/release host переведён на штатный OMP 17.3.1 при сохранении публичного порога совместимости `>=17.2.12`; добавлен stock-host canary для container-owned forwarding видимости tool activity.
 
 ## [1.0.1] - 2026-08-12
 
