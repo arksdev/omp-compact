@@ -200,10 +200,11 @@ describe("applyHostSettings: save, flush, no reload", () => {
 			["hideThinkingBlock", true],
 		]);
 		expect(api.flushCalls).toBe(1);
-		expect(result).toEqual({
+		expect(result).toMatchObject({
 			changed: ["recapEnabled", "thinkingBlocksVisible"],
 			restartRequired: true,
 		});
+		expect(typeof result.rollback).toBe("function");
 	});
 
 	test("changes only the paths that differ from the effective host values", async () => {
@@ -239,7 +240,16 @@ describe("applyHostSettings: save, flush, no reload", () => {
 		});
 		expect(api.setCalls).toEqual([]);
 		expect(api.flushCalls).toBe(0);
-		expect(result).toEqual({ changed: [], restartRequired: false });
+		expect(result).toMatchObject({ changed: [], restartRequired: false });
+		// No-op apply: the compensating rollback is a harmless no-op…
+		await expect(result.rollback()).resolves.toBeUndefined();
+		expect(api.setCalls).toEqual([]);
+		expect(api.flushCalls).toBe(0);
+		// …but still one-shot, exactly like every apply-result rollback: a
+		// second invocation rejects and still writes nothing.
+		await expect(result.rollback()).rejects.toThrow("rollback already invoked");
+		expect(api.setCalls).toEqual([]);
+		expect(api.flushCalls).toBe(0);
 	});
 
 	test("flush failure rolls back to previous values and reports error", async () => {
@@ -452,6 +462,136 @@ describe("applyHostSettings: save, flush, no reload", () => {
 			["hideThinkingBlock", true],
 		]);
 		expect(api.flushCalls).toBe(1);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// Compensating rollback (apply result one-shot)
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("compensating rollback from the apply result", () => {
+	test("restores the raw persistent pre-image, not an override-masked effective value", async () => {
+		// Persistent global config: recap.enabled=true. A runtime override
+		// masks the effective value to false (menu shows recap off). The
+		// forward apply writes the requested value, then the compensating
+		// rollback must restore the RAW persistent true — never the masked
+		// effective false, which would corrupt the global config.
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": true, hideThinkingBlock: false },
+			runtimeOverrides: { "recap.enabled": false },
+		});
+		expect(bridge.read()).toEqual({
+			recapEnabled: false,
+			thinkingBlocksVisible: true,
+		});
+		// The request differs from the EFFECTIVE value (false), so the apply
+		// is a real change even though the raw config already holds true.
+		const result = await bridge.apply({ recapEnabled: true });
+		expect(api.setCalls).toEqual([["recap.enabled", true]]);
+		expect(api.flushCalls).toBe(1);
+		expect(api.persistentValues.get("recap.enabled")).toBe(true);
+
+		await result.rollback();
+
+		// Exact raw pre-image restored (true), not the effective masked
+		// value (false) that read() returns.
+		expect(api.setCalls).toEqual([
+			["recap.enabled", true],
+			["recap.enabled", true],
+		]);
+		expect(api.persistentValues.get("recap.enabled")).toBe(true);
+		expect(api.flushCalls).toBe(2);
+		// The override still masks the effective view after rollback.
+		expect(bridge.read()).toEqual({
+			recapEnabled: false,
+			thinkingBlocksVisible: true,
+		});
+	});
+
+	test("restores absence for a path absent from the persistent config", async () => {
+		// hideThinkingBlock is not in the global config (schema default
+		// applies). Rollback must remove the key again so the default keeps
+		// applying — never write any value into the global config.
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": true },
+		});
+		const result = await bridge.apply({ thinkingBlocksVisible: false });
+		expect(api.persistentValues.get("hideThinkingBlock")).toBe(true);
+
+		await result.rollback();
+
+		expect(api.setCalls).toEqual([
+			["hideThinkingBlock", true],
+			["hideThinkingBlock", undefined],
+		]);
+		expect(api.persistentValues.has("hideThinkingBlock")).toBe(false);
+		expect(bridge.read().thinkingBlocksVisible).toBe(true);
+	});
+
+	test("restores a malformed raw persistent value exactly", async () => {
+		// The persistent value is a non-boolean string; effective reads fail
+		// open to the schema default. Rollback must restore the exact raw
+		// "yes", not the normalized default.
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": "yes" },
+		});
+		const result = await bridge.apply({ recapEnabled: false });
+
+		await result.rollback();
+
+		expect(api.setCalls).toEqual([
+			["recap.enabled", false],
+			["recap.enabled", "yes"],
+		]);
+		expect(api.persistentValues.get("recap.enabled")).toBe("yes");
+	});
+
+	test("restores only the paths the apply actually changed", async () => {
+		// thinkingBlocksVisible is unchanged by the forward apply, so the
+		// rollback must not touch hideThinkingBlock at all.
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": true, hideThinkingBlock: false },
+		});
+		const result = await bridge.apply({
+			recapEnabled: false,
+			thinkingBlocksVisible: true, // unchanged
+		});
+		expect(result.changed).toEqual(["recapEnabled"]);
+		expect(api.setCalls).toEqual([["recap.enabled", false]]);
+
+		await result.rollback();
+
+		expect(api.setCalls).toEqual([
+			["recap.enabled", false],
+			["recap.enabled", true],
+		]);
+		expect(api.flushCalls).toBe(2);
+	});
+
+	test("is one-shot: a second invocation rejects", async () => {
+		const { bridge } = makeHarness({
+			persistent: { "recap.enabled": true },
+		});
+		const result = await bridge.apply({ recapEnabled: false });
+
+		await result.rollback();
+		await expect(result.rollback()).rejects.toThrow("rollback already invoked");
+	});
+
+	test("rollback flush failure rejects with the flush error", async () => {
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": true },
+		});
+		const result = await bridge.apply({ recapEnabled: false });
+		expect(api.flushCalls).toBe(1);
+
+		// The forward flush succeeded; a later rollback flush fails. The
+		// restore was attempted first (set applied the raw value), then the
+		// flush rejected — the rollback reports the failure honestly.
+		api.flushErrors = [flushError("rollback flush failed")];
+		await expect(result.rollback()).rejects.toThrow("rollback flush failed");
+		expect(api.flushCalls).toBe(2);
+		expect(api.persistentValues.get("recap.enabled")).toBe(true);
 	});
 });
 

@@ -22,8 +22,10 @@ import { type AgentEndEvent, classifyAgentEnd } from "./turn-ledger";
  * never on gate skips, persistence failure, abort/dispose, or shake errors.
  *
  * All failure paths are fail-open: a missing registry, a detached session,
- * a rejected persistence wait, or a throwing native shake only warn once per
- * distinct message and never throw into the extension runner.
+ * a rejected persistence wait, a fail-closed drain (the audit lifecycle's
+ * agent_end barrier resolves `false` — timeout/teardown), or a throwing
+ * native shake only warn once per distinct message and never throw into the
+ * extension runner.
  */
 
 export interface AutoShakeSettings {
@@ -219,7 +221,9 @@ export class PostTurnShake {
 	/**
 	 * Called at `agent_end` once the plugin's audit/Git (and stats) evidence
 	 * has been persisted. `persistence` is the drain promise the evidence
-	 * awaits; the shake never starts before it settles.
+	 * awaits; the shake never starts before it settles, and a drain that
+	 * settles on `false` (fail-closed: barrier timeout/teardown, evidence
+	 * never persisted) skips the shake.
 	 */
 	async onAgentEnd(
 		event: AgentEndEvent,
@@ -255,11 +259,23 @@ export class PostTurnShake {
 		this.#shakenThisRun = true;
 
 		if (persistence) {
+			let drained = true;
 			try {
-				await persistence;
+				// The audit lifecycle's agent_end drain resolves `false` when
+				// it failed closed (barrier timeout / teardown): the audit/Git
+				// evidence was never persisted, so the run must not shake —
+				// eliding tool results whose evidence rows are missing would
+				// corrupt the committed projection.
+				drained = (await persistence) !== false;
 			} catch (error) {
 				this.#warnOnce(
 					`omp-compact: auto-shake skipped; evidence persistence failed: ${messageOf(error)}`,
+				);
+				return;
+			}
+			if (!drained) {
+				this.#warnOnce(
+					"omp-compact: auto-shake skipped; evidence persistence failed (drain did not complete)",
 				);
 				return;
 			}

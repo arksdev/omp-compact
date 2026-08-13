@@ -427,6 +427,8 @@ describe("save vs cancel", () => {
 
 function flowHarness(overrides: {
 	apply?: () => Promise<{ restartRequired: boolean }>;
+	/** Failure injection for the one-shot compensating rollback. */
+	rollback?: () => Promise<void>;
 	update?: () => Promise<CompactSettings>;
 	envOverrides?: EnvOverrides;
 }) {
@@ -443,13 +445,21 @@ function flowHarness(overrides: {
 	} as unknown as CompactSettingsStore;
 	const deps = {
 		bridge: {
-			// Pre-save host values the flow must restore when the plugin
-			// JSON persist fails (the real bridge's read never writes).
-			read: () => ({ recapEnabled: true, thinkingBlocksVisible: true }),
 			apply: async (host: CompactHostSettings) => {
 				order.push(`bridge.apply:${host.recapEnabled}`);
-				if (overrides.apply) return overrides.apply();
-				return { restartRequired: false };
+				const applied = overrides.apply
+					? await overrides.apply()
+					: { restartRequired: false };
+				return {
+					restartRequired: applied.restartRequired,
+					// Models the real bridge's one-shot compensating rollback
+					// (restores the raw persistent pre-image captured before
+					// the forward mutation).
+					rollback: async () => {
+						order.push("bridge.rollback");
+						if (overrides.rollback) return overrides.rollback();
+					},
+				};
 			},
 		},
 		store,
@@ -515,14 +525,41 @@ describe("save flow ordering and failure contract", () => {
 		});
 		await expect(saveSettingsFlow(draft, deps)).rejects.toThrow("disk full");
 		// The failed save's apply ran, the store rejected, and the
-		// compensating rollback re-applied the pre-save host values
-		// (recapEnabled true) — the host side never diverges from the JSON.
+		// compensating rollback from the apply result ran — the host side
+		// never diverges from the JSON.
 		expect(order).toEqual([
 			"bridge.apply:false",
 			"store.update",
-			"bridge.apply:true",
+			"bridge.rollback",
 		]);
 		expect(notifies).toEqual([]);
+	});
+
+	test("rollback failure warns and preserves the original store error", async () => {
+		const { deps, order, notifies } = flowHarness({
+			update: async () => {
+				throw new Error("disk full");
+			},
+			rollback: async () => {
+				throw new Error("restore failed");
+			},
+		});
+		// The ORIGINAL store error must surface — never the rollback error —
+		// with exactly one honest warning naming both.
+		await expect(saveSettingsFlow(draft, deps)).rejects.toThrow("disk full");
+		expect(order).toEqual([
+			"bridge.apply:false",
+			"store.update",
+			"bridge.rollback",
+		]);
+		expect(notifies).toEqual([
+			[
+				"warning",
+				expect.stringContaining("Host settings could not be restored"),
+			],
+		]);
+		expect(notifies[0]?.[1]).toContain("disk full");
+		expect(notifies[0]?.[1]).toContain("restore failed");
 	});
 
 	test("without a bridge only the store is touched", async () => {
@@ -543,19 +580,24 @@ describe("save flow ordering and failure contract", () => {
 		const store = createSettingsStore({ path: configPath, warn: () => {} });
 		const order: string[] = [];
 		const notifies: Array<[string, string]> = [];
-		const applied: CompactHostSettings[] = [];
 		// Stateful fake of the real bridge: apply() performs set (in-memory)
-		// + flush (persistent), so a successful apply has changed BOTH the
-		// live values read() returns and what a reload would persist. A
-		// compensating rollback through apply() therefore restores both.
+		// + flush (persistent), and its result carries a one-shot rollback
+		// that restores the exact pre-apply state captured before mutation.
 		let live: CompactHostSettings = { recapEnabled: true };
+		const applied: CompactHostSettings[] = [];
 		const bridge: HostBridgeLike = {
-			read: () => ({ ...live }),
 			apply: async (host) => {
 				order.push("bridge.apply");
 				applied.push(host);
+				const previous = { ...live };
 				live = { ...host };
-				return { restartRequired: false };
+				return {
+					restartRequired: false,
+					rollback: async () => {
+						order.push("bridge.rollback");
+						live = previous;
+					},
+				};
 			},
 		};
 		const saveDraft: CompactSettings = {
@@ -576,12 +618,11 @@ describe("save flow ordering and failure contract", () => {
 				}),
 			).rejects.toThrow();
 			await chmod(configDir, 0o700);
-			// The host apply ran twice: the failed save, then the
-			// compensating rollback with the pre-save host values.
-			expect(order).toEqual(["bridge.apply", "bridge.apply"]);
+			// The host apply ran, the store rejected, and the compensating
+			// rollback from the apply result restored the pre-save state.
+			expect(order).toEqual(["bridge.apply", "bridge.rollback"]);
 			expect(applied).toEqual([
 				{ recapEnabled: false, thinkingBlocksVisible: true },
-				{ recapEnabled: true },
 			]);
 			expect(notifies).toEqual([]);
 			// Persistent (plugin JSON) is byte-identical: the new host
@@ -590,32 +631,43 @@ describe("save flow ordering and failure contract", () => {
 			expect(store.snapshot().host.recapEnabled).toBe(true);
 			// In-memory host settings restored to the pre-save values too:
 			// host state and plugin JSON agree again.
-			expect(bridge.read()).toEqual({ recapEnabled: true });
+			expect(live).toEqual({ recapEnabled: true });
 		} finally {
 			await chmod(configDir, 0o700).catch(() => undefined);
 			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
-	test("store update failure after a flushed host apply rolls persistent and in-memory host settings back", async () => {
-		// The host bridge successfully applied AND flushed the new host
-		// values (set + flush changed the live values read() returns and
-		// what a reload would persist), then the plugin config store.update
-		// fails. The save must restore the pre-save host values through the
-		// bridge again — persistent AND in-memory — so host config and the
-		// unchanged plugin JSON never diverge, then surface the error.
+	test("store update failure restores the RAW persistent pre-image, never effective read values", async () => {
+		// Simulated project/runtime override: the live effective value
+		// (recapEnabled false) differs from the raw persistent global config
+		// (recap.enabled true). The bridge's rollback closure is bound to the
+		// RAW pre-image captured before the forward apply — a rollback built
+		// from read() would write the masked effective value into the global
+		// config and corrupt it (see context/host-settings-rollback.md).
+		const rawBefore: CompactHostSettings = { recapEnabled: true };
+		const effectiveBefore: CompactHostSettings = { recapEnabled: false };
 		const order: string[] = [];
 		const notifies: Array<[string, string]> = [];
-		let live: CompactHostSettings = {
-			recapEnabled: true,
-			thinkingBlocksVisible: true,
-		};
+		let raw: CompactHostSettings = { ...rawBefore };
+		let effective: CompactHostSettings = { ...effectiveBefore };
 		const bridge: HostBridgeLike = {
-			read: () => ({ ...live }),
 			apply: async (host) => {
-				order.push(`apply:${host.recapEnabled}:${host.thinkingBlocksVisible}`);
-				live = { ...host };
-				return { restartRequired: false };
+				order.push("bridge.apply");
+				// Forward mutation changes BOTH layers to the request.
+				raw = { ...host };
+				effective = { ...host };
+				return {
+					restartRequired: false,
+					// Models the real bridge's one-shot rollback: restores the
+					// RAW persistent pre-image captured before the apply; the
+					// override then masks the effective view again.
+					rollback: async () => {
+						order.push("bridge.rollback");
+						raw = { ...rawBefore };
+						effective = { ...effectiveBefore };
+					},
+				};
 			},
 		};
 		const store = {
@@ -627,7 +679,7 @@ describe("save flow ordering and failure contract", () => {
 		} as unknown as CompactSettingsStore;
 		const saveDraft: CompactSettings = {
 			...DEFAULT_SETTINGS,
-			host: { recapEnabled: false, thinkingBlocksVisible: false },
+			host: { recapEnabled: false },
 		};
 		await expect(
 			saveSettingsFlow(saveDraft, {
@@ -638,20 +690,13 @@ describe("save flow ordering and failure contract", () => {
 		).rejects.toThrow("disk full");
 		// 1. the failed save applied and flushed the new host values,
 		// 2. the plugin JSON persist rejected,
-		// 3. the compensating rollback re-applied the pre-save host values.
-		expect(order).toEqual([
-			"apply:false:false",
-			"store.update",
-			"apply:true:true",
-		]);
-		// In-memory host settings restored: read() mirrors the pre-save state.
-		expect(bridge.read()).toEqual({
-			recapEnabled: true,
-			thinkingBlocksVisible: true,
-		});
-		// Persistent host settings restored: the rollback went through the
-		// same apply (set + flush) path that persisted the failed values.
-		expect(live).toEqual({ recapEnabled: true, thinkingBlocksVisible: true });
+		// 3. the one-shot compensating rollback restored the pre-image.
+		expect(order).toEqual(["bridge.apply", "store.update", "bridge.rollback"]);
+		// The RAW persistent layer is back to its exact pre-image — NOT the
+		// effective values a read()-based rollback would have written.
+		expect(raw).toEqual({ recapEnabled: true });
+		// The simulated override still masks the effective view, as before.
+		expect(effective).toEqual({ recapEnabled: false });
 		// No success notification for a failed save.
 		expect(notifies).toEqual([]);
 	});
@@ -859,16 +904,22 @@ describe("dialog save notification contract", () => {
 
 	test("failed save after a flushed host apply rolls the host back and keeps the dialog open with the error shown", async () => {
 		// Stateful fake of the real bridge: apply() = set (in-memory) +
-		// flush (persistent), so it models both layers changing together.
+		// flush (persistent); its result carries a one-shot rollback that
+		// restores the exact pre-apply state.
 		let live: CompactHostSettings = {
 			recapEnabled: true,
 			thinkingBlocksVisible: true,
 		};
 		const bridge: HostBridgeLike = {
-			read: () => ({ ...live }),
 			apply: async (host) => {
+				const previous = { ...live };
 				live = { ...host };
-				return { restartRequired: false };
+				return {
+					restartRequired: false,
+					rollback: async () => {
+						live = previous;
+					},
+				};
 			},
 		};
 		const harness = dialogWithFlow({

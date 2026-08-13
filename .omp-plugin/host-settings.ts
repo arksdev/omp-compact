@@ -130,6 +130,16 @@ export interface HostApplyResult {
 	 * the caller only reports this honestly — the bridge never reloads.
 	 */
 	restartRequired: boolean;
+	/**
+	 * One-shot compensating rollback for a failure that happens AFTER this
+	 * apply succeeded and flushed (e.g. the plugin JSON persist failing):
+	 * restores the exact raw persistent pre-image of the changed paths —
+	 * present -> raw value verbatim, absent -> key removed via
+	 * `Settings.set(path, undefined)` — and flushes. Harmless no-op when the
+	 * apply changed nothing. Must be invoked before the next apply; a second
+	 * invocation rejects. Throws when the restore itself cannot be persisted.
+	 */
+	rollback(): Promise<void>;
 }
 
 export interface HostSettingsBridge {
@@ -283,6 +293,61 @@ export function createHostSettingsBridge(
 		}
 	}
 
+	/**
+	 * Restore the exact raw persistent pre-image for exactly the changed
+	 * paths and flush: a present path is restored verbatim (including
+	 * malformed values); an absent path is restored by removing the key
+	 * (stock `Settings.set(path, undefined)` drops the leaf from the YAML on
+	 * save) so the schema default applies again. Shared by the bridge's own
+	 * flush-failure rollback and the one-shot compensating rollback handed
+	 * to the caller. Throws when the restore cannot be persisted.
+	 */
+	async function restorePreImage(
+		changes: ReadonlyArray<{ path: HostSettingPath; value: unknown }>,
+		preImage: PersistentPreImage,
+	): Promise<void> {
+		setBoth(
+			changes.map((change) => {
+				const state = preImage[change.path];
+				return {
+					path: change.path,
+					value: state.present ? state.value : undefined,
+				};
+			}),
+		);
+		await api.flush();
+	}
+
+	/**
+	 * Wrap a rollback action in the one-shot contract shared by every apply
+	 * result rollback: the first invocation runs the action, a second
+	 * rejects — the closure's pre-image (or no-op) is only valid for the
+	 * save it belongs to, and restoring twice could clobber a newer save.
+	 */
+	function createOneShotRollback(
+		action: () => Promise<void>,
+	): () => Promise<void> {
+		let used = false;
+		return async () => {
+			if (used) {
+				throw new Error("Host settings rollback already invoked");
+			}
+			used = true;
+			await action();
+		};
+	}
+
+	/**
+	 * One-shot compensating rollback bound to ONE apply: restores the raw
+	 * persistent pre-image captured before that apply's mutation.
+	 */
+	function createCompensatingRollback(
+		changes: ReadonlyArray<{ path: HostSettingPath; value: unknown }>,
+		preImage: PersistentPreImage,
+	): () => Promise<void> {
+		return createOneShotRollback(() => restorePreImage(changes, preImage));
+	}
+
 	async function runApply(host: CompactHostSettings): Promise<HostApplyResult> {
 		const previous = read();
 		const changes: Array<{ path: HostSettingPath; value: boolean }> = [];
@@ -308,7 +373,13 @@ export function createHostSettingsBridge(
 
 		// Nothing to persist: cancel/load/unchanged save never writes host config.
 		if (changes.length === 0) {
-			return { changed: [], restartRequired: false };
+			return {
+				changed: [],
+				restartRequired: false,
+				// No-op apply: the compensating rollback is a harmless no-op,
+				// but still one-shot like every apply-result rollback.
+				rollback: createOneShotRollback(async () => undefined),
+			};
 		}
 
 		// Capture the raw persistent pre-image BEFORE any mutation. Rollback
@@ -332,22 +403,12 @@ export function createHostSettingsBridge(
 		try {
 			await api.flush();
 		} catch (cause) {
-			// Exact rollback of the raw persistent pre-image: a present path is
-			// restored verbatim (including malformed values); an absent path is
-			// restored by removing the key (stock Settings.set(path, undefined)
-			// drops the leaf from the YAML on save) so the schema default
-			// applies again. Best-effort flush.
-			const rollbackChanges = changes.map((change) => {
-				const state = preImage[change.path];
-				return {
-					path: change.path,
-					value: state.present ? state.value : undefined,
-				};
-			});
+			// Exact rollback of the raw persistent pre-image (never effective
+			// values, which project/runtime overrides can mask). Best-effort
+			// flush; a failed restore is reported on the error, not thrown.
 			let rollbackFailed = false;
 			try {
-				setBoth(rollbackChanges);
-				await api.flush();
+				await restorePreImage(changes, preImage);
 			} catch (rollbackCause) {
 				rollbackFailed = true;
 				warnOnce(
@@ -370,6 +431,10 @@ export function createHostSettingsBridge(
 		return {
 			changed,
 			restartRequired: changed.includes("thinkingBlocksVisible"),
+			// One-shot compensating rollback for a LATER failure (e.g. the
+			// plugin JSON persist): restores the raw persistent pre-image
+			// captured before this apply's mutation.
+			rollback: createCompensatingRollback(changes, preImage),
 		};
 	}
 

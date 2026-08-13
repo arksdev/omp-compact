@@ -779,10 +779,18 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			// never render it and must not retain the frozen payload.
 			if (pendingStatsRunId) pendingTerminalStats.delete(pendingStatsRunId);
 		});
-		// PostTurnShake: run strictly after the evidence drain settles; the
-		// module is fail-open and never throws (noop catch is defensive).
+		// PostTurnShake: run strictly after the evidence drain settles AND
+		// succeeded. The link resolves `true` only when the drain finished
+		// and the run's audit/Git evidence was persisted; `false` means the
+		// drain failed closed (barrier timeout) or was skipped (session
+		// switch/shutdown), so the run must not shake. The drain has already
+		// settled here, so no persistence barrier is passed. The module is
+		// fail-open and never throws (noop catch is defensive).
 		void link
-			.then(() => postShake.onAgentEnd(event, context, link))
+			.then((drained) => {
+				if (!drained) return undefined;
+				return postShake.onAgentEnd(event, context);
+			})
 			.catch(() => undefined);
 		// Return the drain promise so an awaited dispatch (or the extension
 		// runner) observes the evidence before agent_end settles; stock's

@@ -168,12 +168,24 @@ export function registerSettingsCommand<Ctx>(
 /** Host-configuration bridge seam (wired by HostSettingsBridge's slice). */
 export interface HostBridgeLike {
 	/**
-	 * Live host values before a save. The save flow captures this pre-image
-	 * before applying so a failed plugin-JSON persist can restore the exact
-	 * pre-save values (the real bridge's read never writes).
+	 * Persist host-facing toggles (set + flush) and return the outcome with
+	 * a one-shot compensating rollback that restores the exact raw
+	 * persistent pre-image of the changed host paths — never effective
+	 * values, which project/runtime overrides can mask.
 	 */
-	read(): CompactHostSettings;
-	apply(host: CompactHostSettings): Promise<{ restartRequired: boolean }>;
+	apply(host: CompactHostSettings): Promise<HostBridgeApplyResult>;
+}
+
+/**
+ * Structural slice of the real bridge's apply outcome: the restart
+ * requirement plus a one-shot `rollback()` that restores the exact raw
+ * persistent pre-image of the changed host paths (present -> raw value,
+ * absent -> key removed) and flushes. No-op when the apply changed nothing;
+ * throws when the restore itself cannot be persisted.
+ */
+export interface HostBridgeApplyResult {
+	restartRequired: boolean;
+	rollback(): Promise<void>;
 }
 
 export interface SaveFlowDeps {
@@ -217,10 +229,12 @@ export interface SaveOutcome {
 /**
  * Persist a settings save with strict ordering:
  *   1. host bridge apply (throws => store untouched, no success)
- *   2. store.update (throws => compensating rollback re-applies the pre-save
- *      host values through the bridge — persistent AND in-memory — so the
- *      host side never diverges from the unchanged plugin JSON; then the
- *      original error is rethrown: no notify, no false success)
+ *   2. store.update (throws => compensating rollback invokes the apply
+ *      result's one-shot rollback, restoring the exact raw persistent
+ *      pre-image of the changed host paths — never effective values, which
+ *      overrides can mask — so the host side never diverges from the
+ *      unchanged plugin JSON; then the original error is rethrown: no
+ *      notify, no false success)
  *   3. exactly one success notification through notify(): the plain
  *      `omp-compact settings saved` for an unmasked save, or a single
  *      message carrying both facts (saved + effective) when a hard env
@@ -238,14 +252,15 @@ export async function saveSettingsFlow(
 	deps: SaveFlowDeps,
 ): Promise<SaveOutcome> {
 	let restartRequired = false;
-	let previousHost: CompactHostSettings | undefined;
+	let rollbackHost: (() => Promise<void>) | undefined;
 	if (deps.bridge) {
-		// Capture the pre-save host values BEFORE any mutation: a failed
-		// plugin-JSON persist must restore exactly these (persistent +
-		// in-memory), never a stale mirror.
-		previousHost = deps.bridge.read();
 		const result = await deps.bridge.apply(next.host);
 		restartRequired = result.restartRequired === true;
+		// Keep the compensating rollback tied to THIS save: it restores the
+		// exact raw persistent pre-image the bridge captured before mutating
+		// host config (see context/host-settings-rollback.md) — never
+		// effective read() values, which overrides can mask.
+		rollbackHost = result.rollback;
 	}
 	let effective: CompactSettings;
 	try {
@@ -253,16 +268,11 @@ export async function saveSettingsFlow(
 	} catch (cause) {
 		// Compensating rollback: the host bridge already applied AND flushed
 		// the new host values, but the plugin JSON persist failed — the two
-		// would diverge. Restore the pre-save values through the same bridge
-		// apply (set + flush) so persistent and in-memory host state match
-		// the unchanged plugin JSON, then surface the original save error.
-		if (deps.bridge && previousHost !== undefined) {
-			await restoreHostAfterFailedSave(
-				deps.bridge,
-				previousHost,
-				cause,
-				deps.notify,
-			);
+		// would diverge. Restore the host side through the apply result's
+		// one-shot rollback (raw persistent pre-image + flush), then surface
+		// the original save error.
+		if (rollbackHost) {
+			await rollbackHostAfterFailedSave(rollbackHost, cause, deps.notify);
 		}
 		throw cause;
 	}
@@ -280,20 +290,19 @@ export async function saveSettingsFlow(
 
 /**
  * Best-effort compensating rollback after a failed plugin-JSON persist:
- * re-applies the pre-save host values through the bridge (set + flush), so
- * persistent and in-memory host settings match the unchanged JSON. When the
+ * invokes the apply result's one-shot rollback (restores the exact raw
+ * persistent pre-image of the changed host paths and flushes). When the
  * rollback itself fails, warns honestly through notify() and lets the
  * original save error surface — mirroring the bridge's own rollback-failure
  * warn-once pattern (host-settings.ts).
  */
-async function restoreHostAfterFailedSave(
-	bridge: HostBridgeLike,
-	previous: CompactHostSettings,
+async function rollbackHostAfterFailedSave(
+	rollback: () => Promise<void>,
 	cause: unknown,
 	notify?: SaveFlowDeps["notify"],
 ): Promise<void> {
 	try {
-		await bridge.apply(previous);
+		await rollback();
 	} catch (rollbackCause) {
 		notify?.(
 			"warning",

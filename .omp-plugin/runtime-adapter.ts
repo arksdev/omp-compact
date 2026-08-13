@@ -291,7 +291,22 @@ export class RuntimeAdapter {
 	}
 
 	observeAssistantMessage(message: unknown): void {
-		if (this.#disposed || !this.#session.activeLedger) return;
+		if (this.#disposed) return;
+		const ledger = this.#session.activeLedger;
+		// Strictly non-creating and non-allocating. A message_update belongs
+		// to the logical run that is actively streaming, but stock delivers
+		// extension events fire-and-forget (message_update events queue
+		// behind earlier stream deltas while agent_end/agent_start are
+		// delivered directly), so a delta emitted for a previous run can be
+		// handled after that run's terminal agent_end — or after the next
+		// run's agent_start. Only the active working ledger may be touched:
+		// never fabricate a ledger (ensureLedger) and never allocate a
+		// state for an unknown id — tool_execution_start is the sole state
+		// allocator. The observer only enriches an EXISTING state of the
+		// captured working ledger; a stale delta of a previous run would
+		// otherwise pollute the next run's ledger and block its first
+		// tool's order binding.
+		if (ledger?.phase !== "working") return;
 		const contents = objectRecord(message).content;
 		if (!Array.isArray(contents)) return;
 		for (const content of contents) {
@@ -302,16 +317,11 @@ export class RuntimeAdapter {
 				typeof call.name !== "string"
 			)
 				continue;
-			this.#session.stateForLedger(
-				{
-					toolCallId: call.id,
-					toolName: call.name,
-					args: call.arguments,
-				},
-				this.#session.ensureLedger(),
-			);
+			const state = this.#session.state(call.id);
+			if (!state || state.ledger !== ledger) continue;
+			state.args = call.arguments;
 		}
-		this.#session.binding.tryBindByOrder(this.#session.activeLedger);
+		this.#session.binding.tryBindByOrder(ledger);
 	}
 
 	startTool(input: ToolStartInput): void {

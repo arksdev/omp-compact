@@ -349,6 +349,18 @@ describe("PostTurnShake persistence ordering", () => {
 		expect(h.calls).toEqual([]);
 		expect(h.warns.filter((w) => w.includes("persistence"))).toHaveLength(1);
 	});
+
+	test("a fail-closed audit drain (resolves false) skips the eligible shake", async () => {
+		const h = harness({ enabled: true, thresholdTokens: 0 });
+		const pending = h.shake.onAgentEnd(
+			terminalEvent,
+			{ sessionManager: {} },
+			Promise.resolve(false),
+		);
+		await pending;
+		expect(h.calls).toEqual([]);
+		expect(h.warns.filter((w) => w.includes("persistence"))).toHaveLength(1);
+	});
 });
 
 describe("PostTurnShake session lifecycle", () => {

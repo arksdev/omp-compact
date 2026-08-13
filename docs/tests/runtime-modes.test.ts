@@ -34,6 +34,7 @@ interface AdapterModule {
 		}): void;
 		setMutations(toolCallId: string, entries: unknown[]): void;
 		setGit(toolCallId: string, git: unknown): void;
+		observeAssistantMessage(message: unknown): void;
 		endRun(input: {
 			messages: readonly unknown[];
 			willContinue?: boolean;
@@ -316,6 +317,45 @@ describe("runtime modes", () => {
 		booted.adapter.endRun(terminalAnswer());
 		expect(visibleRows(booted).join("\n")).not.toContain("printf done");
 		expect(booted.finalized).toEqual(["omp-compact-run-1"]);
+	});
+
+	test("a settled run's late message_update never allocates into the next run", async () => {
+		const booted = await boot();
+		await beginRun(booted);
+		addTool(booted, "bash", "first-call", { command: "printf first" });
+		booted.adapter.endRun(terminalAnswer("first done"));
+		// Stock queues message_update events behind earlier stream deltas
+		// while agent_end/agent_start are delivered directly, so a delta
+		// emitted for the settled run can be handled AFTER the next run's
+		// agent_start. It must never allocate a state/entry into the next
+		// run's ledger (or fabricate a ledger between runs).
+		await beginRun(booted);
+		booted.adapter.observeAssistantMessage({
+			role: "assistant",
+			content: [
+				{
+					type: "toolCall",
+					id: "stale-call",
+					name: "bash",
+					arguments: { command: "echo stale" },
+				},
+			],
+		});
+		// The next run's genuine tool still order-binds compactly; the stale
+		// id never shows and never blocks the binding.
+		addTool(booted, "bash", "second-call", { command: "printf second" });
+		const rows = visibleRows(booted).join("\n");
+		expect(rows).toContain("bash: printf second");
+		expect(rows).not.toContain("native-bash");
+		expect(rows).not.toContain("echo stale");
+		settle(booted, "second-call", "bash", {
+			content: [{ type: "text", text: "ok" }],
+		});
+		booted.adapter.endRun(terminalAnswer("second done"));
+		expect(booted.finalized).toEqual([
+			"omp-compact-run-1",
+			"omp-compact-run-2",
+		]);
 	});
 
 	test("compact keeps the entire compact tool log at terminal", async () => {

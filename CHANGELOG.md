@@ -8,6 +8,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Delayed `message_update` events from a previous logical run can no longer contaminate the next run's compact state or force its tools back to the native surface; only the actively streaming working ledger is touched, and `tool_execution_start` remains the sole state allocator.
+- Задержанные события `message_update` предыдущего логического хода больше не могут загрязнять компактное состояние следующего хода или возвращать его инструменты к нативному виду: обрабатывается только активно стримящийся working ledger, а единственным аллокатором состояний остаётся `tool_execution_start`.
+- Auto-shake now runs only after the audit evidence drain completes successfully; a failed or abandoned drain (barrier timeout, session switch, or shutdown) skips the shake instead of pruning tool results whose evidence rows were never persisted.
+- Автоматический shake теперь выполняется только после успешного завершения сбора аудит-свидетельств; при неудавшемся или прерванном сборе (таймаут барьера, переключение или завершение сессии) shake пропускается, а не удаляет результаты инструментов, строки свидетельств для которых так и не были сохранены.
+- A failed plugin JSON save now compensates an already-successful host settings apply by restoring the exact raw persistent pre-image of the changed host paths, including removed keys, so the host side never diverges from the unchanged plugin config.
+- При неудачном сохранении plugin JSON теперь компенсируется уже успешно применённая запись настроек хоста: восстанавливается точный raw persistent pre-image изменённых путей, включая удалённые ключи, поэтому сторона хоста никогда не расходится с неизменённым конфигом плагина.
+
 ## [1.0.2] - 2026-08-13
 
 ### Fixed

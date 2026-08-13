@@ -759,6 +759,73 @@ stockTest("ambiguous anonymous tool components remain native", async () => {
 });
 
 stockTest(
+	"a late message_update of the previous run never pollutes the next run after agent_start",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf first" },
+			"late-first",
+		);
+		await finishTool(booted, first, {
+			toolCallId: "late-first",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }], details: {} },
+			isError: false,
+		});
+		addAnswer(booted, "first done");
+		await finishRun(booted, "first done");
+		// Stock queues message_update events behind earlier stream deltas
+		// while agent_end/agent_start are delivered directly, so a delta
+		// emitted for the settled run can be handled AFTER the next run's
+		// agent_start. It must never allocate a state/entry into the next
+		// run's ledger.
+		await beginRun(booted);
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stale-late",
+						name: "bash",
+						arguments: { command: "echo stale-late" },
+					},
+				],
+			},
+		});
+		// The next run's genuine tool still binds compactly (an allocated
+		// stale state would block the single-pair order binding and fall
+		// back to the native surface).
+		const second = await addTool(
+			booted,
+			"bash",
+			{ command: "printf second" },
+			"late-second",
+		);
+		second.render = () => ["native-late-second"];
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("printf second");
+		expect(live).not.toContain("native-late-second");
+		expect(live).not.toContain("echo stale-late");
+		await finishTool(booted, second, {
+			toolCallId: "late-second",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }], details: {} },
+			isError: false,
+		});
+		addAnswer(booted, "second done");
+		await finishRun(booted, "second done");
+		const completed = visibleRows(booted.transcript).join("\n");
+		expect(completed).not.toContain("echo stale-late");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"unknown tool components fail open to the native renderer in every phase",
 	async () => {
 		const booted = await bootWithTranscript();
