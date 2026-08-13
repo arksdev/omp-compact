@@ -18,52 +18,55 @@ export interface DisplayPathOptions {
 }
 
 /**
- * Lexical relativization of one absolute path against a cwd. Returns
- * `undefined` when the path is not absolute, is not strictly inside the cwd
- * (segment-exact boundary check), or would need `..` resolution to express
- * relatively. `.` and empty segments normalize away; `..` segments are never
- * resolved and disqualify the path.
+ * Lexical relativization of one absolute value against a cwd. The cwd prefix
+ * is anchored segment-exactly FIRST (trailing slashes trimmed, `/` cwd
+ * special-cased); only the remainder is then split at the first `:` into
+ * base and selector. Returns `undefined` when the value is not absolute, is
+ * not strictly inside the cwd (segment-exact boundary check), or the base
+ * part would need `..` resolution to express relatively. `.` and empty
+ * segments normalize away; `..` in the base part is never resolved and
+ * disqualifies the value, while a selector (everything after the first `:`
+ * in the remainder) stays attached verbatim — never resolved, never
+ * disqualifying.
  */
-export function relativizePath(path: string, cwd: string): string | undefined {
-	if (!path.startsWith("/") || !cwd.startsWith("/")) return undefined;
-	const pathSegments = path
-		.split("/")
-		.filter((segment) => segment !== "" && segment !== ".");
-	const cwdSegments = cwd
-		.split("/")
-		.filter((segment) => segment !== "" && segment !== ".");
-	// Defensive: reject any path containing .. before boundary check.
-	// Prevents "/foo/../bar" matching "/foo" when it actually resolves to "/".
-	if (pathSegments.some((segment) => segment === "..")) return undefined;
-	if (pathSegments.length < cwdSegments.length) return undefined;
-	for (let index = 0; index < cwdSegments.length; index++) {
-		if (pathSegments[index] !== cwdSegments[index]) return undefined;
+export function relativizePath(value: string, cwd: string): string | undefined {
+	if (value.charCodeAt(0) !== 47 || cwd.charCodeAt(0) !== 47) return undefined;
+	let end = cwd.length;
+	while (end > 1 && cwd.charCodeAt(end - 1) === 47) end--;
+	const base = cwd.slice(0, end);
+	let rest: string;
+	if (base === "/") rest = value;
+	else {
+		if (!value.startsWith(base)) return undefined;
+		rest = value.slice(base.length);
+		if (rest !== "" && rest.charCodeAt(0) !== 47) return undefined; // segment-exact
 	}
-	const remainder = pathSegments.slice(cwdSegments.length);
-	if (remainder.length === 0) return ".";
-	return remainder.join("/");
+	const colon = rest.indexOf(":");
+	const head = colon === -1 ? rest : rest.slice(0, colon);
+	const segments: string[] = [];
+	for (const segment of head.split("/")) {
+		if (segment === "" || segment === ".") continue;
+		if (segment === "..") return undefined;
+		segments.push(segment);
+	}
+	const relative = segments.length === 0 ? "." : segments.join("/");
+	return colon === -1 ? relative : `${relative}${rest.slice(colon)}`;
 }
 
 /**
- * Display form of one path-bearing label value. Selector suffixes (line
- * ranges, `:raw`, `:conflicts`, archive members, sqlite tables/keys, query
- * strings) trail the base after the first `:` and stay attached verbatim;
- * only the leading absolute filesystem base is relativized. With the setting
- * off (or no options), the value is returned unchanged.
+ * Display form of one path-bearing label value. The cwd prefix is anchored
+ * first and only the remaining suffix is split at the first `:`; selector
+ * suffixes (line ranges, `:raw`, `:conflicts`, archive members, sqlite
+ * tables/keys, query strings) trail the base and stay attached verbatim —
+ * only the leading absolute filesystem base is relativized. A colon inside
+ * the cwd itself or in a sibling name never truncates the boundary check.
+ * With the setting off (or no options), the value is returned unchanged.
  */
 export function displayPathValue(
 	value: string,
 	options: DisplayPathOptions | undefined,
 ): string {
 	if (!options?.enabled) return value;
-	const cwd = options.cwd;
-	if (!cwd || !value.startsWith("/")) return value;
-	// Selector-aware split: find first : that's NOT part of the leading
-	// filesystem path (e.g. /foo/bar:123 → base=/foo/bar, suffix=:123).
-	// Windows absolute paths (C:/) and URLs never reach here (startsWith("/")).
-	const colon = value.indexOf(":");
-	const base = colon === -1 ? value : value.slice(0, colon);
-	const suffix = colon === -1 ? "" : value.slice(colon);
-	const relative = relativizePath(base, cwd);
-	return relative === undefined ? value : `${relative}${suffix}`;
+	if (!options.cwd || value.charCodeAt(0) !== 47) return value;
+	return relativizePath(value, options.cwd) ?? value;
 }

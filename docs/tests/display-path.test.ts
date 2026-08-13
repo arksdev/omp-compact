@@ -105,6 +105,16 @@ describe("relativizePath", () => {
 		expect(relativizePath("/project/x.ts", "project")).toBeUndefined();
 		expect(relativizePath("/project/x.ts", "")).toBeUndefined();
 	});
+
+	test("selector-bearing values are relativized directly", () => {
+		expect(relativizePath(`${PROJECT}/f.ts:50-200`, PROJECT)).toBe(
+			"f.ts:50-200",
+		);
+	});
+
+	test("a colon in a sibling directory name is not inside the cwd", () => {
+		expect(relativizePath("/a/b:x/c", "/a/b")).toBeUndefined();
+	});
 });
 
 describe("displayPathValue", () => {
@@ -174,5 +184,41 @@ describe("displayPathValue", () => {
 
 	test("normalizes redundant separators while relativizing", () => {
 		expect(displayPathValue(`${PROJECT}//a//b.ts`, options())).toBe("a/b.ts");
+	});
+
+	test("a sibling whose name extends the cwd with a colon is not inside", () => {
+		expect(displayPathValue("/a/b:x/c", options({ cwd: "/a/b" }))).toBe(
+			"/a/b:x/c",
+		);
+		expect(displayPathValue(`${PROJECT}:bak/x.ts`, options())).toBe(
+			`${PROJECT}:bak/x.ts`,
+		);
+	});
+
+	test("a cwd containing a colon still relativizes", () => {
+		expect(
+			displayPathValue("/Volumes/proj:v2/src/a.ts", {
+				cwd: "/Volumes/proj:v2",
+				enabled: true,
+			}),
+		).toBe("src/a.ts");
+	});
+
+	test("a colon in a subdirectory inside the cwd is preserved", () => {
+		expect(displayPathValue(`${PROJECT}/we:ird/a.ts`, options())).toBe(
+			"we:ird/a.ts",
+		);
+	});
+
+	test("dotdot inside an archive selector is not resolved", () => {
+		expect(displayPathValue(`${PROJECT}/arc.tar:a/../b`, options())).toBe(
+			"arc.tar:a/../b",
+		);
+	});
+
+	test("a trailing-slash cwd behaves like the same cwd without it", () => {
+		expect(
+			displayPathValue(`${PROJECT}/a.ts`, options({ cwd: `${PROJECT}/` })),
+		).toBe("a.ts");
 	});
 });
