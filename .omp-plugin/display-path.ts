@@ -32,12 +32,14 @@ export function relativizePath(path: string, cwd: string): string | undefined {
 	const cwdSegments = cwd
 		.split("/")
 		.filter((segment) => segment !== "" && segment !== ".");
+	// Defensive: reject any path containing .. before boundary check.
+	// Prevents "/foo/../bar" matching "/foo" when it actually resolves to "/".
+	if (pathSegments.some((segment) => segment === "..")) return undefined;
 	if (pathSegments.length < cwdSegments.length) return undefined;
 	for (let index = 0; index < cwdSegments.length; index++) {
 		if (pathSegments[index] !== cwdSegments[index]) return undefined;
 	}
 	const remainder = pathSegments.slice(cwdSegments.length);
-	if (remainder.some((segment) => segment === "..")) return undefined;
 	if (remainder.length === 0) return ".";
 	return remainder.join("/");
 }
@@ -56,6 +58,9 @@ export function displayPathValue(
 	if (!options?.enabled) return value;
 	const cwd = options.cwd;
 	if (!cwd || !value.startsWith("/")) return value;
+	// Selector-aware split: find first : that's NOT part of the leading
+	// filesystem path (e.g. /foo/bar:123 → base=/foo/bar, suffix=:123).
+	// Windows absolute paths (C:/) and URLs never reach here (startsWith("/")).
 	const colon = value.indexOf(":");
 	const base = colon === -1 ? value : value.slice(0, colon);
 	const suffix = colon === -1 ? "" : value.slice(colon);
