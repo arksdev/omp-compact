@@ -389,7 +389,8 @@ Decision tables in `render-decision.ts` are ordered rule chains. **First match w
 if (mode === "clear" && route === "native-live") return "native";  // 1
 if (mode === "clear" && phase !== "full") return "empty";          // 2
 if (phase === "filtered" && !hasMutations) return "empty";         // 3
-// Expanded is the native inspection escape hatch; task itself is compact.
+// Expanded is native only for ordinary compact tools; browser/computer/
+// resolve/reject opt out and remain compact.
 // ... fallback rules
 ```
 

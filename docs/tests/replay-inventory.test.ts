@@ -12,10 +12,8 @@
  * Routes are the production registry's own:
  * - "compact"     — routine tools rendered as compact rows.
  * - "read-group"  — read streams rendered through the native read group.
- * - "native-live" — interactive surfaces (ask/resolve/reject/computer/
- *   browser) that stay native during the live phase. The real histories in
- *   this corpus exercise only "ask"; the exact native-live set observed is
- *   asserted below.
+ * - "native-live" — interactive surfaces (`ask`) that stay native during the live phase. Other previously native-looking surfaces use their explicit compact registry rules.
+ *   The exact native-live set observed is asserted below.
  *
  * Non-tool fallback reasons ("unmapped", "expanded", "incompatible") may
  * render natively by design, but they are integration-only safety classes
@@ -32,13 +30,13 @@
 import { expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ReplayEvent, ReplayFixture } from "./replay/harness";
 import type { ToolRoute } from "../../.omp-plugin/tool-presentation-rules";
 import {
 	normalizeToolName,
 	resolveToolRule,
 	TOOL_RULES,
 } from "../../.omp-plugin/tool-presentation-rules";
+import type { ReplayEvent, ReplayFixture } from "./replay/harness";
 
 const fixturesDir = join(import.meta.dir, "replay", "fixtures");
 const goldenDir = join(import.meta.dir, "replay", "golden");

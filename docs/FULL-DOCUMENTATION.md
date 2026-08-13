@@ -342,12 +342,12 @@ Compact output применяется только к явно зарегист�
 | Route | Tools |
 | --- | --- |
 | `read-group` | `read` |
-| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `task` |
-| `native-live` | `ask`, `resolve`, `reject`, `browser`, `computer` |
+| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `browser`, `computer`, `resolve`, `reject`, `task` |
+| `native-live` | `ask` |
 
 Aliases нормализуются до routing и audit: `apply_patch` -> `edit`; hyphen spellings вроде `ast-grep`, `ast-edit` и `inspect-image` -> underscore form.
 
-Read groups компактизируются только при полном и однозначном mapping всех entries. Mixed, unknown, ambiguous, expanded и incompatible groups остаются native. Expanded tool view также служит временным escape hatch к stock presentation во время работы.
+Read groups компактизируются только при полном и однозначном mapping всех entries. Mixed, unknown, ambiguous и incompatible groups остаются native. Обычные compact tool view могут использовать explicit expansion как escape hatch к stock presentation; browser, computer, resolve и reject остаются compact даже при раскрытии.
 
 Unknown tool не получает generic compact row. Он остаётся native во всех phases, включая `clear`, чтобы новый или third-party tool нельзя было случайно скрыть.
 

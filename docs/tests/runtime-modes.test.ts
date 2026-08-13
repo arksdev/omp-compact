@@ -619,4 +619,132 @@ describe("runtime modes", () => {
 		expect(restored).not.toBe(addChild);
 		expect(() => transcript.render(120)).not.toThrow();
 	});
+
+	test("expanded browser/computer/resolve/reject stay compact while working", async () => {
+		const booted = await boot();
+		await beginRun(booted);
+		const browser = addTool(booted, "browser", "browser-1", {
+			url: "https://omp.test/expand-browser",
+		});
+		settle(booted, "browser-1", "browser", { content: [] });
+		browser.setExpanded(true);
+		const computer = addTool(booted, "computer", "computer-1", {});
+		settle(booted, "computer-1", "computer", { content: [] });
+		computer.setExpanded(true);
+		const resolve = addTool(booted, "resolve", "resolve-1", {});
+		settle(booted, "resolve-1", "resolve", { content: [] });
+		resolve.setExpanded(true);
+		const reject = addTool(booted, "reject", "reject-1", {});
+		settle(booted, "reject-1", "reject", { content: [] });
+		reject.setExpanded(true);
+		const rows = visibleRows(booted).join("\n");
+		expect(rows).toContain("browser: https://omp.test/expand-browser");
+		expect(rows).toContain("• computer use");
+		expect(rows).toContain("• resolve");
+		expect(rows).toContain("• reject");
+		expect(rows).not.toContain("native-browser");
+		expect(rows).not.toContain("native-computer");
+		expect(rows).not.toContain("native-resolve");
+		expect(rows).not.toContain("native-reject");
+	});
+
+	test("expanded four tools keep compact rows at the compact terminal", async () => {
+		const booted = await boot({ mode: "compact" });
+		await beginRun(booted);
+		const browser = addTool(booted, "browser", "browser-1", {
+			url: "https://omp.test/term-browser",
+		});
+		settle(booted, "browser-1", "browser", { content: [] });
+		browser.setExpanded(true);
+		const reject = addTool(booted, "reject", "reject-1", {});
+		settle(booted, "reject-1", "reject", { content: [] });
+		reject.setExpanded(true);
+		booted.adapter.endRun(terminalAnswer());
+		const rows = visibleRows(booted).join("\n");
+		expect(rows).toContain("browser: https://omp.test/term-browser");
+		expect(rows).toContain("• reject");
+		expect(rows).not.toContain("native-browser");
+		expect(rows).not.toContain("native-reject");
+	});
+
+	test("clear abort keeps compact rows for expanded four tools", async () => {
+		const booted = await boot({ mode: "clear" });
+		await beginRun(booted);
+		const browser = addTool(booted, "browser", "browser-1", {
+			url: "https://omp.test/abort-browser",
+		});
+		settle(booted, "browser-1", "browser", { content: [] });
+		browser.setExpanded(true);
+		const resolve = addTool(booted, "resolve", "resolve-1", {});
+		settle(booted, "resolve-1", "resolve", { content: [] });
+		resolve.setExpanded(true);
+		booted.adapter.endRun({
+			messages: [
+				{
+					role: "assistant",
+					content: [{ type: "text", text: "" }],
+					stopReason: "aborted",
+				},
+			],
+			willContinue: false,
+		});
+		const rows = visibleRows(booted).join("\n");
+		expect(rows).toContain("browser: https://omp.test/abort-browser");
+		expect(rows).toContain("• resolve");
+		expect(rows).not.toContain("native-browser");
+		expect(rows).not.toContain("native-resolve");
+	});
+
+	test("clear hides expanded four tools while working", async () => {
+		const booted = await boot({ mode: "clear" });
+		await beginRun(booted);
+		const browser = addTool(booted, "browser", "browser-1", {
+			url: "https://omp.test/hidden-browser",
+		});
+		settle(booted, "browser-1", "browser", { content: [] });
+		browser.setExpanded(true);
+		const rows = visibleRows(booted).join("\n");
+		expect(rows).not.toContain("https://omp.test/hidden-browser");
+		expect(rows).not.toContain("native-browser");
+	});
+
+	test("live terminal keeps mutation rows of the four tools compact", async () => {
+		const booted = await boot();
+		await beginRun(booted);
+		const resolve = addTool(booted, "resolve", "resolve-1", {});
+		settle(booted, "resolve-1", "resolve", { content: [] });
+		resolve.setExpanded(true);
+		booted.adapter.setMutations("resolve-1", [
+			{
+				version: 1,
+				toolCallId: "resolve-1",
+				toolName: "write",
+				path: "resolve-evidence.md",
+				added: 1,
+				removed: 0,
+				exact: true,
+			},
+		]);
+		booted.adapter.endRun(terminalAnswer());
+		const rows = visibleRows(booted).join("\n");
+		expect(rows).toContain("resolve-evidence.md");
+		expect(rows).not.toContain("native-resolve");
+	});
+
+	test("ordinary, native-live and unknown tools keep native on expansion", async () => {
+		const booted = await boot();
+		await beginRun(booted);
+		const bash = addTool(booted, "bash", "bash-1", { command: "printf hatch" });
+		settle(booted, "bash-1", "bash", { content: [] });
+		bash.setExpanded(true);
+		expect(visibleRows(booted).join("\n")).toContain("native-bash");
+		const ask = addTool(booted, "ask", "ask-1", { question: "q?" });
+		settle(booted, "ask-1", "ask", { content: [] });
+		ask.setExpanded(true);
+		expect(visibleRows(booted).join("\n")).toContain("native-ask");
+		const unknown = addTool(booted, "mystery_tool", "mystery-1", {});
+		settle(booted, "mystery-1", "mystery_tool", { content: [] });
+		unknown.setExpanded(true);
+		expect(visibleRows(booted).join("\n")).toContain("native-mystery_tool");
+	});
 });

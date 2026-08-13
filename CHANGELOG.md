@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 Формат соответствует [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), а выпуски следуют [семантическому версионированию](https://semver.org/).
 
 ## [Unreleased]
+### Changed
+
+- Rendered `browser`, `computer`, `resolve`, and `reject` as compact one-line tool rows; highlighted only the requested tool labels, kept payloads neutral, and preserved `ask` as the native interactive surface.
+- Инструменты `browser`, `computer`, `resolve` и `reject` переведены в компактные однострочные строки: выделяются только названия, payload остаётся нейтральным, а `ask` сохраняет нативную интерактивную поверхность.
 
 ## [1.0.2] - 2026-08-13
 

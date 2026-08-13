@@ -14,6 +14,7 @@ function toolInput(overrides: Partial<ToolRenderInput> = {}): ToolRenderInput {
 		retainGitLive: false,
 		phase: "working",
 		expanded: false,
+		compactOnExpand: false,
 		hasMutations: false,
 		hasGit: false,
 		hashesLength: 0,
@@ -218,6 +219,139 @@ describe("decideToolRender: working live matrix", () => {
 		expect(
 			decideToolRender(
 				toolInput({ phase: "working", hasGit: true, retainGitLive: true }),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: false,
+			summary: false,
+			includeGit: true,
+		});
+	});
+});
+
+describe("decideToolRender: compactOnExpand tools stay compact on expansion", () => {
+	test("expanded compactOnExpand tools never fall back to native", () => {
+		const base = {
+			route: "compact" as const,
+			expanded: true,
+			compactOnExpand: true,
+		};
+		// working/live and working/compact render compact rows despite
+		// explicit expansion.
+		for (const mode of ["live", "compact"] as const) {
+			expect(decideToolRender(toolInput({ ...base, mode }))).toEqual({
+				kind: "tool-rows",
+				filtered: false,
+				summary: false,
+				includeGit: true,
+			});
+		}
+		// Git evidence stays visible while working when retained live.
+		expect(
+			decideToolRender(
+				toolInput({ ...base, hasGit: true, retainGitLive: true }),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: false,
+			summary: false,
+			includeGit: true,
+		});
+	});
+
+	test("compactOnExpand tools follow clear suppression on expansion", () => {
+		// clear working and terminal stay hidden (the clear rule precedes
+		// the expansion escape hatch), never native.
+		expect(
+			decideToolRender(
+				toolInput({
+					compactOnExpand: true,
+					expanded: true,
+					mode: "clear",
+				}),
+			),
+		).toEqual({ kind: "empty" });
+		expect(
+			decideToolRender(
+				toolInput({
+					compactOnExpand: true,
+					expanded: true,
+					mode: "clear",
+					phase: "filtered",
+				}),
+			),
+		).toEqual({ kind: "empty" });
+		// clear abort keeps compact diagnostic rows.
+		expect(
+			decideToolRender(
+				toolInput({
+					compactOnExpand: true,
+					expanded: true,
+					mode: "clear",
+					phase: "full",
+				}),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: false,
+			summary: false,
+			includeGit: true,
+		});
+	});
+
+	test("compactOnExpand tools stay compact at the terminal and on full", () => {
+		// filtered retention keeps mutation rows compact.
+		expect(
+			decideToolRender(
+				toolInput({
+					compactOnExpand: true,
+					expanded: true,
+					phase: "filtered",
+					hasMutations: true,
+				}),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: true,
+			summary: false,
+			includeGit: false,
+		});
+		// routine filtered rows without evidence still disappear.
+		expect(
+			decideToolRender(
+				toolInput({
+					compactOnExpand: true,
+					expanded: true,
+					phase: "filtered",
+				}),
+			),
+		).toEqual({ kind: "empty" });
+		// full keeps the complete compact log including Git rows.
+		expect(
+			decideToolRender(
+				toolInput({
+					compactOnExpand: true,
+					expanded: true,
+					phase: "full",
+					hasGit: true,
+				}),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: false,
+			summary: false,
+			includeGit: true,
+		});
+	});
+
+	test("ordinary compact tools keep the native expansion escape hatch", () => {
+		expect(decideToolRender(toolInput({ expanded: true }))).toEqual({
+			kind: "native",
+		});
+		// The escape hatch is scoped to the working phase only.
+		expect(
+			decideToolRender(
+				toolInput({ expanded: true, phase: "full", hasGit: true }),
 			),
 		).toEqual({
 			kind: "tool-rows",

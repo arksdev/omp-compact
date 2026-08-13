@@ -2,6 +2,12 @@ export interface ToolDescription {
 	title: string;
 	description: string;
 	meta: string[];
+	/**
+	 * Optional raw hex color (e.g. "#8D2A88") for the sanitized title segment
+	 * only. The renderer applies it to the title alone and resets before the
+	 * separator; an absent value keeps the ordinary dim title.
+	 */
+	titleColor?: string;
 }
 
 const MAX_ARG_TEXT = 4_096;

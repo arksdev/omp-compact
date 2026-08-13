@@ -39,12 +39,32 @@ describe("canonical routes and audit kinds", () => {
 		expect(Object.keys(TOOL_RULES).sort()).toEqual(CANONICAL_NAMES);
 	});
 
-	test("interactive controls stay native while task uses compact rows", () => {
+	test("interactive four route compact with compactOnExpand; ask stays native", () => {
 		expect(TOOL_RULES.read?.route).toBe("read-group");
-		for (const name of ["ask", "resolve", "reject", "computer", "browser"]) {
-			expect(TOOL_RULES[name]?.route, name).toBe("native-live");
+		for (const name of ["browser", "computer", "resolve", "reject"]) {
+			expect(TOOL_RULES[name]?.route, name).toBe("compact");
+			expect(TOOL_RULES[name]?.compactOnExpand, name).toBe(true);
 		}
+		expect(TOOL_RULES.ask?.route).toBe("native-live");
+		expect(TOOL_RULES.ask?.compactOnExpand).toBeUndefined();
 		expect(TOOL_RULES.task?.route).toBe("compact");
+	});
+
+	test("compactOnExpand is opt-in: only the interactive four carry it", () => {
+		const expanded = Object.entries(TOOL_RULES)
+			.filter(([, rule]) => rule?.compactOnExpand === true)
+			.map(([name]) => name)
+			.sort();
+		expect(expanded).toEqual(["browser", "computer", "reject", "resolve"]);
+		for (const [name, rule] of Object.entries(TOOL_RULES)) {
+			expect(rule, name).toBeDefined();
+			if (!rule) continue;
+			if (["browser", "computer", "resolve", "reject"].includes(name)) {
+				expect(rule.compactOnExpand, name).toBe(true);
+			} else {
+				expect(rule.compactOnExpand, name).toBeUndefined();
+			}
+		}
 	});
 
 	test("existing routine tools are explicitly compact", () => {
@@ -63,6 +83,10 @@ describe("canonical routes and audit kinds", () => {
 			"ast_grep",
 			"ast_edit",
 			"inspect_image",
+			"browser",
+			"computer",
+			"resolve",
+			"reject",
 		]) {
 			expect(TOOL_RULES[name]?.route, name).toBe("compact");
 		}
@@ -296,13 +320,91 @@ describe("existing tool descriptions", () => {
 		);
 	});
 
-	test("browser shows action and url", () => {
+	test("browser description is URL only with action fallback", () => {
 		expect(
 			describeTool("browser", { action: "open", url: "https://x" })
 				?.description,
-		).toBe("open https://x");
+		).toBe("https://x");
+		expect(describeTool("browser", { url: "https://x" })?.description).toBe(
+			"https://x",
+		);
+		expect(describeTool("browser", { action: "run" })?.description).toBe("run");
 		expect(describeTool("browser", {})?.description).toBe("");
 		expect(describeTool("browser", {})?.title).toBe("browser");
+		// browser keeps the ordinary dim title — no color metadata
+		expect(describeTool("browser", { url: "https://x" })?.titleColor).toBe(
+			undefined,
+		);
+	});
+
+	test("computer exposes a short action payload with colored title", () => {
+		const withIntent = describeTool("computer", {
+			code: "await desktop.focusedWindow().ax()",
+			i: "Read Spotify window state",
+		});
+		expect(withIntent?.title).toBe("computer use");
+		expect(withIntent?.description).toBe("Read Spotify window state");
+		expect(withIntent?.titleColor).toBe("#8D2A88");
+		expect(
+			describeTool("computer", { read_only: true, i: "Peek" })?.meta,
+		).toEqual(["read-only"]);
+		expect(
+			describeTool("computer", { code: "await desktop.windows()" })
+				?.description,
+		).toBe("await desktop.windows()");
+		expect(describeTool("computer", {})?.description).toBe("?");
+		expect(describeTool("computer", {})?.meta).toEqual([]);
+	});
+
+	test("resolve/reject extract structured reason/status/path with colored titles", () => {
+		// one-sentence reason content (write-device shape) wins
+		expect(
+			describeTool("resolve", {
+				path: "xd://resolve",
+				content: "applying staged edit",
+			}),
+		).toEqual({
+			title: "resolve",
+			description: "applying staged edit",
+			meta: [],
+			titleColor: "#A4D734",
+		});
+		expect(
+			describeTool("reject", {
+				path: "xd://reject",
+				content: "overlaps a newer change",
+			})?.description,
+		).toBe("overlaps a newer change");
+		expect(describeTool("reject", {})?.title).toBe("reject");
+		expect(describeTool("reject", {})?.titleColor).toBe("#A1471A");
+		// direct reason field, then yield-style result.error, then status, then path
+		expect(
+			describeTool("resolve", { reason: "looks correct" })?.description,
+		).toBe("looks correct");
+		expect(
+			describeTool("reject", { result: { error: "repro failed" } })
+				?.description,
+		).toBe("repro failed");
+		expect(describeTool("resolve", { status: "success" })?.description).toBe(
+			"success",
+		);
+		expect(describeTool("reject", { path: "xd://reject" })?.description).toBe(
+			"xd://reject",
+		);
+		// neutral safe fallback when no structured field is present
+		expect(describeTool("resolve", {})?.description).toBe("?");
+		expect(describeTool("reject", {})?.description).toBe("?");
+	});
+
+	test("resolution reasons stay bounded and never parse ANSI output", () => {
+		const long = "x".repeat(20_000);
+		expect(
+			describeTool("resolve", { content: long })?.description?.length,
+		).toBe(4_096);
+		// structured fields only — raw ANSI in content passes through unparsed,
+		// the description is never derived from rendered/native output
+		const ansi = "\u001b[32mapplied\u001b[0m";
+		expect(describeTool("reject", { content: ansi })?.description).toBe(ansi);
 	});
 
 	test("registered routine tools describe through the bounded generic form", () => {
@@ -495,6 +597,30 @@ describe("tool-specific settled result metadata", () => {
 		expect(rule?.resultMeta?.({ details: {} })).toEqual([]);
 	});
 
+	test("resolve/reject report the apply/discard action and its source", () => {
+		const result = {
+			details: {
+				xdev: {
+					tool: "resolve",
+					inner: {
+						action: "apply",
+						reason: "applying staged edit",
+						sourceToolName: "edit",
+						label: "src/a.ts",
+					},
+				},
+			},
+		};
+		expect(TOOL_RULES.resolve?.resultMeta?.(result)).toEqual(["apply", "edit"]);
+		expect(TOOL_RULES.reject?.resultMeta?.(result)).toEqual(["apply", "edit"]);
+		// fallback to a generic settled status, then empty
+		expect(
+			TOOL_RULES.resolve?.resultMeta?.({ details: { status: "success" } }),
+		).toEqual(["success"]);
+		expect(TOOL_RULES.resolve?.resultMeta?.(undefined)).toEqual([]);
+		expect(TOOL_RULES.resolve?.resultMeta?.({ details: {} })).toEqual([]);
+	});
+
 	test("no other rule carries result metadata", () => {
 		for (const name of [
 			"read",
@@ -510,8 +636,6 @@ describe("tool-specific settled result metadata", () => {
 			"inspect_image",
 			"browser",
 			"ask",
-			"resolve",
-			"reject",
 			"computer",
 			"task",
 		]) {
@@ -532,5 +656,81 @@ describe("registry shape types", () => {
 			expect(routes).toContain(rule.route);
 			expect(audits).toContain(rule.audit);
 		}
+	});
+
+	test("interactive four carry evidence-based arg/detail inventories", () => {
+		expect(TOOL_RULES.browser?.knownArgs).toEqual([
+			"action",
+			"name",
+			"url",
+			"app",
+			"viewport",
+			"wait_until",
+			"dialogs",
+			"code",
+			"timeout",
+			"all",
+			"kill",
+		]);
+		expect(TOOL_RULES.browser?.knownDetails).toEqual([
+			"action",
+			"name",
+			"url",
+			"browser",
+			"viewport",
+			"observation",
+			"screenshots",
+		]);
+		expect(TOOL_RULES.computer?.knownArgs).toEqual([
+			"code",
+			"i",
+			"read_only",
+			"timeout",
+		]);
+		expect(TOOL_RULES.computer?.knownDetails).toEqual([
+			"code",
+			"readOnly",
+			"screenshots",
+			"returnValue",
+			"backend",
+			"capturePermission",
+			"inputPermission",
+			"axPermission",
+		]);
+		for (const name of ["resolve", "reject"]) {
+			expect(TOOL_RULES[name]?.knownArgs).toEqual([
+				"path",
+				"file_path",
+				"content",
+				"reason",
+				"status",
+				"result",
+			]);
+			expect(TOOL_RULES[name]?.knownDetails).toEqual([
+				"xdev",
+				"action",
+				"reason",
+				"sourceToolName",
+				"label",
+				"sourceResultDetails",
+				"status",
+			]);
+		}
+	});
+
+	test("only computer/resolve/reject descriptions carry titleColor", () => {
+		const colored = Object.entries(TOOL_RULES)
+			.filter(([, rule]) => rule?.describe !== undefined)
+			.map(([name]) => ({
+				name,
+				color: describeTool(name, {})?.titleColor,
+			}))
+			.filter((entry) => entry.color !== undefined)
+			.sort((a, b) => a.name.localeCompare(b.name));
+		expect(colored).toEqual([
+			{ name: "computer", color: "#8D2A88" },
+			{ name: "reject", color: "#A1471A" },
+			{ name: "resolve", color: "#A4D734" },
+		]);
 	});
 });

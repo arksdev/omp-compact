@@ -36,6 +36,12 @@ export interface ToolRenderInput {
 	phase: LedgerPhase;
 	/** Expanded state of the component (native inspection escape hatch). */
 	expanded: boolean;
+	/**
+	 * Registry opt-out of the native expansion escape hatch: when true,
+	 * explicit expansion keeps the compact rows instead of falling back to
+	 * the native renderer (browser, computer, resolve, reject).
+	 */
+	compactOnExpand: boolean;
 	/** True when the state carries retained mutation evidence. */
 	hasMutations: boolean;
 	/** True when the state carries Git evidence. */
@@ -150,10 +156,13 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	},
 	{
 		// Expanded mode uses the original native render as inspection escape
-		// hatch; native-live tools never receive compact rows.
+		// hatch for ordinary compact tools; native-live tools never receive
+		// compact rows. `compactOnExpand` tools (browser, computer, resolve,
+		// reject) deliberately stay compact when explicitly expanded.
 		when: (input) =>
 			input.phase === "working" &&
-			(input.expanded || input.route === "native-live"),
+			(input.route === "native-live" ||
+				(input.expanded && !input.compactOnExpand)),
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{

@@ -622,33 +622,41 @@ stockTest(
 );
 
 stockTest(
-	"interactive controls stay native while task renders compact",
+	"ask stays native while the four visual tools render compact",
 	async () => {
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
-		const nativeTools = ["ask", "resolve", "reject", "computer", "browser"];
-		const components: ToolExecutionInstance[] = [];
-		for (const toolName of nativeTools) {
-			const toolCallId = `interactive-${toolName}`;
-			await dispatch(booted, {
-				type: "tool_execution_start",
-				toolCallId,
-				toolName,
-				args: { action: "inspect" },
-			});
-			const component = new booted.host.ToolExecutionComponent(
-				toolName,
-				{ action: "inspect" },
-				{ showImages: false, useBuiltInRenderer: true },
-				fakeTool(toolName),
-				toolUi(),
-				booted.context.cwd,
-				toolCallId,
-			);
-			component.render = () => [`native-${toolName}`];
-			components.push(component);
-			booted.transcript.addChild(component);
-		}
+		const ask = await addTool(
+			booted,
+			"ask",
+			{ question: "continue?" },
+			"interactive-ask",
+		);
+		ask.render = () => ["native-ask"];
+		await addTool(
+			booted,
+			"browser",
+			{ action: "open", url: "https://example.test" },
+			"interactive-browser",
+		);
+		await addTool(
+			booted,
+			"computer",
+			{ i: "click Save" },
+			"interactive-computer",
+		);
+		await addTool(
+			booted,
+			"resolve",
+			{ path: "xd://resolve", content: "applying staged edit" },
+			"interactive-resolve",
+		);
+		await addTool(
+			booted,
+			"reject",
+			{ path: "xd://reject", content: "rejected preview" },
+			"interactive-reject",
+		);
 		await addTool(
 			booted,
 			"task",
@@ -656,17 +664,17 @@ stockTest(
 			"interactive-task",
 		);
 		const live = visibleRows(booted.transcript).join("\n");
-		for (const toolName of nativeTools)
-			expect(live).toContain(`native-${toolName}`);
+		expect(live).toContain("native-ask");
+		expect(live).toContain("browser: https://example.test");
+		expect(live).toContain("computer use: click Save");
+		expect(live).toContain("resolve: applying staged edit");
+		expect(live).toContain("reject: rejected preview");
 		expect(live).toContain("task: description: subagent work");
-		expect(live).not.toContain("native-task");
+		for (const toolName of ["browser", "computer", "resolve", "reject", "task"])
+			expect(live).not.toContain(`native-${toolName}`);
 		addAnswer(booted, "done");
 		await finishRun(booted, "done");
-		const completed = visibleRows(booted.transcript).join("\n");
-		expect(completed).not.toContain("native-");
 		await shutdown(booted);
-		for (const [index, toolName] of nativeTools.entries())
-			expect(components[index]?.render(120)).toEqual([`native-${toolName}`]);
 	},
 );
 

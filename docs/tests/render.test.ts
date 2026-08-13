@@ -837,3 +837,162 @@ describe("project-relative display paths", () => {
 		expect(stripAnsi(narrow ?? "").length).toBeLessThanOrEqual(20);
 	});
 });
+
+describe("structured title colors", () => {
+	const COMPUTER = Bun.color("#8D2A88", "ansi-16m") ?? "";
+	const RESOLVE = Bun.color("#A4D734", "ansi-16m") ?? "";
+	const REJECT = Bun.color("#A1471A", "ansi-16m") ?? "";
+	const RESET = "\x1b[39m";
+
+	/** Visible title text between the given color open and its [39m reset. */
+	function coloredTitleSpan(line: string | undefined, open: string): string {
+		const text = line ?? "";
+		const start = text.indexOf(open);
+		if (start < 0) return "";
+		const end = text.indexOf(RESET, start);
+		return end > start ? text.slice(start + open.length, end) : "";
+	}
+
+	/** Substring after the colored title's [39m reset. */
+	function afterColoredTitle(line: string | undefined, open: string): string {
+		const text = line ?? "";
+		const start = text.indexOf(open);
+		const end = text.indexOf(RESET, start);
+		return end > start ? text.slice(end + RESET.length) : text;
+	}
+
+	test("computer rows open the fixed foreground exactly once, on the title only", () => {
+		const [line] = renderCompactToolRows(
+			routineView({ toolName: "computer", args: { action: "run" } }),
+			fakeTheme(),
+		);
+		expect(COMPUTER.length).toBeGreaterThan(0);
+		expect(line ?? "").toContain(COMPUTER);
+		expect((line ?? "").split(COMPUTER).length - 1).toBe(1);
+		expect(coloredTitleSpan(line, COMPUTER)).toBe("computer use");
+		expect(afterColoredTitle(line, COMPUTER)).not.toContain(COMPUTER);
+	});
+
+	test("resolve and reject titles use their own fixed colors", () => {
+		const resolveLine = renderCompactToolRows(
+			routineView({ toolName: "resolve", args: { issue: 42 } }),
+			fakeTheme(),
+		)[0];
+		const rejectLine = renderCompactToolRows(
+			routineView({
+				toolName: "reject",
+				args: { reason: "too long" },
+				result: { content: [{ type: "text", text: "rejected" }] },
+				isError: true,
+			}),
+			fakeTheme(),
+		)[0];
+		expect(RESOLVE.length).toBeGreaterThan(0);
+		expect(REJECT.length).toBeGreaterThan(0);
+		expect((resolveLine ?? "").split(RESOLVE).length - 1).toBe(1);
+		expect(coloredTitleSpan(resolveLine, RESOLVE)).toBe("resolve");
+		expect((rejectLine ?? "").split(REJECT).length - 1).toBe(1);
+		expect(coloredTitleSpan(rejectLine, REJECT)).toBe("reject");
+		expect(resolveLine ?? "").not.toContain(REJECT);
+		expect(rejectLine ?? "").not.toContain(RESOLVE);
+	});
+
+	test("uncolored browser and routine titles stay dim and hex-free", () => {
+		const [browser] = renderCompactToolRows(
+			routineView({
+				toolName: "browser",
+				args: { action: "open", url: "https://example.dev" },
+			}),
+			fakeTheme(),
+		);
+		const [bash] = renderCompactToolRows(routineView({}), fakeTheme());
+		for (const line of [browser, bash]) {
+			expect(line ?? "").not.toContain(COMPUTER);
+			expect(line ?? "").not.toContain(RESOLVE);
+			expect(line ?? "").not.toContain(REJECT);
+		}
+		expect(stripAnsi(browser ?? "")).toMatch(/^• browser: /);
+		expect(stripAnsi(bash ?? "")).toMatch(/^• bash: /);
+	});
+
+	test("pending colored rows color the title but keep Working… dim", () => {
+		const [line] = renderCompactToolRows(
+			routineView({
+				toolName: "resolve",
+				args: { issue: 42 },
+				isPartial: true,
+				tick: 0,
+			}),
+			fakeTheme(),
+		);
+		expect(stripAnsi(line ?? "")).toMatch(/^⠦ Working… resolve/);
+		const text = line ?? "";
+		expect(text.split(RESOLVE).length - 1).toBe(1);
+		expect(text.slice(0, text.indexOf(RESOLVE))).not.toContain(RESOLVE);
+		expect(coloredTitleSpan(text, RESOLVE)).toBe("resolve");
+	});
+
+	test("error rows color the title while the icon and payload stay uncolored", () => {
+		const [line] = renderCompactToolRows(
+			routineView({
+				toolName: "computer",
+				args: { action: "run", target: "spotify" },
+				result: { content: [{ type: "text", text: "access denied" }] },
+				isError: true,
+			}),
+			fakeTheme(),
+		);
+		expect(stripAnsi(line ?? "")).toMatch(/^✗ computer use/);
+		const text = line ?? "";
+		expect(text.split(COMPUTER).length - 1).toBe(1);
+		expect(coloredTitleSpan(text, COMPUTER)).toBe("computer use");
+		expect(afterColoredTitle(text, COMPUTER)).not.toContain(COMPUTER);
+		expect(text).not.toContain("\x1b[48;");
+	});
+
+	test("truncating inside a colored title still closes the foreground", () => {
+		const [line] = renderCompactToolRows(
+			routineView({ toolName: "computer", args: { action: "run" } }),
+			fakeTheme(),
+			10,
+		);
+		const text = line ?? "";
+		const stripped = stripAnsi(text);
+		expect(stripped.length).toBeLessThanOrEqual(10);
+		expect(stripped).toMatch(/^• comput/);
+		expect(text.split(COMPUTER).length - 1).toBe(1);
+		// the single color open is always closed after truncation
+		expect(text.indexOf(RESET, text.indexOf(COMPUTER))).toBeGreaterThan(
+			text.indexOf(COMPUTER),
+		);
+		expect(text).not.toContain("\x1b[48;");
+	});
+
+	test("long colored rows truncate to width without leaking color into the tail", () => {
+		const [line] = renderCompactToolRows(
+			routineView({
+				toolName: "computer",
+				args: { action: "run", target: "x".repeat(80) },
+			}),
+			fakeTheme(),
+			16,
+		);
+		const text = line ?? "";
+		expect(stripAnsi(text).length).toBeLessThanOrEqual(16);
+		expect(text.split(COMPUTER).length - 1).toBe(1);
+		expect(coloredTitleSpan(text, COMPUTER)).toBe("computer use");
+		expect(text).not.toContain("\x1b[48;");
+	});
+
+	test("ANSI embedded in argument text is stripped before rendering", () => {
+		const [line] = renderCompactToolRows(
+			routineView({
+				toolName: "custom_tool",
+				args: { value: "\x1b[31mred\x1b[0m" },
+			}),
+			fakeTheme(),
+		);
+		expect(line ?? "").not.toContain("\x1b[31m");
+		expect(stripAnsi(line ?? "")).toBe("• custom tool: value: red");
+	});
+});

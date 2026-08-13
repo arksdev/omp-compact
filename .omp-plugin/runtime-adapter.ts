@@ -573,6 +573,7 @@ export class RuntimeAdapter {
 				retainGitLive: runMode.retainGitLive,
 				phase,
 				expanded: state.expanded,
+				compactOnExpand: rule?.compactOnExpand === true,
 				hasMutations: state.mutations.length > 0,
 				hasGit: state.git !== undefined,
 				hashesLength: projection?.hashes.length ?? 0,

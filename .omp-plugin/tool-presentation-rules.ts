@@ -39,6 +39,12 @@ export interface ToolPresentationRule {
 	readonly knownArgs: readonly string[];
 	/** Result `details` keys this tool is known to return. */
 	readonly knownDetails: readonly string[];
+	/**
+	 * Keeps the compact row even when the tool call is explicitly expanded.
+	 * Only the interactive four (browser/computer/resolve/reject) opt in;
+	 * ordinary compact tools keep the native inspection escape hatch.
+	 */
+	compactOnExpand?: boolean;
 	/** Pure description from structured args; never touches the filesystem. */
 	describe(args: unknown, displayPaths?: DisplayPathOptions): ToolDescription;
 	/** Optional settled result metadata (e.g. bash exit code / wall time). */
@@ -154,6 +160,59 @@ const WEB_SEARCH_ARGS = [
 	"max_tokens",
 	"num_search_results",
 	"temperature",
+] as const;
+const BROWSER_ARGS = [
+	"action",
+	"name",
+	"url",
+	"app",
+	"viewport",
+	"wait_until",
+	"dialogs",
+	"code",
+	"timeout",
+	"all",
+	"kill",
+] as const;
+const BROWSER_DETAILS = [
+	"action",
+	"name",
+	"url",
+	"browser",
+	"viewport",
+	"observation",
+	"screenshots",
+] as const;
+const COMPUTER_ARGS = ["code", "i", "read_only", "timeout"] as const;
+const COMPUTER_DETAILS = [
+	"code",
+	"readOnly",
+	"screenshots",
+	"returnValue",
+	"backend",
+	"capturePermission",
+	"inputPermission",
+	"axPermission",
+] as const;
+// Resolution devices carry the write call shape (path + one-sentence reason
+// content) plus the generic result envelope (status) and the yield-style
+// `result` payload seen on result tools.
+const RESOLUTION_ARGS = [
+	"path",
+	"file_path",
+	"content",
+	"reason",
+	"status",
+	"result",
+] as const;
+const RESOLUTION_DETAILS = [
+	"xdev",
+	"action",
+	"reason",
+	"sourceToolName",
+	"label",
+	"sourceResultDetails",
+	"status",
 ] as const;
 
 const TOOL_ALIASES: Readonly<Partial<Record<string, string>>> = Object.freeze({
@@ -316,10 +375,64 @@ function describeInspectImage(
 
 function describeBrowser(args: unknown): ToolDescription {
 	const value = record(args);
-	const description = [stringValue(value, "action"), stringValue(value, "url")]
-		.filter(Boolean)
-		.join(" ");
+	// URL only; the action is the fallback when no URL was given.
+	const description = stringValue(value, "url") || stringValue(value, "action");
 	return { title: "browser", description, meta: [] };
+}
+
+function describeComputer(args: unknown): ToolDescription {
+	const value = record(args);
+	// Shortest useful action: the intent field when present, else the first
+	// non-empty line of the executed JS, else a neutral placeholder. Bound the
+	// extraction so a dense one-line script cannot flood the row.
+	const intent = stringValue(value, "i");
+	const code = stringValue(value, "code");
+	const firstLine = code.split("\n").find((line) => line.trim() !== "") ?? "";
+	const description = (intent || firstLine || "?").slice(0, 160);
+	const meta = value.read_only === true ? ["read-only"] : [];
+	return {
+		title: "computer use",
+		description,
+		meta,
+		titleColor: "#8D2A88",
+	};
+}
+
+/**
+ * Resolution devices (xd://resolve / xd://reject) carry the write call shape:
+ * the device `path` plus the one-sentence `content` reason, and optionally a
+ * direct `reason`/`status`/yield-style `result.error` field. Extract the best
+ * short structured field, never parsed native/ANSI output.
+ */
+function describeResolution(
+	title: "resolve" | "reject",
+	titleColor: string,
+	args: unknown,
+): ToolDescription {
+	const value = record(args);
+	const resultError = stringValue(record(value.result), "error");
+	const description =
+		stringValue(value, "content") ||
+		stringValue(value, "reason") ||
+		resultError ||
+		stringValue(value, "status") ||
+		stringValue(value, "path") ||
+		"?";
+	return { title, description, meta: [], titleColor };
+}
+
+/** Settled resolution metadata: the apply/discard action plus its source. */
+function resultMetaResolution(result: unknown): readonly string[] {
+	const details = record(record(result).details);
+	const xdev = record(details.xdev);
+	const inner = record(xdev.inner);
+	const action = stringValue(inner, "action") || stringValue(details, "status");
+	const source =
+		stringValue(inner, "sourceToolName") || stringValue(inner, "label");
+	const meta: string[] = [];
+	if (action) meta.push(action);
+	if (source) meta.push(source);
+	return meta;
 }
 
 /** Registered routine/interactive tools describe through the bounded generic form. */
@@ -334,6 +447,7 @@ function presentationRule(
 	knownDetails: readonly string[],
 	describe: ToolPresentationRule["describe"],
 	resultMeta?: ToolPresentationRule["resultMeta"],
+	compactOnExpand?: boolean,
 ): ToolPresentationRule {
 	const rule: ToolPresentationRule = {
 		route,
@@ -343,6 +457,7 @@ function presentationRule(
 		describe,
 	};
 	if (resultMeta !== undefined) rule.resultMeta = resultMeta;
+	if (compactOnExpand === true) rule.compactOnExpand = true;
 	return Object.freeze(rule);
 }
 
@@ -457,7 +572,15 @@ export const TOOL_RULES: Readonly<
 		[],
 		describeInspectImage,
 	),
-	browser: presentationRule("native-live", "none", [], [], describeBrowser),
+	browser: presentationRule(
+		"compact",
+		"none",
+		BROWSER_ARGS,
+		BROWSER_DETAILS,
+		describeBrowser,
+		undefined,
+		true,
+	),
 	ask: presentationRule(
 		"native-live",
 		"none",
@@ -466,25 +589,31 @@ export const TOOL_RULES: Readonly<
 		genericDescribe("ask"),
 	),
 	resolve: presentationRule(
-		"native-live",
+		"compact",
 		"none",
-		[],
-		[],
-		genericDescribe("resolve"),
+		RESOLUTION_ARGS,
+		RESOLUTION_DETAILS,
+		(args) => describeResolution("resolve", "#A4D734", args),
+		resultMetaResolution,
+		true,
 	),
 	reject: presentationRule(
-		"native-live",
+		"compact",
 		"none",
-		[],
-		[],
-		genericDescribe("reject"),
+		RESOLUTION_ARGS,
+		RESOLUTION_DETAILS,
+		(args) => describeResolution("reject", "#A1471A", args),
+		resultMetaResolution,
+		true,
 	),
 	computer: presentationRule(
-		"native-live",
+		"compact",
 		"none",
-		[],
-		[],
-		genericDescribe("computer"),
+		COMPUTER_ARGS,
+		COMPUTER_DETAILS,
+		describeComputer,
+		undefined,
+		true,
 	),
 	task: presentationRule("compact", "none", [], [], genericDescribe("task")),
 });

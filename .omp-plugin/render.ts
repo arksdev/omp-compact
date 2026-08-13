@@ -336,10 +336,10 @@ export function renderCompactToolRows(
 	const summary = rule
 		? rule.describe(view.args, displayPaths)
 		: genericToolDescription(view.toolName, view.args);
-	const title = theme.fg(
-		"dim",
-		sanitizeOneLine(summary.title, 40).toLowerCase(),
-	);
+	const sanitizedTitle = sanitizeOneLine(summary.title, 40).toLowerCase();
+	const title = summary.titleColor
+		? fixedForeground(summary.titleColor, sanitizedTitle)
+		: theme.fg("dim", sanitizedTitle);
 	const description = sanitizeOneLine(summary.description);
 	// Read rows drop the colon separator: `• read <path>`.
 	const separator = rule?.route === "read-group" ? " " : ": ";
