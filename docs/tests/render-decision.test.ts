@@ -59,6 +59,26 @@ describe("decideToolRender: registry routing and native fallback", () => {
 		).toEqual({ kind: "native" });
 	});
 });
+test("task route uses compact rows instead of native rendering", () => {
+	for (const phase of ["working", "full"] as const) {
+		expect(decideToolRender(toolInput({ route: "compact", phase }))).toEqual({
+			kind: "tool-rows",
+			filtered: false,
+			summary: false,
+			includeGit: true,
+		});
+	}
+	expect(
+		decideToolRender(
+			toolInput({ route: "compact", phase: "filtered", hasMutations: true }),
+		),
+	).toEqual({
+		kind: "tool-rows",
+		filtered: true,
+		summary: false,
+		includeGit: false,
+	});
+});
 
 describe("decideToolRender: clear mode matrix", () => {
 	test("clear hides routine rows while working and at the terminal answer", () => {

@@ -486,13 +486,7 @@ export const TOOL_RULES: Readonly<
 		[],
 		genericDescribe("computer"),
 	),
-	task: presentationRule(
-		"native-live",
-		"none",
-		[],
-		[],
-		genericDescribe("task"),
-	),
+	task: presentationRule("compact", "none", [], [], genericDescribe("task")),
 });
 
 /**

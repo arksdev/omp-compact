@@ -39,18 +39,12 @@ describe("canonical routes and audit kinds", () => {
 		expect(Object.keys(TOOL_RULES).sort()).toEqual(CANONICAL_NAMES);
 	});
 
-	test("read routes to the read group; interactive tools stay native-live", () => {
+	test("interactive controls stay native while task uses compact rows", () => {
 		expect(TOOL_RULES.read?.route).toBe("read-group");
-		for (const name of [
-			"ask",
-			"resolve",
-			"reject",
-			"computer",
-			"browser",
-			"task",
-		]) {
+		for (const name of ["ask", "resolve", "reject", "computer", "browser"]) {
 			expect(TOOL_RULES[name]?.route, name).toBe("native-live");
 		}
+		expect(TOOL_RULES.task?.route).toBe("compact");
 	});
 
 	test("existing routine tools are explicitly compact", () => {

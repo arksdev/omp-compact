@@ -622,19 +622,13 @@ stockTest(
 );
 
 stockTest(
-	"interactive tool components stay native during the live phase",
+	"interactive controls stay native while task renders compact",
 	async () => {
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
+		const nativeTools = ["ask", "resolve", "reject", "computer", "browser"];
 		const components: ToolExecutionInstance[] = [];
-		for (const toolName of [
-			"ask",
-			"resolve",
-			"reject",
-			"computer",
-			"browser",
-			"task",
-		]) {
+		for (const toolName of nativeTools) {
 			const toolCallId = `interactive-${toolName}`;
 			await dispatch(booted, {
 				type: "tool_execution_start",
@@ -655,32 +649,24 @@ stockTest(
 			components.push(component);
 			booted.transcript.addChild(component);
 		}
-		const live = visibleRows(booted.transcript).join("\n");
-		for (const toolName of [
-			"ask",
-			"resolve",
-			"reject",
-			"computer",
-			"browser",
+		await addTool(
+			booted,
 			"task",
-		]) {
+			{ description: "subagent work" },
+			"interactive-task",
+		);
+		const live = visibleRows(booted.transcript).join("\n");
+		for (const toolName of nativeTools)
 			expect(live).toContain(`native-${toolName}`);
-		}
+		expect(live).toContain("task: description: subagent work");
+		expect(live).not.toContain("native-task");
 		addAnswer(booted, "done");
 		await finishRun(booted, "done");
 		const completed = visibleRows(booted.transcript).join("\n");
 		expect(completed).not.toContain("native-");
 		await shutdown(booted);
-		for (const [index, toolName] of [
-			"ask",
-			"resolve",
-			"reject",
-			"computer",
-			"browser",
-			"task",
-		].entries()) {
+		for (const [index, toolName] of nativeTools.entries())
 			expect(components[index]?.render(120)).toEqual([`native-${toolName}`]);
-		}
 	},
 );
 
@@ -4762,49 +4748,46 @@ stockTest(
 	},
 );
 
-stockTest(
-	"clear mode hides routine tools but keeps the task surface",
-	async () => {
-		const booted = await bootWithMode("clear");
-		await beginRun(booted);
-		const call = await addTool(
-			booted,
-			"bash",
-			{ command: "printf clear-hidden" },
-			"bash-clear",
-		);
-		await finishTool(booted, call, {
-			toolCallId: "bash-clear",
-			toolName: "bash",
-			result: { content: [{ type: "text", text: "ok" }] },
-			isError: false,
-		});
-		const task = await addTool(
-			booted,
-			"task",
-			{ description: "subagent work" },
-			"task-clear",
-		);
-		await finishTool(booted, task, {
-			toolCallId: "task-clear",
-			toolName: "task",
-			result: { content: [{ type: "text", text: "done" }] },
-			isError: false,
-		});
-		// the routine bash row is absent while the stock task surface renders
-		// its own native content in every phase
-		expect(visibleRows(booted.transcript).join("\n")).not.toContain(
-			"printf clear-hidden",
-		);
-		expect(visibleRows(task).join("\n")).not.toEqual([]);
-		addAnswer(booted, "clear done");
-		await finishRun(booted, "clear done");
-		const terminalRows = visibleRows(booted.transcript).join("\n");
-		expect(terminalRows).not.toContain("printf clear-hidden");
-		expect(terminalRows).toContain("clear done");
-		await shutdown(booted);
-	},
-);
+stockTest("clear mode hides routine tools including task", async () => {
+	const booted = await bootWithMode("clear");
+	await beginRun(booted);
+	const call = await addTool(
+		booted,
+		"bash",
+		{ command: "printf clear-hidden" },
+		"bash-clear",
+	);
+	await finishTool(booted, call, {
+		toolCallId: "bash-clear",
+		toolName: "bash",
+		result: { content: [{ type: "text", text: "ok" }] },
+		isError: false,
+	});
+	const task = await addTool(
+		booted,
+		"task",
+		{ description: "subagent work" },
+		"task-clear",
+	);
+	await finishTool(booted, task, {
+		toolCallId: "task-clear",
+		toolName: "task",
+		result: { content: [{ type: "text", text: "done" }] },
+		isError: false,
+	});
+	// Clear mode hides compact routine rows while preserving the native
+	// renderer only for genuinely interactive controls.
+	const liveRows = visibleRows(booted.transcript).join("\n");
+	expect(liveRows).not.toContain("clear-hidden");
+	expect(liveRows).not.toContain("task: description: subagent work");
+	addAnswer(booted, "clear done");
+	await finishRun(booted, "clear done");
+	const terminalRows = visibleRows(booted.transcript).join("\n");
+	expect(terminalRows).not.toContain("clear-hidden");
+	expect(terminalRows).not.toContain("subagent work");
+	expect(terminalRows).toContain("clear done");
+	await shutdown(booted);
+});
 
 stockTest("clear mode abort keeps compact diagnostic rows", async () => {
 	const booted = await bootWithMode("clear");
@@ -4859,30 +4842,31 @@ stockTest(
 	},
 );
 
-stockTest("clear mode abort keeps the native interactive surface", async () => {
-	const booted = await bootWithMode("clear");
-	await beginRun(booted);
-	const task = await addTool(
-		booted,
-		"task",
-		{ description: "subagent diagnostics" },
-		"task-clear-abort",
-	);
-	task.render = () => ["native-task-abort"];
-	await finishTool(booted, task, {
-		toolCallId: "task-clear-abort",
-		toolName: "task",
-		result: { content: [{ type: "text", text: "done" }], details: {} },
-		isError: false,
-	});
-	await finishRun(booted, "", "aborted");
-	// explicit native-live tools render natively in clear-mode abort
-	// diagnostics while routine rows collapse into compact diagnostics
-	expect(visibleRows(booted.transcript).join("\n")).toContain(
-		"native-task-abort",
-	);
-	await shutdown(booted);
-});
+stockTest(
+	"clear mode abort keeps the compact task diagnostic row",
+	async () => {
+		const booted = await bootWithMode("clear");
+		await beginRun(booted);
+		const task = await addTool(
+			booted,
+			"task",
+			{ description: "subagent diagnostics" },
+			"task-clear-abort",
+		);
+		task.render = () => ["native-task-abort"];
+		await finishTool(booted, task, {
+			toolCallId: "task-clear-abort",
+			toolName: "task",
+			result: { content: [{ type: "text", text: "done" }], details: {} },
+			isError: false,
+		});
+		await finishRun(booted, "", "aborted");
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("task: description: subagent diagnostics");
+		expect(rows).not.toContain("native-task-abort");
+		await shutdown(booted);
+	},
+);
 
 stockTest(
 	"retainGitLive=false suppresses Git rows and the commit summary",

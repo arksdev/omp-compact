@@ -342,8 +342,8 @@ Compact output применяется только к явно зарегист�
 | Route | Tools |
 | --- | --- |
 | `read-group` | `read` |
-| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image` |
-| `native-live` | `ask`, `resolve`, `reject`, `browser`, `computer`, `task` |
+| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `task` |
+| `native-live` | `ask`, `resolve`, `reject`, `browser`, `computer` |
 
 Aliases нормализуются до routing и audit: `apply_patch` -> `edit`; hyphen spellings вроде `ast-grep`, `ast-edit` и `inspect-image` -> underscore form.
 

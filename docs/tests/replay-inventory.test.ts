@@ -13,9 +13,9 @@
  * - "compact"     — routine tools rendered as compact rows.
  * - "read-group"  — read streams rendered through the native read group.
  * - "native-live" — interactive surfaces (ask/resolve/reject/computer/
- *   browser/task) that stay native during the live phase. The real
- *   histories in this corpus exercise only "ask"; the exact native-live
- *   set observed is asserted below.
+ *   browser) that stay native during the live phase. The real histories in
+ *   this corpus exercise only "ask"; the exact native-live set observed is
+ *   asserted below.
  *
  * Non-tool fallback reasons ("unmapped", "expanded", "incompatible") may
  * render natively by design, but they are integration-only safety classes

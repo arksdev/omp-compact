@@ -383,13 +383,13 @@ describe("runtime modes", () => {
 		expect(booted.finalized).toEqual(["omp-compact-run-1"]);
 	});
 
-	test("clear keeps the stock task subagent surface throughout", async () => {
+	test("clear hides compact task rows throughout the run", async () => {
 		const booted = await boot({ mode: "clear" });
 		await beginRun(booted);
 		addTool(booted, "task", "task-1", { description: "sub" });
-		expect(visibleRows(booted).join("\n")).toContain("native-task");
+		expect(visibleRows(booted).join("\n")).not.toContain("task:");
 		booted.adapter.endRun(terminalAnswer());
-		expect(visibleRows(booted).join("\n")).toContain("native-task");
+		expect(visibleRows(booted).join("\n")).not.toContain("task:");
 	});
 
 	test("clear hides expanded tools and expanded read groups", async () => {

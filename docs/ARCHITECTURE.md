@@ -183,7 +183,7 @@ Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
 3. clear + not-full → empty
 4. filtered + no mutations + no hashes → empty
 5. working + live + no retainGitLive + hasGit → empty
-6. working + (expanded | native-live) → native
+6. working + expanded → native (inspection escape hatch)
 7. filtered → tool-rows (retention policy applied)
 8. Fallback → tool-rows (full log)
 ```
