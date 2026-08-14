@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-08-14
+
 ### Fixed
 
 - Delayed `message_update` events from a previous logical run can no longer contaminate the next run's compact state or force its tools back to the native surface; only the actively streaming working ledger is touched, and `tool_execution_start` remains the sole state allocator.
@@ -143,7 +145,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A future incompatible host shape rolls back the presentation adapter, leaves native rendering active, and should be reported with the exact OMP version and reproduction.
 - При будущей несовместимой форме хоста адаптер представления откатывается, оставляет активным нативный рендеринг; о таком случае следует сообщить с точной версией OMP и сценарием воспроизведения.
 
-[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/arksdev/omp-compact/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/arksdev/omp-compact/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/arksdev/omp-compact/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/arksdev/omp-compact/releases/tag/v1.0.0
