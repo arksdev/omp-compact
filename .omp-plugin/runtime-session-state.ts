@@ -280,9 +280,24 @@ export class RuntimeSessionState {
 		return this.#ledger.runId;
 	}
 
-	/** Release an exact terminal claim after its projection lifecycle settles. */
-	releaseTerminalRun(runId: string | undefined): void {
-		if (typeof runId === "string") this.#deferredTerminalLedgers.delete(runId);
+	/**
+	 * Release an exact terminal claim after its projection lifecycle settles.
+	 * A successful drain already finalized the ledger through `endRun`, so the
+	 * release is a no-op (returns `undefined`). A failed/skipped drain never
+	 * ran `endRun`; the release then performs the fallback finalization of
+	 * exactly the captured ledger (abort/full semantics — complete diagnostic
+	 * log, no filtered projection, no stats row) and returns it so the adapter
+	 * can request its render. Idempotent: the claim is taken first, and a
+	 * second release of the same claim finds nothing.
+	 */
+	releaseTerminalRun(runId: string | undefined): TurnLedger | undefined {
+		if (typeof runId !== "string") return undefined;
+		const deferred = this.#deferredTerminalLedgers.get(runId);
+		if (!deferred) return undefined;
+		this.#deferredTerminalLedgers.delete(runId);
+		return this.#finalizeWorkingLedger(deferred.ledger)
+			? deferred.ledger
+			: undefined;
 	}
 
 	/** Frozen display-path snapshot of the active logical run. */
@@ -912,13 +927,26 @@ export class RuntimeSessionState {
 
 	/** Force the active working ledger to a full (abort) finalization. */
 	finishFull(): void {
-		if (this.#ledger?.phase !== "working") return;
 		const ledger = this.#ledger;
+		if (ledger) void this.#finalizeWorkingLedger(ledger);
+	}
+
+	/**
+	 * Abort-finalize one exact ledger (fail-closed fallback for a failed
+	 * terminal drain and the shared `finishFull` path): the full retention
+	 * keeps the complete diagnostic log, the ledger leaves the working phase,
+	 * and its pending states leave the spinner set. Idempotent per ledger
+	 * through `TurnLedger.finalize`; returns true only when this call
+	 * performed the finalization.
+	 */
+	#finalizeWorkingLedger(ledger: TurnLedger): boolean {
+		if (ledger.phase !== "working") return false;
 		this.finalizeLedger(ledger, { messages: [], willContinue: false });
 		this.#bumpLedger(ledger);
 		for (const state of this.#pendingStates) {
 			if (state.ledger === ledger) this.#pendingStates.delete(state);
 		}
+		return true;
 	}
 
 	/**

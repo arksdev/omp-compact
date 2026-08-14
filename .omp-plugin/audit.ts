@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 // External dependency: peelWriteUrlSelector/unwrapHashlineHeaderPath from
@@ -99,7 +99,11 @@ async function boundedText(
  * evidence). Running the read synchronously inside the start handler captures
  * the pre-image before the handler yields. Semantics mirror `boundedText`
  * exactly: missing file -> "" when `missingAsEmpty`, oversized/over-long
- * snapshots -> undefined, other read errors -> undefined.
+ * snapshots -> undefined, other read errors -> undefined. The path is opened
+ * with `O_NONBLOCK` and gated on `fstat` of the opened descriptor: FIFOs,
+ * devices, sockets and directories are rejected fail-open, so a
+ * model-controlled non-regular target can never block the event loop, and a
+ * symlink resolving to a regular file keeps its exact snapshot.
  */
 function boundedTextSync(
 	path: string,
@@ -107,8 +111,16 @@ function boundedTextSync(
 ): string | undefined {
 	let fd: number | undefined;
 	try {
-		fd = openSync(path, "r");
-		const size = fstatSync(fd).size;
+		// O_NONBLOCK: opening a writer-less FIFO (or another non-regular
+		// target) with plain "r" blocks inside open(2) and hangs the main
+		// event loop — the path is model-controlled. The regular/non-regular
+		// decision is made on the OPENED descriptor (race-safe: no lstat
+		// window a concurrent swap could slip through), and every non-regular
+		// target is rejected fail-open before any allocation or read.
+		fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		const stats = fstatSync(fd);
+		if (!stats.isFile()) return undefined;
+		const size = stats.size;
 		if (size > SNAPSHOT_MAX_BYTES) return undefined;
 		// Read through the same fd, at most MAX+1 bytes: a file that grew
 		// past the bound between stat and read overflows the probe and the

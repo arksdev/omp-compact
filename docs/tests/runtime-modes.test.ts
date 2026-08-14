@@ -35,6 +35,8 @@ interface AdapterModule {
 		setMutations(toolCallId: string, entries: unknown[]): void;
 		setGit(toolCallId: string, git: unknown): void;
 		observeAssistantMessage(message: unknown): void;
+		captureTerminalRunId(): string | undefined;
+		releaseTerminalRun(runId: string | undefined): void;
 		endRun(input: {
 			messages: readonly unknown[];
 			willContinue?: boolean;
@@ -210,6 +212,10 @@ interface Booted {
 	policy: InstanceType<AdapterModule["ModePolicy"]>;
 	store: ReturnType<typeof fakeStore>;
 	finalized: string[];
+	renders: {
+		render: number;
+		components: unknown[];
+	};
 }
 
 async function boot(
@@ -231,13 +237,18 @@ async function boot(
 	await policy.prepareRun();
 	const finalized: string[] = [];
 	const transcript = fakeTranscript();
+	const renders = { render: 0, components: [] as unknown[] };
 	const adapter = new adapterModule.RuntimeAdapter({
 		root: transcript,
 		ui: {
 			theme: fakeTheme(),
 			setWidget() {},
-			requestRender() {},
-			requestComponentRender() {},
+			requestRender() {
+				renders.render++;
+			},
+			requestComponentRender(component: unknown) {
+				renders.components.push(component);
+			},
 			getToolsExpanded: () => false,
 		},
 		timers: {
@@ -248,7 +259,7 @@ async function boot(
 		onRunFinalized: (runId: string) => finalized.push(runId),
 	});
 	if (!adapter.install()) throw new Error("adapter install failed");
-	return { adapter, transcript, policy, store, finalized };
+	return { adapter, transcript, policy, store, finalized, renders };
 }
 
 async function beginRun(booted: Booted): Promise<void> {
@@ -574,6 +585,41 @@ describe("runtime modes", () => {
 		expect(booted.finalized).toEqual(["omp-compact-run-1"]);
 	});
 
+	test("release after a failed drain renders only the finalized old run", async () => {
+		const booted = await boot();
+		await beginRun(booted);
+		const oldComponent = addTool(booted, "bash", "old-call", {
+			command: "printf old",
+		});
+		const oldRunId = booted.adapter.captureTerminalRunId();
+		expect(oldRunId).toBeDefined();
+
+		// Drain false: endRun never runs; the next run begins before the
+		// release (stock agent_start delivery is fire-and-forget).
+		await beginRun(booted);
+		const newComponent = addTool(booted, "bash", "new-call", {
+			command: "printf new",
+		});
+		const before = {
+			render: booted.renders.render,
+			components: [...booted.renders.components],
+		};
+
+		booted.adapter.releaseTerminalRun(oldRunId);
+
+		// The release's fallback finalization requests the old run's render…
+		expect(booted.renders.render).toBeGreaterThan(before.render);
+		expect(booted.renders.components).toContain(oldComponent);
+		// …but never the newer active run's component.
+		expect(booted.renders.components).not.toContain(newComponent);
+		// No onRunFinalized/stats/evidence side effects on a fail-closed drain.
+		expect(booted.finalized).toEqual([]);
+
+		// The new run is untouched and still finalizes as its own working
+		// ledger.
+		expect(booted.adapter.endRun(terminalAnswer())).toBe("filtered");
+	});
+
 	test("replay hydrates under the current mode", async () => {
 		for (const mode of ["compact", "clear"] as const) {
 			const booted = await boot({ mode });
@@ -643,9 +689,17 @@ describe("runtime modes", () => {
 			policy,
 			store,
 			finalized: [],
+			renders: { render: 0, components: [] },
 		});
 		addTool(
-			{ adapter, transcript, policy, store, finalized: [] },
+			{
+				adapter,
+				transcript,
+				policy,
+				store,
+				finalized: [],
+				renders: { render: 0, components: [] },
+			},
 			"bash",
 			"bash-1",
 			{ command: "printf x" },

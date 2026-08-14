@@ -180,6 +180,58 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		session.releaseTerminalRun(firstRunId);
 	});
 
+	test("release after a failed drain finalizes only the old ledger and drains its spinner state", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		expect(first).toBeDefined();
+		session.startState({
+			toolCallId: "stale-call",
+			toolName: "bash",
+			args: {},
+		});
+		const firstRunId = session.captureTerminalRunId();
+		expect(firstRunId).toBe(first?.runId);
+
+		// Drain false: endRun never runs; the next run begins before the
+		// release (stock agent_start delivery is fire-and-forget).
+		session.beginRun();
+		const second = session.activeLedger;
+		expect(first?.phase).toBe("working");
+		expect(session.pending().some((state) => state.ledger === first)).toBe(
+			true,
+		);
+
+		// The release is the guaranteed finalization point: it returns the
+		// exact ledger it just finalized (fallback finalization performed).
+		expect(session.releaseTerminalRun(firstRunId)).toBe(first);
+		expect(first?.phase).toBe("full");
+		expect(session.pending().some((state) => state.ledger === first)).toBe(
+			false,
+		);
+		expect(second?.phase).toBe("working");
+		expect(session.activeLedger).toBe(second);
+
+		// Idempotent: a second release of the same claim is a no-op.
+		expect(session.releaseTerminalRun(firstRunId)).toBeUndefined();
+	});
+
+	test("release after a successful endRun finalization returns undefined (no double render)", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		expect(first).toBeDefined();
+		session.startState({ toolCallId: "done-call", toolName: "bash", args: {} });
+		const firstRunId = session.captureTerminalRunId();
+		expect(
+			session.endRun({ messages: [assistant("first done")] }, firstRunId),
+		).toBe("filtered");
+		expect(first?.phase).toBe("filtered");
+
+		expect(session.releaseTerminalRun(firstRunId)).toBeUndefined();
+		expect(first?.phase).toBe("filtered");
+	});
+
 	test("a delayed no-tool stats row remains anchored to its terminal answer", () => {
 		const session = makeSession();
 		const transcript = new FakeTranscript();

@@ -397,9 +397,19 @@ export class RuntimeAdapter {
 		return this.#disposed ? undefined : this.#session.captureTerminalRunId();
 	}
 
-	/** Release an exact terminal claim after its audit projection settles. */
+	/**
+	 * Release an exact terminal claim after its audit projection settles.
+	 * A successful drain already finalized the ledger through `endRun`; a
+	 * failed/skipped drain is finalized by this release instead (abort/full
+	 * semantics), which returns the exact ledger and requests its render so
+	 * the rows flip from working/live to the finalized full presentation.
+	 * Render only: onRunFinalized/stats/evidence side effects belong to
+	 * endRun and never fire for a fail-closed drain.
+	 */
 	releaseTerminalRun(runId: string | undefined): void {
-		if (!this.#disposed) this.#session.releaseTerminalRun(runId);
+		if (this.#disposed) return;
+		const ledger = this.#session.releaseTerminalRun(runId);
+		if (ledger) this.#requestLedgerRender(ledger);
 	}
 
 	/** Release raw payloads once a filtered terminal projection is complete. */

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
 	completeEditMutations,
@@ -1390,6 +1390,140 @@ describe("write audit for brand-new files", () => {
 					exact: true,
 				},
 			]);
+		} finally {
+			await cleanup();
+		}
+	});
+});
+
+describe("boundedTextSync special-file safety", () => {
+	// The synchronous pre-image read must never block the main event loop on a
+	// model-controlled path. A writer-less FIFO blocks a plain O_RDONLY open
+	// inside open(2) forever, so the probe runs the real capture path in a
+	// child process and the parent kills it on timeout — a pre-fix hang fails
+	// the test instead of hanging the runner.
+	const PROBE_TIMEOUT_MS = 3_000;
+	const repoRoot = resolve(import.meta.dir, "../..");
+	const PROBE_SCRIPT = `
+const { pathToFileURL } = require("node:url");
+const { join } = require("node:path");
+(async () => {
+  try {
+    const href =
+      pathToFileURL(join(process.cwd(), ".omp-plugin", "audit.ts")).href +
+      "?special-file-probe";
+    const mod = await import(href);
+    const result = await mod.captureWriteCandidate({
+      toolCallId: "special-file-probe",
+      args: { path: process.env.PROBE_PATH, content: "x" },
+      cwd: process.cwd(),
+    });
+    console.log(JSON.stringify(result === undefined ? null : result));
+    process.exit(0);
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+    process.exit(2);
+  }
+})();
+`;
+
+	function mkfifo(path: string): void {
+		const result = Bun.spawnSync(["mkfifo", path]);
+		if (result.exitCode !== 0)
+			throw new Error(`mkfifo ${path} failed (exit ${result.exitCode})`);
+	}
+
+	async function probeResult(fifo: string): Promise<unknown> {
+		const child = Bun.spawn(["bun", "-e", PROBE_SCRIPT], {
+			cwd: repoRoot,
+			env: { ...Bun.env, PROBE_PATH: fifo },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		let timedOut = false;
+		const timer = setTimeout(() => {
+			timedOut = true;
+			child.kill();
+		}, PROBE_TIMEOUT_MS);
+		const exitCode = await child.exited;
+		clearTimeout(timer);
+		if (timedOut)
+			throw new Error(
+				`boundedTextSync blocked opening the FIFO (killed after ${PROBE_TIMEOUT_MS}ms)`,
+			);
+		expect(exitCode ?? -1).toBe(0);
+		const stdout = await new Response(child.stdout).text();
+		return JSON.parse(stdout) as unknown;
+	}
+
+	async function stage(): Promise<{
+		cwd: string;
+		cleanup: () => Promise<void>;
+	}> {
+		const cwd = await mkdtemp(join(tmpdir(), "omp-compact-special-"));
+		return { cwd, cleanup: () => rm(cwd, { recursive: true, force: true }) };
+	}
+
+	test("a writer-less FIFO target returns promptly with no candidate (regression: no main-loop hang)", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			const fifo = join(cwd, "pipe");
+			mkfifo(fifo);
+			expect(await probeResult(fifo)).toBeNull();
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("a FIFO with a live writer stays fail-open with no candidate", async () => {
+		const { cwd, cleanup } = await stage();
+		const fifo = join(cwd, "pipe");
+		mkfifo(fifo);
+		const writer = Bun.spawn(["sh", "-c", 'exec 3>"$FIFO"; sleep 5'], {
+			env: { ...Bun.env, FIFO: fifo },
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		try {
+			expect(await probeResult(fifo)).toBeNull();
+		} finally {
+			writer.kill();
+			await cleanup();
+		}
+	});
+
+	test("regular-file and symlink-to-regular snapshots stay exact", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			const content = "const a = 1;\nkeep();\n";
+			await writeFile(join(cwd, "target.ts"), content);
+			await symlink("target.ts", join(cwd, "alias.ts"));
+			const direct = await captureWriteCandidate({
+				toolCallId: "special-reg-1",
+				args: { path: "target.ts", content: "x" },
+				cwd,
+			});
+			expect(direct?.before).toBe(content);
+			const linked = await captureWriteCandidate({
+				toolCallId: "special-reg-2",
+				args: { path: "alias.ts", content: "x" },
+				cwd,
+			});
+			expect(linked?.before).toBe(content);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("a character device target is rejected fail-open (no empty-before candidate)", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			const candidate = await captureWriteCandidate({
+				toolCallId: "special-dev",
+				args: { path: "/dev/null", content: "x" },
+				cwd,
+			});
+			expect(candidate).toBeUndefined();
 		} finally {
 			await cleanup();
 		}
