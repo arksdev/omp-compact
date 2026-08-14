@@ -660,6 +660,49 @@ describe("unknown config keys survive bounded updates (raw-record preservation)"
 		await rm(dir, { recursive: true, force: true });
 	});
 
+	test("a version-less persisted file gains version: 1 while keeping unknown keys", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		await writeFile(
+			file,
+			JSON.stringify({ enabled: false, futureKey: "keep" }),
+			"utf8",
+		);
+		await store.update({ mode: "compact" });
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.version).toBe(1);
+		expect(raw.futureKey).toBe("keep");
+		expect(raw.enabled).toBe(false);
+		expect(raw.mode).toBe("compact");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("an existing version: 1 is preserved unchanged through an update", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: false, futureKey: "keep" }),
+			"utf8",
+		);
+		await store.update({ mode: "compact" });
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.version).toBe(1);
+		expect(raw.futureKey).toBe("keep");
+		expect(raw.enabled).toBe(false);
+		await rm(dir, { recursive: true, force: true });
+	});
+
 	test("deep unknown payload at the depth limit survives and stays bounded", async () => {
 		const dir = await tempDir();
 		const { store } = storeAt(dir);

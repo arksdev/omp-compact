@@ -770,6 +770,13 @@ export function createSettingsStore(
 			// save verbatim, while known-field validation still runs on the
 			// merged record below.
 			const mergedRecord = applyLeafPatch(latest.raw, leafPatch);
+			// The persisted record must always declare its schema version: a
+			// raw record without one (a legacy file that lost the key) would
+			// otherwise stay version-less forever, indistinguishable from a v1
+			// file once a v2 format appears. readLatestStrict already rejected
+			// every non-1 version, so only the absent case reaches this guard
+			// and an existing `version: 1` is never rewritten.
+			if (mergedRecord.version !== 1) mergedRecord.version = 1;
 			const { settings: mergedSettings, invalid: latestInvalid } =
 				normalizeWithDiagnostics(mergedRecord, warn);
 			if (latestInvalid.length > 0) {
