@@ -12,9 +12,11 @@ import type { MutationMessageDetails } from "./messages";
 export const MAX_DIFF_BYTES = 1_048_576;
 
 /**
- * Per-file edit diff row budget: a full rewrite of a max-line snapshot is
- * two rows per line (one removed, one added), so this is 2x the snapshot
- * line cap. A diff beyond it cannot be counted exactly and is discarded.
+ * Per-file edit diff row budget: total scanned rows, including hunk
+ * headers and the final unterminated row. A full rewrite of a max-line
+ * snapshot is two rows per line (one removed, one added) plus one header,
+ * so it exceeds this budget and is discarded fail-open rather than
+ * counted approximately; the gate keeps adversarial diffs bounded.
  */
 export const MAX_DIFF_ROWS = 100_000;
 
@@ -145,7 +147,7 @@ export function countUnifiedDiff(
 	let rows = 0;
 	// Index-scan rows without splitting into a line array: a hostile diff
 	// string cannot force an unbounded allocation or copy.
-	for (let index = 0; index <= diff.length; ) {
+	for (let index = 0; index < diff.length; ) {
 		if (++rows > MAX_DIFF_ROWS) return undefined;
 		const end = diff.indexOf("\n", index);
 		const lineEnd = end === -1 ? diff.length : end;
@@ -188,7 +190,7 @@ export function countNumberedDiff(
 	let removed = 0;
 	let sawRow = false;
 	let rows = 0;
-	for (let index = 0; index <= diff.length; ) {
+	for (let index = 0; index < diff.length; ) {
 		if (++rows > MAX_DIFF_ROWS) return undefined;
 		const end = diff.indexOf("\n", index);
 		const lineEnd = end === -1 ? diff.length : end;

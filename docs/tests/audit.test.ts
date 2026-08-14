@@ -717,12 +717,28 @@ describe("edit evidence budgets", () => {
 	});
 
 	test("row budget boundary counts exactly at the cap", () => {
-		// A trailing newline visits one extra empty row, so the exact-cap
-		// input ends without one.
-		const rows = `${"+1|a\n".repeat(MAX_DIFF_ROWS - 1)}+1|a`;
-		expect(countNumberedDiff(rows)).toEqual({
+		// The exact-cap input must count identically whether or not it ends
+		// with a trailing newline: a trailing newline is not an extra row.
+		const withTrailing = "+1|a\n".repeat(MAX_DIFF_ROWS);
+		expect(countNumberedDiff(withTrailing)).toEqual({
 			added: MAX_DIFF_ROWS,
 			removed: 0,
+		});
+		const withoutTrailing = `${"+1|a\n".repeat(MAX_DIFF_ROWS - 1)}+1|a`;
+		expect(countNumberedDiff(withoutTrailing)).toEqual({
+			added: MAX_DIFF_ROWS,
+			removed: 0,
+		});
+	});
+
+	test("unified row budget boundary counts exactly at the cap with trailing newline", () => {
+		// The hunk header occupies one row of the budget, so the body holds
+		// MAX_DIFF_ROWS - 1 rows; a trailing newline must not push the count
+		// over the budget.
+		const rows = `@@ -1 +1 @@\n${"-x\n".repeat(MAX_DIFF_ROWS - 2)}-x\n`;
+		expect(countUnifiedDiff(rows)).toEqual({
+			added: 0,
+			removed: MAX_DIFF_ROWS - 1,
 		});
 	});
 
