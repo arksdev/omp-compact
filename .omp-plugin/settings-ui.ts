@@ -213,6 +213,45 @@ export interface SaveFlowDeps {
 }
 
 /**
+ * Per-target serialization of save flows, modeled on `withUpdateQueue` in
+ * config.ts: overlapping saves on one target run strictly in order, each
+ * seeing the actual state after the previous save settled — including a
+ * failed save's compensating rollback, which runs inside ITS queue turn.
+ * Without this, two overlapping saves could interleave: the host bridge
+ * coalesces concurrent applies (silently dropping the second payload), and
+ * a failing save's rollback restores a pre-image that predates the other
+ * save's already-successful write.
+ *
+ * Keyed by the store identity: the store is the per-plugin-instance save
+ * pipeline, and each flow couples exactly one host apply to one store
+ * update, so serializing per store also serializes the shared host config
+ * target (two dialogs build their own bridge but share the store).
+ */
+const saveFlowQueues = new Map<CompactSettingsStore, Promise<void>>();
+
+async function withSaveFlowQueue<T>(
+	store: CompactSettingsStore,
+	operation: () => Promise<T>,
+): Promise<T> {
+	const previous = saveFlowQueues.get(store) ?? Promise.resolve();
+	let release!: () => void;
+	const current = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const tail = previous.catch(() => undefined).then(() => current);
+	saveFlowQueues.set(store, tail);
+	await previous.catch(() => undefined);
+	try {
+		return await operation();
+	} finally {
+		release();
+		// Only the last queued operation cleans up the entry; earlier
+		// operations find a newer tail and correctly skip the delete.
+		if (saveFlowQueues.get(store) === tail) saveFlowQueues.delete(store);
+	}
+}
+
+/**
  * One persisted setting that a hard env override currently masks: the JSON
  * carries the requested value, but `effective` stays in force instead.
  */
@@ -263,8 +302,22 @@ export interface SaveOutcome {
  * Throws when either phase fails so the caller (dialog) surfaces the error
  * and keeps its unsaved state. Returns the structured persisted-versus-
  * effective outcome.
+ *
+ * Overlapping calls serialize per target (see {@link saveFlowQueues}): each
+ * save runs to completion — bridge apply, JSON persist, and on failure its
+ * compensating rollback — before the next one starts, so no call silently
+ * loses its arguments to the bridge's concurrent-apply coalescing and a
+ * failed save's rollback never restores a state that predates a newer
+ * save's successful write.
  */
 export async function saveSettingsFlow(
+	next: CompactSettings,
+	deps: SaveFlowDeps,
+): Promise<SaveOutcome> {
+	return withSaveFlowQueue(deps.store, () => runSaveSettingsFlow(next, deps));
+}
+
+async function runSaveSettingsFlow(
 	next: CompactSettings,
 	deps: SaveFlowDeps,
 ): Promise<SaveOutcome> {
@@ -414,6 +467,14 @@ export interface SettingsDialogDeps {
 	warn?(message: string): void;
 	theme: ThemeLike;
 	keybindings: KeybindingsLike;
+	/**
+	 * Live provider of the current terminal height in rows. The host hands
+	 * its TUI to `ui.custom`'s factory and `TUI.terminal.rows` is a live
+	 * getter (the same value the host's own window math reads), so the dialog
+	 * can keep the focused row visible on short terminals. Absent or
+	 * non-positive: the dialog renders every row (no viewport).
+	 */
+	getTerminalRows?(): number | undefined;
 }
 
 const MODES: readonly CompactMode[] = ["compact", "live", "clear"];
@@ -919,6 +980,9 @@ export class SettingsDialog implements ComponentLike {
 			focusable[this.cursor % Math.max(focusable.length, 1)]?.id;
 
 		const lines: string[] = [];
+		// Line index of the focused row, so the viewport can keep the row the
+		// cursor rests on visible on short terminals.
+		let focusLine = -1;
 		const header = `${theme.bold("OMP Compact — Settings")}${
 			this.isDirty ? theme.fg("warning", " *") : ""
 		}`;
@@ -960,6 +1024,7 @@ export class SettingsDialog implements ComponentLike {
 			} else {
 				value = `[${String(row.get())}]`;
 			}
+			if (isFocused) focusLine = lines.length;
 			lines.push(`${marker}${label}  ${value}`);
 		}
 
@@ -975,7 +1040,104 @@ export class SettingsDialog implements ComponentLike {
 				}`;
 		lines.push(theme.fg("muted", help));
 
-		return lines.map((line) => truncateAnsiSafe(line, width));
+		const rendered = lines.map((line) => truncateAnsiSafe(line, width));
+		const terminalRows = this.deps.getTerminalRows?.();
+		if (
+			terminalRows === undefined ||
+			!Number.isFinite(terminalRows) ||
+			terminalRows <= 0 ||
+			lines.length <= terminalRows
+		) {
+			return rendered;
+		}
+		return this.windowed(rendered, focusLine, Math.floor(terminalRows));
+	}
+
+	/**
+	 * Focus-centered viewport for short terminals, following the host's own
+	 * scroll model (pi-tui settings-list.ts: `selectedIndex -
+	 * floor(viewportHeight / 2)` clamped): the header, the error line, and
+	 * the help line stay pinned; only the rows between them scroll, with the
+	 * focused row always visible and holding a stable window position under
+	 * one-step cursor moves. Clipped edges get the project's dim ellipsis
+	 * marker (the same truncation indicator render.ts uses). The emitted
+	 * frame never exceeds `terminalRows`, because the host shows only the
+	 * bottom `height` rows of the composed frame (windowTop = frame.length -
+	 * height, pi-tui tui.ts:2545) — a taller frame would silently cut the
+	 * focused row off the screen.
+	 */
+	private windowed(
+		lines: readonly string[],
+		focusLine: number,
+		terminalRows: number,
+	): string[] {
+		const theme = this.deps.theme;
+		// Pinned chrome: header on top; the error line and the help line at
+		// the bottom (the tail). Everything between them is windowable.
+		const tail = (this.error ? 1 : 0) + 1;
+		const middleStart = 1;
+		const middleEnd = lines.length - tail;
+		const middleCount = middleEnd - middleStart;
+		if (middleCount <= 0) return [...lines];
+		const viewport = Math.max(1, terminalRows - 1 - tail);
+		if (middleCount <= viewport) return [...lines];
+		const focusInMiddle =
+			focusLine >= middleStart && focusLine < middleEnd
+				? focusLine - middleStart
+				: -1;
+
+		let content = Math.min(viewport, middleCount);
+		let start = 0;
+		if (focusInMiddle >= 0) {
+			start = Math.max(
+				0,
+				Math.min(
+					focusInMiddle - Math.floor(content / 2),
+					middleCount - content,
+				),
+			);
+		}
+		// Indicator rows (dim "…" at the clipped edges) replace content rows
+		// so the frame still fits the terminal; the focused row keeps priority
+		// over the markers.
+		let topClipped = start > 0;
+		let bottomClipped = start + content < middleCount;
+		const indicatorRows = (topClipped ? 1 : 0) + (bottomClipped ? 1 : 0);
+		if (indicatorRows > 0) {
+			const fit = Math.max(1, viewport - indicatorRows);
+			if (fit < content) {
+				content = Math.min(fit, middleCount);
+				if (focusInMiddle >= 0) {
+					start = Math.max(
+						0,
+						Math.min(
+							focusInMiddle - Math.floor(content / 2),
+							middleCount - content,
+						),
+					);
+				}
+				topClipped = start > 0;
+				bottomClipped = start + content < middleCount;
+			}
+		}
+		// Extremely short terminals (viewport == 1): the focused row wins
+		// over the indicator rows.
+		let overflow =
+			(topClipped ? 1 : 0) + (bottomClipped ? 1 : 0) + content - viewport;
+		if (overflow > 0 && topClipped) {
+			topClipped = false;
+			overflow--;
+		}
+		if (overflow > 0 && bottomClipped) bottomClipped = false;
+
+		const out: string[] = [lines[0] ?? ""];
+		if (topClipped) out.push(theme.fg("dim", "…"));
+		out.push(
+			...lines.slice(middleStart + start, middleStart + start + content),
+		);
+		if (bottomClipped) out.push(theme.fg("dim", "…"));
+		out.push(...lines.slice(middleEnd));
+		return out;
 	}
 
 	invalidate(): void {
@@ -999,8 +1161,22 @@ export function openSettingsDialog(
 		return Promise.resolve(undefined);
 	}
 	return custom<CompactSettings | undefined>(
-		(_tui, theme, keybindings, done) =>
-			new SettingsDialog({ ...deps, theme, keybindings }, done),
+		(tui, theme, keybindings, done) =>
+			new SettingsDialog(
+				{
+					...deps,
+					theme,
+					keybindings,
+					// The host passes its live TUI through ui.custom's factory.
+					// TUI.terminal.rows is a live getter (reads the terminal
+					// size at every call), so the dialog learns the current
+					// height at each render — no caching, no resize hooks.
+					getTerminalRows: () =>
+						(tui as { terminal?: { rows?: number } } | null | undefined)
+							?.terminal?.rows,
+				},
+				done,
+			),
 	);
 }
 

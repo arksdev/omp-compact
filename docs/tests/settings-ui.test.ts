@@ -11,6 +11,10 @@ import {
 	type EnvOverrides,
 } from "../../.omp-plugin/config";
 import {
+	createHostSettingsBridge,
+	type HostSettingsApi,
+} from "../../.omp-plugin/host-settings";
+import {
 	type CompactSettingsStore,
 	type ComponentLike,
 	chooseSettingsCommandName,
@@ -81,6 +85,7 @@ interface Harness {
 function makeDialog(
 	settings: CompactSettings = DEFAULT_SETTINGS,
 	hostAvailable = true,
+	getTerminalRows?: () => number | undefined,
 ): Harness {
 	const harness: Harness = {
 		dialog: undefined as never,
@@ -100,6 +105,7 @@ function makeDialog(
 			warn: (message) => harness.warnings.push(message),
 			theme: fakeTheme(),
 			keybindings: noopKeybindings(),
+			getTerminalRows,
 		},
 		(result) => {
 			harness.doneResult = result;
@@ -700,6 +706,157 @@ describe("save flow ordering and failure contract", () => {
 		// No success notification for a failed save.
 		expect(notifies).toEqual([]);
 	});
+
+	test("overlapping saves on one bridge apply each save's own payload in order", async () => {
+		// One bridge, two overlapping flows with different host payloads.
+		// The bridge coalesces concurrent applies; without serialization the
+		// second flow's payload is silently dropped while both callers report
+		// success, leaving host config and plugin JSON divergent.
+		const order: string[] = [];
+		const notifies: Array<[string, string]> = [];
+		const values = new Map<string, unknown>([
+			["recap.enabled", true],
+			["hideThinkingBlock", false],
+		]);
+		const bridge = createHostSettingsBridge({
+			api: {
+				get: (path) => values.get(path),
+				set: (path, value) => values.set(path, value),
+				flush: async () => {
+					order.push("flush");
+				},
+				persistent: async () => ({
+					"recap.enabled": {
+						present: true,
+						value: values.get("recap.enabled"),
+					},
+					hideThinkingBlock: {
+						present: true,
+						value: values.get("hideThinkingBlock"),
+					},
+				}),
+			} satisfies HostSettingsApi,
+		});
+		const persistedHost: CompactHostSettings = {};
+		const store = {
+			update: async (next: CompactSettings) => {
+				order.push(`store.update:${next.host.recapEnabled}`);
+				Object.assign(persistedHost, next.host);
+				return next;
+			},
+			overrides: () => ({ enabledBy: [], modeBy: undefined }),
+		} as unknown as CompactSettingsStore;
+		const first: CompactSettings = {
+			...DEFAULT_SETTINGS,
+			host: { recapEnabled: false, thinkingBlocksVisible: true },
+		};
+		const second: CompactSettings = {
+			...DEFAULT_SETTINGS,
+			host: { recapEnabled: true, thinkingBlocksVisible: false },
+		};
+		const notify = (level: string, message: string) =>
+			notifies.push([level, message]);
+		await Promise.all([
+			saveSettingsFlow(first, { bridge, store, notify }),
+			saveSettingsFlow(second, { bridge, store, notify }),
+		]);
+		const hostState: CompactHostSettings = {
+			recapEnabled: values.get("recap.enabled") === true,
+			thinkingBlocksVisible: values.get("hideThinkingBlock") !== true,
+		};
+		// Neither call lost its payload: host config and plugin JSON agree on
+		// the second save's values, and both callers reported success.
+		expect(hostState).toEqual(second.host);
+		expect(persistedHost).toEqual(second.host);
+		const saved = notifies.filter(
+			([level, message]) =>
+				level === "info" && message === "omp-compact settings saved",
+		);
+		expect(saved).toHaveLength(2);
+	});
+
+	test("a failed save never rolls back another save's successful write", async () => {
+		// Two bridge instances (two dialogs) over one shared host config.
+		// Without serialization both capture the same pre-image, the failing
+		// save's compensating rollback restores a state that predates the
+		// other save's already-successful write — host and JSON diverge.
+		const order: string[] = [];
+		const notifies: Array<[string, string]> = [];
+		const values = new Map<string, unknown>([
+			["recap.enabled", true],
+			["hideThinkingBlock", false],
+		]);
+		const makeApi = (tag: string): HostSettingsApi => ({
+			get: (path) => values.get(path),
+			set: (path, value) => {
+				order.push(`${tag}.set`);
+				values.set(path, value);
+			},
+			flush: async () => {
+				order.push(`${tag}.flush`);
+			},
+			persistent: async () => ({
+				"recap.enabled": { present: true, value: values.get("recap.enabled") },
+				hideThinkingBlock: {
+					present: true,
+					value: values.get("hideThinkingBlock"),
+				},
+			}),
+		});
+		let updateCount = 0;
+		const persistedHost: CompactHostSettings = {};
+		const store = {
+			update: async (next: CompactSettings) => {
+				updateCount++;
+				order.push(`store.update:${next.host.recapEnabled}`);
+				// The first (earlier) save fails its JSON persist; the second
+				// succeeds after the host side already applied.
+				if (updateCount === 1) throw new Error("disk full");
+				Object.assign(persistedHost, next.host);
+				return next;
+			},
+			overrides: () => ({ enabledBy: [], modeBy: undefined }),
+		} as unknown as CompactSettingsStore;
+		const first: CompactSettings = {
+			...DEFAULT_SETTINGS,
+			host: { recapEnabled: false, thinkingBlocksVisible: true },
+		};
+		const second: CompactSettings = {
+			...DEFAULT_SETTINGS,
+			host: { recapEnabled: true, thinkingBlocksVisible: false },
+		};
+		const notify = (level: string, message: string) =>
+			notifies.push([level, message]);
+		const [firstOutcome, secondOutcome] = await Promise.allSettled([
+			saveSettingsFlow(first, {
+				bridge: createHostSettingsBridge({ api: makeApi("A") }),
+				store,
+				notify,
+			}),
+			saveSettingsFlow(second, {
+				bridge: createHostSettingsBridge({ api: makeApi("B") }),
+				store,
+				notify,
+			}),
+		]);
+		// The failed save surfaced its error honestly — no success
+		// notification for it.
+		expect(firstOutcome.status).toBe("rejected");
+		const saved = notifies.filter(
+			([level, message]) =>
+				level === "info" && message === "omp-compact settings saved",
+		);
+		expect(saved).toHaveLength(1);
+		// Its compensating rollback restored only ITS pre-image: the second
+		// save's successful write survives and host + JSON agree.
+		const hostState: CompactHostSettings = {
+			recapEnabled: values.get("recap.enabled") === true,
+			thinkingBlocksVisible: values.get("hideThinkingBlock") !== true,
+		};
+		expect(hostState).toEqual(second.host);
+		expect(persistedHost).toEqual(second.host);
+		expect(secondOutcome.status).toBe("fulfilled");
+	});
 });
 
 describe("env override notification on save", () => {
@@ -1091,6 +1248,95 @@ describe("menu labels and layout", () => {
 		// header, global (2 rows), display (2 rows), shake (2 rows),
 		// stats (6 rows), host (2 rows), help
 		expect(blanks).toEqual([3, 6, 9, 16]);
+	});
+});
+
+describe("short-terminal viewport", () => {
+	const SHORT = 8;
+
+	test("focused row stays visible at the top, middle, and end of the list", () => {
+		const { dialog } = makeDialog(DEFAULT_SETTINGS, true, () => SHORT);
+		// Top of the list: the first rows are visible, the tail is clipped.
+		focus(dialog, "Global compact");
+		let out = lines(dialog);
+		expect(out).toHaveLength(SHORT);
+		expect(out.join("\n")).toContain("Global compact");
+		expect(out[out.length - 2]).toBe("…");
+		// Middle of the list: both edges are clipped.
+		focus(dialog, "Actions");
+		out = lines(dialog);
+		expect(out).toHaveLength(SHORT);
+		expect(out.join("\n")).toContain("Actions");
+		expect(out.filter((line) => line === "…")).toHaveLength(2);
+		// End of the list: the last rows are visible, the head is clipped.
+		focus(dialog, "Thinking blocks");
+		out = lines(dialog);
+		expect(out).toHaveLength(SHORT);
+		expect(out.join("\n")).toContain("Thinking blocks");
+		expect(out[1]).toBe("…");
+	});
+
+	test("every emitted frame stays within the terminal height", () => {
+		for (const height of [4, 5, 6, 7, 8, 9, 12]) {
+			const { dialog } = makeDialog(DEFAULT_SETTINGS, true, () => height);
+			focus(dialog, "Shake threshold");
+			const out = lines(dialog);
+			expect(out).toHaveLength(height);
+			// The focused row is never cut off by the host's bottom-anchored
+			// window.
+			expect(out.join("\n")).toContain("Shake threshold");
+		}
+	});
+
+	test("focus near the list end keeps the window pinned at the bottom", () => {
+		const { dialog } = makeDialog(DEFAULT_SETTINGS, true, () => SHORT);
+		focus(dialog, "Recap summary");
+		const first = lines(dialog);
+		focus(dialog, "Thinking blocks");
+		const second = lines(dialog);
+		// Same visible rows (bottom-pinned window); only the focus marker
+		// moves — the window is stable under one-step cursor moves. The
+		// pinned contextual help line legitimately changes with the focused
+		// row, so it is excluded from the window comparison.
+		const stripRowDecoration = (out: string[]) =>
+			out
+				.slice(0, -1)
+				.filter((line) => line !== "…")
+				.map((line) => line.replace(/^›\s*/, "").replace(/^\s\s/, ""));
+		expect(stripRowDecoration(second)).toEqual(stripRowDecoration(first));
+		expect(first.join("\n")).toContain("› Recap summary");
+		expect(second.join("\n")).toContain("› Thinking blocks");
+	});
+
+	test("the save error line stays visible inside the viewport", async () => {
+		const warnings: string[] = [];
+		const dialog = new SettingsDialog(
+			{
+				settings: DEFAULT_SETTINGS,
+				onSave: async () => {
+					throw new Error("disk full");
+				},
+				warn: (m) => warnings.push(m),
+				theme: fakeTheme(),
+				keybindings: noopKeybindings(),
+				getTerminalRows: () => SHORT,
+			},
+			() => {},
+		);
+		dialog.handleInput(KEY_SPACE);
+		dialog.handleInput(KEY_S);
+		await dialog.settled();
+		const out = lines(dialog);
+		expect(out).toHaveLength(SHORT);
+		expect(out.join("\n")).toContain("disk full");
+	});
+
+	test("sufficient terminal height renders the full dialog unchanged", () => {
+		const full = lines(makeDialog().dialog);
+		const tall = lines(makeDialog(DEFAULT_SETTINGS, true, () => 40).dialog);
+		expect(tall).toEqual(full);
+		expect(full).toHaveLength(20);
+		expect(full.join("\n")).not.toContain("…");
 	});
 });
 
