@@ -457,23 +457,38 @@ function deriveLeafPatch(
 }
 
 /**
- * Apply a leaf patch onto the fresh normalized reread. Fields absent from the
- * patch keep the latest persisted values, so distinct concurrent edits
- * compose; nested objects are rebuilt leaf-by-leaf.
+ * Apply a leaf patch onto the fresh bounded reread's raw record. Fields
+ * absent from the patch keep the latest persisted values, so distinct
+ * concurrent edits compose; nested objects are rebuilt leaf-by-leaf.
+ * Unknown keys of the raw record — top-level and inside stats/autoShake/
+ * host — are carried through untouched, so a save never strips fields a
+ * newer host wrote.
  */
 function applyLeafPatch(
-	latest: CompactSettings,
+	latest: Record<string, unknown>,
 	patch: SettingsLeafPatch,
 ): Record<string, unknown> {
 	const raw: Record<string, unknown> = { ...latest, ...patch.top };
+	const stats = latest.stats;
 	if (patch.stats !== undefined) {
-		raw.stats = { ...latest.stats, ...patch.stats };
+		raw.stats = {
+			...(stats !== null && typeof stats === "object" ? stats : {}),
+			...patch.stats,
+		};
 	}
+	const autoShake = latest.autoShake;
 	if (patch.autoShake !== undefined) {
-		raw.autoShake = { ...latest.autoShake, ...patch.autoShake };
+		raw.autoShake = {
+			...(autoShake !== null && typeof autoShake === "object" ? autoShake : {}),
+			...patch.autoShake,
+		};
 	}
+	const host = latest.host;
 	if (patch.host !== undefined) {
-		raw.host = { ...latest.host, ...patch.host };
+		raw.host = {
+			...(host !== null && typeof host === "object" ? host : {}),
+			...patch.host,
+		};
 	}
 	return raw;
 }
@@ -646,11 +661,19 @@ export function createSettingsStore(
 	 * file (ENOENT) may fall back to defaults. An existing config that
 	 * cannot be read, parsed, or validated throws `ConfigUpdateError`, so an
 	 * update never persists defaults+patch over a file it cannot safely
-	 * merge with.
+	 * merge with. Returns both the normalized settings and the raw
+	 * bounded-parsed record: the raw record preserves unknown keys (fields a
+	 * newer host wrote that this schema does not know) through the leaf-patch
+	 * merge; a missing file seeds defaults so the first save keeps writing
+	 * defaults+patch exactly as before.
 	 */
-	async function readLatestStrict(): Promise<CompactSettings> {
+	async function readLatestStrict(): Promise<{
+		settings: CompactSettings;
+		raw: Record<string, unknown>;
+	}> {
 		const read = await readRawConfig();
-		if (read.kind === "missing") return DEFAULT_SETTINGS;
+		if (read.kind === "missing")
+			return { settings: DEFAULT_SETTINGS, raw: { ...DEFAULT_SETTINGS } };
 		if (read.kind === "error") {
 			throw new ConfigUpdateError(
 				`existing config ${path} could not be read (${read.error.message}); refusing to overwrite it`,
@@ -673,7 +696,7 @@ export function createSettingsStore(
 				`existing config ${path} has invalid field(s): ${invalid.join(", ")}; refusing to overwrite it`,
 			);
 		}
-		return settings;
+		return { settings, raw: parsed.raw as Record<string, unknown> };
 	}
 
 	async function load(): Promise<CompactSettings> {
@@ -684,13 +707,22 @@ export function createSettingsStore(
 		return current;
 	}
 
-	async function persist(settings: CompactSettings): Promise<void> {
+	/**
+	 * Serialize a merged config record the way it is persisted: pretty
+	 * printed with a trailing newline. Used by the write-side bound check and
+	 * the atomic write so both measure the exact same bytes.
+	 */
+	function serializeRecord(record: Record<string, unknown>): string {
+		return `${JSON.stringify(record, null, 2)}\n`;
+	}
+
+	async function persistText(text: string): Promise<void> {
 		const tmp = join(
 			dirname(path),
 			`.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`,
 		);
 		try {
-			await writeFile(tmp, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+			await writeFile(tmp, text, "utf8");
 			await rename(tmp, path);
 		} catch (error) {
 			await rm(tmp, { force: true }).catch(() => undefined);
@@ -733,14 +765,30 @@ export function createSettingsStore(
 			// lock file or retry loop.
 			await mkdir(dirname(path), { recursive: true });
 			const latest = await readLatestStrict();
+			// The leaf patch lands on the RAW bounded-parsed record, not the
+			// normalized settings: unknown keys a newer host wrote survive the
+			// save verbatim, while known-field validation still runs on the
+			// merged record below.
+			const mergedRecord = applyLeafPatch(latest.raw, leafPatch);
 			const { settings: mergedSettings, invalid: latestInvalid } =
-				normalizeWithDiagnostics(applyLeafPatch(latest, leafPatch), warn);
+				normalizeWithDiagnostics(mergedRecord, warn);
 			if (latestInvalid.length > 0) {
 				throw new Error(
 					`omp-compact: invalid merged settings (${latestInvalid.join(", ")}); nothing was saved`,
 				);
 			}
-			await persist(mergedSettings);
+			// Write-side bound: the strict reread was bounded, but preserving
+			// unknown keys must never let the merged record escape the bounded
+			// JSON contract (size/depth) on the way out. The check measures the
+			// exact serialized bytes that will be written.
+			const mergedText = serializeRecord(mergedRecord);
+			const bounded = parseBoundedJson(mergedText, () => {});
+			if (!bounded.ok) {
+				throw new ConfigUpdateError(
+					`merged config would exceed the bounded JSON contract (${bounded.reason}); nothing was saved`,
+				);
+			}
+			await persistText(mergedText);
 			return mergedSettings;
 		});
 		persisted = cloneAndFreeze(next);

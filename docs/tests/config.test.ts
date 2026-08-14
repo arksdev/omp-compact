@@ -502,6 +502,194 @@ describe("update fails closed on unsafe persisted config", () => {
 	});
 });
 
+describe("unknown config keys survive bounded updates (raw-record preservation)", () => {
+	test("unknown top-level keys are preserved verbatim through a valid update", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		await writeFile(
+			file,
+			JSON.stringify({
+				version: 1,
+				mode: "live",
+				futureFeature: { nested: [1, 2, { deep: true }] },
+			}),
+			"utf8",
+		);
+		const updated = await store.update({ mode: "compact" });
+		expect(updated.mode).toBe("compact");
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.version).toBe(1);
+		expect(raw.mode).toBe("compact");
+		expect(raw.futureFeature).toEqual({ nested: [1, 2, { deep: true }] });
+		// Unknown keys never leak into the effective settings layer.
+		expect(store.snapshot()).toEqual({ ...DEFAULT_SETTINGS, mode: "compact" });
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("unknown keys inside known nested groups survive an update", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		await writeFile(
+			file,
+			JSON.stringify({
+				version: 1,
+				stats: { sent: false, sentUnknown: "keep-me" },
+				autoShake: { enabled: false, shakeFuture: { x: 1 } },
+				host: { recapEnabled: true, hostFuture: "keep" },
+			}),
+			"utf8",
+		);
+		await store.update({ stats: { actions: false } });
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.stats).toEqual({
+			sent: false,
+			sentUnknown: "keep-me",
+			actions: false,
+		});
+		expect(raw.autoShake).toEqual({ enabled: false, shakeFuture: { x: 1 } });
+		expect(raw.host).toEqual({ recapEnabled: true, hostFuture: "keep" });
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("removing a host leaf via undefined keeps unknown host keys", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		await writeFile(
+			file,
+			JSON.stringify({
+				version: 1,
+				host: { recapEnabled: true, futureHostFlag: "keep" },
+			}),
+			"utf8",
+		);
+		await store.load();
+		await store.update({ host: { recapEnabled: undefined } });
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.host).toEqual({ futureHostFlag: "keep" });
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("concurrent distinct updates preserve unknown keys from the latest file", async () => {
+		const dir = await tempDir();
+		const a = storeAt(dir);
+		const b = storeAt(dir);
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({
+				version: 1,
+				mode: "live",
+				futureFlag: { on: true },
+			}),
+			"utf8",
+		);
+		await a.store.load();
+		await b.store.load();
+		await Promise.all([
+			a.store.update({ enabled: false }),
+			b.store.update({ mode: "clear" }),
+		]);
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.enabled).toBe(false);
+		expect(raw.mode).toBe("clear");
+		expect(raw.futureFlag).toEqual({ on: true });
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("an unsupported-version file still fails closed despite unknown keys", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		const text = JSON.stringify({ version: 2, mode: "compact", future: 1 });
+		await writeFile(file, text, "utf8");
+		await expect(store.update({ mode: "clear" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(text);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("an update that would push the merged record past the size limit fails closed", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		// The persisted file sits just under the limit; the patch
+		// (thresholdTokens 0 -> 9999999) grows the serialized merged record by
+		// 6 bytes plus the write's trailing newline and must be refused by the
+		// write-side bound before anything is persisted.
+		const base: Record<string, unknown> = {
+			version: 1,
+			enabled: true,
+			mode: "live",
+			autoShake: { enabled: false, thresholdTokens: 0 },
+		};
+		const overhead = JSON.stringify({ ...base, unknown: "" }, null, 2).length;
+		const fileText = JSON.stringify(
+			{ ...base, unknown: "x".repeat(MAX_CONFIG_BYTES - overhead - 5) },
+			null,
+			2,
+		);
+		expect(Buffer.byteLength(fileText, "utf8")).toBe(MAX_CONFIG_BYTES - 5);
+		await writeFile(file, fileText, "utf8");
+		await store.load();
+		await expect(
+			store.update({ autoShake: { thresholdTokens: 9_999_999 } }),
+		).rejects.toThrow(ConfigUpdateError);
+		expect(await readFile(file, "utf8")).toBe(fileText);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("deep unknown payload at the depth limit survives and stays bounded", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		// Root object (depth 1) plus 14 wrappers plus the leaf object =
+		// MAX_CONFIG_DEPTH: the update must accept the file and write a result
+		// that still parses under the bounded contract (no write-side false
+		// positive).
+		let nested: unknown = { leaf: true };
+		for (let i = 0; i < 14; i++) nested = { child: nested };
+		const record = { version: 1, mode: "live", unknown: nested };
+		await writeFile(file, JSON.stringify(record), "utf8");
+		await store.load();
+		const updated = await store.update({ mode: "clear" });
+		expect(updated.mode).toBe("clear");
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.mode).toBe("clear");
+		expect(raw.unknown).toEqual(nested);
+		const text = await readFile(file, "utf8");
+		expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
+			MAX_CONFIG_BYTES,
+		);
+		await rm(dir, { recursive: true, force: true });
+	});
+});
+
 describe("env overrides report", () => {
 	test("clean env reports no overrides", () => {
 		expect(resolveEnvOverrides({})).toEqual({

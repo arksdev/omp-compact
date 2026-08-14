@@ -831,10 +831,27 @@ export class RuntimeSessionState {
 		return state;
 	}
 
+	/**
+	 * A tool event may mutate a state only while its ledger is still the
+	 * mutable working run. Once a ledger finalizes (`filtered`/`full`) — or
+	 * a terminal `agent_end` parks it in the deferred-terminal map while the
+	 * audit drain runs — its states are frozen: a late
+	 * `tool_execution_update`/`end` delivery must not rewrite the settled
+	 * run's state, resurrect a spinner row in `#pendingStates`, or bump the
+	 * presentation version of an already-committed view. Continuation runs
+	 * (`willContinue`) are never captured as deferred and stay working, so
+	 * their legitimate events pass unchanged.
+	 */
+	#stateMutable(state: ToolState): boolean {
+		if (state.ledger.phase !== "working") return false;
+		if (this.#deferredTerminalLedgers.has(state.ledger.runId)) return false;
+		return true;
+	}
+
 	/** tool_execution_update: partial result. */
 	updateTool(input: ToolResultInput): RenderableBlock | undefined {
 		const state = this.#states.get(input.toolCallId);
-		if (!state) return undefined;
+		if (!state || !this.#stateMutable(state)) return undefined;
 		state.result = input.result;
 		state.isPartial = input.isPartial === true;
 		if (state.isPartial) this.#pendingStates.add(state);
@@ -848,7 +865,7 @@ export class RuntimeSessionState {
 	/** tool_execution_end: settled result. */
 	finishTool(input: ToolResultInput): RenderableBlock | undefined {
 		const state = this.#states.get(input.toolCallId);
-		if (!state) return undefined;
+		if (!state || !this.#stateMutable(state)) return undefined;
 		state.result = input.result;
 		state.isPartial = false;
 		this.#pendingStates.delete(state);

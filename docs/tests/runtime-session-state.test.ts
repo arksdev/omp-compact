@@ -408,6 +408,186 @@ describe("RuntimeSessionState: tool state records", () => {
 	});
 });
 
+describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
+	test("updateTool/finishTool are no-ops after a filtered finalization", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = session.startState({
+			toolCallId: "c1",
+			toolName: "bash",
+			args: {},
+		});
+		expect(session.endRun({ messages: [assistant("done")] })).toBe("filtered");
+		const version = state.version;
+
+		expect(
+			session.updateTool({
+				toolCallId: "c1",
+				toolName: "bash",
+				result: { content: ["late partial"] },
+				isError: false,
+				isPartial: true,
+			}),
+		).toBeUndefined();
+		expect(state.result).toBeUndefined();
+		expect(state.isPartial).toBe(true);
+		expect(state.version).toBe(version);
+		// A frozen ledger must never resurrect a spinner row.
+		expect(session.pending()).toEqual([]);
+
+		expect(
+			session.finishTool({
+				toolCallId: "c1",
+				toolName: "bash",
+				result: { content: ["late end"] },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.result).toBeUndefined();
+		expect(state.isError).toBe(false);
+		expect(state.entry.state).toBe("running");
+		expect(state.version).toBe(version);
+		expect(session.pending()).toEqual([]);
+	});
+
+	test("updateTool/finishTool are no-ops after a full (abort) finalization", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = session.startState({
+			toolCallId: "c1",
+			toolName: "bash",
+			args: {},
+		});
+		session.finishFull();
+		expect(session.activeLedger?.phase).toBe("full");
+		const version = state.version;
+
+		expect(
+			session.finishTool({
+				toolCallId: "c1",
+				toolName: "bash",
+				result: { ok: true },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.entry.state).toBe("running");
+		expect(state.version).toBe(version);
+
+		expect(
+			session.updateTool({
+				toolCallId: "c1",
+				toolName: "bash",
+				result: { ok: true },
+				isError: false,
+				isPartial: true,
+			}),
+		).toBeUndefined();
+		expect(session.pending()).toEqual([]);
+		expect(state.version).toBe(version);
+	});
+
+	test("tool events freeze while a terminal ledger awaits its audit drain", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		const state = session.startState({
+			toolCallId: "c1",
+			toolName: "bash",
+			args: {},
+		});
+		const runId = session.captureTerminalRunId();
+		expect(runId).toBe(first?.runId);
+		// The ledger is still nominally working until the drain settles.
+		expect(first?.phase).toBe("working");
+
+		const version = state.version;
+		expect(
+			session.updateTool({
+				toolCallId: "c1",
+				toolName: "bash",
+				result: { content: ["late"] },
+				isError: false,
+				isPartial: true,
+			}),
+		).toBeUndefined();
+		expect(
+			session.finishTool({
+				toolCallId: "c1",
+				toolName: "bash",
+				result: { content: ["late end"] },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.version).toBe(version);
+		expect(state.result).toBeUndefined();
+		expect(state.entry.state).toBe("running");
+
+		// Fallback finalization at release keeps the state frozen; the
+		// finalization itself performs its single presentation bump.
+		session.releaseTerminalRun(runId);
+		expect(first?.phase).toBe("full");
+		const postRelease = state.version;
+		expect(
+			session.finishTool({
+				toolCallId: "c1",
+				toolName: "bash",
+				result: { ok: true },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.entry.state).toBe("running");
+		expect(state.version).toBe(postRelease);
+	});
+
+	test("working-phase events still process (legitimate events are not blocked)", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = session.startState({
+			toolCallId: "c1",
+			toolName: "bash",
+			args: {},
+		});
+		session.updateTool({
+			toolCallId: "c1",
+			toolName: "bash",
+			result: { content: ["partial"] },
+			isError: false,
+			isPartial: true,
+		});
+		expect(state.isPartial).toBe(true);
+		expect(session.pending()).toContain(state);
+		session.finishTool({
+			toolCallId: "c1",
+			toolName: "bash",
+			result: { content: ["final"] },
+			isError: false,
+		});
+		expect(session.state("c1")?.entry.state).toBe("success");
+		expect(session.pending()).toEqual([]);
+	});
+
+	test("continuation tool events are not blocked (willContinue keeps the ledger working)", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		expect(session.endRun({ messages: [], willContinue: true })).toBe(
+			"working",
+		);
+		session.beginRun();
+		expect(session.activeLedger).toBe(first);
+		session.startState({ toolCallId: "c2", toolName: "bash", args: {} });
+		session.updateTool({
+			toolCallId: "c2",
+			toolName: "bash",
+			result: { content: ["part"] },
+			isError: false,
+			isPartial: true,
+		});
+		expect(session.state("c2")?.isPartial).toBe(true);
+		expect(session.pending().length).toBe(1);
+	});
+});
+
 describe("RuntimeSessionState: terminal projections", () => {
 	test("aggregate hashes stay chronological and the anchor is the last retained state", () => {
 		const session = makeSession();
