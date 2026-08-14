@@ -134,25 +134,30 @@ export function resolveConfigPath(env: EnvLike): string {
 	return join(agentBase, "omp-compact", "config.json");
 }
 
+type BoundedParseResult =
+	| { ok: true; raw: unknown }
+	| { ok: false; reason: string };
+
 /**
- * Parse JSON bounded by byte size and nesting depth. Returns undefined on violation.
+ * Parse JSON bounded by byte size and nesting depth. Returns `ok: false`
+ * with the failure reason on violation; the warning still carries the full
+ * `; using defaults` message for load-time diagnostics.
  *
  * Two-pass approach: a linear scan first rejects oversized or over-deep
  * JSON without allocating a parse tree; `JSON.parse` then runs only on
  * input that passed both structural checks. The pre-scan is not a
  * substitute JSON parser — it only counts bytes and brackets; malformed
- * JSON that passes the scan is caught by `JSON.parse` and returns
- * undefined with a warn.
+ * JSON that passes the scan is caught by `JSON.parse` and returns a
+ * failure with a warn.
  */
 function parseBoundedJson(
 	text: string,
 	warn: (message: string) => void,
-): unknown {
+): BoundedParseResult {
 	if (Buffer.byteLength(text, "utf8") > MAX_CONFIG_BYTES) {
-		warn(
-			`config JSON is oversized (max ${MAX_CONFIG_BYTES} bytes); using defaults`,
-		);
-		return undefined;
+		const reason = `config JSON is oversized (max ${MAX_CONFIG_BYTES} bytes)`;
+		warn(`${reason}; using defaults`);
+		return { ok: false, reason };
 	}
 	let depth = 0;
 	let inString = false;
@@ -174,26 +179,25 @@ function parseBoundedJson(
 		} else if (ch === "{" || ch === "[") {
 			depth++;
 			if (depth > MAX_CONFIG_DEPTH) {
-				warn(
-					`config JSON nesting depth exceeds ${MAX_CONFIG_DEPTH}; using defaults`,
-				);
-				return undefined;
+				const reason = `config JSON nesting depth exceeds ${MAX_CONFIG_DEPTH}`;
+				warn(`${reason}; using defaults`);
+				return { ok: false, reason };
 			}
 		} else if (ch === "}" || ch === "]") {
 			depth--;
 			if (depth < 0) {
-				warn(
-					"config JSON closes a structure before opening one; using defaults",
-				);
-				return undefined;
+				const reason = "config JSON closes a structure before opening one";
+				warn(`${reason}; using defaults`);
+				return { ok: false, reason };
 			}
 		}
 	}
 	try {
-		return JSON.parse(text) as unknown;
+		return { ok: true, raw: JSON.parse(text) as unknown };
 	} catch {
-		warn("config JSON is malformed; using defaults");
-		return undefined;
+		const reason = "config JSON is malformed";
+		warn(`${reason}; using defaults`);
+		return { ok: false, reason };
 	}
 }
 
@@ -504,6 +508,19 @@ export function resolveEnvOverrides(env: EnvLike): EnvOverrides {
 	};
 }
 
+/**
+ * Thrown by `update()` when the existing persisted config cannot be safely
+ * read, parsed, or validated. The save refuses to overwrite a file it cannot
+ * merge with — only a genuinely missing file (ENOENT) falls back to
+ * defaults. The message is surfaced verbatim by the settings UI error line.
+ */
+export class ConfigUpdateError extends Error {
+	constructor(message: string) {
+		super(`omp-compact: ${message}`);
+		this.name = "ConfigUpdateError";
+	}
+}
+
 export interface CompactSettingsStore {
 	load(): Promise<CompactSettings>;
 	snapshot(): CompactSettings;
@@ -522,6 +539,12 @@ export interface StoreDeps {
 	env?: EnvLike;
 	path?: string;
 	warn?: (message: string) => void;
+	/**
+	 * Read seam for the persisted config file, injectable so tests can force
+	 * deterministic non-ENOENT failures (EACCES/EIO) without chmod. Defaults
+	 * to `readFile` from `node:fs/promises`.
+	 */
+	readFile?: (path: string, encoding: "utf8") => Promise<string>;
 }
 
 export function createSettingsStore(
@@ -529,6 +552,7 @@ export function createSettingsStore(
 ): CompactSettingsStore {
 	const env = deps.env ?? process.env;
 	const path = deps.path ?? resolveConfigPath(env);
+	const readConfigFile = deps.readFile ?? readFile;
 	const warn =
 		deps.warn ??
 		((message: string) => console.warn(`[omp-compact] ${message}`));
@@ -576,28 +600,80 @@ export function createSettingsStore(
 	}
 
 	/**
-	 * Bounded reread of the persisted JSON with the same fail-open/default
-	 * diagnostics as `load()`: missing file -> defaults (no warning),
-	 * malformed/oversized/over-deep -> defaults with warn-once. Never a
-	 * lock or retry loop.
+	 * Raw read of the persisted config that distinguishes a genuinely
+	 * missing file from any other failure, so load stays fail-open while the
+	 * save path can fail closed on everything but ENOENT.
+	 */
+	type RawConfigRead =
+		| { kind: "missing" }
+		| { kind: "error"; error: Error }
+		| { kind: "ok"; text: string };
+	async function readRawConfig(): Promise<RawConfigRead> {
+		try {
+			const text = await readConfigFile(path, "utf8");
+			return { kind: "ok", text };
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+				return { kind: "missing" };
+			}
+			return { kind: "error", error: error as Error };
+		}
+	}
+
+	/**
+	 * Fail-open bounded reread with the same default/warn diagnostics as
+	 * `load()`: missing file -> defaults (no warning), malformed/oversized/
+	 * over-deep -> defaults with warn-once. Never a lock or retry loop.
 	 */
 	async function readLatest(): Promise<CompactSettings> {
-		let raw: unknown;
-		try {
-			const text = await readFile(path, "utf8");
-			raw = parseBoundedJson(text, (message) => warnOnce("parse", message));
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-				warnOnce(
-					"read",
-					`failed to read config ${path}: ${(error as Error).message}`,
-				);
-			}
+		const read = await readRawConfig();
+		if (read.kind === "missing") return DEFAULT_SETTINGS;
+		if (read.kind === "error") {
+			warnOnce("read", `failed to read config ${path}: ${read.error.message}`);
+			return DEFAULT_SETTINGS;
 		}
-		if (raw === undefined) return DEFAULT_SETTINGS;
-		return normalizeWithDiagnostics(raw, (message) =>
+		const parsed = parseBoundedJson(read.text, (message) =>
+			warnOnce("parse", message),
+		);
+		if (!parsed.ok) return DEFAULT_SETTINGS;
+		return normalizeWithDiagnostics(parsed.raw, (message) =>
 			warnOnce("normalize", message),
 		).settings;
+	}
+
+	/**
+	 * Fail-closed bounded reread for the save path: only a genuinely missing
+	 * file (ENOENT) may fall back to defaults. An existing config that
+	 * cannot be read, parsed, or validated throws `ConfigUpdateError`, so an
+	 * update never persists defaults+patch over a file it cannot safely
+	 * merge with.
+	 */
+	async function readLatestStrict(): Promise<CompactSettings> {
+		const read = await readRawConfig();
+		if (read.kind === "missing") return DEFAULT_SETTINGS;
+		if (read.kind === "error") {
+			throw new ConfigUpdateError(
+				`existing config ${path} could not be read (${read.error.message}); refusing to overwrite it`,
+			);
+		}
+		const parsed = parseBoundedJson(read.text, (message) =>
+			warnOnce("parse", message),
+		);
+		if (!parsed.ok) {
+			throw new ConfigUpdateError(
+				`existing config ${path} could not be parsed (${parsed.reason}); refusing to overwrite it`,
+			);
+		}
+		const { settings, invalid } = normalizeWithDiagnostics(
+			parsed.raw,
+			(message) => warnOnce("normalize", message),
+		);
+		if (invalid.length > 0) {
+			throw new ConfigUpdateError(
+				`existing config ${path} has invalid field(s): ${invalid.join(", ")}; refusing to overwrite it`,
+			);
+		}
+		return settings;
 	}
 
 	async function load(): Promise<CompactSettings> {
@@ -650,10 +726,13 @@ export function createSettingsStore(
 		const leafPatch = deriveLeafPatch(persisted, desired);
 		const next = await withUpdateQueue(path, async () => {
 			// Re-read immediately before the atomic rename and apply only this
-			// leaf patch. Missing/invalid latest data fails open to defaults with
-			// existing diagnostics; there is no lock file or retry loop.
+			// leaf patch. A genuinely missing file falls back to defaults; an
+			// existing file that cannot be read, parsed, or validated fails
+			// closed (`ConfigUpdateError`) before anything is written, so a
+			// broken config is never replaced by defaults+patch. There is no
+			// lock file or retry loop.
 			await mkdir(dirname(path), { recursive: true });
-			const latest = await readLatest();
+			const latest = await readLatestStrict();
 			const { settings: mergedSettings, invalid: latestInvalid } =
 				normalizeWithDiagnostics(applyLeafPatch(latest, leafPatch), warn);
 			if (latestInvalid.length > 0) {

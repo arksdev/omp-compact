@@ -14,6 +14,7 @@ import { join } from "node:path";
 import {
 	type CompactSettings,
 	createSettingsStore,
+	ConfigUpdateError,
 	DEFAULT_SETTINGS,
 	MAX_CONFIG_BYTES,
 	MAX_THRESHOLD_TOKENS,
@@ -350,6 +351,157 @@ describe("store load fail-open", () => {
 	});
 });
 
+describe("update fails closed on unsafe persisted config", () => {
+	test("malformed existing JSON: update rejects and leaves the file byte-for-byte unchanged", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		const broken = "{not json";
+		await writeFile(file, broken, "utf8");
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(broken);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("oversized existing JSON: update rejects without replacing it", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		const padded = JSON.stringify({
+			version: 1,
+			enabled: true,
+			mode: "live",
+			padding: "x".repeat(MAX_CONFIG_BYTES + 1),
+		});
+		await writeFile(file, padded, "utf8");
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(padded);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("over-deep existing JSON: update rejects without replacing it", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		let deep: unknown = { leaf: true };
+		for (let i = 0; i < 40; i++) deep = { nested: deep };
+		const text = JSON.stringify(deep);
+		await writeFile(file, text, "utf8");
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(text);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("valid JSON that fails validation (non-object root): update rejects", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		const text = JSON.stringify(["not", "an", "object"]);
+		await writeFile(file, text, "utf8");
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(text);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("valid JSON with an invalid known field: update rejects without replacing it", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		const text = JSON.stringify({ version: 1, enabled: "yes", mode: "live" });
+		await writeFile(file, text, "utf8");
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(text);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("deterministic non-ENOENT read failure rejects before persist (injected read seam)", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const original = JSON.stringify({
+			version: 1,
+			enabled: true,
+			mode: "live",
+		});
+		await writeFile(file, original, "utf8");
+		const warnings: string[] = [];
+		const store = createSettingsStore({
+			path: file,
+			warn: (message) => warnings.push(message),
+			readFile: async (target, encoding) => {
+				if (target === file) {
+					const error = new Error("simulated EIO") as NodeJS.ErrnoException;
+					error.code = "EIO";
+					throw error;
+				}
+				return readFile(target, encoding);
+			},
+		});
+		// Initial load stays fail-open: defaults with a read warning.
+		await store.load();
+		expect(store.snapshot()).toEqual(DEFAULT_SETTINGS);
+		expect(warnings.some((w) => w.includes("failed to read config"))).toBe(
+			true,
+		);
+		// The save must fail closed BEFORE persisting anything.
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(original);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("missing config file: update still succeeds with defaults plus the patch", async () => {
+		const dir = await tempDir();
+		const { store, warnings } = storeAt(dir);
+		const effective = await store.update({ mode: "compact" });
+		expect(effective.mode).toBe("compact");
+		const raw = JSON.parse(
+			await readFile(join(dir, "omp-compact", "config.json"), "utf8"),
+		) as CompactSettings;
+		expect(raw.mode).toBe("compact");
+		expect(raw.enabled).toBe(DEFAULT_SETTINGS.enabled);
+		expect(warnings).toEqual([]);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("initial load stays fail-open on malformed JSON; a later update still fails closed", async () => {
+		const dir = await tempDir();
+		const { store, warnings } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		const broken = '{"version":1, broken';
+		await writeFile(file, broken, "utf8");
+		const settings = await store.load();
+		expect(settings).toEqual(DEFAULT_SETTINGS);
+		expect(warnings.some((w) => w.includes("malformed"))).toBe(true);
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(await readFile(file, "utf8")).toBe(broken);
+		await rm(dir, { recursive: true, force: true });
+	});
+});
+
 describe("env overrides report", () => {
 	test("clean env reports no overrides", () => {
 		expect(resolveEnvOverrides({})).toEqual({
@@ -576,22 +728,25 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	test("invalid latest file fails open to defaults with diagnostics, no retry loop", async () => {
+	test("invalid latest file: the save fails closed and leaves the file byte-identical", async () => {
 		const dir = await tempDir();
 		const { store, warnings } = storeAt(dir);
 		await store.load();
 		// Another writer left a corrupt file after our snapshot.
 		await mkdir(join(dir, "omp-compact"), { recursive: true });
-		await writeFile(join(dir, "omp-compact", "config.json"), "{broken", "utf8");
-		const effective = await store.update({ mode: "compact" });
-		expect(effective.mode).toBe("compact");
+		const file = join(dir, "omp-compact", "config.json");
+		const broken = "{broken";
+		await writeFile(file, broken, "utf8");
+		let notified = 0;
+		store.subscribe(() => notified++);
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		// The malformed payload is diagnosed, but never adopted or rewritten.
 		expect(warnings.some((w) => w.includes("malformed"))).toBe(true);
-		// The save succeeded once, fail-open: defaults + this save's leaves.
-		const raw = await readStored(dir);
-		expect(raw.mode).toBe("compact");
-		expect(raw.enabled).toBe(DEFAULT_SETTINGS.enabled);
-		expect(raw.stats).toEqual(DEFAULT_SETTINGS.stats);
-		expect(raw.autoShake).toEqual(DEFAULT_SETTINGS.autoShake);
+		expect(notified).toBe(0);
+		expect(store.snapshot().mode).toBe("live");
+		expect(await readFile(file, "utf8")).toBe(broken);
 		await rm(dir, { recursive: true, force: true });
 	});
 
