@@ -63,6 +63,21 @@ describe("Git command recognition", () => {
 			gated: true,
 		});
 	});
+
+	test("recognizes short pager flags -p/-P like their long forms", () => {
+		expect(recognizeGitCommand("git -p status")?.subcommand).toBe("status");
+		expect(recognizeGitCommand("git -P commit -m x")?.subcommand).toBe(
+			"commit",
+		);
+		expect(recognizeGitCommand("git -p -C repo log")?.subcommand).toBe("log");
+		expect(recognizeGitCommand("git --no-pager status")?.subcommand).toBe(
+			"status",
+		);
+		expect(recognizeGitCommands("git -P status && git -p diff")).toEqual([
+			{ subcommand: "status", gated: false },
+			{ subcommand: "diff", gated: false },
+		]);
+	});
 });
 
 describe("Git record formatting", () => {
@@ -75,6 +90,23 @@ describe("Git record formatting", () => {
 		expect(formatGitRecord(evidence)).toBe(
 			"git commit abc1234 Fix compact log",
 		);
+	});
+
+	test("pager-flagged commits still surface the evidence hash", () => {
+		expect(
+			formatGitRecord({
+				command: "git -p commit -m 'Fix compact log'",
+				resultText: "[main abc1234] Fix compact log\n 1 file changed",
+				isError: false,
+			}),
+		).toBe("git commit abc1234 Fix compact log");
+		expect(
+			formatGitRecord({
+				command: "git -P commit -m 'Fix compact log'",
+				resultText: "[main abc1234] Fix compact log\n 1 file changed",
+				isError: false,
+			}),
+		).toBe("git commit abc1234 Fix compact log");
 	});
 
 	test("retains failed records with an explicit marker", () => {

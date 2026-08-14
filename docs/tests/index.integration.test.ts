@@ -1614,6 +1614,47 @@ stockTest(
 );
 
 stockTest(
+	"subject-less commit rows keep the hash in persisted evidence",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const commit = await addTool(
+			booted,
+			"bash",
+			{ command: "git commit -m 'No subject line'" },
+			"git-subjectless",
+		);
+		await finishTool(booted, commit, {
+			toolCallId: "git-subjectless",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "[main abc1234]\n 1 file changed" }],
+				details: { exitCode: 0 },
+			},
+			isError: false,
+		});
+		addAnswer(booted, "committed");
+		await finishRun(booted, "committed");
+		const entry = booted.appendedEntries[0] as {
+			customType: string;
+			data: Record<string, unknown>;
+		};
+		expect(entry).toMatchObject({
+			customType: "omp-compact-git",
+			data: {
+				toolCallId: "git-subjectless",
+				subcommand: "commit",
+				text: "git commit abc1234",
+				shortHash: "abc1234",
+			},
+		});
+		expect("subject" in entry.data).toBe(false);
+		expect(visibleRows(booted.transcript).join("\n")).toContain("abc1234");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"failed cd-gated Git rows are filtered as ordinary Bash errors",
 	async () => {
 		const booted = await bootWithTranscript();

@@ -355,6 +355,37 @@ describe("RuntimeSessionState: tool state records", () => {
 		});
 	});
 
+	test("live setMutations caps the batch and demotes exactness over the truncated set", () => {
+		const session = makeSession();
+		session.beginRun();
+		session.startState({ toolCallId: "c1", toolName: "write", args: {} });
+		const excess = Array.from({ length: MAX_MUTATION_ENTRIES + 5 }, () =>
+			mutationDetails("c1", 1, 0),
+		);
+		const input = [...excess];
+		session.setMutations("c1", excess);
+		const state = session.state("c1");
+		expect(state?.mutations.length).toBe(MAX_MUTATION_ENTRIES);
+		expect(state?.entry.retention).toBe("mutation");
+		expect(state?.entry.mutation).toEqual({
+			added: MAX_MUTATION_ENTRIES,
+			removed: 0,
+			exact: false,
+		});
+		// the caller's array is never mutated
+		expect(excess).toHaveLength(input.length);
+		// in-cap batches keep exactness
+		session.setMutations("c1", [
+			mutationDetails("c1", 2, 1),
+			mutationDetails("c1", 0, 0),
+		]);
+		expect(session.state("c1")?.entry.mutation).toEqual({
+			added: 2,
+			removed: 1,
+			exact: true,
+		});
+	});
+
 	test("setGit assigns the git retention class", () => {
 		const session = makeSession();
 		session.beginRun();

@@ -82,19 +82,36 @@ export function stripAnsi(text: string): string {
 }
 
 /**
+ * Count code points rather than UTF-16 units: `.length`/`slice` split
+ * surrogate pairs, corrupting astral characters at truncation boundaries.
+ * Code points (not wcwidth cells) match the plugin's character-budget
+ * display convention; full cell-width fitting stays with pi-tui's
+ * `truncateToWidth`.
+ */
+function codePointLength(value: string): number {
+	let length = 0;
+	for (let index = 0; index < value.length; index++) {
+		const code = value.codePointAt(index);
+		if (code !== undefined && code > 0xffff) index++;
+		length++;
+	}
+	return length;
+}
+
+/**
  * Truncate text to `width` visible columns while keeping ANSI SGR sequences
- * intact. If the cut lands inside styled text, a reset is appended so color
- * never leaks onto subsequent lines.
+ * intact and never splitting surrogate pairs. If the cut lands inside styled
+ * text, a reset is appended so color never leaks onto subsequent lines.
  */
 export function truncateAnsiSafe(text: string, width: number): string {
 	if (width <= 0) return "\x1b[0m";
-	if (stripAnsi(text).length <= width) return text;
+	if (codePointLength(stripAnsi(text)) <= width) return text;
 	let out = "";
 	let visible = 0;
 	let i = 0;
 	while (i < text.length && visible < width) {
-		const ch = text[i];
-		if (ch === "\u001b") {
+		const code = text.codePointAt(i) ?? 0;
+		if (code === 0x1b) {
 			const sequence = ANSI_SGR_PREFIX_RE.exec(text.slice(i));
 			if (sequence) {
 				out += sequence[0];
@@ -102,9 +119,9 @@ export function truncateAnsiSafe(text: string, width: number): string {
 				continue;
 			}
 		}
-		out += ch;
+		out += String.fromCodePoint(code);
 		visible++;
-		i++;
+		i += code > 0xffff ? 2 : 1;
 	}
 	return `${out}\x1b[0m`;
 }

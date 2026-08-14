@@ -262,6 +262,8 @@ function isValueFreeGitOption(token: string): boolean {
 		case "--no-lazy-fetch":
 		case "--paginate":
 		case "--no-pager":
+		case "-p":
+		case "-P":
 		case "--version":
 		case "--help":
 		case "--html-path":

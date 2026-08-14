@@ -866,9 +866,14 @@ export class RuntimeSessionState {
 	): RenderableBlock | undefined {
 		const state = this.#states.get(toolCallId);
 		if (!state) return undefined;
-		state.mutations = entries.filter(
+		const kept = entries.filter(
 			(entry) => entry.added > 0 || entry.removed > 0,
 		);
+		// F01: the live batch respects the same per-state evidence cap as
+		// replay hydration; a set beyond the cap cannot claim exactness over
+		// the truncated tail (the caller's array is never mutated).
+		const truncated = kept.length > MAX_MUTATION_ENTRIES;
+		state.mutations = truncated ? kept.slice(0, MAX_MUTATION_ENTRIES) : kept;
 		if (state.mutations.length > 0) {
 			state.entry.state = "success";
 			state.entry.retention = "mutation";
@@ -877,6 +882,7 @@ export class RuntimeSessionState {
 				removed: state.mutations.reduce((sum, entry) => sum + entry.removed, 0),
 				exact: true,
 			};
+			if (truncated) this.#markMutationInexact(state);
 		}
 		state.version++;
 		return state.component;

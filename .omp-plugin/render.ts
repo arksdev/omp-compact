@@ -106,8 +106,12 @@ export function sanitizeOneLine(
 	// Non-string inputs (numbers, objects, undefined) are intentionally silenced to "".
 	const text = typeof value === "string" ? value : "";
 	const clean = stripControl(stripAnsi(text)).replace(/\s+/g, " ").trim();
+	// The budget counts code points, not UTF-16 units: slicing by UTF-16
+	// index would split surrogate pairs (astral emoji) at the boundary.
 	if (clean.length <= limit) return clean;
-	return `${clean.slice(0, Math.max(0, limit - 1))}…`;
+	const chars = Array.from(clean);
+	if (chars.length <= limit) return clean;
+	return `${chars.slice(0, Math.max(0, limit - 1)).join("")}…`;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -187,8 +191,13 @@ export function gitLine(
 	theme: Theme,
 ): string {
 	const text = sanitizeOneLine(entry.text, MAX_DESCRIPTION);
-	if (entry.isError && text.startsWith("✗ ")) {
-		return `${theme.fg("error", "✗")} ${theme.fg("dim", text.slice(2))}`;
+	// A record may already carry the leading error icon (`✗ git …` or a bare
+	// `✗`); strip exactly one icon plus any following whitespace so the row
+	// never shows a doubled marker.
+	if (entry.isError && text.startsWith("✗")) {
+		const rest = text.slice(1).trimStart();
+		if (rest.length === 0) return theme.fg("error", "✗");
+		return `${theme.fg("error", "✗")} ${theme.fg("dim", rest)}`;
 	}
 	const icon = entry.isError ? theme.fg("error", "✗") : theme.fg("dim", "•");
 	return `${icon} ${theme.fg("dim", text)}`;

@@ -1259,6 +1259,20 @@ describe("rendering safety", () => {
 		expect(truncated.endsWith("\x1b[0m")).toBe(true);
 		expect(truncateAnsiSafe(styled, 20)).toBe(styled);
 	});
+
+	test("truncateAnsiSafe counts code points and never splits surrogate pairs", () => {
+		const emoji = "🚀".repeat(6); // 12 UTF-16 units, 6 code points
+		const truncated = truncateAnsiSafe(emoji, 3);
+		expect(stripAnsi(truncated)).toBe("🚀".repeat(3));
+		expect(truncated.endsWith("\x1b[0m")).toBe(true);
+		// 6 code points fit a width of 6 despite 12 UTF-16 units
+		expect(truncateAnsiSafe(emoji, 6)).toBe(emoji);
+		// styled astral content keeps escapes intact and closes the reset
+		const styled = "\x1b[31m🚀ab\x1b[39m";
+		const styledTruncated = truncateAnsiSafe(styled, 2);
+		expect(stripAnsi(styledTruncated)).toBe("🚀a");
+		expect(styledTruncated.endsWith("\x1b[0m")).toBe(true);
+	});
 });
 
 describe("headless and dialog opening", () => {

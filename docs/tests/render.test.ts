@@ -415,6 +415,38 @@ describe("mutation and Git rows stay transparent", () => {
 		expect(line).not.toContain("\x1b[48;");
 	});
 
+	test("gitLine strips exactly one leading icon for bare ✗ text", () => {
+		for (const text of ["✗", "✗ ", "✗  "]) {
+			const line = gitLine(
+				{
+					version: 1,
+					toolCallId: "g3",
+					subcommand: "rebase",
+					text,
+					isError: true,
+				},
+				fakeTheme(),
+			);
+			expect(stripAnsi(line)).toBe("✗");
+			expect((stripAnsi(line).match(/✗/g) ?? []).length).toBe(1);
+		}
+	});
+
+	test("gitLine keeps the icon single for icon-prefixed error text", () => {
+		const line = gitLine(
+			{
+				version: 1,
+				toolCallId: "g4",
+				subcommand: "rebase",
+				text: "✗ git rebase main",
+				isError: true,
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toMatch(/^✗ git rebase main/);
+		expect((stripAnsi(line).match(/✗/g) ?? []).length).toBe(1);
+	});
+
 	test("legacy git message components stay transparent at render width", () => {
 		const component = gitMessageComponent(
 			{
@@ -440,6 +472,19 @@ describe("sanitizeOneLine", () => {
 
 	test("bounds long text with a single ellipsis", () => {
 		expect(sanitizeOneLine("x".repeat(300), 10)).toBe("xxxxxxxxx…");
+	});
+
+	test("truncates at code-point boundaries without splitting surrogate pairs", () => {
+		const emoji = "🚀".repeat(120);
+		expect(sanitizeOneLine(emoji, 10)).toBe(`${"🚀".repeat(9)}…`);
+		// 120 code points fit the 120 budget despite 240 UTF-16 units
+		expect(sanitizeOneLine(emoji, 120)).toBe(emoji);
+	});
+
+	test("keeps the code-point budget exact for mixed astral text", () => {
+		// the budget includes the ellipsis: limit-1 content code points + …
+		expect(sanitizeOneLine("a🚀b🚀c🚀d🚀e", 4)).toBe("a🚀b…");
+		expect([...sanitizeOneLine("a🚀b🚀c🚀d🚀e", 4)].length).toBe(4);
 	});
 });
 
