@@ -531,6 +531,97 @@ describe("edit delete audit", () => {
 		);
 		expect(entries).toEqual([]);
 	});
+
+	// F01 boundary pins for deleteEntry: the byte gate is evaluated before
+	// any line scan, the line gate reuses a single computed count, and the
+	// no-op delete (zero removed lines) stays row-less. These pin the exact
+	// semantics of the single-scan refactor: unknown-count evidence
+	// (exact: false) must survive byte/line overflows unchanged.
+	test("delete over the byte gate keeps the row without inventing stats", () => {
+		const entries = completeEditMutations(
+			"edit-18",
+			{
+				details: {
+					path: "src/gone.ts",
+					op: "delete",
+					diff: "",
+					oldText: "x".repeat(MAX_DELETE_BYTES + 1),
+				},
+			},
+			false,
+		);
+		expect(entries).toEqual([
+			{
+				toolCallId: "edit-18",
+				toolName: "delete",
+				path: "src/gone.ts",
+				exact: false,
+			},
+		]);
+	});
+
+	test("delete over the line gate keeps the row without inventing stats", () => {
+		const oldText = Array.from(
+			{ length: MAX_DELETE_LINES + 1 },
+			(_, index) => `line${index}`,
+		).join("\n");
+		const entries = completeEditMutations(
+			"edit-19",
+			{
+				details: { path: "src/gone.ts", op: "delete", diff: "", oldText },
+			},
+			false,
+		);
+		expect(entries).toEqual([
+			{
+				toolCallId: "edit-19",
+				toolName: "delete",
+				path: "src/gone.ts",
+				exact: false,
+			},
+		]);
+	});
+
+	test("delete exactly at the line gate counts exactly", () => {
+		const oldText = Array.from(
+			{ length: MAX_DELETE_LINES },
+			(_, index) => `line${index}`,
+		).join("\n");
+		const entries = completeEditMutations(
+			"edit-20",
+			{
+				details: { path: "src/gone.ts", op: "delete", diff: "", oldText },
+			},
+			false,
+		);
+		expect(entries).toEqual([
+			{
+				version: 1,
+				toolCallId: "edit-20",
+				toolName: "delete",
+				path: "src/gone.ts",
+				added: 0,
+				removed: MAX_DELETE_LINES,
+				exact: true,
+			},
+		]);
+	});
+
+	test("empty oldText is a no-op delete with no row", () => {
+		const entries = completeEditMutations(
+			"edit-21",
+			{
+				details: {
+					path: "src/gone.ts",
+					op: "delete",
+					diff: "",
+					oldText: "",
+				},
+			},
+			false,
+		);
+		expect(entries).toEqual([]);
+	});
 });
 
 describe("numbered edit audit", () => {

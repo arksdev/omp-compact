@@ -321,12 +321,13 @@ function deleteEntry(
 	// row must not fabricate a removal count.
 	if (typeof oldText !== "string" || snapshotsPruned)
 		return { toolCallId, toolName: "delete", path, exact: false };
-	if (
-		oldText.length > MAX_DELETE_BYTES ||
-		lineCount(oldText) > MAX_DELETE_LINES
-	)
+	// Cheap byte gate first (no scan), then a single line scan that is
+	// reused for both the line gate and the exact count.
+	if (oldText.length > MAX_DELETE_BYTES)
 		return { toolCallId, toolName: "delete", path, exact: false };
 	const removed = lineCount(oldText);
+	if (removed > MAX_DELETE_LINES)
+		return { toolCallId, toolName: "delete", path, exact: false };
 	if (removed === 0) return undefined;
 	return {
 		version: 1,
