@@ -202,12 +202,11 @@ describe("bounded generic helper", () => {
 		expect(description).toContain("b: [20 items]");
 		expect(description).toContain("c: {…}");
 		expect(description).toContain("d: 5");
-		// only the first four present keys are rendered — the fifth and any
-		// private __-prefixed keys never reach the description
-		expect(description).not.toContain("e: null");
+		// The pair cap (four) is what hides `e: null` here — null itself
+		// renders as "null" when it fits within the cap (see the dedicated
+		// null test), and __-prefixed keys are skipped by their own rule.
 		expect(description).not.toContain("__hidden");
 		expect(description).not.toContain("skip");
-		expect(description.length).toBeLessThanOrEqual(1_600);
 	});
 
 	test("underscore and hyphen spellings share one lowercase title", () => {

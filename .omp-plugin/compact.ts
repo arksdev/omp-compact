@@ -12,6 +12,19 @@ export interface ToolDescription {
 
 const MAX_ARG_TEXT = 4_096;
 
+/**
+ * First `limit` Unicode code points of a string, never splitting a surrogate
+ * pair. Mirrors the code-point budget of `sanitizeOneLine` in render.ts:
+ * the UTF-16 `.slice` would land mid-pair on astral characters (emoji),
+ * corrupting the boundary with a lone surrogate. Returns the original string
+ * when it already fits, so the common short path allocates nothing.
+ */
+function truncateCodePoints(value: string, limit: number): string {
+	if (value.length <= limit) return value;
+	const chars = Array.from(value);
+	return chars.length <= limit ? value : chars.slice(0, limit).join("");
+}
+
 export function record(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
@@ -23,7 +36,7 @@ export function stringValue(
 	key: string,
 ): string {
 	return typeof value[key] === "string"
-		? (value[key] as string).slice(0, MAX_ARG_TEXT)
+		? truncateCodePoints(value[key] as string, MAX_ARG_TEXT)
 		: "";
 }
 
@@ -36,10 +49,10 @@ export function listValue(
 		return candidate
 			.filter((item): item is string => typeof item === "string")
 			.slice(0, 8)
-			.map((item) => item.slice(0, MAX_ARG_TEXT));
+			.map((item) => truncateCodePoints(item, MAX_ARG_TEXT));
 	}
 	return typeof candidate === "string" && candidate
-		? [candidate.slice(0, MAX_ARG_TEXT)]
+		? [truncateCodePoints(candidate, MAX_ARG_TEXT)]
 		: [];
 }
 
@@ -76,7 +89,7 @@ export function editPathsFromInput(input: string): string[] {
 }
 
 function shortValue(value: unknown): string {
-	if (typeof value === "string") return value.slice(0, 160);
+	if (typeof value === "string") return truncateCodePoints(value, 160);
 	if (typeof value === "number" || typeof value === "boolean" || value === null)
 		return String(value);
 	if (Array.isArray(value)) return `[${value.length} items]`;
@@ -99,10 +112,13 @@ function unknownArgs(value: Record<string, unknown>): string {
  * Bounded generic tool description: lowercase label (underscore and hyphen
  * spellings share one title) plus at most four compact `key: value` pairs.
  *
- * This is a direct helper fallback for unknown/unrecognized tools only.
- * Tool presentation rules live in `tool-presentation-rules.ts`. The runtime
- * adapter MUST NOT route known tools through this function — doing so bypasses
- * specialized presentation logic and bounds.
+ * This is the generic form for tools WITHOUT a specialized describe:
+ * registered routine/interactive tools (hub, todo, eval, yield, web_search,
+ * ask, task, hus) route here through `genericDescribe` in
+ * `tool-presentation-rules.ts`, and the renderer falls back to it for
+ * unresolved tool names. Tools WITH a specialized describe keep it —
+ * substituting the generic form would bypass their presentation logic and
+ * bounds.
  *
  * @internal
  */

@@ -8,6 +8,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- Delete operations now render as distinct red `delete` rows (red title, gray path, red exact removed stat) instead of `edit` rows with a `+0|N` pair; when the exact removed count is unavailable the stat is omitted entirely, never estimated.
+- Операции удаления теперь отображаются отдельными красными строками `delete` (красный заголовок, серый путь, красная точная статистика удалённых строк) вместо строк `edit` с парой `+0|N`; когда точное количество удалённых строк недоступно, статистика не выводится вовсе, а не оценивается.
+- `genericToolDescription`, `stringValue`, and `listValue` now truncate at code-point boundaries (mirroring `sanitizeOneLine`), so long arguments never split a surrogate pair; the `genericToolDescription` JSDoc now states its real routing (generic form for tools without a specialized describe).
+- `genericToolDescription`, `stringValue` и `listValue` теперь усекают по границам code point'ов (как `sanitizeOneLine`), поэтому длинные аргументы никогда не разрывают суррогатные пары; JSDoc `genericToolDescription` теперь описывает реальную маршрутизацию (общая форма для инструментов без специализированного describe).
+
 ## [1.0.3] - 2026-08-14
 
 ### Fixed

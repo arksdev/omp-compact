@@ -1441,6 +1441,14 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 		expect(
 			isMutationMessageDetails({
 				...base,
+				toolName: "delete",
+				added: 0,
+				removed: 3,
+			}),
+		).toBe(true);
+		expect(
+			isMutationMessageDetails({
+				...base,
 				toolCallId: "c".repeat(MAX_TOOL_CALL_ID_LENGTH),
 			}),
 		).toBe(true);

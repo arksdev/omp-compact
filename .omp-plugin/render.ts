@@ -171,6 +171,22 @@ export function mutationLine(
 	theme: Theme,
 	displayPaths?: DisplayPathOptions,
 ): string {
+	const path = displayPathValue(entry.path, displayPaths);
+	const sanitizedPath = theme.fg("muted", sanitizeOneLine(path, 180));
+	if (entry.toolName === "delete") {
+		// Delete rows are distinct: red "delete" title, gray path, and the
+		// removed stat only when an exact count is known. An unknown count
+		// renders no stat at all — never an estimate, never a "+0|" pair.
+		const title = fixedForeground(
+			REMOVED_STAT_COLOR,
+			sanitizeOneLine(entry.toolName, 24),
+		);
+		const removedStat =
+			entry.exact && typeof entry.removed === "number"
+				? ` ${mutationStat(entry.removed, "-", REMOVED_STAT_COLOR, theme)}`
+				: "";
+		return `${theme.fg("dim", "•")} ${title}: ${sanitizedPath}${removedStat}`;
+	}
 	const added = entry.added ?? 0;
 	const removed = entry.removed ?? 0;
 	const addedStr = mutationStat(added, "+", ADDED_STAT_COLOR, theme);
@@ -179,11 +195,7 @@ export function mutationLine(
 	const stats = entry.exact
 		? `${addedStr}${sep}${removedStr}`
 		: theme.fg("dim", `${entry.lineCount ?? 0} lines`);
-	const path = displayPathValue(entry.path, displayPaths);
-	return `${theme.fg("dim", "•")} ${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: ${theme.fg(
-		"muted",
-		sanitizeOneLine(path, 180),
-	)} ${stats}`;
+	return `${theme.fg("dim", "•")} ${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: ${sanitizedPath} ${stats}`;
 }
 
 export function gitLine(

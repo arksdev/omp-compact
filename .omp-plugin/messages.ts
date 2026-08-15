@@ -24,7 +24,13 @@ export const GIT_MESSAGE_TYPE = "omp-compact-git";
 export interface MutationMessageDetails {
 	version: 1;
 	toolCallId: string;
-	toolName: "write" | "edit";
+	/**
+	 * Origin tool of the mutation: "write" (full-file write), "edit"
+	 * (edit/update operations), or "delete" (delete operations, exact
+	 * removed counts only). Legacy delete entries persisted before the
+	 * "delete" toolName existed carry "edit" and keep rendering as edit rows.
+	 */
+	toolName: "write" | "edit" | "delete";
 	path: string;
 	added: number;
 	removed: number;
@@ -91,7 +97,9 @@ export function isMutationMessageDetails(
 	return (
 		details.version === 1 &&
 		isBoundedString(details.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
-		(details.toolName === "write" || details.toolName === "edit") &&
+		(details.toolName === "write" ||
+			details.toolName === "edit" ||
+			details.toolName === "delete") &&
 		isBoundedString(details.path, MAX_EVIDENCE_PATH_LENGTH) &&
 		isBoundedCount(details.added, MAX_MUTATION_COUNT) &&
 		isBoundedCount(details.removed, MAX_MUTATION_COUNT) &&

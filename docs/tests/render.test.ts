@@ -465,6 +465,215 @@ describe("mutation and Git rows stay transparent", () => {
 	});
 });
 
+describe("delete mutation rows", () => {
+	const removedColor = Bun.color("#A1471A", "ansi-16m") ?? "";
+
+	test("exact delete rows show a red title, gray path and red removed stat", () => {
+		const line = mutationLine(
+			{
+				version: 1,
+				toolCallId: "t1",
+				toolName: "delete",
+				path: "/tmp/gone.ts",
+				added: 0,
+				removed: 3,
+				exact: true,
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe("• delete: /tmp/gone.ts -3");
+		expect(line).not.toContain("\x1b[48;");
+		// Title and removed stat share the removal red; the path stays muted.
+		expect(line).toContain(removedColor);
+		expect(line).toContain("•");
+	});
+
+	test("delete rows with unknown removed count render no stat at all", () => {
+		const line = mutationLine(
+			{
+				toolCallId: "t1",
+				toolName: "delete",
+				path: "/tmp/gone.ts",
+				added: 0,
+				removed: 0,
+				exact: false,
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe("• delete: /tmp/gone.ts");
+		expect(line).not.toContain("\x1b[48;");
+	});
+
+	test("delete rows with a missing removed count render no stat at all", () => {
+		const line = mutationLine(
+			{
+				toolCallId: "t1",
+				toolName: "delete",
+				path: "/tmp/gone.ts",
+				exact: true,
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe("• delete: /tmp/gone.ts");
+	});
+
+	test("exact delete rows stay transparent through the row renderer", () => {
+		const lines = renderCompactToolRows(
+			{
+				toolName: "delete",
+				args: { path: "/tmp/gone.ts", content: "" },
+				isError: false,
+				isPartial: false,
+				mutationEntries: [
+					{
+						version: 1,
+						toolCallId: "t1",
+						toolName: "delete",
+						path: "/tmp/gone.ts",
+						added: 0,
+						removed: 4,
+						exact: true,
+					},
+				],
+			},
+			fakeTheme(),
+			40,
+		);
+		expect(lines).toHaveLength(1);
+		expect(stripAnsi(lines[0] ?? "")).toBe("• delete: /tmp/gone.ts -4");
+		expect(lines[0]).not.toContain("\x1b[48;");
+	});
+
+	test("delete rows relativize the audited path when enabled", () => {
+		const display = { cwd: "/project", enabled: true };
+		const entry = {
+			version: 1,
+			toolCallId: "t1",
+			toolName: "delete",
+			path: "/project/src/gone.ts",
+			added: 0,
+			removed: 5,
+			exact: true,
+		};
+		expect(stripAnsi(mutationLine(entry, fakeTheme(), display))).toBe(
+			"• delete: src/gone.ts -5",
+		);
+		expect(stripAnsi(mutationLine(entry, fakeTheme()))).toBe(
+			"• delete: /project/src/gone.ts -5",
+		);
+		expect(
+			stripAnsi(
+				mutationLine({ ...entry, path: "/etc/hosts" }, fakeTheme(), display),
+			),
+		).toBe("• delete: /etc/hosts -5");
+	});
+
+	test("delete rows bound long and astral paths like other mutation rows", () => {
+		const longPath = `/project/${"a".repeat(400)}.ts`;
+		const [line] = renderCompactToolRows(
+			{
+				toolName: "delete",
+				args: { path: longPath, content: "" },
+				isError: false,
+				isPartial: false,
+				mutationEntries: [
+					{
+						version: 1,
+						toolCallId: "t1",
+						toolName: "delete",
+						path: longPath,
+						added: 0,
+						removed: 1,
+						exact: true,
+					},
+				],
+			},
+			fakeTheme(),
+			undefined,
+		);
+		expect(stripAnsi(line ?? "")).toBe(
+			"• delete: ".concat("/project/", "a".repeat(170), "… -1"),
+		);
+		const astralPath = `/project/${"🚀".repeat(200)}.ts`;
+		const [astral] = renderCompactToolRows(
+			{
+				toolName: "delete",
+				args: { path: astralPath, content: "" },
+				isError: false,
+				isPartial: false,
+				mutationEntries: [
+					{
+						version: 1,
+						toolCallId: "t2",
+						toolName: "delete",
+						path: astralPath,
+						added: 0,
+						removed: 1,
+						exact: true,
+					},
+				],
+			},
+			fakeTheme(),
+			undefined,
+		);
+		const stripped = stripAnsi(astral ?? "");
+		expect(stripped.startsWith("• delete: /project/")).toBe(true);
+		expect([...stripped].some((ch) => ch === "\uFFFD")).toBe(false);
+	});
+
+	test("mixed delete and edit entries keep their distinct rows", () => {
+		const lines = renderCompactToolRows(
+			{
+				toolName: "edit",
+				args: { path: "/tmp" },
+				isError: false,
+				isPartial: false,
+				mutationEntries: [
+					{
+						version: 1,
+						toolCallId: "t1",
+						toolName: "delete",
+						path: "/tmp/gone.ts",
+						added: 0,
+						removed: 2,
+						exact: true,
+					},
+					{
+						version: 1,
+						toolCallId: "t2",
+						toolName: "edit",
+						path: "/tmp/kept.ts",
+						added: 1,
+						removed: 1,
+						exact: true,
+					},
+				],
+			},
+			fakeTheme(),
+		);
+		expect(lines.map((row) => stripAnsi(row ?? ""))).toEqual([
+			"• delete: /tmp/gone.ts -2",
+			"• edit: /tmp/kept.ts +1|1",
+		]);
+	});
+
+	test("legacy delete entries persisted as edit rows keep their old rendering", () => {
+		const line = mutationLine(
+			{
+				version: 1,
+				toolCallId: "t1",
+				toolName: "edit",
+				path: "/tmp/legacy-gone.ts",
+				added: 0,
+				removed: 2,
+				exact: true,
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe("• edit: /tmp/legacy-gone.ts +0|2");
+	});
+});
+
 describe("sanitizeOneLine", () => {
 	test("strips ANSI escapes and control characters", () => {
 		expect(sanitizeOneLine("a\x1b[31mb\x1b[0m\x00c\td")).toBe("abc d");

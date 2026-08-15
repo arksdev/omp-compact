@@ -288,9 +288,11 @@ function editEntry(
  * Returns undefined when the path is invalid, oldText is missing/pruned, or
  * oversized per F02 budgets.
  *
- * `exact: true` means `removed` was counted from the complete unpruned
- * pre-image — not estimated, not sampled. When snapshotsPruned is true or
- * oldText is unavailable, we return undefined rather than approximating.
+ * The entry carries `toolName: "delete"` so renderers can show deletes
+ * distinctly (red title, no added count). `exact: true` means `removed` was
+ * counted from the complete unpruned pre-image — not estimated, not sampled.
+ * When snapshotsPruned is true or oldText is unavailable, we return undefined
+ * rather than approximating.
  */
 function deleteEntry(
 	toolCallId: string,
@@ -317,7 +319,7 @@ function deleteEntry(
 	return {
 		version: 1,
 		toolCallId,
-		toolName: "edit",
+		toolName: "delete",
 		path,
 		added: 0,
 		removed,

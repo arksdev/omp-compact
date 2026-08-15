@@ -53,10 +53,13 @@ After a successful answer, the default `live` mode keeps only useful history:
 ```text
 • write: src/app.ts +17|0
 • edit: src/theme.css +2|0
+• delete: src/legacy.ts -3
 • git commit: 1983fsdf34, a4c12de890
 [ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ]
 <assistant answer>
 ```
+
+Delete rows render distinctly: a red `delete` title and a red exact removed stat (`-N`) when the pre-image count is known; when the count is unavailable the stat is omitted entirely.
 
 ## Before and after
 

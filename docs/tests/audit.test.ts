@@ -364,7 +364,7 @@ describe("edit delete audit", () => {
 			{
 				version: 1,
 				toolCallId: "edit-11",
-				toolName: "edit",
+				toolName: "delete",
 				path: "src/gone.ts",
 				added: 0,
 				removed: 3,
@@ -391,7 +391,7 @@ describe("edit delete audit", () => {
 			{
 				version: 1,
 				toolCallId: "edit-12",
-				toolName: "edit",
+				toolName: "delete",
 				path: "src/gone.ts",
 				added: 0,
 				removed: 2,
@@ -457,7 +457,7 @@ describe("edit delete audit", () => {
 			{
 				version: 1,
 				toolCallId: "edit-15",
-				toolName: "edit",
+				toolName: "delete",
 				path: "src/del.ts",
 				added: 0,
 				removed: 2,
@@ -591,7 +591,7 @@ describe("edit delete audit", () => {
 			{
 				version: 1,
 				toolCallId: "edit-5",
-				toolName: "edit",
+				toolName: "delete",
 				path: "src/f.ts",
 				added: 0,
 				removed: 3,
@@ -666,7 +666,7 @@ describe("edit delete audit", () => {
 			{
 				version: 1,
 				toolCallId: "edit-9",
-				toolName: "edit",
+				toolName: "delete",
 				path: "src/j.ts",
 				added: 0,
 				removed: 2,
