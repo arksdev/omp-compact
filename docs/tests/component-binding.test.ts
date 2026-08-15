@@ -497,9 +497,9 @@ describe("ComponentBinding: order fallbacks", () => {
 		// never a resolved-but-empty ledger mark.
 		expect(binding.bindHydrated(true)).toBe(false);
 		const dupGroup = binding.groupState(duplicateComponent);
-		expect(dupGroup).toBeDefined();
-		expect(dupGroup!.ledger).toBeUndefined();
-		expect(binding.mappedReadStates(dupGroup!)).toEqual([]);
+		if (!dupGroup) throw new Error("duplicate group must exist");
+		expect(dupGroup.ledger).toBeUndefined();
+		expect(binding.mappedReadStates(dupGroup)).toEqual([]);
 	});
 
 	test("bindHydrated ordinal offset accounts for exact-bound groups (no duplicate zero-claim)", () => {
@@ -549,10 +549,10 @@ describe("ComponentBinding: order fallbacks", () => {
 			read: ReturnType<typeof makeState>,
 		) => {
 			const group = binding.groupState(component);
-			expect(group).toBeDefined();
-			expect(group!.ledger).toBe(read.ledger);
-			expect(binding.mappedReadStates(group!)).toEqual([read]);
-			expect(binding.groupCompletelyMapped(group!)).toBe(true);
+			if (!group) throw new Error("mapped group must exist");
+			expect(group.ledger).toBe(read.ledger);
+			expect(binding.mappedReadStates(group)).toEqual([read]);
+			expect(binding.groupCompletelyMapped(group)).toBe(true);
 		};
 		expectMapped(staleMid1Component, reads[0]);
 		expectMapped(staleMid2Component, reads[1]);
