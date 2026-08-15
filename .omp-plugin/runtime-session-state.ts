@@ -479,7 +479,10 @@ export class RuntimeSessionState {
 			}
 		}
 		this.#pendingStates.clear();
-		this.binding.bindHydrated(true);
+		this.binding.bindHydrated(
+			true,
+			this.#modePolicy?.restoreOverride !== undefined,
+		);
 		this.#insertHydratedStatsCarriers();
 		return true;
 	}
@@ -716,6 +719,11 @@ export class RuntimeSessionState {
 		// evidence binds and ambiguous surfaces stay native.
 		const mapped = this.binding.bindHydrated(
 			snapshot.activeStates.length === 0,
+			// Suffix alignment is a restored-history contract: it pairs the
+			// visible tail only when the restore override is armed. A
+			// live-session rebuild (no arm — e.g. a finished run re-rendered
+			// after a later clear) must never guess positions.
+			this.#modePolicy?.restoreOverride !== undefined,
 		);
 		// Settlement closes the identity window: the synchronous repopulation
 		// is over, so preserved active ownership must not bind components of

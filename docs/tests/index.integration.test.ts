@@ -7080,6 +7080,121 @@ stockTest(
 );
 
 stockTest(
+	"cold launch of a collapsed-history session binds the visible tool tail compact",
+	async () => {
+		// Real-world cold restart of a long-lived session: the branch
+		// carries many committed tool calls, but stock collapses the
+		// compacted/summarized history behind the summary divider
+		// (`display.collapseCompacted` default true) and reconstructs
+		// components only for the newest tail (here: 2 branch tool states,
+		// only the newest rendered as a component). The rebuild must
+		// suffix-align the visible tail to the newest states — never bail
+		// to native because the counts differ.
+		const harness = rebuildHarness();
+		harness.branch.current = [
+			...committedSingleToolBranch("printf old", "bash-old", "old done"),
+			...committedSingleToolBranch("printf new", "bash-new", "new done"),
+		];
+		const booted = await bootForRebuild("live", harness);
+		// stock renderInitialMessages swap: clear + re-add of the tail
+		booted.transcript.clear();
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf new" },
+			"bash-new",
+		);
+		rebuilt.render = () => ["native-fallback"];
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-new",
+		);
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		// the visible tail binds compact (suffix-aligned to the newest
+		// state), not the native fallback
+		expect(rows).toContain("bash: printf new");
+		expect(rows).not.toContain("native-fallback");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"cold launch binds the visible read tail to the trailing read ledger",
+	async () => {
+		// Same collapse contract for reads: two committed read calls in two
+		// ledgers, but stock re-renders only the newest read group after the
+		// swap. The group arrives without observed ids (the staged rebuild
+		// never replays updateArgs), so the trailing-ledger suffix pairing
+		// must bind it compact — never leave it native.
+		const harness = rebuildHarness();
+		harness.branch.current = [
+			{
+				type: "message",
+				message: { role: "user", content: [{ type: "text", text: "work" }] },
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "read-first",
+					toolName: "read",
+					args: { path: "src/first.ts" },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "read-first",
+					toolName: "read",
+					content: [{ type: "text", text: "first" }],
+					isError: false,
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "work again" }],
+				},
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "read-last",
+					toolName: "read",
+					args: { path: "src/last.ts" },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "read-last",
+					toolName: "read",
+					content: [{ type: "text", text: "last" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("done") },
+		];
+		const booted = await bootForRebuild("live", harness);
+		booted.transcript.clear();
+		const group = new booted.host.ReadToolGroupComponent();
+		booted.transcript.addChild(group);
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		// the trailing read ledger binds the visible group compact
+		expect(rows).toContain("• read src/last.ts");
+		expect(rows).not.toContain("● Read");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"session_switch with reason new does not re-arm the restore view",
 	async () => {
 		const harness = rebuildHarness();

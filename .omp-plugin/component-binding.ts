@@ -7,9 +7,14 @@
  *   empty or provisional id and rebind through `updateArgs(args, realId)`),
  *   including the read group's `renameEntry` path;
  * - read-group observed-id ownership (`observedIds`) and replay pairing;
- * - the unbound-component insertion queue and the safe replay cardinality
- *   fallback (single-pair order, or full-cardinality order when the counts
- *   match exactly — never positional guessing otherwise).
+ * - the unbound-component insertion queue and the safe replay fallback
+ *   (single-pair order, exact full-cardinality order, or — when stock
+ *   collapsed a compacted/summarized session's hidden prefix behind the
+ *   summary divider (`display.collapseCompacted`) and reconstructed only
+ *   the newest tail — suffix-aligned order pairing the visible tail with
+ *   the trailing states/ledgers). Positional guessing is never applied
+ *   against preserved active ownership, non-tail shapes or visible sets
+ *   larger than the branch.
  *
  * Every operation reports an explicit status: `bound`, `ambiguous`,
  * `incompatible` or `unmapped`. Unknown/mixed/ambiguous/incompatible
@@ -228,24 +233,55 @@ export class ComponentBinding {
 
 	/**
 	 * Replay/rebuild pairing over the unbound queues. Tool components pair
-	 * with unbound non-read states only when the counts match exactly
-	 * (proven full-cardinality order); read groups pair with the hydrated
-	 * read-ledger queue in chronological order. `allowOrder=false` (rebuild
-	 * with a preserved active run) skips both order fallbacks: components
-	 * already bound by exact observed ids are resolved, anything else stays
-	 * native. Returns `mapped` only when every discovered state/group and
-	 * component is resolved.
+	 * with unbound non-read states in chronological order — full
+	 * cardinality when every branch tool call has a rendered component, or
+	 * suffix-aligned when stock collapsed the compacted/summarized history
+	 * behind the summary divider (`display.collapseCompacted`, default
+	 * true) and reconstructed components only for the newest tail. Read
+	 * groups pair with the hydrated read-ledger queue the same way.
+	 * `allowOrder=false` (rebuild with a preserved active run) skips every
+	 * order fallback: components already bound by exact observed ids are
+	 * resolved, anything else stays native. Suffix alignment additionally
+	 * requires `restoredArmed` (the rebuild must belong to a restored
+	 * history, i.e. the restore override is armed) and is never applied
+	 * next to preserved active ownership, to non-tail shapes, or to visible
+	 * sets larger than the branch — those stay native (fail-open).
+	 * Returns true when no visible surface stayed unresolved.
 	 */
-	bindHydrated(allowOrder = true): boolean {
+	bindHydrated(allowOrder = true, restoredArmed = true): boolean {
 		if (this.#states.size === 0) return true;
 		const toolStates = [...this.#states.values()].filter(
 			(state) => state.toolName !== "read" && !state.component,
 		);
-		if (allowOrder && toolStates.length === this.#unboundComponents.length) {
-			const components = [...this.#unboundComponents];
+		const components = [...this.#unboundComponents];
+		if (allowOrder && toolStates.length === components.length) {
+			// Exact full-cardinality: every branch tool call has a rendered
+			// component, so plain chronological order pairs them 1:1.
 			for (let index = 0; index < toolStates.length; index++) {
 				const component = components[index];
 				const state = toolStates[index];
+				if (component && state) this.bind(component, state);
+			}
+		} else if (
+			allowOrder &&
+			restoredArmed &&
+			components.length > 0 &&
+			components.length < toolStates.length &&
+			(!this.#preservedActive || this.#preservedActive.size === 0)
+		) {
+			// Collapsed-history suffix alignment: the visible tail is a
+			// suffix of the branch walk, so pair the components with the
+			// newest states in chronological order. Conservative guard set:
+			// exact counts take the branch above, an empty or over-sized
+			// visible set is not a suffix, preserved active ownership (a
+			// live run before the rebuild) makes a partial re-add genuinely
+			// ambiguous, and an unarmed restore override means the rebuild
+			// belongs to a live session rather than a restored history —
+			// those stay native.
+			const offset = toolStates.length - components.length;
+			for (let index = 0; index < components.length; index++) {
+				const component = components[index];
+				const state = toolStates[offset + index];
 				if (component && state) this.bind(component, state);
 			}
 		}
@@ -260,43 +296,67 @@ export class ComponentBinding {
 				const group = groups[index];
 				const ledger = this.#hydratedReadLedgers[index];
 				if (!group || !ledger) continue;
-				group.ledger = ledger;
-				for (const state of this.#states.values()) {
-					if (
-						state.toolName === "read" &&
-						state.ledger === ledger &&
-						!state.component
-					) {
-						state.component = group.component;
-						// The replay mapping is this group's complete observed
-						// set: compact rows (and terminal hiding of routine
-						// reads) apply to replayed groups as to live ones.
-						group.observedIds.add(state.id);
-					}
-				}
-				group.version++;
+				this.#assignReadLedger(group, ledger);
+			}
+		} else if (
+			allowOrder &&
+			restoredArmed &&
+			groups.length > 0 &&
+			groups.length < this.#hydratedReadLedgers.length &&
+			(!this.#preservedActive || this.#preservedActive.size === 0)
+		) {
+			// Collapsed-history suffix alignment for reads (same contract as
+			// tool components): the rendered read groups are the newest tail
+			// of the branch's read ledgers, so pair them with the trailing
+			// ledgers in order.
+			const offset = this.#hydratedReadLedgers.length - groups.length;
+			for (let index = 0; index < groups.length; index++) {
+				const group = groups[index];
+				const ledger = this.#hydratedReadLedgers[offset + index];
+				if (!group || !ledger) continue;
+				this.#assignReadLedger(group, ledger);
 			}
 		}
-		// The queue drains unconditionally: components that could not be paired
-		// stay native rather than re-attempting later. If no component was
-		// discovered, an unbound state has no visual surface to invalidate.
-		const hasUnboundComponents = this.#unboundComponents.length > 0;
-		const unresolvedStates =
-			hasUnboundComponents &&
-			[...this.#states.values()].some((state) => !state.component);
+		// The queue drains unconditionally: components that could not be
+		// paired stay native rather than re-attempting later. Only visible
+		// surfaces that failed to pair are unresolved — hidden-prefix states
+		// (collapsed history) have no rendered component and must not make a
+		// fully paired visible presentation report unmapped.
+		const unresolvedStates = this.#unboundComponents.length > 0;
 		const unresolvedGroups = [...this.#groups].some(
 			(group) => group.ledger === undefined,
 		);
-		const mapped =
-			this.#unboundComponents.length === 0 &&
-			!unresolvedStates &&
-			!unresolvedGroups;
+		const mapped = !unresolvedStates && !unresolvedGroups;
 		// Drain both queues unconditionally: components and ledgers that could
 		// not be paired stay native. Ledgers not cleared would corrupt the next
 		// hydration's cardinality check.
 		this.#unboundComponents.length = 0;
 		this.#hydratedReadLedgers.length = 0;
 		return mapped;
+	}
+
+	/**
+	 * Pair a reconstructed read group with a hydrated read ledger: the
+	 * group claims every unbound `read` state of that ledger as its
+	 * observed set, so compact rows (and terminal hiding of routine reads)
+	 * apply to replayed groups as to live ones.
+	 */
+	#assignReadLedger(group: GroupState, ledger: TurnLedger): void {
+		group.ledger = ledger;
+		for (const state of this.#states.values()) {
+			if (
+				state.toolName === "read" &&
+				state.ledger === ledger &&
+				!state.component
+			) {
+				state.component = group.component;
+				// The replay mapping is this group's complete observed set:
+				// compact rows (and terminal hiding of routine reads) apply
+				// to replayed groups as to live ones.
+				group.observedIds.add(state.id);
+			}
+		}
+		group.version++;
 	}
 
 	/**

@@ -442,6 +442,100 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(read.component).toBe(groupComponent);
 		expect(binding.groupState(groupComponent)?.ledger).toBe(read.ledger);
 	});
+
+	test("bindHydrated suffix-aligns a visible tool tail over hidden prefix states", () => {
+		const { binding, states } = makeBinding();
+		const tail = new FakeToolComponent();
+		const old = makeState({ id: "call-1", toolName: "bash" });
+		const mid = makeState({ id: "call-2", toolName: "glob" });
+		const newest = makeState({ id: "call-3", toolName: "bash" });
+		states.set("call-1", old);
+		states.set("call-2", mid);
+		states.set("call-3", newest);
+		binding.registerUnboundComponent(tail);
+		// Stock collapses the compacted/summarized history behind the
+		// summary divider (`display.collapseCompacted`) and reconstructs
+		// components only for the newest tail, so fewer visible components
+		// than branch states is the normal cold-launch shape, not a
+		// mismatch. The visible tail pairs with the newest states in
+		// chronological order; the hidden prefix has no surface and never
+		// blocks the mapped result.
+		expect(binding.bindHydrated(true)).toBe(true);
+		expect(newest.component).toBe(tail);
+		expect(old.component).toBeUndefined();
+		expect(mid.component).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("bindHydrated suffix-aligns read groups to the trailing ledgers", () => {
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		binding.createGroup(groupComponent, false);
+		const first = makeState({ id: "read-1", toolName: "read" });
+		const last = makeState({ id: "read-2", toolName: "read" });
+		states.set("read-1", first);
+		states.set("read-2", last);
+		binding.addHydratedReadLedger(first.ledger);
+		binding.addHydratedReadLedger(last.ledger);
+		expect(binding.bindHydrated(true)).toBe(true);
+		expect(binding.groupState(groupComponent)?.ledger).toBe(last.ledger);
+		expect(first.component).toBeUndefined();
+		expect(last.component).toBe(groupComponent);
+	});
+
+	test("bindHydrated refuses suffix alignment under preserved active ownership", () => {
+		const { binding, states } = makeBinding();
+		const old = makeState({ id: "call-1", toolName: "bash" });
+		const newest = makeState({ id: "call-2", toolName: "bash" });
+		states.set("call-1", old);
+		states.set("call-2", newest);
+		const liveOld = new FakeToolComponent();
+		const liveNew = new FakeToolComponent();
+		binding.bind(liveOld, old);
+		binding.bind(liveNew, newest);
+		// A live run existed before the rebuild: the exact component ↔ state
+		// ownership is preserved across the clear. A re-added instance that
+		// is not the same object is genuinely ambiguous (it may correspond
+		// to any of the preserved calls), so positional suffix guessing must
+		// stay off — the component renders native.
+		binding.preserveActive([old, newest]);
+		const tail = new FakeToolComponent();
+		binding.registerUnboundComponent(tail);
+		expect(binding.bindHydrated(true)).toBe(false);
+		expect(old.component).toBeUndefined();
+		expect(newest.component).toBeUndefined();
+	});
+
+	test("bindHydrated skips suffix alignment when the restore override is not armed", () => {
+		const { binding, states } = makeBinding();
+		const old = makeState({ id: "call-1", toolName: "bash" });
+		const newest = makeState({ id: "call-2", toolName: "bash" });
+		states.set("call-1", old);
+		states.set("call-2", newest);
+		const tail = new FakeToolComponent();
+		binding.registerUnboundComponent(tail);
+		// A live-session rebuild (no restore override armed): the single
+		// visible component may correspond to either call, so positional
+		// suffix guessing stays off and the surface renders native.
+		expect(binding.bindHydrated(true, false)).toBe(false);
+		expect(old.component).toBeUndefined();
+		expect(newest.component).toBeUndefined();
+	});
+
+	test("bindHydrated fails open when visible components exceed states", () => {
+		const { binding, states } = makeBinding();
+		const first = new FakeToolComponent();
+		const second = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.registerUnboundComponent(first);
+		binding.registerUnboundComponent(second);
+		// More components than states cannot be a suffix of the branch:
+		// nothing pairs and the surfaces stay native.
+		expect(binding.bindHydrated(true)).toBe(false);
+		expect(state.component).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([]);
+	});
 });
 
 describe("ComponentBinding: rebuild identity window", () => {
