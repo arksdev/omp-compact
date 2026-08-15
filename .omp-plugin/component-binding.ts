@@ -49,6 +49,18 @@ export interface BindingDelegates {
 	unmarkPending(state: ToolState): boolean;
 }
 
+/**
+ * One contiguous run of read states queued for read-group pairing. The
+ * rebuild/hydration walk emits one entry per maximal run (same ledger, no
+ * interleaved non-read); `stateIds` are the exact state ids of the run in
+ * chronological order. `stateIds === undefined` is the legacy ledger-level
+ * queue shape, resolved at pair time to the ledger's unbound read states.
+ */
+interface HydratedReadSegment {
+	ledger: TurnLedger;
+	stateIds: readonly string[] | undefined;
+}
+
 function objectRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
@@ -67,7 +79,18 @@ export class ComponentBinding {
 	#groupStates = new WeakMap<object, GroupState>();
 	readonly #groups = new Set<GroupState>();
 	#unboundComponents: RenderableBlock[] = [];
-	#hydratedReadLedgers: TurnLedger[] = [];
+	/**
+	 * Replayed read segments queued for group pairing (chronological
+	 * branch order). A segment is one maximal contiguous run of read
+	 * states; a single ledger can contribute several segments when a run
+	 * interleaves a non-read (read, bash, read). Pairing claims only the
+	 * segment's exact state ids, so a later segment of the same ledger is
+	 * never starved by the first group claiming the whole ledger.
+	 * `stateIds === undefined` is the legacy ledger-level queue shape,
+	 * resolved at pair time to the ledger's unbound read states — kept
+	 * only for unit tests that queue one read state per ledger.
+	 */
+	#hydratedReadSegments: HydratedReadSegment[] = [];
 	/**
 	 * Rebuild identity window: the exact active component ↔ state
 	 * associations captured by `preserveActive` before a rebuild detaches
@@ -126,12 +149,32 @@ export class ComponentBinding {
 
 	/** Ledgers queued for read-group pairing (replay/rebuild hydration). */
 	hydratedReadLedgers(): readonly TurnLedger[] {
-		return [...this.#hydratedReadLedgers];
+		return this.#hydratedReadSegments.map((segment) => segment.ledger);
 	}
 
-	/** Queue a replayed read ledger for group pairing (chronological). */
+	/**
+	 * Queue a replayed read ledger for group pairing (chronological).
+	 * Legacy ledger-level shape: the segment's ids resolve at pair time to
+	 * every unbound read state of the ledger. Production walks queue exact
+	 * segment ids through `addHydratedReadSegment`; this form exists only
+	 * for unit tests that queue one read state per ledger.
+	 */
 	addHydratedReadLedger(ledger: TurnLedger): void {
-		this.#hydratedReadLedgers.push(ledger);
+		this.#hydratedReadSegments.push({ ledger, stateIds: undefined });
+	}
+
+	/**
+	 * Queue one contiguous read segment with its exact state ids. The
+	 * rebuild/hydration walk emits one entry per maximal run of read
+	 * states (same ledger, no interleaved non-read); repeated segments of
+	 * the same ledger pair against separate groups without zero-claim
+	 * starvation.
+	 */
+	addHydratedReadSegment(
+		ledger: TurnLedger,
+		stateIds: readonly string[],
+	): void {
+		this.#hydratedReadSegments.push({ ledger, stateIds });
 	}
 
 	/**
@@ -300,27 +343,27 @@ export class ComponentBinding {
 			allowOrder &&
 			restoredArmed &&
 			visibleGroups.length > 0 &&
-			visibleGroups.length <= this.#hydratedReadLedgers.length &&
+			visibleGroups.length <= this.#hydratedReadSegments.length &&
 			(!this.#preservedActive || this.#preservedActive.size === 0);
 		if (
 			allowOrder &&
-			strictGroups.length === this.#hydratedReadLedgers.length
+			strictGroups.length === this.#hydratedReadSegments.length
 		) {
 			for (let index = 0; index < strictGroups.length; index++) {
 				const group = strictGroups[index];
-				const ledger = this.#hydratedReadLedgers[index];
-				if (!group || !ledger) continue;
-				this.#assignReadLedger(group, ledger);
+				const segment = this.#hydratedReadSegments[index];
+				if (!group || !segment) continue;
+				this.#assignReadSegment(group, segment);
 			}
 		} else if (restoredSuffix) {
 			// Collapsed-history suffix alignment for reads (same contract as
 			// tool components): the rendered read groups are the newest tail
-			// of the branch's read ledgers, so pair them with the trailing
-			// ledgers in order. The offset is computed against ALL visible
+			// of the branch's read segments, so pair them with the trailing
+			// segments in order. The offset is computed against ALL visible
 			// groups — exact-bound groups occupy their own suffix slots, so
-			// an unbound-only count would double-assign their ledgers and
+			// an unbound-only count would double-assign their segments and
 			// leave duplicate zero-claim groups rendering zero rows.
-			const offset = this.#hydratedReadLedgers.length - visibleGroups.length;
+			const offset = this.#hydratedReadSegments.length - visibleGroups.length;
 			// Every already-complete group must sit exactly where its ledger
 			// lands in the suffix window; any mismatch means the ordinal
 			// alignment is unproven and the whole fallback fails open.
@@ -328,7 +371,9 @@ export class ComponentBinding {
 			for (let index = 0; index < visibleGroups.length; index++) {
 				const group = visibleGroups[index];
 				if (group.ledger === undefined) continue;
-				if (group.ledger !== this.#hydratedReadLedgers[offset + index]) {
+				if (
+					group.ledger !== this.#hydratedReadSegments[offset + index]?.ledger
+				) {
 					aligned = false;
 					break;
 				}
@@ -336,8 +381,8 @@ export class ComponentBinding {
 			if (aligned) {
 				for (let index = 0; index < visibleGroups.length; index++) {
 					const group = visibleGroups[index];
-					const ledger = this.#hydratedReadLedgers[offset + index];
-					if (!group || !ledger || group.ledger !== undefined) continue;
+					const segment = this.#hydratedReadSegments[offset + index];
+					if (!group || !segment || group.ledger !== undefined) continue;
 					// Unresolved observed ids are tolerable only here (proven
 					// restored suffix): an id resolving to a non-read state,
 					// a claimed component, or a different ledger marks the
@@ -349,14 +394,14 @@ export class ComponentBinding {
 							state !== undefined &&
 							(state.toolName !== "read" ||
 								state.component !== undefined ||
-								state.ledger !== ledger)
+								state.ledger !== segment.ledger)
 						) {
 							ambiguous = true;
 							break;
 						}
 					}
 					if (ambiguous) continue;
-					this.#assignReadLedger(group, ledger);
+					this.#assignReadSegment(group, segment);
 				}
 			}
 		}
@@ -370,38 +415,48 @@ export class ComponentBinding {
 			(group) => group.ledger === undefined,
 		);
 		const mapped = !unresolvedStates && !unresolvedGroups;
-		// Drain both queues unconditionally: components and ledgers that could
-		// not be paired stay native. Ledgers not cleared would corrupt the next
-		// hydration's cardinality check.
+		// Drain both queues unconditionally: components and segments that
+		// could not be paired stay native. Segments not cleared would corrupt
+		// the next hydration's cardinality check.
 		this.#unboundComponents.length = 0;
-		this.#hydratedReadLedgers.length = 0;
+		this.#hydratedReadSegments.length = 0;
 		return mapped;
 	}
 
 	/**
-	 * Pair a reconstructed read group with a hydrated read ledger: the
-	 * group claims every unbound `read` state of that ledger, and its
-	 * observed set is replaced by the claimed state ids so the replay
-	 * mapping is complete. A ledger whose states are all claimed elsewhere
-	 * must not be marked on the group — a zero-claim ledger-marked group
-	 * would render zero rows (the output-reset regression) — the group
-	 * stays unbound and renders native.
+	 * Pair a reconstructed read group with a hydrated read segment: the
+	 * group claims every unbound `read` state of the segment's exact ids
+	 * (legacy ledger-level entries resolve to the ledger's unbound read
+	 * states), and its observed set is replaced by the claimed state ids
+	 * so the replay mapping is complete. A segment whose states are all
+	 * claimed elsewhere must not be marked on the group — a zero-claim
+	 * ledger-marked group would render zero rows (the output-reset
+	 * regression) — the group stays unbound and renders native.
 	 */
-	#assignReadLedger(group: GroupState, ledger: TurnLedger): boolean {
-		group.ledger = ledger;
+	#assignReadSegment(group: GroupState, segment: HydratedReadSegment): boolean {
+		group.ledger = segment.ledger;
 		const claimed: string[] = [];
-		for (const state of this.#states.values()) {
+		const ids =
+			segment.stateIds ??
+			[...this.#states.values()]
+				.filter(
+					(state) =>
+						state.toolName === "read" && state.ledger === segment.ledger,
+				)
+				.map((state) => state.id);
+		for (const id of ids) {
+			const state = this.#states.get(id);
 			if (
-				state.toolName === "read" &&
-				state.ledger === ledger &&
+				state?.toolName === "read" &&
+				state.ledger === segment.ledger &&
 				!state.component
 			) {
 				state.component = group.component;
-				claimed.push(state.id);
+				claimed.push(id);
 			}
 		}
 		if (claimed.length === 0) {
-			// A zero-claim ledger mark would render zero rows (the
+			// A zero-claim segment mark would render zero rows (the
 			// output-reset regression): fail open to native instead.
 			group.ledger = undefined;
 			return false;
@@ -709,7 +764,7 @@ export class ComponentBinding {
 		this.#groupStates = new WeakMap<object, GroupState>();
 		this.#groups.clear();
 		this.#unboundComponents.length = 0;
-		this.#hydratedReadLedgers.length = 0;
+		this.#hydratedReadSegments.length = 0;
 		for (const state of this.#states.values()) state.component = undefined;
 	}
 

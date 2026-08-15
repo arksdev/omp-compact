@@ -468,16 +468,7 @@ export class RuntimeSessionState {
 		if (ledger?.phase === "working")
 			this.finalizeLedger(ledger, { messages: [], willContinue: false });
 		this.#ledger = ledger;
-		let previousReadLedger: TurnLedger | undefined;
-		for (const state of this.#states.values()) {
-			if (state.toolName === "read") {
-				if (state.ledger !== previousReadLedger)
-					this.binding.addHydratedReadLedger(state.ledger);
-				previousReadLedger = state.ledger;
-			} else {
-				previousReadLedger = undefined;
-			}
-		}
+		this.#queueReadSegments();
 		this.#pendingStates.clear();
 		this.binding.bindHydrated(
 			true,
@@ -698,16 +689,7 @@ export class RuntimeSessionState {
 			this.finalizeLedger(walkLedger, { messages: [], willContinue: false });
 		}
 		this.#ledger = activeLedger ?? walkLedger;
-		let previousReadLedger: TurnLedger | undefined;
-		for (const state of this.#states.values()) {
-			if (state.toolName === "read") {
-				if (state.ledger !== previousReadLedger)
-					this.binding.addHydratedReadLedger(state.ledger);
-				previousReadLedger = state.ledger;
-			} else {
-				previousReadLedger = undefined;
-			}
-		}
+		this.#queueReadSegments();
 		// Active pending states stay pending (spinner semantics); walk
 		// states of finalized historical segments are drained.
 		for (const state of [...this.#pendingStates]) {
@@ -731,6 +713,38 @@ export class RuntimeSessionState {
 		this.binding.clearPreserved();
 		this.#insertHydratedStatsCarriers();
 		return { generation: this.#generation, mapped };
+	}
+
+	/**
+	 * Queue read-group pairing entries for the hydrated states: one entry
+	 * per maximal contiguous run of `read` states in chronological
+	 * (insertion) order — a non-read state or a different ledger starts a
+	 * new segment. A single ledger spanning several runs contributes
+	 * several segments with their exact state ids, so pairing never hands
+	 * the whole ledger to the first group (zero-claim starvation of later
+	 * segments rendering native).
+	 */
+	#queueReadSegments(): void {
+		let previousReadLedger: TurnLedger | undefined;
+		let segmentIds: string[] = [];
+		const flushSegment = (): void => {
+			if (previousReadLedger !== undefined && segmentIds.length > 0)
+				this.binding.addHydratedReadSegment(previousReadLedger, segmentIds);
+			previousReadLedger = undefined;
+			segmentIds = [];
+		};
+		for (const state of this.#states.values()) {
+			if (state.toolName === "read") {
+				if (state.ledger !== previousReadLedger) {
+					flushSegment();
+					previousReadLedger = state.ledger;
+				}
+				segmentIds.push(state.id);
+			} else {
+				flushSegment();
+			}
+		}
+		flushSegment();
 	}
 
 	/**

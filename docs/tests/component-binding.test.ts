@@ -617,6 +617,37 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(first.component).toBeUndefined();
 	});
 
+	test("one ledger with two read segments pairs each group to its own segment", () => {
+		const { binding, states } = makeBinding();
+		const firstComponent = new FakeReadGroup();
+		const secondComponent = new FakeReadGroup();
+		binding.createGroup(firstComponent, false);
+		binding.createGroup(secondComponent, false);
+		// One logical run interleaves a non-read between reads (read-a,
+		// bash, read-b): the SAME ledger holds two separate contiguous read
+		// segments. The rebuild/hydration walk queues one entry per segment
+		// with its exact state ids — ledger-level pairing would hand every
+		// unbound read of the ledger to the first group and leave the
+		// second with a zero-claim mark (native output-reset regression).
+		const ledger = new TurnLedger("bind-seg");
+		const readA = makeState({ id: "read-a", toolName: "read", ledger });
+		const bash = makeState({ id: "bash-1", toolName: "bash", ledger });
+		const readB = makeState({ id: "read-b", toolName: "read", ledger });
+		for (const state of [readA, bash, readB]) states.set(state.id, state);
+		binding.addHydratedReadSegment(ledger, [readA.id]);
+		binding.addHydratedReadSegment(ledger, [readB.id]);
+		expect(binding.bindHydrated(true)).toBe(true);
+		const first = binding.groupState(firstComponent);
+		const second = binding.groupState(secondComponent);
+		expect(first?.ledger).toBe(ledger);
+		expect(second?.ledger).toBe(ledger);
+		if (!first || !second) throw new Error("segment groups must pair");
+		expect(binding.mappedReadStates(first)).toEqual([readA]);
+		expect(binding.mappedReadStates(second)).toEqual([readB]);
+		expect(binding.groupCompletelyMapped(first)).toBe(true);
+		expect(binding.groupCompletelyMapped(second)).toBe(true);
+	});
+
 	test("bindHydrated refuses suffix alignment under preserved active ownership", () => {
 		const { binding, states } = makeBinding();
 		const old = makeState({ id: "call-1", toolName: "bash" });
