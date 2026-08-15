@@ -61,6 +61,11 @@ export interface TranscriptInstance extends Renderable {
 	addChild(child: unknown): void;
 	children: unknown[];
 	clear(): void;
+	/**
+	 * Optional capability: hosts check presence before patching (see
+	 * host-adapter's capability guard), and seam transcripts may lack it.
+	 */
+	disposeChildren?(): void;
 	setToolActivityVisible(visible: boolean): void;
 	/**
 	 * Optional capability: hosts check presence before patching (see

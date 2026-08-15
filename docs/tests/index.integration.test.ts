@@ -7028,6 +7028,58 @@ stockTest(
 );
 
 stockTest(
+	"in-process /resume rebuild through disposeChildren keeps the restored history compact",
+	async () => {
+		// Stock `renderInitialMessages` without `preserveExistingChat` swaps
+		// the staged transcript in via `visibleChatContainer.disposeChildren()`
+		// (ui-helpers.ts), NOT `clear()` — every in-process resume caller
+		// (`ctx.switchSession`, `/resume` picker, tree navigation, reload)
+		// takes that branch. The disposeChildren path internally calls the
+		// container's `clear`, so the C02 rebuild boundary must still fire and
+		// the re-added instances must bind compact under the armed restore
+		// override — never fall through to native rows.
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		// a brand-new session hydrates nothing and replays nothing
+		expect(booted.harness.resetCalls).toBe(0);
+		harness.branch.current = committedSingleToolBranch(
+			"printf first",
+			"bash-1",
+			"first done",
+		);
+		await dispatch(booted, { type: "session_before_switch", reason: "resume" });
+		await dispatch(booted, { type: "session_switch", reason: "resume" });
+		// stock renderInitialMessages swap: disposeChildren (native dispose of
+		// every child + the container's clear) instead of a bare clear
+		const transcript = booted.transcript;
+		expect(typeof transcript.disposeChildren).toBe("function");
+		transcript.disposeChildren?.();
+		expect(booted.harness.clears).toBe(1);
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf first" },
+			"bash-1",
+		);
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-1",
+		);
+		addAnswer(booted, "first done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		// the restored history binds compact under the armed override —
+		// native rows would leak if the boundary never fired
+		expect(rows).toContain("bash: printf first");
+		expect(rows).toContain("first done");
+		// exactly one full replay for the resumed generation
+		expect(booted.harness.resetCalls).toBe(1);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"session_switch with reason new does not re-arm the restore view",
 	async () => {
 		const harness = rebuildHarness();
