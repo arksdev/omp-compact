@@ -702,6 +702,7 @@ describe("runtime modes", () => {
 			store,
 			finalized: [],
 			renders: { render: 0, components: [] },
+			warned: [],
 		});
 		addTool(
 			{
@@ -711,6 +712,7 @@ describe("runtime modes", () => {
 				store,
 				finalized: [],
 				renders: { render: 0, components: [] },
+				warned: [],
 			},
 			"bash",
 			"bash-1",
@@ -964,6 +966,7 @@ describe("restore override (upgrade2 item 3)", () => {
 			store,
 			finalized,
 			renders,
+			warned: [],
 		}).join("\n");
 		expect(restoredRows).toContain("bash: printf replay");
 		expect(restoredRows).not.toContain("native-bash");
@@ -973,13 +976,13 @@ describe("restore override (upgrade2 item 3)", () => {
 		await policy.prepareRun();
 		adapter.beginRun();
 		addTool(
-			{ adapter, transcript, policy, store, finalized, renders },
+			{ adapter, transcript, policy, store, finalized, renders, warned: [] },
 			"bash",
 			"b2",
 			{ command: "printf next" },
 		);
 		settle(
-			{ adapter, transcript, policy, store, finalized, renders },
+			{ adapter, transcript, policy, store, finalized, renders, warned: [] },
 			"b2",
 			"bash",
 			{ content: [{ type: "text", text: "ok" }] },
@@ -992,6 +995,7 @@ describe("restore override (upgrade2 item 3)", () => {
 			store,
 			finalized,
 			renders,
+			warned: [],
 		}).join("\n");
 		expect(rows).toContain("bash: printf replay");
 		// live filters the routine rows of the new run

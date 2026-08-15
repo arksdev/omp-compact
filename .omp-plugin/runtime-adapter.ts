@@ -902,7 +902,9 @@ export class RuntimeAdapter {
 						args,
 					);
 					if (status === "ambiguous") {
-						this.#rollback("omp-compact disabled: ambiguous toolCallId binding");
+						this.#rollback(
+							"omp-compact disabled: ambiguous toolCallId binding",
+						);
 						return;
 					}
 				} catch (error) {
