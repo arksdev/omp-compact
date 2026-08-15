@@ -467,6 +467,99 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(binding.unboundComponents()).toEqual([]);
 	});
 
+	test("duplicate-ledger group stays unbound instead of a zero-claim ledger mark", () => {
+		const { binding, states } = makeBinding();
+		const duplicateComponent = new FakeReadGroup();
+		const ownerComponent = new FakeReadGroup();
+		binding.createGroup(duplicateComponent, false);
+		const owner = binding.createGroup(ownerComponent, false);
+		const reads = ["read-1", "read-2"].map((id) =>
+			makeState({ id, toolName: "read" }),
+		);
+		for (const read of reads) states.set(read.id, read);
+		binding.addHydratedReadLedger(reads[0].ledger);
+		binding.addHydratedReadLedger(reads[1].ledger);
+		// The initial-replay owner claimed BOTH ledgers' read states; its
+		// own ledger ends on the last claim (L2), matching its suffix slot
+		// at index 1. The fresh rebuild group ordinals into L1's slot where
+		// every state is already claimed — it must stay unbound (native
+		// fail-open) instead of carrying a zero-claim ledger mark that
+		// renders zero rows and erases native output.
+		binding.observeReadMethod(owner, ownerComponent, "updateArgs", [
+			{ path: "/a" },
+			"read-1",
+		]);
+		binding.observeReadMethod(owner, ownerComponent, "updateArgs", [
+			{ path: "/b" },
+			"read-2",
+		]);
+		// Unresolved duplicate → bindHydrated reports unmapped (native),
+		// never a resolved-but-empty ledger mark.
+		expect(binding.bindHydrated(true)).toBe(false);
+		const dupGroup = binding.groupState(duplicateComponent);
+		expect(dupGroup).toBeDefined();
+		expect(dupGroup!.ledger).toBeUndefined();
+		expect(binding.mappedReadStates(dupGroup!)).toEqual([]);
+	});
+
+	test("bindHydrated ordinal offset accounts for exact-bound groups (no duplicate zero-claim)", () => {
+		const { binding, states } = makeBinding();
+		const staleMid1Component = new FakeReadGroup();
+		const staleMid2Component = new FakeReadGroup();
+		const exactTail1Component = new FakeReadGroup();
+		const exactTail2Component = new FakeReadGroup();
+		const staleMid1 = binding.createGroup(staleMid1Component, false);
+		const staleMid2 = binding.createGroup(staleMid2Component, false);
+		const exactTail1 = binding.createGroup(exactTail1Component, false);
+		const exactTail2 = binding.createGroup(exactTail2Component, false);
+		// The newest tail groups resolve exact ids first (they observed the
+		// real branch ids) and claim the trailing ledgers. The middle groups
+		// carry stale replay ids the branch walk never materialized. The
+		// ordinal fallback must align against ALL visible groups, otherwise
+		// the unbound-only offset double-assigns the exact groups' ledgers
+		// and the middle groups end up ledger-marked with zero mapped reads
+		// (the output-reset regression: rendered zero rows).
+		const reads = ["read-1", "read-2", "read-3", "read-4"].map((id) =>
+			makeState({ id, toolName: "read" }),
+		);
+		for (const read of reads) states.set(read.id, read);
+		binding.addHydratedReadLedger(reads[0].ledger);
+		binding.addHydratedReadLedger(reads[1].ledger);
+		binding.addHydratedReadLedger(reads[2].ledger);
+		binding.addHydratedReadLedger(reads[3].ledger);
+		binding.observeReadMethod(staleMid1, staleMid1Component, "updateArgs", [
+			{ path: "/a" },
+			"stale-1",
+		]);
+		binding.observeReadMethod(staleMid2, staleMid2Component, "updateArgs", [
+			{ path: "/b" },
+			"stale-2",
+		]);
+		binding.observeReadMethod(exactTail1, exactTail1Component, "updateArgs", [
+			{ path: "/c" },
+			"read-3",
+		]);
+		binding.observeReadMethod(exactTail2, exactTail2Component, "updateArgs", [
+			{ path: "/d" },
+			"read-4",
+		]);
+		expect(binding.bindHydrated(true)).toBe(true);
+		const expectMapped = (
+			component: FakeReadGroup,
+			read: ReturnType<typeof makeState>,
+		) => {
+			const group = binding.groupState(component);
+			expect(group).toBeDefined();
+			expect(group!.ledger).toBe(read.ledger);
+			expect(binding.mappedReadStates(group!)).toEqual([read]);
+			expect(binding.groupCompletelyMapped(group!)).toBe(true);
+		};
+		expectMapped(staleMid1Component, reads[0]);
+		expectMapped(staleMid2Component, reads[1]);
+		expectMapped(exactTail1Component, reads[2]);
+		expectMapped(exactTail2Component, reads[3]);
+	});
+
 	test("bindHydrated suffix-aligns read groups to the trailing ledgers", () => {
 		const { binding, states } = makeBinding();
 		const groupComponent = new FakeReadGroup();
@@ -481,6 +574,47 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(binding.groupState(groupComponent)?.ledger).toBe(last.ledger);
 		expect(first.component).toBeUndefined();
 		expect(last.component).toBe(groupComponent);
+	});
+
+	test("bindHydrated suffix-aligns read groups carrying unresolved observed ids", () => {
+		const { binding, states } = makeBinding();
+		const midGroupComponent = new FakeReadGroup();
+		const tailGroupComponent = new FakeReadGroup();
+		const midGroup = binding.createGroup(midGroupComponent, false);
+		const tailGroup = binding.createGroup(tailGroupComponent, false);
+		// Restored collapsed history: stock replays the tail read groups and
+		// their `updateArgs` carry ids the branch walk never materialized as
+		// states (streamed/provisional or stale replay ids). Exact-ID
+		// resolution fails — the groups must still join the ordinal suffix
+		// pairing inside the proven restored context (restoredArmed=true,
+		// no preserved active) instead of staying native.
+		binding.observeReadMethod(midGroup, midGroupComponent, "updateArgs", [
+			{ path: "/a" },
+			"stale-mid-1",
+		]);
+		binding.observeReadMethod(midGroup, midGroupComponent, "updateArgs", [
+			{ path: "/b" },
+			"stale-mid-2",
+		]);
+		binding.observeReadMethod(tailGroup, tailGroupComponent, "updateArgs", [
+			{ path: "/c" },
+			"stale-tail-1",
+		]);
+		const first = makeState({ id: "read-1", toolName: "read" });
+		const mid = makeState({ id: "read-2", toolName: "read" });
+		const last = makeState({ id: "read-3", toolName: "read" });
+		states.set("read-1", first);
+		states.set("read-2", mid);
+		states.set("read-3", last);
+		binding.addHydratedReadLedger(first.ledger);
+		binding.addHydratedReadLedger(mid.ledger);
+		binding.addHydratedReadLedger(last.ledger);
+		expect(binding.bindHydrated(true)).toBe(true);
+		expect(binding.groupState(midGroupComponent)?.ledger).toBe(mid.ledger);
+		expect(binding.groupState(tailGroupComponent)?.ledger).toBe(last.ledger);
+		expect(mid.component).toBe(midGroupComponent);
+		expect(last.component).toBe(tailGroupComponent);
+		expect(first.component).toBeUndefined();
 	});
 
 	test("bindHydrated refuses suffix alignment under preserved active ownership", () => {

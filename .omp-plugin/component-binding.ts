@@ -288,33 +288,76 @@ export class ComponentBinding {
 		// Reconstructed groups can receive updateArgs before branch hydration
 		// created their states. Those exact IDs outrank ordinal fallback.
 		this.#bindObservedReadGroups();
-		const groups = [...this.#groups].filter(
-			(group) => group.ledger === undefined && group.observedIds.size === 0,
+		const visibleGroups = [...this.#groups];
+		const strictGroups = visibleGroups.filter(
+			(group) => group.observedIds.size === 0,
 		);
-		if (allowOrder && groups.length === this.#hydratedReadLedgers.length) {
-			for (let index = 0; index < groups.length; index++) {
-				const group = groups[index];
+		// Ordinal pairing never guesses a group whose observed ids resolved
+		// to exact-bound states elsewhere (cross-ledger ambiguity), and
+		// unresolved observed-ID groups stay native outside the restored
+		// suffix — a live/ambiguous rebuild must not guess their position.
+		const restoredSuffix =
+			allowOrder &&
+			restoredArmed &&
+			visibleGroups.length > 0 &&
+			visibleGroups.length <= this.#hydratedReadLedgers.length &&
+			(!this.#preservedActive || this.#preservedActive.size === 0);
+		if (
+			allowOrder &&
+			strictGroups.length === this.#hydratedReadLedgers.length
+		) {
+			for (let index = 0; index < strictGroups.length; index++) {
+				const group = strictGroups[index];
 				const ledger = this.#hydratedReadLedgers[index];
 				if (!group || !ledger) continue;
 				this.#assignReadLedger(group, ledger);
 			}
-		} else if (
-			allowOrder &&
-			restoredArmed &&
-			groups.length > 0 &&
-			groups.length < this.#hydratedReadLedgers.length &&
-			(!this.#preservedActive || this.#preservedActive.size === 0)
-		) {
+		} else if (restoredSuffix) {
 			// Collapsed-history suffix alignment for reads (same contract as
 			// tool components): the rendered read groups are the newest tail
 			// of the branch's read ledgers, so pair them with the trailing
-			// ledgers in order.
-			const offset = this.#hydratedReadLedgers.length - groups.length;
-			for (let index = 0; index < groups.length; index++) {
-				const group = groups[index];
-				const ledger = this.#hydratedReadLedgers[offset + index];
-				if (!group || !ledger) continue;
-				this.#assignReadLedger(group, ledger);
+			// ledgers in order. The offset is computed against ALL visible
+			// groups — exact-bound groups occupy their own suffix slots, so
+			// an unbound-only count would double-assign their ledgers and
+			// leave duplicate zero-claim groups rendering zero rows.
+			const offset = this.#hydratedReadLedgers.length - visibleGroups.length;
+			// Every already-complete group must sit exactly where its ledger
+			// lands in the suffix window; any mismatch means the ordinal
+			// alignment is unproven and the whole fallback fails open.
+			let aligned = true;
+			for (let index = 0; index < visibleGroups.length; index++) {
+				const group = visibleGroups[index];
+				if (group.ledger === undefined) continue;
+				if (group.ledger !== this.#hydratedReadLedgers[offset + index]) {
+					aligned = false;
+					break;
+				}
+			}
+			if (aligned) {
+				for (let index = 0; index < visibleGroups.length; index++) {
+					const group = visibleGroups[index];
+					const ledger = this.#hydratedReadLedgers[offset + index];
+					if (!group || !ledger || group.ledger !== undefined) continue;
+					// Unresolved observed ids are tolerable only here (proven
+					// restored suffix): an id resolving to a non-read state,
+					// a claimed component, or a different ledger marks the
+					// group ambiguous — it stays native.
+					let ambiguous = false;
+					for (const id of group.observedIds) {
+						const state = this.#states.get(id);
+						if (
+							state !== undefined &&
+							(state.toolName !== "read" ||
+								state.component !== undefined ||
+								state.ledger !== ledger)
+						) {
+							ambiguous = true;
+							break;
+						}
+					}
+					if (ambiguous) continue;
+					this.#assignReadLedger(group, ledger);
+				}
 			}
 		}
 		// The queue drains unconditionally: components that could not be
@@ -337,12 +380,16 @@ export class ComponentBinding {
 
 	/**
 	 * Pair a reconstructed read group with a hydrated read ledger: the
-	 * group claims every unbound `read` state of that ledger as its
-	 * observed set, so compact rows (and terminal hiding of routine reads)
-	 * apply to replayed groups as to live ones.
+	 * group claims every unbound `read` state of that ledger, and its
+	 * observed set is replaced by the claimed state ids so the replay
+	 * mapping is complete. A ledger whose states are all claimed elsewhere
+	 * must not be marked on the group — a zero-claim ledger-marked group
+	 * would render zero rows (the output-reset regression) — the group
+	 * stays unbound and renders native.
 	 */
-	#assignReadLedger(group: GroupState, ledger: TurnLedger): void {
+	#assignReadLedger(group: GroupState, ledger: TurnLedger): boolean {
 		group.ledger = ledger;
+		const claimed: string[] = [];
 		for (const state of this.#states.values()) {
 			if (
 				state.toolName === "read" &&
@@ -350,13 +397,23 @@ export class ComponentBinding {
 				!state.component
 			) {
 				state.component = group.component;
-				// The replay mapping is this group's complete observed set:
-				// compact rows (and terminal hiding of routine reads) apply
-				// to replayed groups as to live ones.
-				group.observedIds.add(state.id);
+				claimed.push(state.id);
 			}
 		}
+		if (claimed.length === 0) {
+			// A zero-claim ledger mark would render zero rows (the
+			// output-reset regression): fail open to native instead.
+			group.ledger = undefined;
+			return false;
+		}
+		// The replay mapping is this group's complete observed set:
+		// compact rows (and terminal hiding of routine reads) apply to
+		// replayed groups as to live ones. Stale/unresolvable replay ids
+		// are replaced so groupCompletelyMapped holds.
+		group.observedIds.clear();
+		for (const id of claimed) group.observedIds.add(id);
 		group.version++;
+		return true;
 	}
 
 	/**
