@@ -224,6 +224,8 @@ interface Booted {
 		render: number;
 		components: unknown[];
 	};
+	/** Rollback warnings emitted by the adapter (fail-closed retirement). */
+	warned: string[];
 }
 
 async function boot(
@@ -244,6 +246,7 @@ async function boot(
 	policy.prime();
 	await policy.prepareRun();
 	const finalized: string[] = [];
+	const warned: string[] = [];
 	const transcript = fakeTranscript();
 	const renders = { render: 0, components: [] as unknown[] };
 	const adapter = new adapterModule.RuntimeAdapter({
@@ -265,9 +268,10 @@ async function boot(
 		},
 		modePolicy: policy,
 		onRunFinalized: (runId: string) => finalized.push(runId),
+		warn: (message: string) => warned.push(message),
 	});
 	if (!adapter.install()) throw new Error("adapter install failed");
-	return { adapter, transcript, policy, store, finalized, renders };
+	return { adapter, transcript, policy, store, finalized, renders, warned };
 }
 
 async function beginRun(booted: Booted): Promise<void> {
@@ -992,5 +996,76 @@ describe("restore override (upgrade2 item 3)", () => {
 		expect(rows).toContain("bash: printf replay");
 		// live filters the routine rows of the new run
 		expect(rows).not.toContain("printf next");
+	});
+});
+
+describe("runtime adapter: unpatchable read-group capability skew", () => {
+	// The read group is registered in the binding BEFORE host.patchReadGroup
+	// runs, so an unpatchable group (capability skew) must never let the
+	// patch failure escape: the group would be orphaned and — in the
+	// unwrapped mid-run discovery path — the rollback would never run, the
+	// adapter would stay half-installed and the extension observer would
+	// see the exception.
+	test("an unpatchable read group discovered mid-run retires the adapter fail-open instead of escaping startTool", () => {
+		const warned: string[] = [];
+		// Discovery-shaped root: no transcript yet at install time, so the
+		// adapter watches the container for one.
+		const root: { children: unknown[]; addChild(child: unknown): void } = {
+			children: [],
+			addChild() {},
+		};
+		const adapter = new adapterModule.RuntimeAdapter({
+			root,
+			ui: {
+				theme: fakeTheme(),
+				setWidget() {},
+				requestRender() {},
+				requestComponentRender() {},
+				getToolsExpanded: () => false,
+			},
+			timers: {
+				setInterval: () => 1,
+				clearTimer: () => {},
+			},
+			warn: (message: string) => warned.push(message),
+		});
+		expect(adapter.install()).toBe(true);
+		adapter.beginRun();
+		// The transcript appears directly in the tree (a native mutation
+		// that bypasses the container's addChild patch) and already carries
+		// a read group the host cannot patch.
+		const transcript = fakeTranscript();
+		transcript.children.push(Object.freeze(fakeReadGroup()));
+		root.children.push(transcript);
+		// The observer entry point must never throw: the adapter contains
+		// the patch failure, warns once and retires fail-open.
+		expect(() =>
+			adapter.startTool({ toolCallId: "r1", toolName: "read", args: {} }),
+		).not.toThrow();
+		expect(warned).toHaveLength(1);
+		expect(warned[0]).toContain("omp-compact disabled");
+		// The retired adapter stays inert: a second start neither throws
+		// nor warns again, and dispose stays idempotent.
+		expect(() =>
+			adapter.startTool({ toolCallId: "r2", toolName: "read", args: {} }),
+		).not.toThrow();
+		expect(warned).toHaveLength(1);
+		expect(() => adapter.dispose()).not.toThrow();
+	});
+
+	test("a frozen read group added to the live transcript retires the adapter with a single warning", async () => {
+		const booted = await boot({ mode: "live" });
+		const group = Object.freeze(fakeReadGroup());
+		// The live observer path: stock's addChild drives the adapter, and
+		// the patch failure must never surface through it.
+		expect(() => booted.transcript.addChild(group)).not.toThrow();
+		expect(booted.warned).toHaveLength(1);
+		expect(booted.warned[0]).toContain("omp-compact disabled");
+		// Retirement restored the transcript to native: later children and
+		// rendering stay functional with no orphaned wrapper.
+		const after = fakeToolComponent("bash");
+		expect(() => booted.transcript.addChild(after)).not.toThrow();
+		expect(booted.transcript.children).toContain(after);
+		expect(() => booted.transcript.render(120)).not.toThrow();
 	});
 });

@@ -827,8 +827,13 @@ export class RuntimeAdapter {
 			});
 			this.#transcriptPatches.push(clearPatch);
 		}
-		for (const child of transcript.children)
+		for (const child of transcript.children) {
+			// A fail-closed patch failure (e.g. unpatchable read group)
+			// already disposed the adapter mid-walk; stop before any
+			// further patching or fold installation can leak.
+			if (this.#disposed) break;
 			this.#observeTranscriptChild(child);
+		}
 		this.#session.binding.bindHydrated(true);
 		this.#installFold();
 	}
@@ -839,7 +844,9 @@ export class RuntimeAdapter {
 			return;
 		}
 		if (isReadGroupComponent(child)) {
-			this.#patchReadGroup(child);
+			// A failed patch already retired the adapter (rollback/dispose);
+			// never bind on a disposed session.
+			if (!this.#patchReadGroup(child)) return;
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
 			return;
 		}
@@ -874,29 +881,42 @@ export class RuntimeAdapter {
 		this.#session.binding.registerUnboundComponent(component);
 	}
 
-	#patchReadGroup(component: RenderableBlock): void {
-		if (this.#patchedComponents.has(component)) return;
+	#patchReadGroup(component: RenderableBlock): boolean {
+		if (this.#patchedComponents.has(component)) return true;
+		// The group is registered with the binding BEFORE the host patch
+		// runs, so an unpatchable group (capability skew) must be contained
+		// here: the group is rolled back through the fail-closed path and
+		// the caller is told not to proceed (no tryBind after disposal).
 		const group = this.#session.binding.createGroup(
 			component,
 			this.#ui.getToolsExpanded?.() === true,
 		);
-		const patch = this.#host.patchReadGroup(component, (name, args) => {
-			try {
-				const status = this.#session.binding.observeReadMethod(
-					group,
-					component,
-					name,
-					args,
-				);
-				if (status === "ambiguous") {
-					this.#rollback("omp-compact disabled: ambiguous toolCallId binding");
-					return;
+		let patch: DescriptorPatch;
+		try {
+			patch = this.#host.patchReadGroup(component, (name, args) => {
+				try {
+					const status = this.#session.binding.observeReadMethod(
+						group,
+						component,
+						name,
+						args,
+					);
+					if (status === "ambiguous") {
+						this.#rollback("omp-compact disabled: ambiguous toolCallId binding");
+						return;
+					}
+				} catch (error) {
+					this.#rollback(`omp-compact disabled: ${String(error)}`);
 				}
-			} catch (error) {
-				this.#rollback(`omp-compact disabled: ${String(error)}`);
-			}
-		});
+			});
+		} catch (error) {
+			// rollback disposes the whole session (clearing the group above
+			// with it); the failure never escapes the observer.
+			this.#rollback(`omp-compact disabled: ${String(error)}`);
+			return false;
+		}
 		this.#patchedComponents.set(component, patch);
+		return true;
 	}
 
 	#rollback(message: string): void {
