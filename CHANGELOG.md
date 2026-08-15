@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- A terminal purge no longer authorizes auto-shake while its run is still finalizing; the transcript fold resets its run state on dispose, so stale fold runs never survive a rebuild; primitive hydration leaves now charge a byte budget and mutation counts must be integers; snapshot reads (sync and async) are exact and bounded — short reads are looped, grow/shrink between stat and read is rejected, and writer-less FIFOs and overlong display paths fail closed before any read; descriptor patches are double-install-guarded and capture names deduplicated; an unpatchable read group retires the adapter fail-open instead of escaping the observer; the delete pre-image is line-scanned once; and the shake threshold constant is sourced from config rather than duplicated as a literal.
+- Терминальный purge больше не разрешает авто-shake, пока его ход ещё финализируется; транскрипт-фолд сбрасывает состояние хода при dispose, поэтому устаревший fold-ход не переживает пересборку; примитивные листья гидратации теперь тарифицируются байтовым бюджетом, а счётчики мутаций обязаны быть целыми числами; чтение снимков (синхронное и асинхронное) стало точным и ограниченным — короткие чтения докручиваются циклом, рост/сжатие между stat и чтением отклоняются, а FIFO без писателя и слишком длинные display-пути fail-closed отклоняются до любого чтения; дескрипторные патчи защищены от повторной установки, а имена capture'ов дедуплицируются; непатчабельная read-group fail-open уводит адаптер в отставку, не выбрасываясь в observer; pre-image удаления сканируется по строкам один раз; константа порога shake берётся из config, а не дублируется литералом.
+
 ### Changed
 
 - Delete operations now render as distinct red `delete` rows (red title, gray path, red exact removed stat) instead of `edit` rows with a `+0|N` pair; when the exact removed count is unavailable the stat is omitted entirely, never estimated.
