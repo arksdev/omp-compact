@@ -12,6 +12,7 @@ import {
 import {
 	type GitMessageDetails,
 	isGitMessageDetails,
+	isLegacyMutationMessageDetails,
 	isMutationMessageDetails,
 	type MutationMessageDetails,
 } from "../../.omp-plugin/messages";
@@ -383,6 +384,54 @@ describe("RuntimeSessionState: tool state records", () => {
 			added: 2,
 			removed: 1,
 			exact: true,
+		});
+	});
+
+	test("setMutations keeps count-less delete entries and demotes aggregate exactness", () => {
+		const session = makeSession();
+		session.beginRun();
+		session.startState({ toolCallId: "c1", toolName: "edit", args: {} });
+		session.setMutations("c1", [
+			{
+				toolCallId: "c1",
+				toolName: "delete",
+				path: "/tmp/gone.ts",
+				exact: false,
+			},
+		]);
+		const state = session.state("c1");
+		// The delete row is kept even without exact counts…
+		expect(state?.mutations.length).toBe(1);
+		expect(state?.entry.retention).toBe("mutation");
+		expect(state?.entry.state).toBe("success");
+		// …and the aggregate never claims exactness over unknown counts.
+		expect(state?.entry.mutation).toEqual({
+			added: 0,
+			removed: 0,
+			exact: false,
+		});
+	});
+
+	test("setMutations mixes exact and count-less delete entries honestly", () => {
+		const session = makeSession();
+		session.beginRun();
+		session.startState({ toolCallId: "c1", toolName: "edit", args: {} });
+		session.setMutations("c1", [
+			mutationDetails("c1", 3, 1),
+			{
+				toolCallId: "c1",
+				toolName: "delete",
+				path: "/tmp/gone.ts",
+				exact: false,
+			},
+		]);
+		const state = session.state("c1");
+		expect(state?.mutations.length).toBe(2);
+		// Exact members are summed; the unknown-count delete demotes exactness.
+		expect(state?.entry.mutation).toEqual({
+			added: 3,
+			removed: 1,
+			exact: false,
 		});
 	});
 
@@ -1483,6 +1532,19 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 			isMutationMessageDetails({ ...base, removed: MAX_MUTATION_COUNT + 1 }),
 		).toBe(false);
 		expect(isMutationMessageDetails({ ...base, version: 2 })).toBe(false);
+	});
+
+	test("count-less delete evidence validates as legacy, not as exact", () => {
+		const deleteWithoutCounts = {
+			toolCallId: "m1",
+			toolName: "delete",
+			path: "/tmp/gone.ts",
+			exact: false,
+		};
+		expect(isLegacyMutationMessageDetails(deleteWithoutCounts)).toBe(true);
+		// Exact-evidence validation is NOT weakened for count-less deletes:
+		// the strict v1 validator still rejects them.
+		expect(isMutationMessageDetails(deleteWithoutCounts)).toBe(false);
 	});
 
 	test("git evidence validator bounds fields at limit and over limit", () => {

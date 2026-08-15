@@ -82,7 +82,10 @@ export interface CompactToolView {
 	isError: boolean;
 	isPartial: boolean;
 	tick?: number;
-	mutationEntries?: readonly MutationMessageDetails[];
+	mutationEntries?: readonly (
+		| MutationMessageDetails
+		| LegacyMutationMessageDetails
+	)[];
 	git?: GitMessageDetails;
 }
 

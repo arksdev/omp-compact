@@ -1,6 +1,14 @@
 import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
 
-import type { MutationMessageDetails } from "./messages";
+import type {
+	LegacyMutationMessageDetails,
+	MutationMessageDetails,
+} from "./messages";
+
+/** Delete evidence returned by the audit: exact or path-only. */
+export type DeleteMutationEvidence =
+	| MutationMessageDetails
+	| LegacyMutationMessageDetails;
 
 /**
  * F02: evidence budgets for the edit audit. Malformed/oversized evidence
@@ -284,36 +292,40 @@ function editEntry(
 }
 
 /**
- * Derive mutation evidence from a delete operation using the full pre-image.
- * Returns undefined when the path is invalid, oldText is missing/pruned, or
- * oversized per F02 budgets.
+ * Derive mutation evidence from a delete operation.
  *
- * The entry carries `toolName: "delete"` so renderers can show deletes
- * distinctly (red title, no added count). `exact: true` means `removed` was
- * counted from the complete unpruned pre-image — not estimated, not sampled.
- * When snapshotsPruned is true or oldText is unavailable, we return undefined
- * rather than approximating.
+ * - A valid path with a complete unpruned pre-image within the F02 budgets
+ *   yields an exact `MutationMessageDetails` entry: `removed` is counted from
+ *   the actual pre-image, never estimated or sampled.
+ * - A valid path whose exact pre-image is unavailable (oldText missing,
+ *   snapshots pruned, or oversized per F02 budgets) yields a count-less
+ *   legacy-shaped entry (`exact: false`, no `added`/`removed`). The delete
+ *   row is still shown — red title, gray path, no stat — because the path
+ *   itself is real evidence; an unknown count is never approximated.
+ * - Returns undefined for an invalid/missing/oversized path (nothing real to
+ *   show) and for a no-op delete (`removed === 0`).
  */
 function deleteEntry(
 	toolCallId: string,
 	path: unknown,
 	oldText: unknown,
 	snapshotsPruned: unknown,
-): MutationMessageDetails | undefined {
+): DeleteMutationEvidence | undefined {
 	if (
 		typeof path !== "string" ||
 		!path ||
 		path.length > MAX_EVIDENCE_PATH_LENGTH
 	)
 		return undefined;
-	// Exact stats require the unpruned pre-image; without it we must not
-	// fabricate a removal count.
-	if (typeof oldText !== "string" || snapshotsPruned) return undefined;
+	// Exact stats require the unpruned pre-image; without it the path-only
+	// row must not fabricate a removal count.
+	if (typeof oldText !== "string" || snapshotsPruned)
+		return { toolCallId, toolName: "delete", path, exact: false };
 	if (
 		oldText.length > MAX_DELETE_BYTES ||
 		lineCount(oldText) > MAX_DELETE_LINES
 	)
-		return undefined;
+		return { toolCallId, toolName: "delete", path, exact: false };
 	const removed = lineCount(oldText);
 	if (removed === 0) return undefined;
 	return {
@@ -336,20 +348,22 @@ function deleteEntry(
  *   evidence has been examined. Anything beyond the budgets is dropped
  *   deterministically — never counted approximately.
  * - A single-path result is retained whenever its details carry evidence of an
- *   applied mutation (non-zero diff, or an exact delete pre-image), even when
+ *   applied mutation (non-zero diff, or a delete with a valid path), even when
  *   the aggregate result is flagged as an error (stock marks partial
  *   application this way).
+ * - Deletes with a valid path but no exact pre-image stay as count-less
+ *   entries (`exact: false`) so the row is shown without invented stats.
  * - Failed/unapplied/no-op results produce no entries.
  */
 export function completeEditMutations(
 	toolCallId: string,
 	result: unknown,
 	_isError: boolean,
-): MutationMessageDetails[] {
+): DeleteMutationEvidence[] {
 	const resultRecord = record(result);
 	const details = record(resultRecord.details);
 	if (Array.isArray(details.perFileResults)) {
-		const entries: MutationMessageDetails[] = [];
+		const entries: DeleteMutationEvidence[] = [];
 		const files = details.perFileResults;
 		const fileCount = Math.min(files.length, MAX_PER_FILE_RESULTS);
 		let scannedBytes = 0;

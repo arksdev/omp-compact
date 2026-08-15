@@ -480,7 +480,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		return adapter;
 	}
 
-	function persistMutation(entry: MutationMessageDetails): void {
+	function persistMutation(
+		entry: MutationMessageDetails | LegacyMutationMessageDetails,
+	): void {
 		pi.appendEntry(MUTATION_MESSAGE_TYPE, entry);
 	}
 

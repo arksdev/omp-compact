@@ -400,7 +400,7 @@ describe("edit delete audit", () => {
 		]);
 	});
 
-	test("delete without oldText does not invent stats", () => {
+	test("delete without oldText keeps the row without inventing stats", () => {
 		expect(
 			completeEditMutations(
 				"edit-13",
@@ -413,10 +413,17 @@ describe("edit delete audit", () => {
 				},
 				false,
 			),
-		).toEqual([]);
+		).toEqual([
+			{
+				toolCallId: "edit-13",
+				toolName: "delete",
+				path: "src/gone.ts",
+				exact: false,
+			},
+		]);
 	});
 
-	test("pruned delete does not invent stats", () => {
+	test("pruned delete keeps the row without inventing stats", () => {
 		expect(
 			completeEditMutations(
 				"edit-14",
@@ -431,7 +438,14 @@ describe("edit delete audit", () => {
 				},
 				false,
 			),
-		).toEqual([]);
+		).toEqual([
+			{
+				toolCallId: "edit-14",
+				toolName: "delete",
+				path: "src/gone.ts",
+				exact: false,
+			},
+		]);
 	});
 
 	test("per-file delete retained, failed entries discarded", () => {
@@ -464,6 +478,56 @@ describe("edit delete audit", () => {
 				exact: true,
 			},
 		]);
+	});
+
+	test("per-file delete without oldText keeps the row without stats", () => {
+		const entries = completeEditMutations(
+			"edit-16",
+			{
+				details: {
+					perFileResults: [
+						{
+							path: "src/del.ts",
+							diff: "",
+							op: "delete",
+						},
+						{ path: "src/bad.ts", diff: "", isError: true },
+					],
+				},
+				isError: true,
+			},
+			true,
+		);
+		expect(entries).toEqual([
+			{
+				toolCallId: "edit-16",
+				toolName: "delete",
+				path: "src/del.ts",
+				exact: false,
+			},
+		]);
+	});
+
+	test("per-file delete with invalid path is discarded", () => {
+		const entries = completeEditMutations(
+			"edit-17",
+			{
+				details: {
+					perFileResults: [
+						{
+							path: 42,
+							diff: "",
+							op: "delete",
+							oldText: "a\nb",
+						},
+						{ path: "src/bad.ts", diff: "", isError: true },
+					],
+				},
+				isError: true,
+			},
+			true,
+		);
+		expect(entries).toEqual([]);
 	});
 });
 
@@ -600,17 +664,24 @@ describe("edit delete audit", () => {
 		]);
 	});
 
-	test("delete without retained oldText is discarded", () => {
+	test("delete without retained oldText keeps the row without stats", () => {
 		expect(
 			completeEditMutations(
 				"edit-6",
 				{ details: { path: "src/g.ts", op: "delete", diff: "" } },
 				false,
 			),
-		).toEqual([]);
+		).toEqual([
+			{
+				toolCallId: "edit-6",
+				toolName: "delete",
+				path: "src/g.ts",
+				exact: false,
+			},
+		]);
 	});
 
-	test("delete with pruned snapshots is discarded", () => {
+	test("delete with pruned snapshots keeps the row without stats", () => {
 		expect(
 			completeEditMutations(
 				"edit-7",
@@ -624,7 +695,14 @@ describe("edit delete audit", () => {
 				},
 				false,
 			),
-		).toEqual([]);
+		).toEqual([
+			{
+				toolCallId: "edit-7",
+				toolName: "delete",
+				path: "src/h.ts",
+				exact: false,
+			},
+		]);
 	});
 
 	test("empty diff without op:delete is a no-op even with oldText", () => {
@@ -773,7 +851,7 @@ describe("edit evidence budgets", () => {
 		]);
 	});
 
-	test("over-line delete pre-image yields no exact entry", () => {
+	test("over-line delete pre-image keeps the row without exact stats", () => {
 		expect(
 			completeEditMutations(
 				"edit-b-2",
@@ -787,10 +865,17 @@ describe("edit evidence budgets", () => {
 				},
 				false,
 			),
-		).toEqual([]);
+		).toEqual([
+			{
+				toolCallId: "edit-b-2",
+				toolName: "delete",
+				path: "src/del.ts",
+				exact: false,
+			},
+		]);
 	});
 
-	test("over-byte delete pre-image yields no exact entry", () => {
+	test("over-byte delete pre-image keeps the row without exact stats", () => {
 		expect(
 			completeEditMutations(
 				"edit-b-3",
@@ -804,7 +889,14 @@ describe("edit evidence budgets", () => {
 				},
 				false,
 			),
-		).toEqual([]);
+		).toEqual([
+			{
+				toolCallId: "edit-b-3",
+				toolName: "delete",
+				path: "src/del.ts",
+				exact: false,
+			},
+		]);
 	});
 
 	test("over-long evidence path yields no entry", () => {

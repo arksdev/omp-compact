@@ -37,6 +37,7 @@ import {
 	isGitMessageDetails,
 	isMutationMessageDetails,
 	MUTATION_MESSAGE_TYPE,
+	type LegacyMutationMessageDetails,
 	type MutationMessageDetails,
 } from "./messages";
 import {
@@ -95,7 +96,7 @@ export interface ToolState {
 	component?: RenderableBlock;
 	ledger: TurnLedger;
 	entry: LedgerEntry;
-	mutations: MutationMessageDetails[];
+	mutations: (MutationMessageDetails | LegacyMutationMessageDetails)[];
 	git?: GitMessageDetails;
 	version: number;
 }
@@ -876,15 +877,20 @@ export class RuntimeSessionState {
 		return state.component;
 	}
 
-	/** Verified write/edit mutation evidence (retention class `mutation`). */
+	/** Verified write/edit/delete mutation evidence (retention class `mutation`). */
 	setMutations(
 		toolCallId: string,
-		entries: MutationMessageDetails[],
+		entries: (MutationMessageDetails | LegacyMutationMessageDetails)[],
 	): RenderableBlock | undefined {
 		const state = this.#states.get(toolCallId);
 		if (!state) return undefined;
+		// Keep any real mutation: non-zero exact counts, and deletes whose
+		// path is evidence even when the count is unknown.
 		const kept = entries.filter(
-			(entry) => entry.added > 0 || entry.removed > 0,
+			(entry) =>
+				entry.toolName === "delete" ||
+				(entry.added ?? 0) > 0 ||
+				(entry.removed ?? 0) > 0,
 		);
 		// F01: the live batch respects the same per-state evidence cap as
 		// replay hydration; a set beyond the cap cannot claim exactness over
@@ -895,9 +901,18 @@ export class RuntimeSessionState {
 			state.entry.state = "success";
 			state.entry.retention = "mutation";
 			state.entry.mutation = {
-				added: state.mutations.reduce((sum, entry) => sum + entry.added, 0),
-				removed: state.mutations.reduce((sum, entry) => sum + entry.removed, 0),
-				exact: true,
+				added: state.mutations.reduce(
+					(sum, entry) => sum + (entry.added ?? 0),
+					0,
+				),
+				removed: state.mutations.reduce(
+					(sum, entry) => sum + (entry.removed ?? 0),
+					0,
+				),
+				// The aggregate never claims exactness over unknown counts
+				// (count-less deletes demote it, matching the F01 truncation
+				// demotion).
+				exact: state.mutations.every((entry) => entry.exact === true),
 			};
 			if (truncated) this.#markMutationInexact(state);
 		}

@@ -517,6 +517,30 @@ describe("delete mutation rows", () => {
 		expect(stripAnsi(line)).toBe("• delete: /tmp/gone.ts");
 	});
 
+	test("count-less legacy delete entries flow through the row renderer without stats", () => {
+		const lines = renderCompactToolRows(
+			{
+				toolName: "delete",
+				args: { path: "/tmp/gone.ts" },
+				isError: false,
+				isPartial: false,
+				mutationEntries: [
+					{
+						toolCallId: "t1",
+						toolName: "delete",
+						path: "/tmp/gone.ts",
+						exact: false,
+					},
+				],
+			},
+			fakeTheme(),
+			40,
+		);
+		expect(lines).toHaveLength(1);
+		expect(stripAnsi(lines[0] ?? "")).toBe("• delete: /tmp/gone.ts");
+		expect(lines[0]).not.toContain("\x1b[48;");
+	});
+
 	test("exact delete rows stay transparent through the row renderer", () => {
 		const lines = renderCompactToolRows(
 			{
