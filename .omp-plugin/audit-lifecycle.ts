@@ -52,6 +52,25 @@ export interface AuditRunToken {
 	readonly abandoned: boolean;
 }
 
+/**
+ * Outcome of an end-run drain (`barrier`), separating the two consumers of
+ * the result:
+ *
+ * - `settled` gates the adapter's end-run finalization (`work`): `true`
+ *   means the drain finished within its bound — every record either
+ *   completed or was finally abandoned (terminal purge, dispose,
+ *   replacement) — so finalization may run.
+ * - `evidenceReady` gates post-run consumers such as the auto-shake: `true`
+ *   only when the drain settled AND every record in scope completed, so the
+ *   run's audit/Git evidence was persisted. A terminal purge of pending
+ *   records, a teardown, a same-id replacement, or a timeout all abandon
+ *   records without evidence and report `false` — the run must not shake.
+ */
+export interface BarrierOutcome {
+	settled: boolean;
+	evidenceReady: boolean;
+}
+
 interface AuditRecord extends AuditRunToken {
 	toolCallId: string;
 	capture: Promise<MutationCandidate | undefined> | undefined;
@@ -241,32 +260,46 @@ export class AuditLifecycle {
 	}
 
 	/**
-	 * Drain gate for `agent_end`: resolves once the audit work captured by
-	 * `snapshot` has settled.
+	 * Drain gate for `agent_end`: settles once the audit work captured by
+	 * `snapshot` has completed, timed out, or been finally abandoned.
 	 *
 	 * - In-flight completions (a `tool_execution_end` already consumed the
 	 *   record) are always awaited, bounded by `barrierMs`.
 	 * - Records still pending at a terminal commit (`terminal === true`,
 	 *   classified like the ledger: not willContinue/toolUse) are purged
 	 *   immediately. Stock may reorder a continuation end, but a terminal
-	 *   transcript must never resurrect evidence after it is committed.
+	 *   transcript must never resurrect evidence after it is committed. The
+	 *   purge abandons the records, so the drain still settles (the adapter's
+	 *   end-run finalization may run) while `evidenceReady` is `false` — the
+	 *   purged evidence was never persisted, so post-run consumers such as
+	 *   the auto-shake must be skipped.
 	 * - At a continuation (`terminal === false`) pending records are not part
 	 *   of this drain: they remain in the maps so a late `tool_execution_end`
 	 *   can consume and publish their evidence.
 	 *
+	 * Returns `{ settled, evidenceReady }`:
+	 *
+	 * - `settled: true` — every record completed or was finally abandoned
+	 *   (terminal purge, dispose, same-id replacement) within the bound.
+	 * - `evidenceReady: true` — the drain settled and no record in scope was
+	 *   abandoned, so the run's audit/Git evidence was persisted.
+	 *
 	 * On timeout the outstanding records are abandoned (fail closed — no
-	 * deadlock, no late publish) and `false` is returned.
+	 * deadlock, no late publish) and `{ settled: false, evidenceReady: false }`
+	 * is returned.
 	 */
 	async barrier(
 		runIds?: ReadonlySet<AuditRunToken>,
 		terminal = false,
-	): Promise<boolean> {
+	): Promise<BarrierOutcome> {
 		const ids = runIds ?? this.snapshot();
 		const start = this.#options.now();
 
 		// Terminal boundary: purge pending records immediately before the drain.
 		// Stock may reorder a continuation end, but a terminal transcript must
-		// never resurrect evidence after commit.
+		// never resurrect evidence after commit. The purge abandons the
+		// records, so `evidenceReady` reports false while the drain still
+		// settles for the adapter's end-run finalization.
 		if (terminal) {
 			for (const token of ids) {
 				const record = token as AuditRecord;
@@ -289,7 +322,12 @@ export class AuditLifecycle {
 					break;
 				}
 			}
-			if (!outstanding) return true;
+			if (!outstanding) {
+				return {
+					settled: true,
+					evidenceReady: this.#evidenceReady(ids),
+				};
+			}
 			const remaining = this.#options.barrierMs - (this.#options.now() - start);
 			if (remaining <= 0) {
 				for (const token of ids) {
@@ -303,10 +341,22 @@ export class AuditLifecycle {
 					}
 				}
 				this.#signalChange();
-				return false;
+				return { settled: false, evidenceReady: false };
 			}
 			await this.#waitForChangeOrTimeout(remaining);
 		}
+	}
+
+	/**
+	 * Evidence is ready only when every record in the drain scope completed:
+	 * any abandoned record (terminal purge, dispose, same-id replacement)
+	 * left its evidence unpublished, so the run must not shake.
+	 */
+	#evidenceReady(ids: ReadonlySet<AuditRunToken>): boolean {
+		for (const token of ids) {
+			if ((token as AuditRecord).abandoned) return false;
+		}
+		return true;
 	}
 
 	/**
@@ -321,8 +371,11 @@ export class AuditLifecycle {
 	 * - a switch landing mid-drain is re-checked after the barrier, so the
 	 *   old run's finalization cannot run against the new session's adapter.
 	 *
-	 * Resolves `true` when the drain finished and `work` ran, `false` when
-	 * the link was skipped or the drain failed closed (timeout/teardown).
+	 * Resolves `true` only when the drain settled, `work` ran, and the run's
+	 * evidence is ready (nothing was purged or abandoned) — the post-run
+	 * auto-shake gate. Resolves `false` when the link was skipped, the drain
+	 * failed closed (timeout/teardown), or a terminal purge abandoned the
+	 * pending records: the run still finalized, but it must not shake.
 	 */
 	enqueueAgentEnd(
 		runIds: ReadonlySet<AuditRunToken>,
@@ -333,10 +386,12 @@ export class AuditLifecycle {
 		const link = this.#agentEndChain
 			.then(async () => {
 				if (generation !== this.#generation) return false;
-				const drained = await this.barrier(runIds, terminal);
-				if (!drained || generation !== this.#generation) return false;
+				const outcome = await this.barrier(runIds, terminal);
+				if (!outcome.settled || generation !== this.#generation) {
+					return false;
+				}
 				work();
-				return true;
+				return outcome.evidenceReady;
 			})
 			.catch(() => false);
 		this.#agentEndChain = link;

@@ -6493,6 +6493,37 @@ stockTest(
 );
 
 stockTest(
+	"auto-shake: a terminal purge of pending audit records finalizes the run but skips the shake",
+	async () => {
+		const probe = shakeProbe();
+		const booted = await bootWithShake(
+			{
+				...DEFAULT_SETTINGS,
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+				autoShake: { enabled: true, thresholdTokens: 0 },
+			},
+			probe,
+		);
+		await beginRun(booted);
+		// A write starts but its tool_execution_end never arrives before the
+		// terminal agent_end: the terminal drain purges the pending record
+		// (fail closed, no evidence), so the run's evidence was never
+		// persisted and the post-run auto-shake must be skipped — while the
+		// adapter's end-run finalization still runs.
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "write-pending",
+			toolName: "write",
+			args: { path: "pending.ts", content: "new\n" },
+		});
+		await finishRun(booted, "done");
+		await drainShake();
+		expect(probe.calls).toEqual([]);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"auto-shake: session switch resets run state and the new session shakes fresh",
 	async () => {
 		const probe = shakeProbe();

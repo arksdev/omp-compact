@@ -822,10 +822,13 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// PostTurnShake: run strictly after the evidence drain settles AND
 		// succeeded. The link resolves `true` only when the drain finished
 		// and the run's audit/Git evidence was persisted; `false` means the
-		// drain failed closed (barrier timeout) or was skipped (session
-		// switch/shutdown), so the run must not shake. The drain has already
-		// settled here, so no persistence barrier is passed. The module is
-		// fail-open and never throws (noop catch is defensive).
+		// drain failed closed (barrier timeout), was skipped (session
+		// switch/shutdown), or a terminal purge abandoned pending records
+		// (their evidence was never persisted — the run still finalized
+		// through the adapter's end-run work, it just must not shake). The
+		// drain has already settled here, so no persistence barrier is
+		// passed. The module is fail-open and never throws (noop catch is
+		// defensive).
 		void link
 			.then((drained) => {
 				if (!drained) return undefined;
