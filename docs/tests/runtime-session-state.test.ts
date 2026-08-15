@@ -6,8 +6,11 @@ import {
 	MAX_MUTATION_COUNT,
 	MAX_MUTATION_ENTRIES,
 	MAX_PAYLOAD_BYTES,
+	MAX_PAYLOAD_STEPS,
 	MAX_TOOL_CALL_ID_LENGTH,
 	MAX_TOOL_NAME_LENGTH,
+	isBoundedCount,
+	isPayloadWithinBudget,
 } from "../../.omp-plugin/hydration-bounds";
 import {
 	type GitMessageDetails,
@@ -1595,5 +1598,106 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 				subject: "s".repeat(MAX_EVIDENCE_TEXT_LENGTH + 1),
 			}),
 		).toBe(false);
+	});
+
+	test("a wide primitive array over the byte budget is rejected", () => {
+		// 2_000 numbers x 8 retained bytes each: 16_008 > 1_024 budget. The
+		// retained primitive cost must trip the byte budget before the step
+		// cap could ever be reached.
+		expect(
+			isPayloadWithinBudget(
+				Array.from({ length: 2_000 }, () => 7),
+				1_024,
+			),
+		).toBe(false);
+		// 2_000 nulls x 4 retained bytes each: 8_008 > 1_024 budget.
+		expect(
+			isPayloadWithinBudget(
+				Array.from({ length: 2_000 }, () => null),
+				1_024,
+			),
+		).toBe(false);
+		// Wide-but-shallow object: 2_000 null-valued keys cost their fixed
+		// leaf slots, not just the 1-byte key names.
+		expect(
+			isPayloadWithinBudget(
+				Object.fromEntries(
+					Array.from({ length: 2_000 }, (_, i) => [`k${i}`, null]),
+				),
+				1_024,
+			),
+		).toBe(false);
+	});
+
+	test("small primitive payloads stay accepted", () => {
+		expect(isPayloadWithinBudget([1, "hi", true, null, 3.5], 1_024)).toBe(true);
+		expect(isPayloadWithinBudget(7, 1_024)).toBe(true);
+		expect(isPayloadWithinBudget(null, 1_024)).toBe(true);
+		expect(isPayloadWithinBudget(undefined, 1_024)).toBe(true);
+		expect(isPayloadWithinBudget(() => undefined, 1_024)).toBe(true);
+	});
+
+	test("cycles, depth, hostile proxies and step overflow stay fail-closed", () => {
+		const cyclic: Record<string, unknown> = {};
+		cyclic.self = cyclic;
+		expect(isPayloadWithinBudget(cyclic)).toBe(false);
+		let deep: unknown = null;
+		for (let i = 0; i < 40; i += 1) deep = { a: deep };
+		expect(isPayloadWithinBudget(deep)).toBe(false);
+		const hostile = new Proxy(
+			{ a: 1 },
+			{
+				get() {
+					throw new Error("hostile getter");
+				},
+			},
+		);
+		expect(isPayloadWithinBudget(hostile)).toBe(false);
+		// Step cap: more nodes than MAX_PAYLOAD_STEPS are rejected even under
+		// a byte budget large enough to hold them all.
+		expect(
+			isPayloadWithinBudget(
+				Array.from({ length: MAX_PAYLOAD_STEPS + 1 }, () => null),
+				MAX_PAYLOAD_STEPS * 8,
+			),
+		).toBe(false);
+		// Wide primitive array at the default budget: rejected (bytes trip
+		// first, well before the step cap).
+		expect(
+			isPayloadWithinBudget(Array.from({ length: 200_000 }, () => 7)),
+		).toBe(false);
+	});
+
+	test("fractional mutation counts are rejected; integer boundaries accepted", () => {
+		expect(isBoundedCount(0, MAX_MUTATION_COUNT)).toBe(true);
+		expect(isBoundedCount(MAX_MUTATION_COUNT, MAX_MUTATION_COUNT)).toBe(true);
+		expect(isBoundedCount(MAX_MUTATION_COUNT + 1, MAX_MUTATION_COUNT)).toBe(
+			false,
+		);
+		expect(isBoundedCount(-1, MAX_MUTATION_COUNT)).toBe(false);
+		expect(isBoundedCount(3.5, MAX_MUTATION_COUNT)).toBe(false);
+		expect(isBoundedCount(Number.NaN, MAX_MUTATION_COUNT)).toBe(false);
+		expect(isBoundedCount(Number.POSITIVE_INFINITY, MAX_MUTATION_COUNT)).toBe(
+			false,
+		);
+		// Through the evidence validator: exact mutation details reject
+		// fractional added/removed counts.
+		const base = mutationDetails("m1", 1, 0);
+		expect(isMutationMessageDetails({ ...base, added: 2.5 })).toBe(false);
+		expect(isMutationMessageDetails({ ...base, removed: 1.5 })).toBe(false);
+	});
+
+	test("wide primitive tool args over the retained budget skip allocation", () => {
+		const session = makeSession();
+		session.hydrateBranch([
+			{ type: "message", message: { role: "user", content: [] } },
+			toolCallMessage("wide", "write", {
+				values: Array.from({ length: 200_000 }, () => 7),
+			}),
+			toolCallMessage("small", "write", { values: [1, 2, 3] }),
+			answerMessage(),
+		]);
+		expect(session.state("wide")).toBeUndefined();
+		expect(session.state("small")?.args).toEqual({ values: [1, 2, 3] });
 	});
 });

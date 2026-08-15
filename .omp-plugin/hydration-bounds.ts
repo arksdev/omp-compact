@@ -72,6 +72,7 @@ export function isBoundedString(value: unknown, max: number): value is string {
 export function isBoundedCount(value: unknown, max: number): value is number {
 	return (
 		typeof value === "number" &&
+		Number.isInteger(value) &&
 		Number.isFinite(value) &&
 		value >= 0 &&
 		value <= max
@@ -84,6 +85,14 @@ export function isBoundedCount(value: unknown, max: number): value is number {
  * depth budget is exhausted, so a hostile cyclic or deeply nested object
  * terminates after a bounded number of steps. Never allocates a copy and
  * never reads values — string lengths and key names only.
+ *
+ * Retained-cost contract per primitive leaf: strings charge their length;
+ * numbers charge 8 bytes (IEEE-754 double); booleans, null, undefined and
+ * opaque primitives (functions/symbols) charge a fixed nonzero slot of 4
+ * bytes. The fixed leaf charges keep wide primitive arrays and shallow
+ * objects inside the byte budget — a hostile payload cannot slip through
+ * by shipping many zero-cost leaves that the step cap alone would have to
+ * absorb.
  *
  * A step counter (MAX_PAYLOAD_STEPS) provides an independent cap on total
  * nodes visited, guarding against adversarially wide-but-shallow objects
@@ -103,10 +112,23 @@ export function isPayloadWithinBudget(
 			bytes += node.length;
 			return bytes <= maxBytes;
 		}
-		if (node === null || node === undefined) return true;
+		if (node === null || node === undefined) {
+			bytes += 4; // fixed retained slot
+			return bytes <= maxBytes;
+		}
 		const type = typeof node;
-		if (type === "number" || type === "boolean") return true;
-		if (type !== "object") return true; // functions/symbols: opaque leaves
+		if (type === "number") {
+			bytes += 8; // IEEE-754 double
+			return bytes <= maxBytes;
+		}
+		if (type === "boolean") {
+			bytes += 4; // fixed retained slot
+			return bytes <= maxBytes;
+		}
+		if (type !== "object") {
+			bytes += 4; // opaque leaves (functions/symbols): fixed cost
+			return bytes <= maxBytes;
+		}
 		try {
 			bytes += 8; // container shell
 			if (bytes > maxBytes) return false;
