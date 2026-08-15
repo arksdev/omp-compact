@@ -9,6 +9,7 @@ import {
 	createSettingsStore,
 	DEFAULT_SETTINGS,
 	type EnvOverrides,
+	MAX_THRESHOLD_TOKENS,
 } from "../../.omp-plugin/config";
 import {
 	createHostSettingsBridge,
@@ -359,6 +360,28 @@ describe("threshold editing", () => {
 		dialog.handleInput("0");
 		dialog.handleInput(KEY_ENTER);
 		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
+	});
+
+	test("the max threshold boundary is pinned to MAX_THRESHOLD_TOKENS", () => {
+		const { dialog } = makeDialog(zeroThreshold);
+		// The exact config maximum is accepted…
+		focus(dialog, "Shake threshold");
+		dialog.handleInput(KEY_ENTER);
+		for (const digit of String(MAX_THRESHOLD_TOKENS)) dialog.handleInput(digit);
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.autoShake.thresholdTokens).toBe(MAX_THRESHOLD_TOKENS);
+		// …one token over is rejected with the derived message, and the
+		// draft keeps the previous value.
+		dialog.handleInput(KEY_ENTER);
+		for (const digit of String(MAX_THRESHOLD_TOKENS + 1))
+			dialog.handleInput(digit);
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.autoShake.thresholdTokens).toBe(MAX_THRESHOLD_TOKENS);
+		expect(
+			lines(dialog).some((l) =>
+				l.includes(`threshold exceeds max ${MAX_THRESHOLD_TOKENS}`),
+			),
+		).toBe(true);
 	});
 });
 

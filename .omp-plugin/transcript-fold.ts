@@ -120,8 +120,12 @@ function inheritedMethod<T extends (...args: never[]) => unknown>(
 export class TranscriptFold {
 	readonly #callbacks: FoldCallbacks;
 	readonly #transcript: TranscriptHost;
-	readonly #roles = new WeakMap<object, FoldRole>();
-	readonly #runs = new WeakMap<object, FoldRun>();
+	// D03: runs/roles are replaceable so dispose can reset the fold-owned
+	// state wholesale — stale run state must never survive a session or
+	// rebuild boundary even when the same instance re-patches the same
+	// transcript (the adapter's C02 rebuild detach/reinstall cycle).
+	#roles = new WeakMap<object, FoldRole>();
+	#runs = new WeakMap<object, FoldRun>();
 	readonly #patches = new Map<RenderableBlock, BlockPatch>();
 	#transcriptPatch: DescriptorPatch | undefined;
 	#installed = false;
@@ -215,6 +219,12 @@ export class TranscriptFold {
 	}
 
 	dispose(): void {
+		// D03: reset the fold-owned run/role state unconditionally — before
+		// the idempotent early return — so no dispose path (including a
+		// repeated no-op) can leave stale runs behind for a later
+		// reinstall/replan of the same instance.
+		this.#runs = new WeakMap();
+		this.#roles = new WeakMap();
 		if (
 			!this.#installed &&
 			this.#patches.size === 0 &&
@@ -222,9 +232,8 @@ export class TranscriptFold {
 			Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) !== this
 		)
 			return;
-		for (const [block, patch] of this.#patches) {
+		for (const [, patch] of this.#patches) {
 			patch.patch.restore();
-			this.#roles.delete(block);
 		}
 		this.#patches.clear();
 		this.#transcriptPatch?.restore();

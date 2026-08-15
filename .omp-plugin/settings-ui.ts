@@ -1,10 +1,11 @@
-import type {
-	CompactHostSettings,
-	CompactMode,
-	CompactSettings,
-	CompactSettingsPatch,
-	CompactSettingsStore,
-	CompactStatsSettings,
+import {
+	MAX_THRESHOLD_TOKENS,
+	type CompactHostSettings,
+	type CompactMode,
+	type CompactSettings,
+	type CompactSettingsPatch,
+	type CompactSettingsStore,
+	type CompactStatsSettings,
 } from "./config";
 
 // =============================================================================
@@ -836,8 +837,8 @@ export class SettingsDialog implements ComponentLike {
 			this.error = "threshold must be a non-negative integer";
 			return;
 		}
-		if (value > 10_000_000) {
-			this.error = "threshold exceeds max 10000000";
+		if (value > MAX_THRESHOLD_TOKENS) {
+			this.error = `threshold exceeds max ${MAX_THRESHOLD_TOKENS}`;
 			return;
 		}
 		const row = this.focusedRow();

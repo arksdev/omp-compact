@@ -268,4 +268,53 @@ describe("TranscriptFold committed-row gate (D03)", () => {
 		fold.dispose();
 		expect(fold.hasCommittedRows()).toBe(false);
 	});
+
+	test("a same-instance reinstall after dispose replans without stale run state", () => {
+		const transcript = new FakeTranscript();
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		const first = new FakeBlock();
+		const second = new FakeBlock();
+		transcript.addChild(first);
+		transcript.addChild(second);
+		transcript.render(80);
+		first.setNativeScrollbackCommittedRows(2);
+		expect(fold.hasCommittedRows()).toBe(true);
+		// Session/rebuild boundary (C02 pattern): the same fold instance is
+		// detached and re-patched onto the same transcript later.
+		fold.dispose();
+		expect(fold.hasCommittedRows()).toBe(false);
+		fold.install();
+		transcript.render(80);
+		// Stale run state must not survive the boundary: the replanned run
+		// starts fresh, so the gate is silent until the native seam declares
+		// committed rows again.
+		expect(fold.hasCommittedRows()).toBe(false);
+		// The fresh run honors a new declaration exactly once.
+		first.setNativeScrollbackCommittedRows(1);
+		expect(fold.hasCommittedRows()).toBe(true);
+		first.setNativeScrollbackCommittedRows(0);
+		expect(fold.hasCommittedRows()).toBe(false);
+		fold.dispose();
+	});
+
+	test("an idempotent no-op dispose does not leave stale run state either", () => {
+		const transcript = new FakeTranscript();
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		const first = new FakeBlock();
+		transcript.addChild(first);
+		transcript.render(80);
+		first.setNativeScrollbackCommittedRows(3);
+		expect(fold.hasCommittedRows()).toBe(true);
+		fold.dispose();
+		expect(fold.hasCommittedRows()).toBe(false);
+		// The second dispose is the early no-op path; it must still reset the
+		// fold-owned run state, so a later reinstall replans clean.
+		fold.dispose();
+		fold.install();
+		transcript.render(80);
+		expect(fold.hasCommittedRows()).toBe(false);
+		fold.dispose();
+	});
 });
