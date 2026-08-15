@@ -1142,13 +1142,19 @@ export class RuntimeSessionState {
 	}
 
 	/**
-	 * RuntimeModes: the mode snapshot for a new ledger — the active run's
-	 * frozen snapshot (captured by ModePolicy at agent_start), else the
-	 * latest resolved settings, else the enabled `live` default (fail-open).
+	 * RuntimeModes: the mode snapshot for a new ledger — the armed restore
+	 * override (a restored session's historical transcript hydrates
+	 * compact), else the active run's frozen snapshot (captured by
+	 * ModePolicy at agent_start), else the latest resolved settings, else
+	 * the enabled `live` default (fail-open). The override only lives
+	 * between a restore entry and the next run boundary (prepareRun clears
+	 * it), so live runs always take the persisted policy.
 	 */
 	#captureMode(): RunModeSnapshot {
 		const policy = this.#modePolicy;
 		if (policy) {
+			const restore = policy.restoreOverride;
+			if (restore) return restore;
 			const run = policy.run;
 			if (run) return run;
 			const current = policy.current;

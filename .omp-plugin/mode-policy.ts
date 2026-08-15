@@ -45,6 +45,13 @@ export class ModePolicy {
 	#resolved: Promise<CompactSettings> | undefined;
 	#current: CompactSettings | undefined;
 	#run: RunModeSnapshot | undefined;
+	// Restore view: one-shot compact snapshot armed while a restored
+	// session's historical transcript hydrates. Entering an existing session
+	// (`omp -c`, `--resume`/picker, in-process `/resume`) presents the
+	// restored history compact immediately; the override is cleared at the
+	// next run boundary so the resumed session's live runs keep the
+	// persisted mode policy. The persisted `mode` is never touched.
+	#restore: RunModeSnapshot | undefined;
 
 	constructor(store: CompactSettingsStore) {
 		this.#store = store;
@@ -96,6 +103,35 @@ export class ModePolicy {
 		return this.#run;
 	}
 
+	/**
+	 * The armed restore override; undefined between restore entries and the
+	 * next run boundary. While armed, ledgers created by branch hydration/
+	 * rebuild (a restored session's historical transcript) snapshot compact
+	 * regardless of the persisted mode.
+	 */
+	get restoreOverride(): RunModeSnapshot | undefined {
+		return this.#restore;
+	}
+
+	/**
+	 * Arm the one-shot restore override for the current restored session.
+	 * The snapshot forces `compact` presentation (keeping the persisted
+	 * `retainGitLive` preference); the persisted `mode` is never modified.
+	 * Cleared at the next run boundary (`prepareRun`) so live runs keep the
+	 * normal policy, and by `dispose()` so a subsequent session never
+	 * inherits it. No-op while the runtime is disabled; call only after
+	 * `ready()` so the current settings are resolved.
+	 */
+	armRestoreOverride(): void {
+		const base = this.#current ?? DEFAULT_SETTINGS;
+		if (!base.enabled) return;
+		this.#restore = {
+			mode: "compact",
+			enabled: true,
+			retainGitLive: base.retainGitLive,
+		};
+	}
+
 	/** Latest resolved settings (kept fresh by store notifications). */
 	get current(): CompactSettings | undefined {
 		return this.#current;
@@ -134,6 +170,9 @@ export class ModePolicy {
 	async prepareRun(): Promise<RunModeSnapshot> {
 		this.#resubscribe();
 		if (!this.#current) await this.#resolve();
+		// Restore view: the override is one-shot — the first run boundary of
+		// the resumed session re-arms the normal persisted policy.
+		this.#restore = undefined;
 		this.#run = runModeFromSettings(this.#current ?? DEFAULT_SETTINGS);
 		return this.#run;
 	}
@@ -153,5 +192,6 @@ export class ModePolicy {
 		this.#resolved = undefined;
 		this.#current = undefined;
 		this.#run = undefined;
+		this.#restore = undefined;
 	}
 }

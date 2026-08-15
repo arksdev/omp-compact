@@ -545,7 +545,40 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			}
 		).sessionManager;
 		const branch = sessionManager?.getBranch?.();
-		if (Array.isArray(branch)) current?.hydrateBranch(branch);
+		if (Array.isArray(branch)) {
+			// Restore view (upgrade2 item 3): entering an EXISTING session
+			// (`omp -c`, `--resume`/picker, auto-resume) presents the
+			// historical transcript immediately in compact view. The branch
+			// is non-empty exactly when the session carries persisted
+			// entries (`SessionManager.pathTo(leaf)`: a brand-new session
+			// resets the index to empty, so `[]` never arms the override).
+			// The override is one-shot: cleared at the next `agent_start`
+			// boundary (ModePolicy.prepareRun), so the resumed session's
+			// live runs keep the normal persisted mode policy.
+			if (branch.length > 0) modePolicy.armRestoreOverride();
+			current?.hydrateBranch(branch);
+		}
+	});
+
+	pi.on("session_switch", async (event, context) => {
+		// Restore view (upgrade2 item 3): an in-process entry into an
+		// existing session (`/resume` picker, `ctx.switchSession`, reload)
+		// arrives as `session_switch` with reason "resume" — emitted after
+		// the target session's entries are loaded but BEFORE the caller's
+		// `renderInitialMessages` rebuild. The adapter was disposed at
+		// `session_before_switch`, so re-install it here while the exact
+		// transcript instance is still patchable; the transcript `clear`
+		// that follows (the rebuild boundary) then rehydrates the restored
+		// branch under the armed override and replays compact. Explicitly
+		// NOT applied to reason "new" (fresh session), "fork" (a derived
+		// session keeps the in-memory conversation and never rebuilds the
+		// transcript), or "handoff" (automatic compaction continuation) —
+		// only a user-visible resume enters an existing session.
+		if (event.reason !== "resume") return;
+		await modePolicy.ready();
+		if (!modePolicy.enabled) return;
+		modePolicy.armRestoreOverride();
+		ensureAdapter(context);
 	});
 
 	pi.on("session_tree", async (event) => {

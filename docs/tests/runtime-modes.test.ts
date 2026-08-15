@@ -47,11 +47,19 @@ interface AdapterModule {
 		store: CompactSettingsStore,
 	) => {
 		prime(): void;
+		ready(): Promise<void>;
 		prepareRun(): Promise<{
 			mode: string;
 			enabled: boolean;
 			retainGitLive: boolean;
 		}>;
+		armRestoreOverride(): void;
+		dispose(): void;
+		restoreOverride?: {
+			mode: string;
+			enabled: boolean;
+			retainGitLive: boolean;
+		};
 	};
 }
 
@@ -840,5 +848,149 @@ describe("runtime modes", () => {
 		settle(booted, "mystery-1", "mystery_tool", { content: [] });
 		unknown.setExpanded(true);
 		expect(visibleRows(booted).join("\n")).toContain("native-mystery_tool");
+	});
+});
+
+describe("restore override (upgrade2 item 3)", () => {
+	test("armRestoreOverride arms a one-shot compact snapshot cleared by prepareRun", async () => {
+		const store = fakeStore(settings({ mode: "live", enabled: true }));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.prepareRun();
+		policy.armRestoreOverride();
+		expect(policy.restoreOverride).toEqual({
+			mode: "compact",
+			enabled: true,
+			retainGitLive: true,
+		});
+		// the persisted mode is never touched
+		expect((await store.load()).mode).toBe("live");
+		// the override is one-shot: the next run boundary clears it
+		await policy.prepareRun();
+		expect(policy.restoreOverride).toBeUndefined();
+	});
+
+	test("armRestoreOverride is a no-op while the runtime is disabled", async () => {
+		const store = fakeStore(settings({ enabled: false, mode: "live" }));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		policy.armRestoreOverride();
+		expect(policy.restoreOverride).toBeUndefined();
+	});
+
+	test("dispose clears the armed restore override", async () => {
+		const store = fakeStore(settings({ mode: "live", enabled: true }));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		policy.armRestoreOverride();
+		expect(policy.restoreOverride).toBeDefined();
+		policy.dispose();
+		expect(policy.restoreOverride).toBeUndefined();
+	});
+
+	test("resume hydration renders compact under the armed override; the next run keeps the persisted live mode", async () => {
+		const store = fakeStore(settings({ mode: "live", enabled: true }));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		// stock entry into an existing session: no run boundary yet, so the
+		// override outranks the (still unresolved) persisted live mode
+		policy.armRestoreOverride();
+		const finalized: string[] = [];
+		const transcript = fakeTranscript();
+		const renders = { render: 0, components: [] as unknown[] };
+		const adapter = new adapterModule.RuntimeAdapter({
+			root: transcript,
+			ui: {
+				theme: fakeTheme(),
+				setWidget() {},
+				requestRender() {
+					renders.render++;
+				},
+				requestComponentRender(component: unknown) {
+					renders.components.push(component);
+				},
+				getToolsExpanded: () => false,
+			},
+			timers: {
+				setInterval: () => 1,
+				clearTimer: () => {},
+			},
+			modePolicy: policy,
+			onRunFinalized: (runId: string) => finalized.push(runId),
+		});
+		if (!adapter.install()) throw new Error("adapter install failed");
+		// the stock resume transcript was reconstructed before hydration
+		const restored = fakeToolComponent("bash");
+		transcript.addChild(restored);
+		adapter.hydrateBranch([
+			{
+				type: "message",
+				message: {
+					role: "user",
+					content: [{ type: "text", text: "resume me" }],
+				},
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "b1",
+					toolName: "bash",
+					args: { command: "printf replay" },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "b1",
+					content: [{ type: "text", text: "ok" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: terminalAnswer("restored done").messages[0] },
+		]);
+		const restoredRows = visibleRows({
+			adapter,
+			transcript,
+			policy,
+			store,
+			finalized,
+			renders,
+		}).join("\n");
+		expect(restoredRows).toContain("bash: printf replay");
+		expect(restoredRows).not.toContain("native-bash");
+		// the persisted mode is untouched by the restore entry
+		expect((await store.load()).mode).toBe("live");
+		// the next live run clears the override and keeps the persisted mode
+		await policy.prepareRun();
+		adapter.beginRun();
+		addTool(
+			{ adapter, transcript, policy, store, finalized, renders },
+			"bash",
+			"b2",
+			{ command: "printf next" },
+		);
+		settle(
+			{ adapter, transcript, policy, store, finalized, renders },
+			"b2",
+			"bash",
+			{ content: [{ type: "text", text: "ok" }] },
+		);
+		adapter.endRun(terminalAnswer("next done"));
+		const rows = visibleRows({
+			adapter,
+			transcript,
+			policy,
+			store,
+			finalized,
+			renders,
+		}).join("\n");
+		expect(rows).toContain("bash: printf replay");
+		// live filters the routine rows of the new run
+		expect(rows).not.toContain("printf next");
 	});
 });

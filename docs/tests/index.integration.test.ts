@@ -2552,7 +2552,7 @@ stockTest(
 );
 
 stockTest(
-	"resume reconstructs filtered mutation and Git presentation",
+	"process restore reconstructs compact mutation and Git presentation under live persisted settings",
 	async () => {
 		let transcript: TranscriptInstance | undefined;
 		const branch = [
@@ -2694,20 +2694,21 @@ stockTest(
 		);
 		if (!transcript) throw new Error("transcript missing");
 		const rows = visibleRows(transcript).join("\n");
-		// non-commit Git evidence leaves no retained row and no summary line;
-		// the write mutation survives with its exact stats
-		expect(rows).not.toContain("git status");
+		// entering the existing session forces compact on the restored
+		// history: the routine bash row, the non-commit Git row and the
+		// write mutation all survive (persisted mode stays live)
+		expect(rows).toContain("git status");
 		expect(rows).not.toContain("git commit:");
 		expect(rows).toContain("write: resume.ts");
 		expect(rows).toContain("+2|1");
 		expect(rows).toContain("done");
-		expect(rows).not.toContain("printf routine");
+		expect(rows).toContain("printf routine");
 		await shutdown(booted);
 	},
 );
 
 stockTest(
-	"resume keeps routine grouped reads hidden while retained rows remain",
+	"process restore keeps routine grouped reads visible with retained compact rows",
 	async () => {
 		let transcript: TranscriptInstance | undefined;
 		const branch = [
@@ -2804,10 +2805,13 @@ stockTest(
 		);
 		if (!transcript) throw new Error("transcript missing");
 		const rows = visibleRows(transcript).join("\n");
-		// the retained commit summary survives; the routine read row stays hidden
-		expect(rows).toContain("git commit: abc1234");
+		// entering the existing session forces compact on the restored
+		// history: the commit row and the routine read row both survive as
+		// individual compact rows (persisted mode stays live)
+		expect(rows).toContain("git commit abc1234 Fix replay");
+		expect(rows).not.toContain("git commit: abc1234");
 		expect(rows).toContain("done");
-		expect(rows).not.toContain("src/replay.ts");
+		expect(rows).toContain("src/replay.ts");
 		expect(rows).not.toContain("Read src");
 		await shutdown(booted);
 	},
@@ -3461,7 +3465,7 @@ stockTest(
 );
 
 stockTest(
-	"resume hydrates a compound Git row into its commit summary",
+	"process restore hydrates a compound Git row into its individual compact records",
 	async () => {
 		let transcript: TranscriptInstance | undefined;
 		const branch = [
@@ -3558,11 +3562,12 @@ stockTest(
 		);
 		if (!transcript) throw new Error("transcript missing");
 		const rows = visibleRows(transcript).join("\n");
-		// replay keeps the persisted evidence intact but the filtered view shows
-		// only the aggregate commit summary of the compound call
-		expect(rows).toContain("git commit: abc1234");
-		expect(rows).not.toContain("git add src/a.ts");
-		expect(rows).not.toContain("git commit abc1234 Add a");
+		// entering the existing session forces compact on the restored
+		// history: the compound call keeps its individual records instead of
+		// the filtered aggregate summary
+		expect(rows).not.toContain("git commit: abc1234");
+		expect(rows).toContain("git add src/a.ts");
+		expect(rows).toContain("git commit abc1234 Add a");
 		expect(rows).toContain("done");
 		await shutdown(booted);
 	},
@@ -6822,6 +6827,268 @@ stockTest(
 		expect(rows).toContain("write: resume.ts");
 		expect(rows).toContain("+2|1");
 		expect(rows).toContain("resume done");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"process restore presents the historical transcript in compact view under live persisted settings",
+	async () => {
+		const harness = rebuildHarness();
+		harness.branch.current = committedSingleToolBranch(
+			"printf routine",
+			"bash-r1",
+			"restored done",
+		);
+		const booted = await bootForRebuild("live", harness, (transcript, host) => {
+			// stock resume already reconstructed the instances with the
+			// identical toolCallIds before session_start hydrates
+			const call = new host.ToolExecutionComponent(
+				"bash",
+				{ command: "printf routine" },
+				{ showImages: false, useBuiltInRenderer: true },
+				fakeTool("bash"),
+				toolUi(),
+				"/tmp",
+				"bash-r1",
+			);
+			call.updateResult(
+				{ content: [{ type: "text", text: "ok" }], details: {} },
+				false,
+				"bash-r1",
+			);
+			transcript.addChild(call);
+			const ContainerBase = Object.getPrototypeOf(
+				host.ReadToolGroupComponent.prototype,
+			).constructor as BootedPlugin["ContainerBase"];
+			const reply = new ContainerBase();
+			reply.addChild({ render: () => ["restored done"] });
+			transcript.addChild(reply);
+		});
+		// entering the existing session armed the one-shot restore override:
+		// the routine bash row is retained (compact) even though the
+		// persisted mode stays live
+		expect(booted.harness.resetCalls).toBe(1);
+		expect(booted.harness.clears).toBe(0);
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("bash: printf routine");
+		expect(rows).toContain("restored done");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"the live run after a process restore keeps the persisted live mode while restored history stays compact",
+	async () => {
+		const harness = rebuildHarness();
+		harness.branch.current = committedSingleToolBranch(
+			"printf routine",
+			"bash-r1",
+			"restored done",
+		);
+		const booted = await bootForRebuild("live", harness, (transcript, host) => {
+			const call = new host.ToolExecutionComponent(
+				"bash",
+				{ command: "printf routine" },
+				{ showImages: false, useBuiltInRenderer: true },
+				fakeTool("bash"),
+				toolUi(),
+				"/tmp",
+				"bash-r1",
+			);
+			call.updateResult(
+				{ content: [{ type: "text", text: "ok" }], details: {} },
+				false,
+				"bash-r1",
+			);
+			transcript.addChild(call);
+			const ContainerBase = Object.getPrototypeOf(
+				host.ReadToolGroupComponent.prototype,
+			).constructor as BootedPlugin["ContainerBase"];
+			const reply = new ContainerBase();
+			reply.addChild({ render: () => ["restored done"] });
+			transcript.addChild(reply);
+		});
+		// the restored history froze compact…
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"bash: printf routine",
+		);
+		// …and the next live run re-arms the persisted live policy
+		await beginRun(booted);
+		const next = await addTool(
+			booted,
+			"bash",
+			{ command: "printf next" },
+			"bash-r2",
+		);
+		await finishTool(booted, next, {
+			toolCallId: "bash-r2",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "next done");
+		await finishRun(booted, "next done");
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("bash: printf routine");
+		expect(rows).toContain("next done");
+		expect(rows).not.toContain("printf next");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"in-process /resume re-applies compact view to the restored transcript and the next live run keeps the persisted mode",
+	async () => {
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		// a brand-new session hydrates nothing and replays nothing
+		expect(booted.harness.resetCalls).toBe(0);
+		// stock switchSession emits the before/after events, then the caller
+		// rebuilds the transcript (exact clear + reconstructed instances)
+		harness.branch.current = committedSingleToolBranch(
+			"printf first",
+			"bash-1",
+			"first done",
+		);
+		await dispatch(booted, { type: "session_before_switch", reason: "resume" });
+		await dispatch(booted, { type: "session_switch", reason: "resume" });
+		booted.transcript.clear();
+		expect(booted.harness.clears).toBe(1);
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf first" },
+			"bash-1",
+		);
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-1",
+		);
+		addAnswer(booted, "first done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("bash: printf first");
+		expect(rows).toContain("first done");
+		// exactly one full replay for the resumed generation
+		expect(booted.harness.resetCalls).toBe(1);
+		// the next live run keeps the persisted live mode
+		await beginRun(booted);
+		const next = await addTool(
+			booted,
+			"bash",
+			{ command: "printf next" },
+			"bash-2",
+		);
+		await finishTool(booted, next, {
+			toolCallId: "bash-2",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "next done");
+		await finishRun(booted, "next done");
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("bash: printf first");
+		expect(live).not.toContain("printf next");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"session_switch with reason new does not re-arm the restore view",
+	async () => {
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		await dispatch(booted, { type: "session_before_switch", reason: "new" });
+		await dispatch(booted, { type: "session_switch", reason: "new" });
+		// the adapter stays disposed after the switch; a transcript rebuild
+		// is pure stock (no fold, no compact rows, no replay)
+		harness.branch.current = committedSingleToolBranch(
+			"printf ghost",
+			"bash-1",
+			"ghost done",
+		);
+		booted.transcript.clear();
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf ghost" },
+			"bash-1",
+		);
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-1",
+		);
+		addAnswer(booted, "ghost done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).not.toContain("bash: printf ghost");
+		expect(booted.harness.resetCalls).toBe(0);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"fork and handoff session switches do not force compact on the transcript",
+	async () => {
+		for (const reason of ["fork", "handoff"]) {
+			const harness = rebuildHarness();
+			const booted = await bootForRebuild("live", harness);
+			await dispatch(booted, { type: "session_before_switch", reason });
+			await dispatch(booted, { type: "session_switch", reason });
+			harness.branch.current = committedSingleToolBranch(
+				"printf ghost",
+				"bash-1",
+				"ghost done",
+			);
+			booted.transcript.clear();
+			const rebuilt = addToolComponent(
+				booted,
+				"bash",
+				{ command: "printf ghost" },
+				"bash-1",
+			);
+			rebuilt.updateResult(
+				{ content: [{ type: "text", text: "ok" }] },
+				false,
+				"bash-1",
+			);
+			addAnswer(booted, "ghost done");
+			await flushMicrotasks();
+			const rows = visibleRows(booted.transcript).join("\n");
+			expect(rows).not.toContain("bash: printf ghost");
+			expect(booted.harness.resetCalls).toBe(0);
+			await shutdown(booted);
+		}
+	},
+);
+
+stockTest(
+	"a brand-new session keeps the persisted live policy with no restore replay",
+	async () => {
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		expect(booted.harness.resetCalls).toBe(0);
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf fresh" },
+			"bash-1",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "bash-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "fresh done");
+		await finishRun(booted, "fresh done");
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).not.toContain("printf fresh");
 		await shutdown(booted);
 	},
 );
