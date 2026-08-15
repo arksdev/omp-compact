@@ -1,5 +1,6 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 // External dependency: peelWriteUrlSelector/unwrapHashlineHeaderPath from
 // @oh-my-pi/pi-coding-agent. API stability: integration tests cover contract.
@@ -12,6 +13,8 @@ import {
 	lineCount,
 	trimmedMiddleLines,
 } from "./audit-diff";
+
+import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
 
 import type { MutationMessageDetails } from "./messages";
 
@@ -76,18 +79,104 @@ async function canonicalPath(path: string): Promise<string> {
 	}
 }
 
+/**
+ * Exact-size bounded snapshot reader (sync). Reads exactly `size` bytes from
+ * `fd` in a loop, tolerating short reads, and returns the raw buffer only
+ * when the total read length equals the stat size. A file that shrank (EOF
+ * before `size`) or grew (more than `size` bytes available) between stat and
+ * read is rejected — a partial or mismatched snapshot must never fabricate
+ * evidence. Never allocates more than `size + 1` bytes, never reads past
+ * `SNAPSHOT_MAX_BYTES`, and `read` defaults to node's `readSync`; tests
+ * inject a scripted reader to exercise short reads, growth and shrink
+ * deterministically.
+ */
+export function readExactSync(
+	fd: number,
+	size: number,
+	read: (
+		fd: number,
+		buffer: Buffer,
+		offset: number,
+		length: number,
+		position: number,
+	) => number = readSync,
+): Buffer | undefined {
+	if (size > SNAPSHOT_MAX_BYTES) return undefined;
+	const buffer = Buffer.allocUnsafe(size + 1);
+	let total = 0;
+	while (total <= size) {
+		const count = read(fd, buffer, total, size + 1 - total, total);
+		if (count <= 0) break; // EOF before size: the file shrank mid-read
+		total += count;
+	}
+	if (total !== size) return undefined; // grew or shrank between stat and read
+	return buffer;
+}
+
+/**
+ * Exact-size bounded snapshot reader (async), the twin of `readExactSync`
+ * for an already-open handle: loops short reads until exactly `size` bytes
+ * are collected and rejects on growth/shrink, never allocating past
+ * `size + 1`. The event loop stays non-blocking — the reads are awaited
+ * FileHandle reads, never a synchronous read.
+ */
+export async function readExactAsync(
+	handle: FileHandle,
+	size: number,
+	read: (
+		handle: FileHandle,
+		buffer: Buffer,
+		offset: number,
+		length: number,
+		position: number,
+	) => Promise<number> = async (h, buffer, offset, length, position) => {
+		// Bun's FileHandle.read resolves to `{ buffer, bytesRead }` while
+		// node's resolves to the byte count — normalize both contracts.
+		const result = await h.read(buffer, offset, length, position);
+		return typeof result === "number" ? result : result.bytesRead;
+	},
+): Promise<Buffer | undefined> {
+	if (size > SNAPSHOT_MAX_BYTES) return undefined;
+	const buffer = Buffer.allocUnsafe(size + 1);
+	let total = 0;
+	while (total <= size) {
+		const count = await read(handle, buffer, total, size + 1 - total, total);
+		if (count <= 0) break;
+		total += count;
+	}
+	if (total !== size) return undefined;
+	return buffer;
+}
+
 async function boundedText(
 	path: string,
 	missingAsEmpty: boolean,
 ): Promise<string | undefined> {
+	let handle: FileHandle | undefined;
 	try {
-		const file = Bun.file(path);
-		if (!(await file.exists())) return missingAsEmpty ? "" : undefined;
-		if (file.size > SNAPSHOT_MAX_BYTES) return undefined;
-		const text = await file.text();
+		// Gate the async path explicitly instead of relying on Bun.file:
+		// Bun.file(path).text() blocks on a writer-less FIFO (Bun reports
+		// its size as Infinity today, which the byte guard happens to catch,
+		// but the text() call itself hangs — a version-dependent accident).
+		// Opening with O_NONBLOCK and deciding on the OPENED descriptor
+		// rejects every non-regular target fail-open before any read, so a
+		// model-controlled path can never hang the read or fabricate
+		// evidence, and a swap after the handle is open cannot be observed.
+		handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		const stats = await handle.stat();
+		if (!stats.isFile()) return undefined;
+		const size = stats.size;
+		if (size > SNAPSHOT_MAX_BYTES) return undefined;
+		const buffer = await readExactAsync(handle, size);
+		if (buffer === undefined) return undefined;
+		const text = buffer.toString("utf8", 0, size);
 		return lineCount(text) <= SNAPSHOT_MAX_LINES ? text : undefined;
-	} catch {
+	} catch (error) {
+		if (missingAsEmpty && (error as NodeJS.ErrnoException).code === "ENOENT")
+			return "";
 		return undefined;
+	} finally {
+		if (handle !== undefined) await handle.close().catch(() => undefined);
 	}
 }
 
@@ -103,7 +192,10 @@ async function boundedText(
  * with `O_NONBLOCK` and gated on `fstat` of the opened descriptor: FIFOs,
  * devices, sockets and directories are rejected fail-open, so a
  * model-controlled non-regular target can never block the event loop, and a
- * symlink resolving to a regular file keeps its exact snapshot.
+ * symlink resolving to a regular file keeps its exact snapshot. The exact
+ * snapshot is read through `readExactSync`: short reads are looped and any
+ * growth/shrink between stat and read rejects the evidence instead of
+ * fabricating a partial pre-image.
  */
 function boundedTextSync(
 	path: string,
@@ -121,14 +213,13 @@ function boundedTextSync(
 		const stats = fstatSync(fd);
 		if (!stats.isFile()) return undefined;
 		const size = stats.size;
-		if (size > SNAPSHOT_MAX_BYTES) return undefined;
-		// Read through the same fd, at most MAX+1 bytes: a file that grew
+		// Read through the same fd, at most size+1 bytes: a file that grew
 		// past the bound between stat and read overflows the probe and the
-		// snapshot is rejected instead of reading unbounded data (TOCTOU).
-		const buffer = Buffer.allocUnsafe(size + 1);
-		const bytesRead = readSync(fd, buffer, 0, buffer.length, 0);
-		if (bytesRead > SNAPSHOT_MAX_BYTES) return undefined;
-		const text = buffer.toString("utf8", 0, bytesRead);
+		// snapshot is rejected instead of reading unbounded data (TOCTOU),
+		// and a short read is looped until the exact size is collected.
+		const buffer = readExactSync(fd, size);
+		if (buffer === undefined) return undefined;
+		const text = buffer.toString("utf8", 0, size);
 		return lineCount(text) <= SNAPSHOT_MAX_LINES ? text : undefined;
 	} catch (error) {
 		if (missingAsEmpty && (error as NodeJS.ErrnoException).code === "ENOENT")
@@ -161,6 +252,11 @@ export async function captureWriteCandidate(input: {
 	) {
 		return undefined;
 	}
+	// Match the edit/delete path bound (audit-diff) BEFORE any filesystem
+	// I/O: an overlong display path could never survive the evidence
+	// validator, so the snapshot read must not be attempted at all (the
+	// read would only fail incidentally with ENAMETOOLONG past PATH_MAX).
+	if (displayPath.length > MAX_EVIDENCE_PATH_LENGTH) return undefined;
 	const absolutePath = isAbsolute(displayPath)
 		? resolve(displayPath)
 		: resolve(input.cwd, displayPath);

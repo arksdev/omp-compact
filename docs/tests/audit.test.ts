@@ -18,6 +18,8 @@ import {
 } from "../../.omp-plugin/audit-diff";
 import { MAX_EVIDENCE_PATH_LENGTH } from "../../.omp-plugin/hydration-bounds";
 
+import { readExactAsync, readExactSync } from "../../.omp-plugin/audit";
+
 import type { MutationMessageDetails } from "../../.omp-plugin/messages";
 import { loadStockPlugin } from "./test-stock-host";
 
@@ -1043,6 +1045,28 @@ describe("write audit snapshot bounds", () => {
 			await cleanup();
 		}
 	});
+
+	test("an overlong display path is rejected before any filesystem I/O", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			// Mirrors the edit/delete path bound (audit-diff): an overlong
+			// write target must not reach the snapshot read at all — the
+			// evidence would never survive the message validator anyway.
+			// (The read would also fail with ENAMETOOLONG past PATH_MAX, but
+			// the rejection must be explicit and I/O-free, not incidental.)
+			const candidate = await captureWriteCandidate({
+				toolCallId: "write-overlong",
+				args: {
+					path: "p".repeat(MAX_EVIDENCE_PATH_LENGTH + 1),
+					content: "x",
+				},
+				cwd,
+			});
+			expect(candidate).toBeUndefined();
+		} finally {
+			await cleanup();
+		}
+	});
 });
 
 describe("write audit diff budget", () => {
@@ -1535,6 +1559,50 @@ const { join } = require("node:path");
 })();
 `;
 
+	const ASYNC_SWAP_PROBE_SCRIPT = `
+const { pathToFileURL } = require("node:url");
+const { join } = require("node:path");
+const { unlinkSync } = require("node:fs");
+const { spawnSync } = require("node:child_process");
+(async () => {
+  try {
+    const href =
+      pathToFileURL(join(process.cwd(), ".omp-plugin", "audit.ts")).href +
+      "?special-file-async-probe";
+    const mod = await import(href);
+    const candidate = await mod.captureWriteCandidate({
+      toolCallId: "async-probe",
+      args: { path: process.env.PROBE_PATH, content: "x" },
+      cwd: process.cwd(),
+    });
+    if (!candidate) {
+      console.log("null");
+      process.exit(0);
+    }
+    // Swap the captured target for a writer-less FIFO, then complete.
+    unlinkSync(process.env.PROBE_PATH);
+    const made = spawnSync("mkfifo", [process.env.PROBE_PATH]);
+    if (made.status !== 0) {
+      console.error("mkfifo failed: " + String(made.stderr));
+      process.exit(2);
+    }
+    const entries = await mod.completeWriteCandidate(
+      candidate,
+      {
+        content: [{ type: "text", text: "ok" }],
+        details: { resolvedPath: process.env.PROBE_PATH },
+      },
+      false,
+    );
+    console.log(JSON.stringify(entries));
+    process.exit(0);
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+    process.exit(2);
+  }
+})();
+`;
+
 	function mkfifo(path: string): void {
 		const result = Bun.spawnSync(["mkfifo", path]);
 		if (result.exitCode !== 0)
@@ -1635,5 +1703,184 @@ const { join } = require("node:path");
 		} finally {
 			await cleanup();
 		}
+	});
+
+	test("the async after-read returns promptly when the target is swapped to a writer-less FIFO", async () => {
+		// The post-write read (completeWriteCandidate -> boundedText) must
+		// never hang on a model-controlled path either. Capture a regular
+		// file, then swap it for a writer-less FIFO and complete: a raw
+		// Bun.file(path).text() would block forever on the FIFO; the
+		// O_NONBLOCK-gated async read rejects it promptly. Runs in a child
+		// so a pre-fix hang fails the test instead of the runner (max 10s).
+		const { cwd, cleanup } = await stage();
+		try {
+			const target = join(cwd, "swap.ts");
+			await writeFile(target, "const a = 1;\n");
+			const child = Bun.spawn(["bun", "-e", ASYNC_SWAP_PROBE_SCRIPT], {
+				cwd: repoRoot,
+				env: { ...Bun.env, PROBE_PATH: target },
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			let timedOut = false;
+			const timer = setTimeout(() => {
+				timedOut = true;
+				child.kill();
+			}, 10_000);
+			const exitCode = await child.exited;
+			clearTimeout(timer);
+			if (timedOut)
+				throw new Error(
+					"async after-read blocked on the swapped FIFO (killed after 10s)",
+				);
+			expect(exitCode ?? -1).toBe(0);
+			const stdout = await new Response(child.stdout).text();
+			expect(JSON.parse(stdout)).toEqual([]);
+		} finally {
+			await cleanup();
+		}
+	});
+});
+
+describe("exact bounded snapshot readers", () => {
+	// The exact-size snapshot contract cannot be exercised through the real
+	// file system deterministically: a regular file read returns the full
+	// size in one syscall, so short reads, mid-read growth and mid-read
+	// shrink are scripted through the injected reader (the production
+	// default is node's readSync / FileHandle.read).
+	type SyncRead = (
+		fd: number,
+		buffer: Buffer,
+		offset: number,
+		length: number,
+		position: number,
+	) => number;
+
+	function scriptedSyncRead(chunks: number[]): SyncRead {
+		let index = 0;
+		return (_fd, buffer, offset, length, position) => {
+			const count = Math.min(chunks[index] ?? 0, length);
+			index += 1;
+			if (count > 0) buffer.fill(0x41, offset, offset + count);
+			void position;
+			return count;
+		};
+	}
+
+	function syncReadAll(
+		_fd: number,
+		buffer: Buffer,
+		offset: number,
+		length: number,
+		position: number,
+	): number {
+		// A faithful single-call read of a `size`-byte file: returns at most
+		// the remaining bytes (then EOF), never more than the stat size.
+		const size = 10;
+		const count = Math.max(0, Math.min(size - position, length));
+		buffer.fill(0x41, offset, offset + count);
+		return count;
+	}
+
+	type AsyncRead = (
+		handle: unknown,
+		buffer: Buffer,
+		offset: number,
+		length: number,
+		position: number,
+	) => Promise<number>;
+
+	function scriptedAsyncRead(chunks: number[]): AsyncRead {
+		let index = 0;
+		return async (_handle, buffer, offset, length, position) => {
+			const count = Math.min(chunks[index] ?? 0, length);
+			index += 1;
+			if (count > 0) buffer.fill(0x41, offset, offset + count);
+			void position;
+			return count;
+		};
+	}
+
+	function asyncReadAll(
+		_handle: unknown,
+		buffer: Buffer,
+		offset: number,
+		length: number,
+		position: number,
+	): Promise<number> {
+		const size = 10;
+		const count = Math.max(0, Math.min(size - position, length));
+		buffer.fill(0x41, offset, offset + count);
+		return Promise.resolve(count);
+	}
+
+	test("readExactSync loops over short reads until the full size is met", () => {
+		const buffer = readExactSync(1, 10, scriptedSyncRead([3, 3, 3, 1]));
+		expect(buffer).toBeDefined();
+		expect(buffer?.subarray(0, 10).every((byte) => byte === 0x41)).toBe(true);
+	});
+
+	test("readExactSync rejects a file that shrank between stat and read", () => {
+		expect(readExactSync(1, 10, scriptedSyncRead([4, 0]))).toBeUndefined();
+	});
+
+	test("readExactSync rejects a file that grew between stat and read", () => {
+		expect(readExactSync(1, 10, scriptedSyncRead([11]))).toBeUndefined();
+	});
+
+	test("readExactSync accepts an empty file", () => {
+		const buffer = readExactSync(1, 0, scriptedSyncRead([0]));
+		expect(buffer).toBeDefined();
+		expect(buffer?.subarray(0, 0).length).toBe(0);
+	});
+
+	test("readExactSync reads a full-size file in one call", () => {
+		const buffer = readExactSync(1, 10, syncReadAll);
+		expect(buffer).toBeDefined();
+		expect(buffer?.subarray(0, 10).every((byte) => byte === 0x41)).toBe(true);
+	});
+
+	test("readExactSync never reads past the snapshot byte bound", () => {
+		const calls: number[] = [];
+		const result = readExactSync(1, 1_048_576 + 1, (_fd, _b, _o, _l, _p) => {
+			calls.push(1);
+			return 0;
+		});
+		expect(result).toBeUndefined();
+		expect(calls).toEqual([]);
+	});
+
+	test("readExactAsync loops over short reads until the full size is met", async () => {
+		const buffer = await readExactAsync(
+			{} as never,
+			10,
+			scriptedAsyncRead([3, 3, 3, 1]),
+		);
+		expect(buffer).toBeDefined();
+		expect(buffer?.subarray(0, 10).every((byte) => byte === 0x41)).toBe(true);
+	});
+
+	test("readExactAsync rejects a file that shrank between stat and read", async () => {
+		expect(
+			await readExactAsync({} as never, 10, scriptedAsyncRead([4, 0])),
+		).toBeUndefined();
+	});
+
+	test("readExactAsync rejects a file that grew between stat and read", async () => {
+		expect(
+			await readExactAsync({} as never, 10, scriptedAsyncRead([11])),
+		).toBeUndefined();
+	});
+
+	test("readExactAsync accepts an empty file", async () => {
+		const buffer = await readExactAsync({} as never, 0, scriptedAsyncRead([0]));
+		expect(buffer).toBeDefined();
+		expect(buffer?.subarray(0, 0).length).toBe(0);
+	});
+
+	test("readExactAsync reads a full-size file in one call", async () => {
+		const buffer = await readExactAsync({} as never, 10, asyncReadAll);
+		expect(buffer).toBeDefined();
+		expect(buffer?.subarray(0, 10).every((byte) => byte === 0x41)).toBe(true);
 	});
 });
