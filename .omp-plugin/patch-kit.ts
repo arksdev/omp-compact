@@ -10,11 +10,14 @@
  *
  * Contract:
  * - `DescriptorPatch` captures descriptors for the given names at
- *   construction time (before any wrapper is installed).
+ *   construction time (before any wrapper is installed). Duplicate names are
+ *   deduped keeping first-seen order.
  * - `install(wrappers)` defines one wrapper per captured name, in capture
  *   order. It is transactional: when the N-th `defineProperty` throws, the
  *   wrappers defined before it are restored and the original error is
  *   rethrown; the patch is left clean and a later `restore()` is a no-op.
+ *   A second `install()` on an already-installed patch throws and leaves the
+ *   installed wrappers untouched (symmetric with the restored guard).
  * - `restore()` restores every installed wrapper's captured descriptor and
  *   is idempotent — the second call (or a call after a failed `install`)
  *   does nothing. A single stubborn descriptor never aborts the rest of the
@@ -61,8 +64,10 @@ export class DescriptorPatch {
 
 	constructor(target: object, names: readonly string[]) {
 		this.target = target;
-		this.names = names;
-		this.#captured = captureDescriptors(target, names);
+		// Duplicate capture names are deduped keeping first-seen order, so
+		// install/restore process each descriptor exactly once.
+		this.names = [...new Set(names)];
+		this.#captured = captureDescriptors(target, this.names);
 	}
 
 	get installed(): boolean {
@@ -71,6 +76,9 @@ export class DescriptorPatch {
 
 	install(wrappers: Record<string, PropertyDescriptor>): void {
 		if (this.#restored) throw new Error("DescriptorPatch already restored");
+		// Symmetric with the restored guard: a second install on an active
+		// patch must never silently replace the installed wrappers.
+		if (this.installed) throw new Error("DescriptorPatch already installed");
 		const defined: string[] = [];
 		try {
 			for (const name of this.names) {

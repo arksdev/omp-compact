@@ -182,4 +182,44 @@ describe("DescriptorPatch", () => {
 		// the descriptor captured at construction time wins
 		expect(target.a).toBe(originalA);
 	});
+
+	test("a second install throws and never replaces the installed wrapper", () => {
+		const target = new Target();
+		const patch = new DescriptorPatch(target, ["a", "b"]);
+		patch.install({
+			a: wrapper("wrapped-a"),
+			b: wrapper("wrapped-b"),
+		});
+		expect(() =>
+			patch.install({
+				a: wrapper("second-a"),
+				b: wrapper("second-b"),
+			}),
+		).toThrow(/already installed/);
+		// the first install's wrappers are untouched by the rejected reinstall
+		expect(target.a("x")).toBe("wrapped-a:x");
+		expect(target.b("y")).toBe("wrapped-b:y");
+		expect(patch.installed).toBe(true);
+		patch.restore();
+		expect(target.a("x")).toBe("a:x:instance");
+		expect(Object.hasOwn(target, "a")).toBe(false);
+	});
+
+	test("duplicate capture names are deduped preserving first-seen order", () => {
+		const target = new Target();
+		const patch = new DescriptorPatch(target, ["a", "b", "a", "c", "b"]);
+		expect(patch.names).toEqual(["a", "b", "c"]);
+		patch.install({
+			a: wrapper("wrapped-a"),
+			b: wrapper("wrapped-b"),
+			c: wrapper("wrapped-c"),
+		});
+		expect(target.a("x")).toBe("wrapped-a:x");
+		expect(target.b("y")).toBe("wrapped-b:y");
+		expect(target.c("z")).toBe("wrapped-c:z");
+		patch.restore();
+		expect(target.a("x")).toBe("a:x:instance");
+		expect(Object.hasOwn(target, "b")).toBe(false);
+		expect(Object.hasOwn(target, "c")).toBe(false);
+	});
 });
