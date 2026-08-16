@@ -8,6 +8,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-08-17
+
 ### Fixed
 
 - A terminal purge no longer authorizes auto-shake while its run is still finalizing; the transcript fold resets its run state on dispose, so stale fold runs never survive a rebuild; primitive hydration leaves now charge a byte budget and mutation counts must be integers; snapshot reads (sync and async) are exact and bounded — short reads are looped, grow/shrink between stat and read is rejected, and writer-less FIFOs and overlong display paths fail closed before any read; descriptor patches are double-install-guarded and capture names deduplicated; an unpatchable read group retires the adapter fail-open instead of escaping the observer; the delete pre-image is line-scanned once; and the shake threshold constant is sourced from config rather than duplicated as a literal.
@@ -159,7 +161,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A future incompatible host shape rolls back the presentation adapter, leaves native rendering active, and should be reported with the exact OMP version and reproduction.
 - При будущей несовместимой форме хоста адаптер представления откатывается, оставляет активным нативный рендеринг; о таком случае следует сообщить с точной версией OMP и сценарием воспроизведения.
 
-[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/arksdev/omp-compact/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/arksdev/omp-compact/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/arksdev/omp-compact/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/arksdev/omp-compact/compare/v1.0.0...v1.0.1
