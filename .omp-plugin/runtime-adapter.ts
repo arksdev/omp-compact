@@ -101,7 +101,7 @@ export interface RuntimeAdapterOptions {
 }
 
 // Intentional per-module copy of objectRecord for tree-shakeability;
-// identical logic in 11 files across the plugin.
+// identical logic in 7 files across the plugin.
 function objectRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
@@ -653,6 +653,7 @@ export class RuntimeAdapter {
 		}
 		const group = this.#session.binding.groupState(block);
 		if (group) {
+			const readStates = this.#session.binding.mappedReadStates(group);
 			const decision = decideReadGroupRender({
 				mode: group.ledger
 					? this.#session.modeFor(group.ledger).mode
@@ -660,11 +661,10 @@ export class RuntimeAdapter {
 				phase: group.ledger?.phase,
 				expanded: group.expanded,
 				completelyMapped: this.#session.binding.groupCompletelyMapped(group),
-				readCount: this.#session.binding.mappedReadStates(group).length,
+				readCount: readStates.length,
 			});
 			if (decision.kind === "native") return nativeRender(width);
 			if (decision.kind === "empty") return EMPTY_LINES;
-			const readStates = this.#session.binding.mappedReadStates(group);
 			const theme = this.#ui.theme;
 			if (!theme) return nativeRender(width);
 			const rows: string[] = [];

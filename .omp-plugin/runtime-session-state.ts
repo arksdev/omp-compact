@@ -182,7 +182,7 @@ interface DeferredTerminalLedger {
 }
 
 // Intentional per-module copy of objectRecord for tree-shakeability;
-// identical logic in 11 files across the plugin.
+// identical logic in 7 files across the plugin.
 function objectRecord(value: unknown): Record<string, unknown> {
 	return value && typeof value === "object"
 		? (value as Record<string, unknown>)
