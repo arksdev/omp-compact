@@ -47,6 +47,16 @@ export interface BindingDelegates {
 	markPending(state: ToolState): void;
 	/** Unregister a pending state; true when it was pending. */
 	unmarkPending(state: ToolState): boolean;
+	/**
+	 * Whether an observed host callback may still mutate a state's settled
+	 * evidence (result/isPartial/isError/pending/args/version). Production
+	 * passes RuntimeSessionState's exact `#stateMutable` semantics: a
+	 * finalized ledger (`filtered`/`full`) or a deferred-terminal ledger
+	 * freezes its states. Binding/ownership (component refs, id migration,
+	 * group/ledger assignment) stays legal on frozen states — hydration
+	 * and rebuild replay legitimately re-bind them.
+	 */
+	isStateMutable(state: ToolState): boolean;
 }
 
 /**
@@ -125,6 +135,16 @@ export class ComponentBinding {
 	constructor(states: Map<string, ToolState>, delegates: BindingDelegates) {
 		this.#states = states;
 		this.#delegates = delegates;
+	}
+
+	/**
+	 * Frozen-state guard for observed host callbacks: the session's exact
+	 * `#stateMutable` semantics (working ledger, not deferred-terminal).
+	 * Binding/ownership changes stay legal on frozen states — only settled
+	 * evidence is blocked.
+	 */
+	#stateMutable(state: ToolState): boolean {
+		return this.#delegates.isStateMutable(state);
 	}
 
 	/** The state bound to a tool component, if any. */
@@ -508,16 +528,38 @@ export class ComponentBinding {
 	 * startTool completion hook: a read group that already observed this id
 	 * adopts the new state (stock hosts create the group and call
 	 * `updateArgs` before the extension event arrives).
+	 *
+	 * Hardened against cross-run/group collisions: only typed, unclaimed
+	 * `read` states can join a group, and a group already bound to a
+	 * different ledger is never overwritten — a stale observed id of a
+	 * later run stays native instead of being dragged into the settled
+	 * run. An id observed by more than one group, or conflicting with an
+	 * existing claim/ledger, is ambiguous: nothing binds (fail-open).
+	 * `""` is a valid provisional id per stock event-controller semantics
+	 * and adopts exactly like any other id.
 	 */
 	bindByObservedId(toolCallId: string, state: ToolState): BindingStatus {
+		if (state.toolName !== "read") return "unmapped";
+		let match: GroupState | undefined;
+		let conflict = false;
 		for (const group of this.#groups) {
-			if (!state.component && group.observedIds.has(toolCallId)) {
-				group.ledger = state.ledger;
-				state.component = group.component;
-				return "bound";
+			if (!group.observedIds.has(toolCallId)) continue;
+			if (state.component && state.component !== group.component) {
+				conflict = true;
+				continue;
 			}
+			if (group.ledger !== undefined && group.ledger !== state.ledger) {
+				conflict = true;
+				continue;
+			}
+			if (match) return "ambiguous";
+			match = group;
 		}
-		return "unmapped";
+		if (conflict) return "ambiguous";
+		if (!match) return "unmapped";
+		match.ledger = state.ledger;
+		state.component = match.component;
+		return "bound";
 	}
 
 	/**
@@ -546,14 +588,21 @@ export class ComponentBinding {
 				if (state) {
 					const bindStatus = this.bind(component, state);
 					if (bindStatus !== "bound") return bindStatus;
-					state.args = updateArgsPayload(args);
-					state.version++;
+					// The exact-ID bind is ownership and stays legal on
+					// frozen state (hydration/rebuild replay); the payload
+					// refresh and its tick are evidence mutations that must
+					// never rewrite a settled view.
+					if (this.#stateMutable(state)) {
+						state.args = updateArgsPayload(args);
+						state.version++;
+					}
 				}
 			}
 		}
 		const state = this.#componentStates.get(component);
 		if (!state) return "unmapped";
 		if (name === "updateResult") {
+			if (!this.#stateMutable(state)) return "bound";
 			const result = updateResultPayload(args);
 			state.result = result;
 			state.isPartial = updateResultIsPartial(args);
@@ -561,12 +610,23 @@ export class ComponentBinding {
 			if (state.isPartial) this.#delegates.markPending(state);
 			else this.#delegates.unmarkPending(state);
 		} else if (name === "setArgsComplete") {
+			if (!this.#stateMutable(state)) return "bound";
 			state.isPartial = true;
 			this.#delegates.markPending(state);
 		} else if (name === "setExpanded") {
+			// Presentation-only, deliberately exempt from the freeze: the
+			// expand/collapse of a settled row is a live view choice, not
+			// settled evidence — it must keep tracking (and its tick must
+			// keep re-rendering) after the ledger finalizes, or a
+			// post-terminal expand would be visually lost.
 			state.expanded = setExpandedValue(args);
 		}
-		state.version++;
+		// Frozen states never re-tick the committed presentation version:
+		// late updateArgs/updateResult/setArgsComplete deliveries must not
+		// churn the settled view. `setExpanded` above is the deliberate
+		// presentation-only exception — its tick is the re-render signal
+		// for the user's own change.
+		if (this.#stateMutable(state) || name === "setExpanded") state.version++;
 		return "bound";
 	}
 

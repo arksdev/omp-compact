@@ -243,6 +243,11 @@ export class RuntimeSessionState {
 				this.#pendingStates.add(state);
 			},
 			unmarkPending: (state) => this.#pendingStates.delete(state),
+			// The observed component callbacks share the exact event-stream
+			// freeze: a finalized or deferred-terminal ledger's states must
+			// not be rewritten by late updateResult/setArgsComplete
+			// deliveries either.
+			isStateMutable: (state) => this.#stateMutable(state),
 		});
 	}
 

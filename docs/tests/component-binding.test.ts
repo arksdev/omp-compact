@@ -57,8 +57,8 @@ let ledgerSeq = 0;
 function makeState(
 	overrides: Partial<ToolState> & { id: string; toolName: string },
 ): ToolState {
-	const { id, toolName, ...rest } = overrides;
-	const ledger = new TurnLedger(`bind-${++ledgerSeq}`);
+	const { id, toolName, ledger: ledgerOverride, ...rest } = overrides;
+	const ledger = ledgerOverride ?? new TurnLedger(`bind-${++ledgerSeq}`);
 	const entry: LedgerEntry = {
 		id,
 		toolCallId: id,
@@ -84,7 +84,9 @@ function makeState(
 	};
 }
 
-function makeBinding(): {
+function makeBinding(options?: {
+	isStateMutable?: (state: ToolState) => boolean;
+}): {
 	binding: ComponentBinding;
 	states: Map<string, ToolState>;
 	pending: Set<ToolState>;
@@ -96,6 +98,11 @@ function makeBinding(): {
 			pending.add(state);
 		},
 		unmarkPending: (state) => pending.delete(state),
+		// Default: the phase half of the production `#stateMutable`
+		// semantics. The regression suites override it to simulate
+		// deferred-terminal runs.
+		isStateMutable:
+			options?.isStateMutable ?? ((state) => state.ledger.phase === "working"),
 	};
 	return { binding: new ComponentBinding(states, delegates), states, pending };
 }
@@ -872,5 +879,244 @@ describe("ComponentBinding: reset", () => {
 		expect(binding.hydratedReadLedgers()).toEqual([]);
 		expect(state.component).toBeUndefined();
 		expect(read.component).toBeUndefined();
+	});
+});
+
+describe("ComponentBinding: frozen-state mutation guard", () => {
+	test("late updateResult/setArgsComplete after finalization do not resurrect pending state or change settled result/version", () => {
+		const { binding, states, pending } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.bind(component, state);
+		// The tool settles with a completed result while the run is live.
+		binding.observeToolMethod(component, "updateResult", [
+			{ ok: true, content: [] },
+			false,
+		]);
+		expect(state.result).toEqual({ ok: true, content: [] });
+		expect(state.isPartial).toBe(false);
+		expect(pending.has(state)).toBe(false);
+		const settledVersion = state.version;
+		// The run reaches its terminal answer; the ledger freezes.
+		state.ledger.finalize(
+			{
+				messages: [
+					{
+						role: "assistant",
+						stopReason: "stop",
+						content: [{ type: "text", text: "done" }],
+					},
+				],
+			},
+			"live",
+		);
+		expect(state.ledger.phase).toBe("filtered");
+		// A late delivery must not rewrite the settled result...
+		expect(
+			binding.observeToolMethod(component, "updateResult", [
+				{ late: true },
+				true,
+			]),
+		).toBe("bound");
+		expect(state.result).toEqual({ ok: true, content: [] });
+		expect(state.isPartial).toBe(false);
+		expect(pending.has(state)).toBe(false);
+		// ...nor resurrect the spinner via setArgsComplete...
+		binding.observeToolMethod(component, "setArgsComplete", []);
+		expect(state.isPartial).toBe(false);
+		expect(pending.has(state)).toBe(false);
+		// ...nor re-tick the committed presentation version.
+		expect(state.version).toBe(settledVersion);
+	});
+
+	test("late callbacks stay frozen while the run awaits its deferred terminal drain", () => {
+		const deferredRuns = new Set<string>();
+		const { binding, states, pending } = makeBinding({
+			isStateMutable: (state) =>
+				state.ledger.phase === "working" &&
+				!deferredRuns.has(state.ledger.runId),
+		});
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.bind(component, state);
+		binding.observeToolMethod(component, "updateResult", [{ ok: true }, false]);
+		const settledVersion = state.version;
+		// A terminal agent_end parks the run in the deferred-terminal map
+		// while its audit drain runs; the ledger is still phase "working".
+		deferredRuns.add(state.ledger.runId);
+		expect(state.ledger.phase).toBe("working");
+		binding.observeToolMethod(component, "updateResult", [
+			{ late: true },
+			true,
+		]);
+		binding.observeToolMethod(component, "setArgsComplete", []);
+		expect(state.result).toEqual({ ok: true });
+		expect(state.isPartial).toBe(false);
+		expect(pending.has(state)).toBe(false);
+		expect(state.version).toBe(settledVersion);
+	});
+
+	test("updateArgs still binds on frozen state but never rewrites args or version", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.registerUnboundComponent(component);
+		state.ledger.finalize(undefined, "live");
+		expect(state.ledger.phase).toBe("full");
+		const settledArgs = state.args;
+		const settledVersion = state.version;
+		// Replay of the historical updateArgs after hydration: the exact-ID
+		// bind is ownership and resolves, but the payload refresh and the
+		// presentation tick are evidence mutations of a settled ledger.
+		expect(
+			binding.observeToolMethod(component, "updateArgs", [
+				{ path: "/late" },
+				"call-1",
+			]),
+		).toBe("bound");
+		expect(binding.componentState(component)).toBe(state);
+		expect(state.args).toBe(settledArgs);
+		expect(state.version).toBe(settledVersion);
+		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("setExpanded stays presentation-only on frozen state", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-1", toolName: "bash" });
+		states.set("call-1", state);
+		binding.bind(component, state);
+		state.ledger.finalize(undefined, "live");
+		const settledVersion = state.version;
+		// The expand/collapse of a settled row is a live presentation
+		// choice — the render decision reads `expanded` to pick native vs
+		// compact — never settled evidence. It keeps tracking after the
+		// ledger freezes, and its version tick is the re-render signal for
+		// the deliberate change, not evidence churn.
+		binding.observeToolMethod(component, "setExpanded", [true]);
+		expect(state.expanded).toBe(true);
+		expect(state.version).toBe(settledVersion + 1);
+	});
+});
+
+describe("ComponentBinding: bindByObservedId collision hardening", () => {
+	test("a group bound to another ledger is never overwritten by a cross-run id", () => {
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		// Run A: the group owns read-1; its ledger is settled.
+		const first = makeState({ id: "read-1", toolName: "read" });
+		states.set("read-1", first);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/a" },
+			"read-1",
+		]);
+		expect(binding.bindByObservedId("read-1", first)).toBe("bound");
+		expect(group.ledger).toBe(first.ledger);
+		expect(first.component).toBe(groupComponent);
+		// Run B: the same (stale) group observed an id that now resolves to
+		// a read of a different run. The settled binding must not be
+		// overwritten and the new state must stay native.
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/b" },
+			"shared-1",
+		]);
+		const cross = makeState({ id: "shared-1", toolName: "read" });
+		states.set("shared-1", cross);
+		expect(binding.bindByObservedId("shared-1", cross)).toBe("ambiguous");
+		expect(group.ledger).toBe(first.ledger);
+		expect(first.component).toBe(groupComponent);
+		expect(cross.component).toBeUndefined();
+	});
+
+	test("bindByObservedId never binds a non-read state to a group", () => {
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		const bash = makeState({ id: "shared-1", toolName: "bash" });
+		states.set("shared-1", bash);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/a" },
+			"shared-1",
+		]);
+		expect(binding.bindByObservedId("shared-1", bash)).toBe("unmapped");
+		expect(bash.component).toBeUndefined();
+		expect(group.ledger).toBeUndefined();
+	});
+
+	test("an id observed by two groups binds neither (ambiguous fail-open)", () => {
+		const { binding, states } = makeBinding();
+		const firstComponent = new FakeReadGroup();
+		const secondComponent = new FakeReadGroup();
+		const first = binding.createGroup(firstComponent, false);
+		const second = binding.createGroup(secondComponent, false);
+		// Host-first ordering: both groups streamed the same id before the
+		// extension start event created the state — a duplicated/corrupted
+		// host surface where either claim would be a guess.
+		binding.observeReadMethod(first, firstComponent, "updateArgs", [
+			{ path: "/a" },
+			"read-1",
+		]);
+		binding.observeReadMethod(second, secondComponent, "updateArgs", [
+			{ path: "/b" },
+			"read-1",
+		]);
+		expect(first.observedIds.has("read-1")).toBe(true);
+		expect(second.observedIds.has("read-1")).toBe(true);
+		const read = makeState({ id: "read-1", toolName: "read" });
+		states.set("read-1", read);
+		expect(binding.bindByObservedId("read-1", read)).toBe("ambiguous");
+		expect(read.component).toBeUndefined();
+		expect(first.ledger).toBeUndefined();
+		expect(second.ledger).toBeUndefined();
+	});
+
+	test("a same-ledger second read still adopts through bindByObservedId", () => {
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		const first = makeState({ id: "read-1", toolName: "read" });
+		states.set("read-1", first);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/a" },
+			"read-1",
+		]);
+		expect(binding.bindByObservedId("read-1", first)).toBe("bound");
+		// Host-first ordering: the group streams read-2 before the extension
+		// start event creates its state, so only the id is tracked.
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/b" },
+			"read-2",
+		]);
+		expect(group.observedIds.has("read-2")).toBe(true);
+		const second = makeState({
+			id: "read-2",
+			toolName: "read",
+			ledger: first.ledger,
+		});
+		states.set("read-2", second);
+		expect(binding.bindByObservedId("read-2", second)).toBe("bound");
+		expect(second.component).toBe(groupComponent);
+		expect(group.ledger).toBe(first.ledger);
+		expect(binding.mappedReadStates(group)).toEqual([first, second]);
+	});
+
+	test("a provisional empty-string id adopts per the existing contract", () => {
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/a" },
+			"",
+		]);
+		expect(group.observedIds.has("")).toBe(true);
+		const provisional = makeState({ id: "", toolName: "read" });
+		states.set("", provisional);
+		expect(binding.bindByObservedId("", provisional)).toBe("bound");
+		expect(provisional.component).toBe(groupComponent);
+		expect(group.ledger).toBe(provisional.ledger);
 	});
 });
