@@ -983,6 +983,84 @@ describe("ComponentBinding: frozen-state mutation guard", () => {
 		expect(binding.unboundComponents()).toEqual([]);
 	});
 
+	test("a frozen provisional state keeps its binding; migration never re-keys or merges", () => {
+		const { binding, states, pending } = makeBinding();
+		const component = new FakeToolComponent();
+		const provisional = makeState({ id: "", toolName: "read" });
+		states.set("", provisional);
+		binding.bind(component, provisional);
+		// The real-id duplicate also exists (a replay/hydration shape); the
+		// run has settled.
+		const real = makeState({ id: "real-1", toolName: "read" });
+		real.result = { content: [] };
+		states.set("real-1", real);
+		pending.add(real);
+		provisional.ledger.finalize(undefined, "live");
+		real.ledger.finalize(undefined, "live");
+		expect(provisional.ledger.phase).toBe("full");
+		const settledArgs = provisional.args;
+		const settledVersion = provisional.version;
+		// A late provisional→real updateArgs after finalization must not
+		// migrate: no re-key, no entry rewrite, no args/version change, no
+		// evidence merge, no pending transfer, no map eviction. The chosen
+		// contract keeps the provisional exact binding and reports bound
+		// (fail-open — the native updateArgs proceeds untouched).
+		expect(
+			binding.observeToolMethod(component, "updateArgs", [
+				{ path: "/late" },
+				"real-1",
+			]),
+		).toBe("bound");
+		expect(binding.componentState(component)).toBe(provisional);
+		expect(states.get("")).toBe(provisional);
+		expect(states.get("real-1")).toBe(real);
+		expect(provisional.id).toBe("");
+		expect(provisional.entry.id).toBe("");
+		expect(provisional.entry.toolCallId).toBe("");
+		expect(provisional.args).toBe(settledArgs);
+		expect(provisional.version).toBe(settledVersion);
+		expect(provisional.result).toBeUndefined();
+		expect(pending.has(provisional)).toBe(false);
+		expect(pending.has(real)).toBe(true);
+		expect(real.result).toEqual({ content: [] });
+	});
+
+	test("a live provisional migration reads but never rewrites a settled real-id duplicate", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const provisional = makeState({ id: "", toolName: "read" });
+		states.set("", provisional);
+		binding.bind(component, provisional);
+		// The real-id duplicate belongs to a settled run; the provisional is
+		// still live (working ledger). Live migration keeps its documented
+		// absorb-and-drop behavior...
+		const real = makeState({ id: "real-1", toolName: "read" });
+		real.result = { content: ["settled"] };
+		real.isError = true;
+		real.isPartial = false;
+		states.set("real-1", real);
+		real.ledger.finalize(undefined, "live");
+		expect(real.ledger.phase).toBe("full");
+		expect(
+			binding.observeToolMethod(component, "updateArgs", [
+				{ path: "/live" },
+				"real-1",
+			]),
+		).toBe("bound");
+		expect(states.get("real-1")).toBe(provisional);
+		expect(states.get("")).toBeUndefined();
+		expect(provisional.id).toBe("real-1");
+		expect(provisional.args).toEqual({ path: "/live" });
+		expect(provisional.result).toEqual({ content: ["settled"] });
+		expect(provisional.isError).toBe(true);
+		// ...while the settled duplicate's own evidence fields are read,
+		// never rewritten.
+		expect(real.id).toBe("real-1");
+		expect(real.result).toEqual({ content: ["settled"] });
+		expect(real.isError).toBe(true);
+		expect(real.isPartial).toBe(false);
+	});
+
 	test("setExpanded stays presentation-only on frozen state", () => {
 		const { binding, states } = makeBinding();
 		const component = new FakeToolComponent();

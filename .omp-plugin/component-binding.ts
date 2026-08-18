@@ -577,6 +577,13 @@ export class ComponentBinding {
 			const id = updateArgsToolCallId(args);
 			const bound = this.#componentStates.get(component);
 			if (id && bound && bound.id !== id) {
+				// A frozen state keeps its provisional exact binding: the
+				// migration would re-key the state map, rewrite entry ids
+				// and args, and merge evidence/pending — evidence mutations
+				// of a settled view. Skipping it is fail-open: the binding
+				// stays exact and the native updateArgs proceeds untouched.
+				// Live migration behavior is unchanged.
+				if (!this.#stateMutable(bound)) return "bound";
 				const status = this.#migrateToRealId(
 					bound,
 					id,
