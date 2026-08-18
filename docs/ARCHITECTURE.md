@@ -27,7 +27,7 @@ omp-compact/
 ├── docs/
 │   ├── tests/                     # Unit/integration tests and replay corpus
 │   └── assets/                    # Documentation images
-├── README.md / README.ru.md
+├── README.md / README.en.md
 ├── CHANGELOG.md / LICENSE
 └── package.json / bun.lock / tsconfig.json / .gitignore
 ```
@@ -573,5 +573,5 @@ function decideToolRender(/* ... */): ToolRenderDecision {
 
 - [Full Documentation](FULL-DOCUMENTATION.md) — User-facing feature reference
 - [Configuration](CONFIGURATION.md) — All settings and environment variables
-- [Repository README](../README.md) — English project overview and installation ([Русский](../README.ru.md))
+- [Repository README](../README.md) — Russian project overview and installation ([English](../README.en.md))
 - [Contributing](CONTRIBUTING.md) — Development guide

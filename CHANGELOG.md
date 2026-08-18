@@ -8,6 +8,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+
+- The Russian README is now the repository default (`README.md`); the English version moved to `README.en.md` and is linked from the language navigation.
+- README на русском теперь является основным в репозитории (`README.md`); английская версия переехала в `README.en.md` и доступна по ссылке в языковой навигации.
+
 ## [1.0.4] - 2026-08-17
 
 ### Fixed

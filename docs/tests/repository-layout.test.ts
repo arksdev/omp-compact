@@ -60,8 +60,8 @@ describe("public repository layout", () => {
 				`missing docs/assets/${file}`,
 			).toBe(true);
 		}
-		const english = await Bun.file(join(repoRoot, "README.md")).text();
-		const russian = await Bun.file(join(repoRoot, "README.ru.md")).text();
+		const english = await Bun.file(join(repoRoot, "README.en.md")).text();
+		const russian = await Bun.file(join(repoRoot, "README.md")).text();
 		for (const file of ["before.gif", "after.gif", "before.mp4", "after.mp4"]) {
 			expect(english).toContain(`docs/assets/${file}`);
 			expect(russian).toContain(`docs/assets/${file}`);
