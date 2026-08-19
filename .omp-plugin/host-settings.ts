@@ -145,7 +145,7 @@ export interface HostApplyResult {
 export interface HostSettingsBridge {
 	/** Effective host values for menu mirroring. Never writes. */
 	read(): CompactHostSettings;
-	/** Persist host-facing toggles; flush; roll back on flush failure. Throws on failure. */
+	/** Persist host-facing toggles; flush; roll back on mutation or flush failure. Throws on failure. */
 	apply(host: CompactHostSettings): Promise<HostApplyResult>;
 	/** Clear warn-once state (session disposal). */
 	dispose(): void;
@@ -358,7 +358,7 @@ function rawPersistentState(
 	return { present: true, value: current };
 }
 
-/** Flush failed AND restoring the previous values also failed to persist. */
+/** Apply failed (mutation or flush) and/or restoring the previous values failed. */
 export class HostSettingsApplyError extends Error {
 	readonly rollbackFailed: boolean;
 	constructor(
@@ -538,25 +538,35 @@ export function createHostSettingsBridge(
 			);
 		}
 
-		setBoth(changes);
+		// Mutation + flush share one transactional section: a throw from any
+		// api.set() or from flush() restores the whole changes set's raw
+		// persistent pre-image (restoring a never-mutated path is a no-op)
+		// and surfaces HostSettingsApplyError. Fail-closed pre-image gate
+		// above still refuses before any set().
+		let phase: "mutate" | "persist" = "mutate";
 		try {
+			setBoth(changes);
+			phase = "persist";
 			await api.flush();
 		} catch (cause) {
 			// Exact rollback of the raw persistent pre-image (never effective
 			// values, which project/runtime overrides can mask). Best-effort
-			// flush; a failed restore is reported on the error, not thrown.
+			// restore; a failed restore is reported on the error, not thrown.
+			// Covers both restore staging (setBoth) and restore flush failures
+			// — there is no second-order rollback.
 			let rollbackFailed = false;
 			try {
 				await restorePreImage(changes, preImage);
 			} catch (rollbackCause) {
 				rollbackFailed = true;
 				warnOnce(
-					"rollback-flush",
-					`Host settings rollback flush failed: ${rollbackCause instanceof Error ? rollbackCause.message : String(rollbackCause)}.`,
+					"rollback",
+					`Host settings rollback failed: ${rollbackCause instanceof Error ? rollbackCause.message : String(rollbackCause)}.`,
 				);
 			}
+			const action = phase === "mutate" ? "apply" : "persist";
 			throw new HostSettingsApplyError(
-				`Failed to persist host settings (${changes.map((c) => c.path).join(", ")}): ${
+				`Failed to ${action} host settings (${changes.map((c) => c.path).join(", ")}): ${
 					cause instanceof Error ? cause.message : String(cause)
 				}`,
 				{ cause, rollbackFailed },
@@ -580,7 +590,7 @@ export function createHostSettingsBridge(
 	return {
 		read,
 		/**
-		 * Persist host-facing toggles; flush; roll back on flush failure.
+		 * Persist host-facing toggles; flush; roll back on mutation or flush failure.
 		 * Concurrent calls are serialized (not coalesced): each apply waits
 		 * for the previous one, then captures its own persistent pre-image
 		 * and writes its own `host` payload. A failed prior apply does not

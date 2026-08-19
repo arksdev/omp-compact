@@ -32,6 +32,8 @@ class FakeHostSettingsApi implements HostSettingsApi {
 	flushErrors: Error[] = [];
 	/** Errors consumed in order by successive persistent() calls. */
 	persistentErrors: Error[] = [];
+	/** Errors consumed in order by successive set() calls; `undefined` = success. */
+	setErrors: Array<Error | undefined> = [];
 	/**
 	 * Optional per-flush holds: when set, each flush() awaits the next
 	 * promise in order before completing (or throwing). Lets tests park an
@@ -49,6 +51,8 @@ class FakeHostSettingsApi implements HostSettingsApi {
 
 	set(path: HostSettingPath, value: unknown): void {
 		this.setCalls.push([path, value]);
+		const error = this.setErrors.shift();
+		if (error) throw error;
 		// Mirrors stock Settings: set(path, undefined) drops the key from the
 		// persisted YAML (bun YAML.stringify omits undefined leaves), so absence
 		// is restored by deleting rather than storing undefined.
@@ -88,6 +92,7 @@ function makeHarness(
 		runtimeOverrides?: Partial<Record<HostSettingPath, unknown>>;
 		flushErrors?: Error[];
 		persistentErrors?: Error[];
+		setErrors?: Array<Error | undefined>;
 		warn?: (msg: string) => void;
 	} = {},
 ) {
@@ -100,6 +105,7 @@ function makeHarness(
 	}
 	api.flushErrors = opts.flushErrors ?? [];
 	api.persistentErrors = opts.persistentErrors ?? [];
+	api.setErrors = opts.setErrors ?? [];
 	const warns: string[] = [];
 	const bridge = createHostSettingsBridge({
 		api,
@@ -289,6 +295,97 @@ describe("applyHostSettings: save, flush, no reload", () => {
 			recapEnabled: true,
 			thinkingBlocksVisible: true,
 		});
+	});
+
+	test("mutation-phase failure rolls back the whole changes set to the persistent pre-image", async () => {
+		// Defect: setBoth sits outside the flush try, so a throw from the
+		// second api.set leaves the first path mutated with no restore and no
+		// HostSettingsApplyError. Both paths must land back on the raw
+		// persistent pre-image; restore of the never-mutated path is a no-op.
+		const setBoom = new Error("second set rejected");
+		const { bridge, api, warns } = makeHarness({
+			persistent: { "recap.enabled": true, hideThinkingBlock: false },
+			setErrors: [undefined, setBoom],
+		});
+		let caught: unknown;
+		try {
+			await bridge.apply({
+				recapEnabled: false,
+				thinkingBlocksVisible: false,
+			});
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(HostSettingsApplyError);
+		const applyError = caught as HostSettingsApplyError;
+		expect(applyError.cause).toBe(setBoom);
+		expect(applyError.rollbackFailed).toBe(false);
+		expect(applyError.message).toMatch(/failed to apply host settings/i);
+		expect(applyError.message).not.toMatch(/failed to persist host settings/i);
+		// Forward first path + attempted second path, then full pre-image restore.
+		expect(api.setCalls).toEqual([
+			["recap.enabled", false],
+			["hideThinkingBlock", true],
+			["recap.enabled", true],
+			["hideThinkingBlock", false],
+		]);
+		// Mutation never reached flush; restore still flushes once.
+		expect(api.flushCalls).toBe(1);
+		expect(api.persistentValues.get("recap.enabled")).toBe(true);
+		expect(api.persistentValues.get("hideThinkingBlock")).toBe(false);
+		expect(bridge.read()).toEqual({
+			recapEnabled: true,
+			thinkingBlocksVisible: true,
+		});
+		expect(warns).toEqual([]);
+	});
+
+	test("mutation-phase failure with a throwing restore reports rollbackFailed and warns once per class", async () => {
+		// restorePreImage also calls setBoth; a throw while staging the restore
+		// cannot itself be rolled back. Surface via rollbackFailed + warn-once
+		// (failure class, never Error.message).
+		const setBoom = new Error("second set rejected");
+		const restoreBoom = new Error("restore set rejected");
+		const { bridge, api, warns } = makeHarness({
+			persistent: { "recap.enabled": true, hideThinkingBlock: false },
+			// forward set #1 ok, #2 throws; restore set #1 ok, #2 throws (no flush).
+			setErrors: [undefined, setBoom, undefined, restoreBoom],
+		});
+		let caught: unknown;
+		try {
+			await bridge.apply({
+				recapEnabled: false,
+				thinkingBlocksVisible: false,
+			});
+		} catch (error) {
+			caught = error;
+		}
+		expect(caught).toBeInstanceOf(HostSettingsApplyError);
+		const applyError = caught as HostSettingsApplyError;
+		expect(applyError.cause).toBe(setBoom);
+		expect(applyError.rollbackFailed).toBe(true);
+		expect(applyError.message).toMatch(/failed to apply host settings/i);
+		expect(api.flushCalls).toBe(0);
+		expect(warns).toHaveLength(1);
+		expect(warns[0]).toMatch(/host settings rollback failed/i);
+
+		// Same failure class on a second apply: warn-once stays silent.
+		api.setCalls = [];
+		api.setErrors = [undefined, setBoom, undefined, restoreBoom];
+		api.persistentValues.set("recap.enabled", true);
+		api.persistentValues.set("hideThinkingBlock", false);
+		let caught2: unknown;
+		try {
+			await bridge.apply({
+				recapEnabled: false,
+				thinkingBlocksVisible: false,
+			});
+		} catch (error) {
+			caught2 = error;
+		}
+		expect(caught2).toBeInstanceOf(HostSettingsApplyError);
+		expect((caught2 as HostSettingsApplyError).rollbackFailed).toBe(true);
+		expect(warns).toHaveLength(1);
 	});
 
 	test("failed rollback flush is reported on the error", async () => {
