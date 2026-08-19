@@ -259,8 +259,9 @@ share one predicate (`path-inside-root.ts` `isPathInsideRoot`). Both sides must
 be `/`-absolute; segment-exact prefix checks reject `/foo/barbaz` under
 `/foo/bar`. Windows-style absolutes fail closed (no overwrite evidence; config
 path rejected) — the plugin does not implement Windows path semantics.
-Overwrite pre-image opens use `O_NOFOLLOW` on the already-confined destination
-(plain path, or one-hop symlink destination); a concurrent swap-to-symlink
+Overwrite pre-image and post-image opens both use `O_NOFOLLOW` on the
+already-confined destination (plain path, or one-hop symlink destination /
+completion-time realpath'd `effectiveResult`); a concurrent swap-to-symlink
 drops evidence fail-closed rather than following outside the root. Nested
 symlink hops are rejected by `lstat` on the first destination.
 
@@ -564,6 +565,29 @@ All external inputs bounded:
 - Mutation entries: `MAX_MUTATION_ENTRIES` 1,000 max
 
 **Outcome:** DoS-resistant. Oversized inputs rejected with warning.
+
+### Host-trusted agent directory
+
+The host-supplied agent directory and the live session `Settings` object sit
+**inside** the plugin's trust boundary — the same premise as the host's own
+`setAgentDir` / `DirResolver` (no home gate on the override):
+
+- **Trusted inputs.** `PI_CODING_AGENT_DIR` (via host `setAgentDir`) and
+  `Settings.getAgentDir()` name the profile tree the host already chose for
+  this session. The plugin does not re-confine either path to `$HOME` or the
+  project cwd.
+- **What follows.** Plugin JSON is resolved under
+  `<agentDir>/omp-compact/config.json` (`config.ts`); the host-YAML pre-image
+  for settings rollback is read from `<getAgentDir()>/config.y{a}ml`
+  (`host-settings.ts`). Both locations are host-controlled.
+- **Still bounded.** YAML pre-image reads keep byte and nesting-depth budgets
+  (`MAX_HOST_SETTINGS_YAML_BYTES` / `MAX_HOST_SETTINGS_YAML_DEPTH`); an
+  unreadable or over-budget pre-image fails the host-settings update closed
+  before any `set()`/`flush()`.
+- **Why confinement was rejected.** Gating the host agent dir to home/cwd
+  would silently fall through to stock defaults and drop the user's settings
+  (containers, system prefixes, harness temp dirs are legitimate overrides).
+  That silent-loss failure mode is worse than trusting the host-owned path.
 
 ---
 
