@@ -191,32 +191,110 @@ describe("resolveConfigPath", () => {
 		).toBe("/home/user/.omp/agent/omp-compact/config.json");
 	});
 
-	test("rejects OMP_COMPACT_CONFIG outside home and falls through", () => {
-		// Explicit path is highest precedence, but still must stay under home.
-		// Rejected values fall through to the next precedence silently — same
-		// fail-open shape as every other unusable env segment here.
+	test("rejects OMP_COMPACT_CONFIG outside home and project cwd and falls through", () => {
+		// Explicit path is highest precedence, but must stay under home or the
+		// project cwd. Paths that escape both roots fall through to the next
+		// precedence — and emit one warn when a sink is provided.
+		const warnings: string[] = [];
 		expect(
-			resolveConfigPath({
-				HOME: "/home/user",
-				OMP_COMPACT_CONFIG: "/tmp/evil-config.json",
-				PI_CODING_AGENT_DIR: "/tmp/agent-dir",
-			}),
+			resolveConfigPath(
+				{
+					HOME: "/home/user",
+					OMP_COMPACT_CONFIG: "/tmp/evil-config.json",
+					PI_CODING_AGENT_DIR: "/tmp/agent-dir",
+				},
+				{ cwd: "/home/user/project", warn: (m) => warnings.push(m) },
+			),
 		).toBe("/tmp/agent-dir/omp-compact/config.json");
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("OMP_COMPACT_CONFIG");
+		expect(warnings[0]).toContain("/tmp/evil-config.json");
+
+		const warnings2: string[] = [];
 		expect(
-			resolveConfigPath({
-				HOME: "/home/user",
-				OMP_COMPACT_CONFIG: "/etc/omp-compact.json",
-			}),
+			resolveConfigPath(
+				{
+					HOME: "/home/user",
+					OMP_COMPACT_CONFIG: "/etc/omp-compact.json",
+				},
+				{ cwd: "/home/user/project", warn: (m) => warnings2.push(m) },
+			),
 		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+		expect(warnings2).toHaveLength(1);
 	});
 
 	test("accepts OMP_COMPACT_CONFIG under home", () => {
+		const warnings: string[] = [];
 		expect(
-			resolveConfigPath({
-				HOME: "/home/user",
-				OMP_COMPACT_CONFIG: "/home/user/.omp/custom-config.json",
-			}),
+			resolveConfigPath(
+				{
+					HOME: "/home/user",
+					OMP_COMPACT_CONFIG: "/home/user/.omp/custom-config.json",
+				},
+				{ cwd: "/home/user/project", warn: (m) => warnings.push(m) },
+			),
 		).toBe("/home/user/.omp/custom-config.json");
+		expect(warnings).toEqual([]);
+	});
+
+	test("accepts OMP_COMPACT_CONFIG under the project cwd", () => {
+		// Per-repo settings and the integration harness temp dir both live
+		// under the project root, which is outside $HOME on this workstation.
+		// Rejecting them silently is what broke the stock gate at 12e2501.
+		const warnings: string[] = [];
+		expect(
+			resolveConfigPath(
+				{
+					HOME: "/home/user",
+					OMP_COMPACT_CONFIG:
+						"/Volumes/Storage2T/Projects/omp-compact/.omp-compact-test/settings.json",
+				},
+				{
+					cwd: "/Volumes/Storage2T/Projects/omp-compact",
+					warn: (m) => warnings.push(m),
+				},
+			),
+		).toBe(
+			"/Volumes/Storage2T/Projects/omp-compact/.omp-compact-test/settings.json",
+		);
+		expect(warnings).toEqual([]);
+
+		// Relative project-local form resolves against cwd.
+		expect(
+			resolveConfigPath(
+				{
+					HOME: "/home/user",
+					OMP_COMPACT_CONFIG: ".omp-compact/config.json",
+				},
+				{ cwd: "/home/user/project" },
+			),
+		).toBe("/home/user/project/.omp-compact/config.json");
+	});
+
+	test("ordinary no-env path does not warn", () => {
+		const warnings: string[] = [];
+		expect(
+			resolveConfigPath(
+				{ HOME: "/home/user" },
+				{ cwd: "/home/user/project", warn: (m) => warnings.push(m) },
+			),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+		expect(warnings).toEqual([]);
+	});
+
+	test("PI_CONFIG_DIR stays home-only even when project cwd is set", () => {
+		// A project-local PI_CONFIG_DIR is rejected: that env names the stock
+		// agent config root, not a per-project file. Use PI_CODING_AGENT_DIR
+		// for project-local agent trees.
+		expect(
+			resolveConfigPath(
+				{
+					HOME: "/home/user",
+					PI_CONFIG_DIR: "/Volumes/Storage2T/Projects/omp-compact/.config",
+				},
+				{ cwd: "/Volumes/Storage2T/Projects/omp-compact" },
+			),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
 	});
 });
 

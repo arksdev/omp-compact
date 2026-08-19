@@ -115,22 +115,59 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 	return Object.freeze(clone);
 }
 
+export interface ResolveConfigPathOptions {
+	/**
+	 * Optional diagnostic sink. Fired at most once per call, and only when an
+	 * *explicit* `OMP_COMPACT_CONFIG` is set and rejected — never on the
+	 * ordinary no-env path. Callers that construct a settings store pass the
+	 * store warn seam so a discarded user intent is visible without spamming
+	 * absent-env startups.
+	 */
+	warn?: (message: string) => void;
+	/**
+	 * Project root used as the second accepted root for explicit config
+	 * paths. Defaults to `process.cwd()`. Injectable for tests.
+	 */
+	cwd?: string;
+}
+
 /**
  * Resolve the plugin config file path. Precedence:
  * `OMP_COMPACT_CONFIG` > `PI_CODING_AGENT_DIR/omp-compact/config.json` >
  * `~/<PI_CONFIG_DIR|.omp>[/profiles/<PI_PROFILE>]/agent/omp-compact/config.json`.
  *
- * Env-derived segments are validated before use: `PI_PROFILE` must be a
- * single path token (no separators, no `..`, non-empty), and both
- * `OMP_COMPACT_CONFIG` and `PI_CONFIG_DIR` must resolve under the user's
- * home. Rejected values fall through silently to the next precedence /
- * default layout — same fail-open shape as every other unusable input in
- * this module's load path (no throw, no warn at resolve time).
+ * Env-derived segments are validated before use:
+ * - `PI_PROFILE` must be a single path token (no separators, no `..`,
+ *   non-empty).
+ * - Explicit `OMP_COMPACT_CONFIG` must resolve under the user's home **or**
+ *   the current project root (`cwd`). Project-local config is a legitimate
+ *   layout (per-repo settings, integration harness temp dirs); the check
+ *   only blocks paths that escape both roots.
+ * - `PI_CONFIG_DIR` stays home-only: it names the stock agent config *root*
+ *   (profile layout under `~/.omp` / `~/.pi`), not a per-project file.
+ *   Project-local agent trees use `PI_CODING_AGENT_DIR` instead.
+ *
+ * Rejected values fall through to the next precedence / default layout.
+ * A rejected **explicit** `OMP_COMPACT_CONFIG` also emits one warn when a
+ * sink is provided — discarding a path the user named is different from an
+ * absent env var. Other rejections stay silent (same fail-open shape as the
+ * rest of this module's load path).
  */
-export function resolveConfigPath(env: EnvLike): string {
+export function resolveConfigPath(
+	env: EnvLike,
+	options: ResolveConfigPathOptions = {},
+): string {
 	const home = env.HOME ?? env.USERPROFILE ?? homedir();
+	const cwd = options.cwd ?? process.cwd();
 	const explicit = env.OMP_COMPACT_CONFIG;
-	if (explicit && isPathInsideHome(explicit, home)) return explicit;
+	if (explicit) {
+		const accepted = resolveAcceptedExplicitConfigPath(explicit, home, cwd);
+		if (accepted !== undefined) return accepted;
+		// User named a path and we threw it away — one diagnostic, not a throw.
+		options.warn?.(
+			`OMP_COMPACT_CONFIG path is outside home and project cwd (${explicit}); ignoring`,
+		);
+	}
 	const agentDir = env.PI_CODING_AGENT_DIR;
 	if (agentDir) return join(agentDir, "omp-compact", "config.json");
 	// Rejected PI_CONFIG_DIR falls back to the stock ".omp" root silently.
@@ -173,8 +210,49 @@ function isPathInsideHome(candidate: string, home: string): boolean {
 	const resolved = isAbsolute(candidate)
 		? resolve(candidate)
 		: resolve(homeResolved, candidate);
-	if (resolved === homeResolved) return true;
-	const prefix = homeResolved.endsWith(sep) ? homeResolved : homeResolved + sep;
+	return isPathInsideRoot(resolved, homeResolved);
+}
+
+/**
+ * Explicit `OMP_COMPACT_CONFIG` acceptance: the resolved path must live under
+ * home or under the project cwd. Relative candidates are tried against cwd
+ * first (project-local layout) and then against home (historical `~/…`
+ * relative form). Returns the absolute resolved path on accept, else
+ * `undefined` — so a later `readFile` does not depend on process.cwd().
+ */
+function resolveAcceptedExplicitConfigPath(
+	candidate: string,
+	home: string,
+	cwd: string,
+): string | undefined {
+	if (candidate === "") return undefined;
+	const homeResolved = resolve(home);
+	const cwdResolved = resolve(cwd);
+	if (isAbsolute(candidate)) {
+		const resolved = resolve(candidate);
+		if (
+			isPathInsideRoot(resolved, homeResolved) ||
+			isPathInsideRoot(resolved, cwdResolved)
+		) {
+			return resolved;
+		}
+		return undefined;
+	}
+	const fromCwd = resolve(cwdResolved, candidate);
+	if (
+		isPathInsideRoot(fromCwd, homeResolved) ||
+		isPathInsideRoot(fromCwd, cwdResolved)
+	) {
+		return fromCwd;
+	}
+	const fromHome = resolve(homeResolved, candidate);
+	if (isPathInsideRoot(fromHome, homeResolved)) return fromHome;
+	return undefined;
+}
+
+function isPathInsideRoot(resolved: string, root: string): boolean {
+	if (resolved === root) return true;
+	const prefix = root.endsWith(sep) ? root : root + sep;
 	return resolved.startsWith(prefix);
 }
 
@@ -610,11 +688,13 @@ export function createSettingsStore(
 	deps: StoreDeps = {},
 ): CompactSettingsStore {
 	const env = deps.env ?? process.env;
-	const path = deps.path ?? resolveConfigPath(env);
-	const readConfigFile = deps.readFile ?? readFile;
 	const warn =
 		deps.warn ??
 		((message: string) => console.warn(`[omp-compact] ${message}`));
+	// Resolve after warn is bound so a rejected explicit OMP_COMPACT_CONFIG
+	// can surface one diagnostic through the store warn seam.
+	const path = deps.path ?? resolveConfigPath(env, { warn });
+	const readConfigFile = deps.readFile ?? readFile;
 	const warned = new Set<string>();
 	const warnOnce = (key: string, message: string): void => {
 		if (warned.has(key)) return;
