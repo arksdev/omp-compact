@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-
+import { readExactAsync, readExactSync } from "../../.omp-plugin/audit";
 import {
 	completeEditMutations,
 	countDiffChanges,
@@ -17,8 +17,6 @@ import {
 	trimmedMiddleLines,
 } from "../../.omp-plugin/audit-diff";
 import { MAX_EVIDENCE_PATH_LENGTH } from "../../.omp-plugin/hydration-bounds";
-
-import { readExactAsync, readExactSync } from "../../.omp-plugin/audit";
 
 import type { MutationMessageDetails } from "../../.omp-plugin/messages";
 import { loadStockPlugin } from "./test-stock-host";
@@ -270,7 +268,10 @@ describe("numbered edit audit", () => {
 });
 
 describe("edit aggregate error handling", () => {
-	test("single-path aggregate error keeps applied numbered diff", () => {
+	test("single-file top-level error with a diff-shaped result publishes nothing", () => {
+		// Fail closed: a top-level error without perFileResults cannot prove
+		// the write applied. A diff-shaped payload must not become +N/−M
+		// evidence for a failed single-file edit.
 		expect(
 			completeEditMutations(
 				"edit-8",
@@ -283,17 +284,20 @@ describe("edit aggregate error handling", () => {
 				},
 				true,
 			),
-		).toEqual([
-			{
-				version: 1,
-				toolCallId: "edit-8",
-				toolName: "edit",
-				path: "src/a.ts",
-				added: 1,
-				removed: 1,
-				exact: true,
-			},
-		]);
+		).toEqual([]);
+		// Top-level flag alone (no result.isError) is enough.
+		expect(
+			completeEditMutations(
+				"edit-8b",
+				{
+					details: {
+						path: "src/a.ts",
+						diff: "-1|old\n+1|new",
+					},
+				},
+				true,
+			),
+		).toEqual([]);
 	});
 
 	test("failed single-path result without evidence stays discarded", () => {
@@ -685,28 +689,21 @@ describe("numbered edit audit", () => {
 		]);
 	});
 
-	test("single-path aggregate error keeps already-applied numbered diff", () => {
-		const entries = completeEditMutations(
-			"edit-3",
-			{
-				details: {
-					path: "src/d.ts",
-					diff: "+12|new\n+13|newer\n",
+	test("single-path top-level error discards numbered diff evidence", () => {
+		// Same fail-closed rule as the aggregate-error suite: without
+		// perFileResults a top-level error cannot prove the write applied.
+		expect(
+			completeEditMutations(
+				"edit-3",
+				{
+					details: {
+						path: "src/d.ts",
+						diff: "+12|new\n+13|newer\n",
+					},
 				},
-			},
-			true,
-		);
-		expect(entries).toEqual([
-			{
-				version: 1,
-				toolCallId: "edit-3",
-				toolName: "edit",
-				path: "src/d.ts",
-				added: 2,
-				removed: 0,
-				exact: true,
-			},
-		]);
+				true,
+			),
+		).toEqual([]);
 	});
 
 	test("single-path error without usable diff evidence is discarded", () => {

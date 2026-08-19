@@ -1,9 +1,9 @@
 import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
-
 import type {
 	LegacyMutationMessageDetails,
 	MutationMessageDetails,
 } from "./messages";
+import { objectRecord } from "./object-record";
 
 /** Delete evidence returned by the audit: exact or path-only. */
 export type DeleteMutationEvidence =
@@ -55,12 +55,6 @@ export const MAX_TOTAL_SCAN_BYTES = 4_194_304;
  * shrinks the middle to the changed region only.
  */
 export const DIFF_MAX_REMAINING_LINES = 4_000;
-
-function record(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
-}
 
 /** Line count shared with the write audit: empty text is 0 lines, a trailing newline does not add a line. */
 export function lineCount(text: string): number {
@@ -343,15 +337,19 @@ function deleteEntry(
 /**
  * Derive mutation evidence from a stock edit-tool result.
  *
- * - Multi-file results keep every successful entry and drop failed ones,
- *   bounded by the F02 budgets: at most MAX_PER_FILE_RESULTS files are
- *   processed and scanning stops once MAX_TOTAL_SCAN_BYTES of per-file
- *   evidence has been examined. Anything beyond the budgets is dropped
- *   deterministically — never counted approximately.
- * - A single-path result is retained whenever its details carry evidence of an
- *   applied mutation (non-zero diff, or a delete with a valid path), even when
- *   the aggregate result is flagged as an error (stock marks partial
- *   application this way).
+ * - Multi-file results (`details.perFileResults`) keep every successful entry
+ *   and drop failed ones, bounded by the F02 budgets: at most
+ *   MAX_PER_FILE_RESULTS files are processed and scanning stops once
+ *   MAX_TOTAL_SCAN_BYTES of per-file evidence has been examined. Anything
+ *   beyond the budgets is dropped deterministically — never counted
+ *   approximately. A top-level/aggregate error does **not** suppress the
+ *   successful per-file rows (stock marks partial multi-file application
+ *   that way).
+ * - A single-path result (no `perFileResults`) is retained only when the
+ *   call is not a top-level error and its details carry evidence of an
+ *   applied mutation (non-zero diff, or a delete with a valid path). A
+ *   top-level error with a diff-shaped payload publishes **nothing** —
+ *   false +N/−M for a write that did not happen is worse than no row.
  * - Deletes with a valid path but no exact pre-image stay as count-less
  *   entries (`exact: false`) so the row is shown without invented stats.
  * - Failed/unapplied/no-op results produce no entries.
@@ -359,17 +357,18 @@ function deleteEntry(
 export function completeEditMutations(
 	toolCallId: string,
 	result: unknown,
-	_isError: boolean,
+	isError: boolean,
 ): DeleteMutationEvidence[] {
-	const resultRecord = record(result);
-	const details = record(resultRecord.details);
+	const resultRecord = objectRecord(result);
+	const details = objectRecord(resultRecord.details);
+	const topLevelError = isError || resultRecord.isError === true;
 	if (Array.isArray(details.perFileResults)) {
 		const entries: DeleteMutationEvidence[] = [];
 		const files = details.perFileResults;
 		const fileCount = Math.min(files.length, MAX_PER_FILE_RESULTS);
 		let scannedBytes = 0;
 		for (let index = 0; index < fileCount; index++) {
-			const file = record(files[index]);
+			const file = objectRecord(files[index]);
 			if (file.isError === true) continue;
 			const diff = typeof file.diff === "string" ? file.diff : "";
 			const oldText = typeof file.oldText === "string" ? file.oldText : "";
@@ -390,6 +389,8 @@ export function completeEditMutations(
 		}
 		return entries;
 	}
+	// Single-file path: top-level error cannot prove the write applied.
+	if (topLevelError) return [];
 	const entry =
 		details.op === "delete"
 			? deleteEntry(
