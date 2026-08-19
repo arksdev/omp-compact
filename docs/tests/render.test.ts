@@ -254,6 +254,67 @@ describe("routine rows", () => {
 		expect(stripAnsi(line ?? "")).toBe("• read /Volumes");
 	});
 
+	test("host-elided tool results still compact from surviving args", () => {
+		// Host shake("elide") replaces toolResult content with a placeholder and
+		// never touches assistant toolCall.arguments (pi-agent-core shake.ts).
+		// Compact rows describe from args; a missing/placeholder result only
+		// drops optional resultMeta — it does not force native.
+		const shaken = {
+			content: [{ type: "text", text: "[shaken ~42 tokens]" }],
+			isError: false,
+		};
+		const cases: Array<{
+			toolName: string;
+			args: Record<string, unknown>;
+			match: RegExp;
+		}> = [
+			{
+				toolName: "glob",
+				args: { path: [".omp-plugin/**"] },
+				match: /^• glob: \.omp-plugin\/\*\*/,
+			},
+			{
+				toolName: "grep",
+				args: { pattern: "resolveToolRule", path: [".omp-plugin"] },
+				match: /^• grep: resolveToolRule/,
+			},
+			{
+				toolName: "bash",
+				args: { command: "wc -l *.ts | sort -rn" },
+				match: /^• bash: wc -l \*\.ts \| sort -rn/,
+			},
+			{
+				toolName: "eval",
+				args: { code: "1+1", language: "js" },
+				match: /^• eval:/,
+			},
+			{
+				toolName: "read",
+				args: { path: ".omp-plugin/index.ts" },
+				match: /^• read \.omp-plugin\/index\.ts$/,
+			},
+		];
+		for (const { toolName, args, match } of cases) {
+			const [line] = renderCompactToolRows(
+				routineView({ toolName, args, result: shaken }),
+				fakeTheme(),
+			);
+			expect(stripAnsi(line ?? "")).toMatch(match);
+			// Placeholder body must not leak into the compact summary.
+			expect(stripAnsi(line ?? "")).not.toContain("[shaken");
+		}
+		// Absent result is the same path as a placeholder for describe().
+		const [bashNoResult] = renderCompactToolRows(
+			routineView({
+				toolName: "bash",
+				args: { command: "true" },
+				result: undefined,
+			}),
+			fakeTheme(),
+		);
+		expect(stripAnsi(bashNoResult ?? "")).toMatch(/^• bash: true$/);
+	});
+
 	test("read offset descriptions keep their range punctuation", () => {
 		const [line] = renderCompactToolRows(
 			routineView({
