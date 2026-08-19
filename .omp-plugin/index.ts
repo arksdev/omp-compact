@@ -691,12 +691,16 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_tree", async (event) => {
-		// C05: `session_tree` is intent/coalescing metadata only — stock
-		// emits it before the caller-side UI rebuild, so the actual
-		// rehydration is keyed to the transcript `clear` that follows a
-		// committed navigation. A cancelled/no-op tree interaction (Esc,
-		// exact-real-leaf no-op) never clears and therefore never advances
-		// the presentation generation.
+		// Committed `/tree` navigation (and equivalent navigateTree callers):
+		// stock emits `session_tree` only AFTER the leaf move lands and BEFORE
+		// the caller's `renderInitialMessages` rebuild (disposeChildren +
+		// re-add). Same restore-view contract as in-process `/resume`: arm the
+		// one-shot compact override so historical/collapsed tails bind compact
+		// under the live default mode. Cancelled/no-op tree interactions never
+		// emit this event, so they never arm. Rehydration still keys off the
+		// transcript clear that follows — noteTreeIntent stays a no-op seam.
+		await modePolicy.ready();
+		if (modePolicy.enabled) modePolicy.armRestoreOverride();
 		adapter?.noteTreeIntent(event);
 	});
 

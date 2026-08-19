@@ -7592,6 +7592,76 @@ stockTest(
 );
 
 stockTest(
+	"in-process /tree rebuild through disposeChildren keeps the navigated history compact",
+	async () => {
+		// Stock `/tree` commits the leaf, emits `session_tree`, then
+		// `renderInitialMessages` swaps the transcript via disposeChildren
+		// (ui-helpers.ts) — same rebuild surface as in-process /resume, but
+		// WITHOUT session_before_switch/session_switch. The default live mode
+		// plus display.collapseCompacted tail means the rebuild must arm the
+		// restore compact override (and suffix alignment) before clear, or
+		// the visible history falls through to native tool cards.
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		expect(booted.harness.resetCalls).toBe(0);
+		harness.branch.current = [
+			...committedSingleToolBranch("printf old", "bash-old", "old done"),
+			...committedSingleToolBranch("printf new", "bash-new", "new done"),
+		];
+		await dispatch(booted, {
+			type: "session_tree",
+			newLeafId: "leaf-new",
+			oldLeafId: "leaf-old",
+		});
+		const transcript = booted.transcript;
+		expect(typeof transcript.disposeChildren).toBe("function");
+		transcript.disposeChildren?.();
+		expect(booted.harness.clears).toBe(1);
+		// Collapsed visible tail only (newest tool); full branch still has
+		// bash-old + bash-new. Suffix alignment requires the restore arm.
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf new" },
+			"bash-new",
+		);
+		rebuilt.render = () => ["native-fallback"];
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-new",
+		);
+		addAnswer(booted, "new done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("bash: printf new");
+		expect(rows).toContain("new done");
+		expect(rows).not.toContain("native-fallback");
+		expect(booted.harness.resetCalls).toBe(1);
+		// Next live run clears the one-shot restore and keeps persisted live.
+		await beginRun(booted);
+		const next = await addTool(
+			booted,
+			"bash",
+			{ command: "printf next" },
+			"bash-live",
+		);
+		await finishTool(booted, next, {
+			toolCallId: "bash-live",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "next done");
+		await finishRun(booted, "next done");
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("bash: printf new");
+		expect(live).not.toContain("printf next");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"cold launch of a collapsed-history session binds the visible tool tail compact",
 	async () => {
 		// Real-world cold restart of a long-lived session: the branch
@@ -7994,8 +8064,12 @@ stockTest(
 );
 
 stockTest(
-	"tree rebuild filters a grouped read when interleaved tools split replay segments",
+	"tree rebuild presents interleaved reads compact under the restore override",
 	async () => {
+		// Committed `/tree` arms restoreOverride (compact) before the
+		// disposeChildren/clear rebuild. Interleaved read segments still
+		// pair correctly; historical rows render compact, not native and
+		// not live-filtered away.
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("live", harness);
 		const answer = "tree read done";
@@ -8028,8 +8102,8 @@ stockTest(
 		await flushMicrotasks();
 
 		const rows = visibleRows(booted.transcript).join("\n");
-		expect(rows).not.toContain("src/first.ts");
-		expect(rows).not.toContain("src/last.ts");
+		expect(rows).toContain("• read src/first.ts");
+		expect(rows).toContain("• read src/last.ts");
 		expect(rows).not.toContain("● Read");
 		expect(rows).toContain(answer);
 		await shutdown(booted);
