@@ -212,13 +212,18 @@ function tokenizeCommands(source: string): string[][] | undefined {
 }
 
 function isCdPrefix(tokens: readonly string[]): boolean {
-	return (
-		(tokens.length === 2 && tokens[0] === "cd" && tokens[1].length > 0) ||
-		(tokens.length === 3 &&
-			tokens[0] === "cd" &&
-			tokens[1] === "--" &&
-			tokens[2].length > 0)
-	);
+	const head = tokens[0];
+	if (head !== "cd") return false;
+	if (tokens.length === 2) {
+		const path = tokens[1];
+		return path !== undefined && path.length > 0;
+	}
+	if (tokens.length === 3) {
+		const dd = tokens[1];
+		const path = tokens[2];
+		return dd === "--" && path !== undefined && path.length > 0;
+	}
+	return false;
 }
 
 function takesGitOptionValue(token: string): boolean {
@@ -284,11 +289,11 @@ function gitSubcommandIndex(
 ): number | undefined {
 	for (let index = start; index < tokens.length; ) {
 		const token = tokens[index];
+		if (token === undefined) return undefined;
 		if (token === "--") {
 			index++;
-			return index < tokens.length && tokens[index].length > 0
-				? index
-				: undefined;
+			const next = tokens[index];
+			return next !== undefined && next.length > 0 ? index : undefined;
 		}
 		if (takesGitOptionValue(token)) {
 			if (index + 1 >= tokens.length) return undefined;
@@ -317,9 +322,12 @@ function parseGitInvocationTokens(
 
 	const subcommandIndex = gitSubcommandIndex(tokens, gitIndex + 1);
 	if (subcommandIndex === undefined) return undefined;
+	const subcommand = tokens[subcommandIndex];
+	// gitSubcommandIndex only returns an in-range index of a non-empty token.
+	if (subcommand === undefined) return undefined;
 	return {
 		tokens,
-		subcommand: tokens[subcommandIndex],
+		subcommand,
 		subcommandIndex,
 	};
 }
@@ -335,10 +343,14 @@ function parseGitChain(command: string): GitChain | undefined {
 	const commands = tokenizeCommands(command);
 	if (!commands || commands.length === 0) return undefined;
 
-	const start = isCdPrefix(commands[0]) ? 1 : 0;
+	const head = commands[0];
+	if (head === undefined) return undefined;
+	const start = isCdPrefix(head) ? 1 : 0;
 	const segments: GitSegment[] = [];
 	for (let index = start; index < commands.length; index++) {
-		const parsed = parseGitInvocationTokens(commands[index]);
+		const segmentTokens = commands[index];
+		if (segmentTokens === undefined) return undefined;
+		const parsed = parseGitInvocationTokens(segmentTokens);
 		if (!parsed) return undefined;
 		segments.push({ ...parsed, cdGated: start === 1 && index === 1 });
 	}
@@ -370,6 +382,8 @@ export function recognizeGitCommand(command: string): GitCommand | undefined {
 	const chain = parseGitChain(command);
 	if (!chain) return undefined;
 	const first = chain.segments[0];
+	// parseGitChain returns undefined when segments is empty.
+	if (first === undefined) return undefined;
 	return { subcommand: first.subcommand, gated: first.cdGated };
 }
 
@@ -441,7 +455,9 @@ function renderInvocation(invocation: GitSegment): string {
 		index < invocation.tokens.length;
 		index++
 	) {
-		const token = oneLine(invocation.tokens[index]);
+		const raw = invocation.tokens[index];
+		if (raw === undefined) continue;
+		const token = oneLine(raw);
 		if (!token) continue;
 		rendered = appendDetail(rendered, token);
 		if (rendered.length >= MAX_RECORD_LENGTH) break;
@@ -488,7 +504,12 @@ function commitSummary(
 		const line = oneLine(resultText.slice(start, lineEnd));
 		const match = /^\[[^\]]*\s([\da-f]{4,64})\]\s*(.*)$/i.exec(line);
 		if (match) {
-			return { hash: match[1], subject: oneLine(match[2]) };
+			// Both capturing groups are required by the pattern; a successful
+			// match always populates them (subject may be the empty string).
+			const hash = match[1];
+			const subject = match[2];
+			if (hash === undefined || subject === undefined) return undefined;
+			return { hash, subject: oneLine(subject) };
 		}
 		while (
 			lineEnd < end &&
@@ -535,11 +556,13 @@ export function formatGitRecords(
 		// stopped at the `cd` itself. A failed compound cannot attribute the
 		// failure to a specific segment. Both fail closed rather than retain
 		// a row that may not have executed.
-		if (segments.length !== 1 || segments[0].cdGated) return undefined;
+		const only = segments[0];
+		if (segments.length !== 1 || only === undefined || only.cdGated)
+			return undefined;
 		return [
 			{
-				subcommand: segments[0].subcommand,
-				text: `✗ ${renderInvocation(segments[0])}`,
+				subcommand: only.subcommand,
+				text: `✗ ${renderInvocation(only)}`,
 				isError: true,
 			},
 		];
@@ -587,5 +610,5 @@ export function formatGitRecords(
  */
 export function formatGitRecord(evidence: GitEvidence): string | undefined {
 	const records = formatGitRecords(evidence);
-	return records && records.length > 0 ? records[0].text : undefined;
+	return records?.[0]?.text;
 }
