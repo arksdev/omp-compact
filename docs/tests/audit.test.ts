@@ -2203,6 +2203,12 @@ while (!existsSync(stop)) {
 				let sawEmpty = false;
 				let sawSafe = false;
 				let n = 0;
+				// Accumulate worst-case `added` across the hammer instead of
+				// asserting inside the time-boxed loop: the hard contract is
+				// "no sample ever reaches the secret line count", which is
+				// exactly `maxAdded < secretLines`. In-loop expects scale with
+				// machine speed and poison the suite's quoted expect() total.
+				let maxAdded = 0;
 				const deadline = Date.now() + 2_500;
 				while (Date.now() < deadline) {
 					const batch: Promise<MutationMessageDetails[]>[] = [];
@@ -2239,13 +2245,14 @@ while (!existsSync(stop)) {
 						// yields added ≈ secretLines. Safe overwrite is +1|0.
 						// Transient empty/partial races may publish other small
 						// shapes — never a secret-sized added count.
-						expect(entry.added).toBeLessThan(secretLines);
+						if (entry.added > maxAdded) maxAdded = entry.added;
 						if (entry.added === 1 && entry.removed === 0) {
 							sawSafe = true;
 						}
 					}
 				}
 				expect(n).toBeGreaterThan(0);
+				expect(maxAdded).toBeLessThan(secretLines);
 				// The race must have been observable at least once either way;
 				// the hard contract is "secret never leaks".
 				expect(sawEmpty || sawSafe).toBe(true);
