@@ -1035,25 +1035,16 @@ export class RuntimeAdapter {
 	 */
 	#patchTtsrNotification(component: RenderableBlock): void {
 		if (this.#ttsrPatches.has(component)) return;
-		const own = Object.getOwnPropertyDescriptor(component, "render");
-		const proto = Object.getPrototypeOf(component) as object | null;
-		const inherited =
-			proto && proto !== Object.prototype
-				? Object.getOwnPropertyDescriptor(proto, "render")
-				: undefined;
-		const original =
-			typeof own?.value === "function"
-				? (own.value as (
-						this: RenderableBlock,
-						width: number,
-					) => readonly string[])
-				: typeof inherited?.value === "function"
-					? (inherited.value as (
-							this: RenderableBlock,
-							width: number,
-						) => readonly string[])
-					: undefined;
-		if (!original) return;
+		// Full-chain walk (same as expandable leaves). For stock TTSR and the
+		// test double, render lives on the class — one-level lookup already
+		// found it; the deeper walk is a pure superset and cannot invent a
+		// method the old path would have rejected for these surfaces.
+		const originalRender = this.#resolveInstanceMethod(component, "render");
+		if (!originalRender) return;
+		const original = originalRender as (
+			this: RenderableBlock,
+			width: number,
+		) => readonly string[];
 		const adapter = this;
 		try {
 			const patch = new DescriptorPatch(component, ["render"]);
@@ -1095,27 +1086,15 @@ export class RuntimeAdapter {
 	#patchTodoReminder(component: RenderableBlock): void {
 		if (this.#todoReminderPatches.has(component)) return;
 		// Probe before capture/install so unrelated activity-only leaves never
-		// receive a render wrapper.
+		// receive a render wrapper. Method lookup cannot discriminate the
+		// StrippedToolCallsPlaceholder collision — only this content probe can.
 		if (!todoReminderFromComponent(component)) return;
-		const own = Object.getOwnPropertyDescriptor(component, "render");
-		const proto = Object.getPrototypeOf(component) as object | null;
-		const inherited =
-			proto && proto !== Object.prototype
-				? Object.getOwnPropertyDescriptor(proto, "render")
-				: undefined;
-		const original =
-			typeof own?.value === "function"
-				? (own.value as (
-						this: RenderableBlock,
-						width: number,
-					) => readonly string[])
-				: typeof inherited?.value === "function"
-					? (inherited.value as (
-							this: RenderableBlock,
-							width: number,
-						) => readonly string[])
-					: undefined;
-		if (!original) return;
+		const originalRender = this.#resolveInstanceMethod(component, "render");
+		if (!originalRender) return;
+		const original = originalRender as (
+			this: RenderableBlock,
+			width: number,
+		) => readonly string[];
 		const adapter = this;
 		try {
 			const patch = new DescriptorPatch(component, ["render"]);
@@ -1188,10 +1167,11 @@ export class RuntimeAdapter {
 	 * Resolve a callable instance method through the prototype chain. Stock
 	 * `BashExecutionComponent` overrides `render` on its own class;
 	 * `EvalExecutionComponent` does not and inherits `Container.render`
-	 * several levels up. The existing TTSR/todo one-level lookup would miss
+	 * several levels up. A one-level own-then-prototype lookup would miss
 	 * eval, so we walk until we find a function value (never patching a
 	 * shared prototype — only capturing the function to wrap as an own
-	 * instance property).
+	 * instance property). TTSR / todo-reminder also use this walk; for those
+	 * surfaces it is a pure superset of the former one-level lookup.
 	 */
 	#resolveInstanceMethod(
 		component: object,
