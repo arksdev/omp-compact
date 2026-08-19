@@ -1033,10 +1033,30 @@ class FakeBashExecution {
 	#expanded = false;
 	#exitCode: number | undefined;
 	#cancelled = false;
+	/**
+	 * Mirrors stock Text children under the content container so the plugin's
+	 * footer scrape can recover `(exit N)` / `(cancelled)` when setComplete
+	 * was never observed (fresh history instances after rebuild).
+	 */
+	children: Array<{ getText(): string }> = [];
 	nativeRenderCount = 0;
 
 	constructor(command: string) {
 		this.#command = command;
+		this.#rebuildFooter();
+	}
+
+	#rebuildFooter(): void {
+		const texts: Array<{ getText(): string }> = [
+			{ getText: () => `$ ${this.#command}` },
+		];
+		if (this.#finalized) {
+			if (this.#cancelled) texts.push({ getText: () => "\n(cancelled)" });
+			else if (typeof this.#exitCode === "number" && this.#exitCode !== 0) {
+				texts.push({ getText: () => `\n(exit ${this.#exitCode})` });
+			}
+		}
+		this.children = texts;
 	}
 
 	getCommand(): string {
@@ -1068,6 +1088,7 @@ class FakeBashExecution {
 		this.#cancelled = cancelled;
 		this.#finalized = true;
 		if (options?.output !== undefined) this.#output = options.output;
+		this.#rebuildFooter();
 	}
 
 	render(_width: number): readonly string[] {
@@ -1105,11 +1126,27 @@ class FakeEvalExecution extends FakeExecutionBase {
 	#expanded = false;
 	#exitCode: number | undefined;
 	#cancelled = false;
+	/** Stock-like Text tree for footer scrape on unobserved setComplete. */
+	children: Array<{ getText(): string }> = [];
 
 	constructor(code: string) {
 		super();
 		this.#code = code;
 		this.label = code;
+		this.#rebuildFooter();
+	}
+
+	#rebuildFooter(): void {
+		const texts: Array<{ getText(): string }> = [
+			{ getText: () => `>>> ${this.#code}` },
+		];
+		if (this.#finalized) {
+			if (this.#cancelled) texts.push({ getText: () => "\n(cancelled)" });
+			else if (typeof this.#exitCode === "number" && this.#exitCode !== 0) {
+				texts.push({ getText: () => `\n(exit ${this.#exitCode})` });
+			}
+		}
+		this.children = texts;
 	}
 
 	getCode(): string {
@@ -1142,6 +1179,7 @@ class FakeEvalExecution extends FakeExecutionBase {
 		this.#finalized = true;
 		if (options?.output !== undefined) this.#output = options.output;
 		this.label = `${this.#code} exit=${String(this.#exitCode)} cancelled=${String(this.#cancelled)} expanded=${String(this.#expanded)}`;
+		this.#rebuildFooter();
 	}
 }
 
@@ -1307,6 +1345,63 @@ stockTest(
 		booted.transcript.addChild(good);
 		good.setComplete(0, false);
 		expect(stripAnsi(good.render(80)[0] ?? "")).toBe("• bash: echo ok");
+
+		await booted.adapter.dispose();
+	},
+);
+
+stockTest(
+	"User bash/python execution: fresh history instance keeps exit after rebuild",
+	async () => {
+		// Stock history rebuild constructs a NEW component, calls setComplete
+		// with the recorded exit, THEN addChilds it. The adapter never saw the
+		// original setComplete on that instance — exit must come from the
+		// stock footer Text tree via scrape, not the WeakMap observation.
+		const booted = await bootAdapter();
+
+		const live = new FakeBashExecution("false");
+		booted.transcript.addChild(live);
+		live.setComplete(2, false, { output: "boom\n" });
+		expect(stripAnsi(live.render(120)[0] ?? "")).toBe("✗ bash: false · exit 2");
+
+		// Clear detaches every user-execution patch (WeakMap state stays with
+		// the retired instance and is irrelevant to a fresh one).
+		booted.transcript.clear();
+		await Promise.resolve();
+		await Promise.resolve();
+
+		// Fresh instance: setComplete BEFORE addChild, matching
+		// chat-transcript-builder / ui-helpers history reconstruction.
+		const histBash = new FakeBashExecution("false");
+		histBash.setComplete(2, false, { output: "boom\n" });
+		const histPy = new FakeEvalExecution("raise SystemExit(3)");
+		histPy.setComplete(undefined, true);
+
+		booted.transcript.addChild(histBash);
+		booted.transcript.addChild(histPy);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(stripAnsi(histBash.render(120)[0] ?? "")).toBe(
+			"✗ bash: false · exit 2",
+		);
+		expect(stripAnsi(histPy.render(120)[0] ?? "")).toBe(
+			"✗ python: raise SystemExit(3) · cancelled",
+		);
+		// Footer scrape path: never hit native (compact succeeded).
+		expect(histBash.nativeRenderCount).toBe(0);
+		expect(histPy.nativeRenderCount).toBe(0);
+
+		// Second rebuild with another fresh failed instance still scrapes.
+		booted.transcript.clear();
+		const again = new FakeBashExecution("exit 7");
+		again.setComplete(7, false);
+		booted.transcript.addChild(again);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(stripAnsi(again.render(80)[0] ?? "")).toBe(
+			"✗ bash: exit 7 · exit 7",
+		);
 
 		await booted.adapter.dispose();
 	},
