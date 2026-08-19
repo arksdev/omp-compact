@@ -148,6 +148,18 @@ export interface ResolveConfigPathOptions {
  * - `PI_CONFIG_DIR` stays home-only: it names the stock agent config *root*
  *   (profile layout under `~/.omp` / `~/.pi`), not a per-project file.
  *   Project-local agent trees use `PI_CODING_AGENT_DIR` instead.
+ * - `PI_CODING_AGENT_DIR` is **not** confined here. The host owns this
+ *   variable: `@oh-my-pi/pi-utils` `setAgentDir` / `setProfile` write it
+ *   into `process.env`, and `getAgentDir()` resolves it with no home/cwd
+ *   gate (pi-utils `dirs.ts` DirResolver accepts any override; help text
+ *   documents it as the session storage directory). Named profiles set it
+ *   to `~/.omp/profiles/<name>/agent`; default mode honors an explicit
+ *   override that may legitimately live outside `$HOME` (container paths,
+ *   system install prefixes, integration-harness temp agent dirs). Confining
+ *   it to home/cwd would silently fall through to the stock root and drop
+ *   the user's settings — the failure mode that already burned this repo
+ *   once. Trust boundary: host-set agent directory, not a user-named file
+ *   path like `OMP_COMPACT_CONFIG`.
  *
  * Rejected values fall through to the next precedence / default layout.
  * A rejected **explicit** `OMP_COMPACT_CONFIG` also emits one warn when a
@@ -170,6 +182,9 @@ export function resolveConfigPath(
 			`OMP_COMPACT_CONFIG path is outside home and project cwd (${explicit}); ignoring`,
 		);
 	}
+	// Host-owned agent directory (see JSDoc). Not confined: the host may
+	// point it outside home/cwd; rejecting that would redirect config to
+	// defaults with no error.
 	const agentDir = env.PI_CODING_AGENT_DIR;
 	if (agentDir) return join(agentDir, "omp-compact", "config.json");
 	// Rejected PI_CONFIG_DIR falls back to the stock ".omp" root silently.
