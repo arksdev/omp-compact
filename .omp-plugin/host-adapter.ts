@@ -1,5 +1,5 @@
 /**
- * B02: pinned OMP 17.3.1 host capability adapter.
+ * B02: pinned OMP host capability adapter.
  *
  * Single module tree for every private host shape, method name and
  * argument-position mapping the plugin knows about:
@@ -7,15 +7,42 @@
  *   render/live-region methods);
  * - tool execution component and read group surfaces;
  * - transcript block fold surface (native render/version/seal methods);
- * - exact TUI surface (optional `resetDisplay` for the future rebuild
- *   phase).
+ * - exact TUI surface (optional `resetDisplay` for rebuild);
+ * - optional leaf fingerprints (TTSR, todo reminder, skill, late
+ *   diagnostics, user bash/eval execution).
  *
- * The host release is pinned in `hostVersion` for documentation only:
- * every decision is a runtime capability probe, never a version-string
- * dispatch. Capabilities are split into transcript-critical (required for
- * the current presentation) and optional (consumed by the future
- * clear/addChild/resetDisplay rebuild with native fail-open on missing or
- * incompatible capabilities).
+ * ## Version story (do not "fix" the apparent skew)
+ *
+ * `HostAdapter1731.hostVersion` (`"17.3.1"`) is the **verified contract**
+ * this module was written and tested against for the critical private
+ * surfaces (tool/read-group/transcript/TUI method names and argument
+ * positions). Comments that cite 17.3.4 mark leaf fingerprints whose
+ * shapes were confirmed against that newer host (todo reminder, skill,
+ * late diagnostics, user bash/eval). Neither string is a runtime gate:
+ * every decision is a capability probe on the live instance.
+ *
+ * `marketplace.json` still advertises the public floor `OMP 17.2.12+`.
+ * That floor is release metadata (oldest host whose *critical* private
+ * signatures were believed to match when the floor was set). It is **not**
+ * re-validated here and must not be silently raised from this file.
+ *
+ * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
+ * `17.3.1`, and `17.3.4` are all present under the bun install cache.
+ * Activity-gated leaves (`setToolActivityVisible`) exist on 17.3.1/17.3.4
+ * TTSR, todo-reminder, and late-diagnostics components, and are **absent**
+ * on the same files in 17.2.12. Fingerprints that require that method
+ * therefore miss cleanly on 17.2.12 and leave the stock card native —
+ * they do not misclassify into tool/read-group paths. User bash/eval and
+ * skill-card fingerprints do not require the activity method and match
+ * the 17.2.12 public surfaces when those components appear; their compact
+ * rows still fail open to native when content extraction fails.
+ *
+ * Honest summary: critical tool/read-group/transcript compaction is
+ * capability-probed and intended to work from the declared floor upward;
+ * the optional inject/reminder/diagnostics compact chrome is **verified**
+ * against 17.3.1/17.3.4 and **unverified** (native via probe miss) below
+ * 17.3.1. Raising the marketplace floor is a release decision, not an
+ * adapter edit.
  *
  * Patching is exact-instance only: wrappers are installed on the specific
  * host objects of the current session through the transactional
@@ -511,13 +538,17 @@ export function setExpandedValue(args: readonly unknown[]): boolean {
 }
 
 /**
- * Pinned host adapter for stock OMP 17.3.1. Instance-scoped to the host
- * root of one session; all patching is exact-instance and transactional.
+ * Pinned host adapter for stock OMP. Instance-scoped to the host root of
+ * one session; all patching is exact-instance and transactional.
+ *
+ * `hostVersion` documents the verified critical-surface contract (see the
+ * module header). It is never read for dispatch — probes decide.
  */
 export class HostAdapter1731 {
 	/**
-	 * Pinned host release this adapter targets. Capability probes, not
-	 * this string, drive every decision.
+	 * Verified host release for critical private surfaces (tool / read-group
+	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays
+	 * independent release metadata. See module header "Version story".
 	 */
 	static readonly hostVersion = "17.3.1";
 

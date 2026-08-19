@@ -555,11 +555,37 @@ All external inputs bounded:
 
 ## Compatibility and Capacity Notes
 
-- The supported public range is OMP 17.2.12 and later. Private TUI shapes and the executable release gate are pinned to stock OMP 17.3.1; newer versions are accepted through the same capability probes and transactional rollback.
-- Unknown and incompatible surfaces remain native. Ordinary compact tools may use expanded as a native inspection escape hatch; browser, computer, resolve, and reject explicitly remain compact when expanded. A future host-shape break is handled fail-open and becomes a compatibility issue to reproduce and add explicitly.
+- **Two version numbers, different jobs.** `marketplace.json` advertises the
+  public floor `OMP 17.2.12+` (release metadata — do not edit it from a
+  code-review pass). `HostAdapter1731.hostVersion` (`17.3.1`) records the
+  **verified** critical private-surface contract the adapter was written
+  against; comments that cite `17.3.4` mark optional leaf fingerprints
+  confirmed on that newer host. Neither string is a runtime gate — every
+  decision is a live capability probe (`isToolComponent`,
+  `isTodoReminderComponent`, `transcriptCapabilities`, …).
+- **What is verified where.** Critical tool / read-group / transcript / TUI
+  shapes: written against 17.3.1. Optional compact chrome (TTSR inject, todo
+  reminder, skill card, late diagnostics, user `!`/`$` execution): method
+  fingerprints checked against 17.3.1 and/or 17.3.4 sources in the local
+  bun cache. On 17.2.12 the same cache shows TTSR / todo-reminder / late-
+  diagnostics **without** `setToolActivityVisible`, so those fingerprints
+  miss and the stock card stays native (no misclassification into tool
+  paths). User bash/eval and skill surfaces are present on 17.2.12; their
+  compact path still fails open to native when content extraction fails.
+- **Older host outcome.** Unverified or missing surfaces remain native —
+  the user loses some compaction chrome, not a wrong compact row. Ordinary
+  compact tools may use expanded as a native inspection escape hatch;
+  browser, computer, resolve, and reject explicitly remain compact when
+  expanded. A future host-shape break is handled fail-open and becomes a
+  compatibility issue to reproduce and add explicitly.
+- **Floor recommendation (not applied here).** If release wants every
+  optional fingerprint to be a verified match rather than a clean probe
+  miss, raise the marketplace floor to 17.3.1+. That is metadata, not an
+  adapter change.
 - The spinner samples pending states at 80 ms while the adapter is active; profile real high-concurrency workloads before changing cadence or fairness.
 - Long transcripts retain lightweight display metadata linearly with visible history. The plugin releases it on reconstruction and session disposal, while heavy filtered payloads retire after terminal projection.
 - Stock-host integration contracts cover continuation, rebuild, `/tree`-like and `/shake`-like reconstruction, delayed terminal drains, and lifecycle disposal.
+
 
 ---
 
