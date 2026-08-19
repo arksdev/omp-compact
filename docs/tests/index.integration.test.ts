@@ -3562,6 +3562,226 @@ stockTest(
 );
 
 stockTest(
+	"settings disable/re-enable after host-invariant rollback does not reinstall",
+	async () => {
+		// adapterDisabled is a host-invariant latch, not a user preference.
+		// A mid-session settings toggle must not clear it — otherwise
+		// disableRuntime() launders the terminal failure into a retry.
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const component = new booted.host.ToolExecutionComponent(
+			"bash",
+			{ command: "printf native" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("bash"),
+			toolUi(),
+			booted.context.cwd,
+			"settings-launder-incompatible",
+		);
+		Object.defineProperty(component, "setExpanded", {
+			value: component.setExpanded,
+			configurable: false,
+			writable: true,
+		});
+		booted.transcript.addChild(component);
+		expect(booted.notifications).toHaveLength(1);
+		expect(booted.notifications[0]).toContain("omp-compact disabled");
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+		const intervalsAfterRollback = booted.intervalCallbacks.length;
+
+		// Host heals and the user flips global compact off then on. The
+		// latch must survive both the disabled run boundary and the
+		// re-enable boundary.
+		booted.transcript.children.length = 0;
+		await dispatch(booted, { type: "agent_end", messages: [] });
+		await saveSettingsViaDialog(booted, (dialog) => {
+			dialog.handleInput(KEY_SPACE);
+		});
+		await beginRun(booted);
+		// Disabled-run teardown: no new spinners, wrappers stay unrestored,
+		// settings command remains for a later re-enable.
+		expect(booted.intervalCallbacks).toHaveLength(intervalsAfterRollback);
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+		expect(booted.commands).toContain("compact-settings");
+		await finishRun(booted, "disabled");
+
+		await saveSettingsViaDialog(booted, (dialog) => {
+			dialog.handleInput(KEY_SPACE);
+		});
+		await beginRun(booted);
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "after-settings-toggle",
+			toolName: "bash",
+			args: { command: "printf still-native" },
+		});
+		const after = new booted.host.ToolExecutionComponent(
+			"bash",
+			{ command: "printf still-native" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("bash"),
+			toolUi(),
+			booted.context.cwd,
+			"after-settings-toggle",
+		);
+		expect(() => booted.transcript.addChild(after)).not.toThrow();
+		// Still session-native: no fold wrappers, no second spinner, no
+		// second warn. The settings cycle must not reinstall.
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+		expect(Object.hasOwn(after, "updateArgs")).toBe(false);
+		expect(booted.intervalCallbacks).toHaveLength(intervalsAfterRollback);
+		// Settings-save info lines are unrelated; only the session-terminal
+		// disable warn may fire, and only once.
+		expect(
+			booted.notifications.filter((n) => n.includes("omp-compact disabled")),
+		).toHaveLength(1);
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"printf still-native",
+		);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"session boundary after rollback still clears the host-invariant latch",
+	async () => {
+		// dispose() owns the adapterDisabled reset. A settings toggle must
+		// not clear the latch, but a genuine session boundary must — or the
+		// latch becomes permanent and is worse than the launder bug.
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const component = new booted.host.ToolExecutionComponent(
+			"bash",
+			{ command: "printf native" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("bash"),
+			toolUi(),
+			booted.context.cwd,
+			"dispose-clears-latch",
+		);
+		Object.defineProperty(component, "setExpanded", {
+			value: component.setExpanded,
+			configurable: false,
+			writable: true,
+		});
+		booted.transcript.addChild(component);
+		expect(booted.notifications).toHaveLength(1);
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+
+		// Settings disable/re-enable mid-session (must not clear the latch).
+		booted.transcript.children.length = 0;
+		await dispatch(booted, { type: "agent_end", messages: [] });
+		await saveSettingsViaDialog(booted, (dialog) => {
+			dialog.handleInput(KEY_SPACE);
+		});
+		await beginRun(booted);
+		await finishRun(booted, "disabled");
+		await saveSettingsViaDialog(booted, (dialog) => {
+			dialog.handleInput(KEY_SPACE);
+		});
+		await beginRun(booted);
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+
+		// Genuine session boundary: dispose via switch, then a fresh start
+		// with the conflict gone must reinstall.
+		await dispatch(booted, { type: "session_before_switch" });
+		await dispatch(booted, { type: "session_start" });
+		// No second disable warn on reinstall after a real session boundary.
+		expect(
+			booted.notifications.filter((n) => n.includes("omp-compact disabled")),
+		).toHaveLength(1);
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(true);
+
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf after-dispose" },
+			"after-dispose",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "after-dispose",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"bash: printf after-dispose",
+		);
+		expect(Object.hasOwn(call, "updateArgs")).toBe(true);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"settings disable/re-enable without prior rollback still installs",
+	async () => {
+		// Common path: a user toggles global compact off then on mid-session
+		// with a healthy host. The latch stays false, so the next enabled
+		// run boundary reinstalls exactly as before.
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(true);
+		// Arm real spinner work so disabled-run teardown has something to
+		// clear (install alone does not start the idle timer).
+		const liveCall = await addTool(
+			booted,
+			"bash",
+			{ command: "printf live-before-toggle" },
+			"live-before-toggle",
+		);
+		const intervalsWhileLive = booted.intervalCallbacks.length;
+		expect(intervalsWhileLive).toBeGreaterThan(0);
+		await finishTool(booted, liveCall, {
+			toolCallId: "live-before-toggle",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		await finishRun(booted, "before-toggle");
+
+		await saveSettingsViaDialog(booted, (dialog) => {
+			dialog.handleInput(KEY_SPACE);
+		});
+		const clearedBeforeDisabledRun = booted.clearedTimers.length;
+		await beginRun(booted);
+		// Disabled-run teardown: wrappers restored, prior spinner cleared,
+		// no new timer, settings command still alive for a clean re-enable.
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+		expect(booted.intervalCallbacks).toHaveLength(intervalsWhileLive);
+		expect(booted.clearedTimers.length).toBeGreaterThanOrEqual(
+			clearedBeforeDisabledRun,
+		);
+		expect(booted.commands).toContain("compact-settings");
+		await finishRun(booted, "off");
+
+		await saveSettingsViaDialog(booted, (dialog) => {
+			dialog.handleInput(KEY_SPACE);
+		});
+		await beginRun(booted);
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(true);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf toggled-back" },
+			"toggled-back",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "toggled-back",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"bash: printf toggled-back",
+		);
+		expect(Object.hasOwn(call, "updateArgs")).toBe(true);
+		expect(booted.intervalCallbacks.length).toBeGreaterThan(intervalsWhileLive);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"compound Git Bash calls leave one aggregate commit summary after the answer",
 	async () => {
 		const booted = await bootWithTranscript();

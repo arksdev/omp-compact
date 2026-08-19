@@ -288,10 +288,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 
 	let adapter: RuntimeAdapter | undefined;
 	let adapterDisabled = false;
-	// AdapterFailOpenFix: one warning per failure episode. The disable state
-	// (and this flag) reset only at session boundaries via dispose(); a
-	// mid-session global disable/re-enable cycle may warn again if the host
-	// still cannot host the runtime.
+	// adapterFailureWarned: one warning per failure episode. Cleared by
+	// disableRuntime() (settings disable and session dispose) so a later
+	// bring-up may warn again. Distinct from adapterDisabled — that host-
+	// invariant latch is cleared only by dispose() at a session boundary;
+	// a settings toggle does not release it.
 	let adapterFailureWarned = false;
 	// RuntimeModes: a logical run spans toolUse/willContinue continuations,
 	// each of which re-emits agent_start. While `runActive` the run's frozen
@@ -966,12 +967,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// RuntimeModes: transactional runtime teardown for a global disable —
 	// restores every own-instance wrapper and clears timers, keeps the audit
 	// lifecycle and the settings command alive for a clean re-enable.
+	// Does NOT clear adapterDisabled: that latch is a statement about the
+	// host (multiple transcripts / unpatchable core / settle throws), not
+	// the user's preference. Only dispose() releases it at a session boundary.
 	function disableRuntime(): void {
 		adapter?.dispose();
 		adapter = undefined;
-		adapterDisabled = false;
-		// AdapterFailOpenFix: a session boundary may warn once more if the
-		// host still cannot host the runtime.
+		// Warn-dedup only: a later bring-up (or a session boundary that still
+		// cannot host the runtime) may warn once more. Asymmetry with
+		// adapterDisabled is deliberate — do not "tidy" the latch into here.
 		adapterFailureWarned = false;
 	}
 
@@ -983,6 +987,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		modePolicy.dispose();
 		runActive = false;
 		disableRuntime();
+		// Host-invariant latch: only a session boundary clears it. Kept out
+		// of disableRuntime() so a mid-session settings toggle cannot launder
+		// a terminal host failure into a reinstall retry.
+		adapterDisabled = false;
 		// RunStats: drop partial aggregation state so a later session starts
 		// clean.
 		runStats.dispose();
