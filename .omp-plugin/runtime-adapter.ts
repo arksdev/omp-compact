@@ -122,6 +122,14 @@ export interface RuntimeAdapterOptions {
 	 * active working ownership and leaves ambiguous surfaces native.
 	 */
 	getBranch?: () => readonly unknown[] | undefined;
+	/**
+	 * Host-invariant failure seam: fired once from `#rollback` after the
+	 * adapter has disposed itself. Index clears its live handle and marks
+	 * the session native — never from plain `dispose()` (session boundary /
+	 * settings disable), which is an intentional teardown the owner already
+	 * drives. Must never throw into the host event stream.
+	 */
+	onDisabled?: () => void;
 }
 
 function isCompactCustomMessage(value: unknown): value is RenderableBlock {
@@ -195,6 +203,7 @@ export class RuntimeAdapter {
 	readonly #transcriptPatches: DescriptorPatch[] = [];
 	readonly #getBranch: (() => readonly unknown[] | undefined) | undefined;
 	readonly #onRunFinalized: ((runId: string) => void) | undefined;
+	readonly #onDisabled: (() => void) | undefined;
 
 	constructor(options: RuntimeAdapterOptions) {
 		this.#host = new HostAdapter1731(options.root);
@@ -202,6 +211,7 @@ export class RuntimeAdapter {
 		this.#timers = options.timers;
 		this.#warn = options.warn;
 		this.#onRunFinalized = options.onRunFinalized;
+		this.#onDisabled = options.onDisabled;
 		this.#getBranch = options.getBranch;
 		this.#session = new RuntimeSessionState({
 			modePolicy: options.modePolicy,
@@ -244,7 +254,7 @@ export class RuntimeAdapter {
 			if (candidates.length === 1 && transcript)
 				this.#installTranscript(transcript);
 			else if (candidates.length === 0) this.#observeTree(this.#host.root, 0);
-			this.#startSpinner();
+			this.#ensureSpinner();
 			return true;
 		} catch (error) {
 			this.#rollback(`omp-compact disabled: ${String(error)}`);
@@ -395,6 +405,7 @@ export class RuntimeAdapter {
 		this.#observeTree(this.#host.root, 0);
 		this.#session.binding.tryBindByOrder(this.#session.activeLedger);
 		this.#requestRender(state.component);
+		this.#ensureSpinner();
 	}
 
 	updateTool(input: ToolResultInput): void {
@@ -512,8 +523,7 @@ export class RuntimeAdapter {
 		for (const patch of this.#transcriptPatches) patch.restore();
 		this.#transcriptPatches.length = 0;
 		this.#removeDiscoveryPatches();
-		if (this.#timer !== undefined) this.#timers?.clearTimer?.(this.#timer);
-		this.#timer = undefined;
+		this.#stopSpinner();
 		// C07: dispose invalidates any pending generation microtask — stale
 		// callbacks abort on the token/disposed guard and never replay.
 		this.#pendingGeneration = undefined;
@@ -633,6 +643,7 @@ export class RuntimeAdapter {
 					this.#installFold();
 					if (this.#session.activeLedger)
 						this.#requestLedgerRender(this.#session.activeLedger);
+					this.#ensureSpinner();
 				}
 			}
 			this.replayCurrentPresentation();
@@ -824,6 +835,36 @@ export class RuntimeAdapter {
 		return isCompactCustomMessage(block);
 	}
 
+	/**
+	 * Arm the 80 ms pending-row spinner only while a qualifying pending
+	 * state exists. Idempotent when already running. Call sites that can
+	 * produce spinner work (tool start, bind after observe, rebuild
+	 * re-observation, hydration) resume here so a settled idle never leaves
+	 * a frozen `Working…` row — and install with zero pending never arms a
+	 * forever-idle timer.
+	 */
+	#ensureSpinner(): void {
+		if (this.#timer !== undefined || !this.#timers?.setInterval) return;
+		if (!this.#hasSpinnerWork()) return;
+		this.#startSpinner();
+	}
+
+	#stopSpinner(): void {
+		if (this.#timer === undefined) return;
+		this.#timers?.clearTimer?.(this.#timer);
+		this.#timer = undefined;
+	}
+
+	/** True when at least one pending state would animate on the next tick. */
+	#hasSpinnerWork(): boolean {
+		for (const state of this.#session.pending()) {
+			if (state.ledger.phase !== "working" || !state.component) continue;
+			if (this.#session.modeFor(state.ledger).mode === "clear") continue;
+			return true;
+		}
+		return false;
+	}
+
 	#startSpinner(): void {
 		if (this.#timer !== undefined || !this.#timers?.setInterval) return;
 		this.#timer = this.#timers.setInterval(() => {
@@ -838,6 +879,7 @@ export class RuntimeAdapter {
 				this.#ui.requestComponentRender?.(state.component);
 			}
 			if (pending) this.#ui.requestRender?.();
+			else this.#stopSpinner();
 		}, 80);
 	}
 
@@ -929,6 +971,7 @@ export class RuntimeAdapter {
 		}
 		this.#session.binding.bindHydrated(true);
 		this.#installFold();
+		this.#ensureSpinner();
 	}
 
 	#observeTranscriptChild(child: unknown): void {
@@ -941,6 +984,7 @@ export class RuntimeAdapter {
 			// never bind on a disposed session.
 			if (!this.#patchReadGroup(child)) return;
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
+			this.#ensureSpinner();
 			return;
 		}
 		if (isTtsrNotificationComponent(child)) {
@@ -970,6 +1014,7 @@ export class RuntimeAdapter {
 		if (isToolComponent(child)) {
 			this.#patchToolComponent(child);
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
+			this.#ensureSpinner();
 		}
 	}
 
@@ -1477,12 +1522,16 @@ export class RuntimeAdapter {
 					this.#quarantineComponent(component);
 					return;
 				}
+				// Binding (or re-binding) can attach a component to a working
+				// pending state after the idle spinner stopped — resume it.
+				this.#ensureSpinner();
 			} catch (error) {
 				this.#rollback(`omp-compact disabled: ${String(error)}`);
 			}
 		});
 		this.#patchedComponents.set(component, patch);
 		this.#session.binding.registerUnboundComponent(component);
+		this.#ensureSpinner();
 	}
 
 	#patchReadGroup(component: RenderableBlock): boolean {
@@ -1511,6 +1560,7 @@ export class RuntimeAdapter {
 						this.#quarantineComponent(component);
 						return;
 					}
+					this.#ensureSpinner();
 				} catch (error) {
 					this.#rollback(`omp-compact disabled: ${String(error)}`);
 				}
@@ -1555,6 +1605,15 @@ export class RuntimeAdapter {
 		// dispose() catches every exception internally and never throws into
 		// rollback; the warn above is the only user-visible failure signal.
 		this.dispose();
+		// Notify the owner after local teardown so index.ts can drop its
+		// handle and mark the session native. Plain dispose() never fires
+		// this — only host-invariant rollback. Swallow so a buggy owner
+		// callback cannot escape into the host event stream.
+		try {
+			this.#onDisabled?.();
+		} catch {
+			// Owner notification is best-effort.
+		}
 	}
 }
 

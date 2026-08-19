@@ -544,10 +544,11 @@ stockTest("expanded live tools delegate to the native renderer", async () => {
 });
 
 stockTest(
-	"pending spinner advances and its session timer is cleared",
+	"pending spinner advances, idles when settled, and restarts on the next tool",
 	async () => {
 		const booted = await bootWithTranscript();
-		expect(booted.intervalCallbacks).toHaveLength(1);
+		// Install with nothing pending must not arm a forever-idle timer.
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		await beginRun(booted);
 		const call = await addTool(
 			booted,
@@ -555,8 +556,10 @@ stockTest(
 			{ command: "printf spinner" },
 			"bash-spinner",
 		);
+		expect(booted.intervalCallbacks).toHaveLength(1);
+		const firstTimer = booted.intervalCallbacks[0];
 		const beforeTick = visibleRows(booted.transcript);
-		booted.intervalCallbacks[0]?.();
+		firstTimer?.();
 		const afterTick = visibleRows(booted.transcript);
 		expect(afterTick).not.toEqual(beforeTick);
 		await finishTool(booted, call, {
@@ -568,21 +571,36 @@ stockTest(
 			},
 			isError: false,
 		});
+		// Last qualifying pending state gone → idle tick clears the interval.
 		const settled = visibleRows(booted.transcript);
-		booted.intervalCallbacks[0]?.();
+		firstTimer?.();
 		expect(visibleRows(booted.transcript)).toEqual(settled);
+		expect(booted.clearedTimers).toEqual([firstTimer]);
+		// A newly started tool must re-arm the spinner (no frozen Working…).
+		await addTool(
+			booted,
+			"bash",
+			{ command: "printf again" },
+			"bash-spinner-2",
+		);
+		expect(booted.intervalCallbacks).toHaveLength(2);
+		const secondTimer = booted.intervalCallbacks[1];
+		const beforeRestart = visibleRows(booted.transcript).join("\n");
+		expect(beforeRestart).toContain("Working…");
+		secondTimer?.();
+		const afterRestart = visibleRows(booted.transcript).join("\n");
+		expect(afterRestart).toContain("Working…");
+		expect(afterRestart).not.toEqual(beforeRestart);
 		await shutdown(booted);
-		expect(booted.clearedTimers).toEqual([booted.intervalCallbacks[0]]);
+		expect(booted.clearedTimers).toContain(secondTimer);
 	},
 );
 
 stockTest(
-	"one session spinner timer survives a terminal run and animates the next",
+	"spinner timer clears after a terminal run and restarts for the next",
 	async () => {
 		const booted = await bootWithTranscript();
-		expect(booted.intervalCallbacks).toHaveLength(1);
-		const timer = booted.intervalCallbacks[0];
-		expect(timer).toBeDefined();
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		// run 1: a routine tool settles, then a terminal answer filters it
 		await beginRun(booted);
 		const first = await addTool(
@@ -591,6 +609,8 @@ stockTest(
 			{ command: "printf first" },
 			"bash-run1",
 		);
+		expect(booted.intervalCallbacks).toHaveLength(1);
+		const firstTimer = booted.intervalCallbacks[0];
 		await finishTool(booted, first, {
 			toolCallId: "bash-run1",
 			toolName: "bash",
@@ -600,24 +620,25 @@ stockTest(
 			},
 			isError: false,
 		});
+		// Idle tick after settle clears the interval before the next run.
+		firstTimer?.();
+		expect(booted.clearedTimers).toEqual([firstTimer]);
 		addAnswer(booted, "first done");
 		await finishRun(booted, "first done");
-		// terminal completion must not clear or duplicate the session timer
-		expect(booted.clearedTimers).toEqual([]);
-		expect(booted.intervalCallbacks).toHaveLength(1);
-		// run 2: the same callback advances the new pending row's frame
+		// run 2: a fresh tool restarts the spinner
 		await dispatch(booted, { type: "agent_start" });
 		await addTool(booted, "bash", { command: "printf second" }, "bash-run2");
+		expect(booted.intervalCallbacks).toHaveLength(2);
+		const secondTimer = booted.intervalCallbacks[1];
 		const beforeTick = visibleRows(booted.transcript).join("\n");
 		expect(beforeTick).toContain("Working…");
 		expect(beforeTick).toContain("printf second");
-		timer?.();
+		secondTimer?.();
 		const afterTick = visibleRows(booted.transcript).join("\n");
 		expect(afterTick).toContain("Working…");
 		expect(afterTick).not.toEqual(beforeTick);
-		expect(booted.clearedTimers).toEqual([]);
 		await shutdown(booted);
-		expect(booted.clearedTimers).toEqual([timer]);
+		expect(booted.clearedTimers).toContain(secondTimer);
 	},
 );
 
@@ -2618,16 +2639,17 @@ stockTest("session switch restores then reinstalls the adapter", async () => {
 	});
 	if (!transcript) throw new Error("transcript missing");
 	expect(Object.hasOwn(transcript, "addChild")).toBe(true);
-	expect(booted.intervalCallbacks).toHaveLength(1);
+	// Idle install arms no spinner; a pending tool would start it later.
+	expect(booted.intervalCallbacks).toHaveLength(0);
 	await dispatch(booted, { type: "session_before_switch" });
 	expect(Object.hasOwn(transcript, "addChild")).toBe(false);
-	expect(booted.clearedTimers).toHaveLength(1);
+	expect(booted.clearedTimers).toHaveLength(0);
 	await dispatch(booted, { type: "session_start" });
 	expect(Object.hasOwn(transcript, "addChild")).toBe(true);
-	expect(booted.intervalCallbacks).toHaveLength(2);
+	expect(booted.intervalCallbacks).toHaveLength(0);
 	await shutdown(booted);
 	expect(Object.hasOwn(transcript, "addChild")).toBe(false);
-	expect(booted.clearedTimers).toHaveLength(2);
+	expect(booted.clearedTimers).toHaveLength(0);
 });
 
 stockTest(
@@ -3371,10 +3393,10 @@ stockTest(
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(true);
 		expect(Object.hasOwn(second, "addChild")).toBe(false);
 		booted.transcript.addChild(second);
-		// one warning and the session timer is cleared
+		// one warning; idle install never armed a spinner timer to clear
 		expect(booted.notifications).toHaveLength(1);
 		expect(booted.notifications[0]).toContain("multiple transcript containers");
-		expect(booted.clearedTimers).toEqual([booted.intervalCallbacks[0]]);
+		expect(booted.clearedTimers).toEqual([]);
 		// every wrapper is gone and native rendering still executes
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
 		expect(Object.hasOwn(booted.transcript, "render")).toBe(false);
@@ -3390,7 +3412,7 @@ stockTest(
 		});
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
 		expect(booted.notifications).toHaveLength(1);
-		expect(booted.intervalCallbacks).toHaveLength(1);
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		// a switch retries install; the conflict still fails open
 		await dispatch(booted, { type: "session_before_switch" });
 		await dispatch(booted, { type: "session_start" });
@@ -3475,6 +3497,70 @@ stockTest(
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
 	},
 );
+
+stockTest(
+	"mid-session rollback stays session-terminal even after the host heals",
+	async () => {
+		// Host-invariant #rollback must clear index's live handle and set
+		// adapterDisabled. Without that, ensureAdapter would keep returning
+		// the disposed zombie; with a naive reinstall policy it would also
+		// spin on a permanent host fault. Session-terminal disable is the
+		// only option that cannot loop: native until a session boundary,
+		// even if the conflicting surface is removed mid-session.
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const component = new booted.host.ToolExecutionComponent(
+			"bash",
+			{ command: "printf native" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("bash"),
+			toolUi(),
+			booted.context.cwd,
+			"terminal-incompatible",
+		);
+		Object.defineProperty(component, "setExpanded", {
+			value: component.setExpanded,
+			configurable: false,
+			writable: true,
+		});
+		booted.transcript.addChild(component);
+		expect(booted.notifications).toHaveLength(1);
+		expect(booted.notifications[0]).toContain("omp-compact disabled");
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+		const intervalsAfterRollback = booted.intervalCallbacks.length;
+		// Host heals: remove the unpatchable surface. A reinstall policy
+		// would re-arm here; session-terminal must stay native.
+		booted.transcript.children.length = 0;
+		await dispatch(booted, { type: "agent_end", messages: [] });
+		await beginRun(booted);
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "after-heal",
+			toolName: "bash",
+			args: { command: "printf healed-mid" },
+		});
+		const healed = new booted.host.ToolExecutionComponent(
+			"bash",
+			{ command: "printf healed-mid" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("bash"),
+			toolUi(),
+			booted.context.cwd,
+			"after-heal",
+		);
+		expect(() => booted.transcript.addChild(healed)).not.toThrow();
+		// Still native: no fold wrappers, no second spinner, no second warn.
+		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
+		expect(Object.hasOwn(healed, "updateArgs")).toBe(false);
+		expect(booted.intervalCallbacks).toHaveLength(intervalsAfterRollback);
+		expect(booted.notifications).toHaveLength(1);
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"printf healed-mid",
+		);
+		await shutdown(booted);
+	},
+);
+
 
 stockTest(
 	"compound Git Bash calls leave one aggregate commit summary after the answer",
@@ -6126,7 +6212,8 @@ stockTest(
 		expect(booted.notifications).toHaveLength(1);
 		expect(booted.notifications[0]).toContain("omp-compact disabled");
 		expect(widgets.size).toBe(0);
-		expect(booted.intervalCallbacks).toHaveLength(1);
+		// Idle install never arms a spinner; failed reinstall adds none.
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
 		// every later event retries nothing and stays quiet
 		await beginRun(booted);
@@ -6174,7 +6261,7 @@ stockTest(
 		expect(widgets.size).toBe(0);
 		expect(booted.notifications).toHaveLength(1);
 		expect(booted.notifications[0]).toContain("omp-compact disabled");
-		expect(booted.intervalCallbacks).toHaveLength(1);
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		// disabled for the rest of the session: no retry, no second warning
 		await beginRun(booted);
 		expect(booted.notifications).toHaveLength(1);
@@ -6200,7 +6287,7 @@ stockTest(
 		expect(booted.notifications).toHaveLength(1);
 		expect(booted.notifications[0]).toContain("omp-compact disabled");
 		expect(booted.notifications[0]).toContain("theme unavailable");
-		expect(booted.intervalCallbacks).toHaveLength(1);
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
 		await beginRun(booted);
 		expect(booted.notifications).toHaveLength(1);
@@ -6225,13 +6312,14 @@ stockTest(
 		await dispatch(booted, { type: "session_before_switch" });
 		await dispatch(booted, { type: "session_start" });
 		expect(booted.notifications).toHaveLength(1);
-		expect(booted.intervalCallbacks).toHaveLength(1);
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
 		// the host heals; a session boundary resets the disable state
 		booted.context.ui.setWidget = workingSetWidget;
 		await dispatch(booted, { type: "session_before_switch" });
 		await dispatch(booted, { type: "session_start" });
-		expect(booted.intervalCallbacks).toHaveLength(2);
+		// Idle reinstall still arms no spinner until a tool starts.
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(true);
 		// the reinstalled adapter is fully functional
 		await beginRun(booted);
@@ -6265,7 +6353,7 @@ stockTest(
 		await dispatch(booted, { type: "session_before_switch" });
 		await dispatch(booted, { type: "session_start" });
 		expect(booted.notifications).toEqual([]);
-		expect(booted.intervalCallbacks).toHaveLength(1);
+		expect(booted.intervalCallbacks).toHaveLength(0);
 		expect(Object.hasOwn(booted.transcript, "addChild")).toBe(false);
 		await beginRun(booted);
 		expect(booted.notifications).toEqual([]);
