@@ -28,11 +28,10 @@ import type {
 	RenderableBlock,
 	TranscriptHost,
 } from "../../.omp-plugin/transcript-fold";
-import {
-	isStockHostPresent,
-	loadStockHost,
-	stockHostVersion,
-} from "./test-stock-host";
+import { loadStockHost, stockHostVersion } from "./test-stock-host";
+
+const binary = process.env.OMP_STOCK_BIN;
+const stockTest = binary ? test : test.skip;
 
 class FakeTranscript implements TranscriptHost {
 	readonly children: unknown[] = [];
@@ -914,8 +913,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	});
 });
 
-test("stock 17.3.1 host capability canary", async () => {
-	if (!isStockHostPresent()) return;
+stockTest("stock 17.3.1 host capability canary", async () => {
 	const host = await loadStockHost();
 	const transcript = new host.TranscriptContainer();
 	expect(stockHostVersion()).toBe("17.3.1");
@@ -955,16 +953,18 @@ test("stock 17.3.1 host capability canary", async () => {
 	expect(leafCapabilities(readGroup).kind).toBe("readGroup");
 });
 
-test("stock 17.3.1 transcript forwards activity visibility to new children", async () => {
-	if (!isStockHostPresent()) return;
-	const host = await loadStockHost();
-	const transcript = new host.TranscriptContainer();
-	const probe = new ToolActivityProbe();
-	transcript.setToolActivityVisible(false);
-	transcript.addChild(probe);
-	expect(probe.visible).toBe(false);
-	expect(transcript.render(120)).toEqual([]);
-	transcript.setToolActivityVisible(true);
-	expect(probe.visible).toBe(true);
-	expect(transcript.render(120)).toEqual(["activity"]);
-});
+stockTest(
+	"stock 17.3.1 transcript forwards activity visibility to new children",
+	async () => {
+		const host = await loadStockHost();
+		const transcript = new host.TranscriptContainer();
+		const probe = new ToolActivityProbe();
+		transcript.setToolActivityVisible(false);
+		transcript.addChild(probe);
+		expect(probe.visible).toBe(false);
+		expect(transcript.render(120)).toEqual([]);
+		transcript.setToolActivityVisible(true);
+		expect(probe.visible).toBe(true);
+		expect(transcript.render(120)).toEqual(["activity"]);
+	},
+);
