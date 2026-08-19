@@ -837,6 +837,24 @@ describe("sanitizeOneLine", () => {
 		expect(sanitizeOneLine("a🚀b🚀c🚀d🚀e", 4)).toBe("a🚀b…");
 		expect([...sanitizeOneLine("a🚀b🚀c🚀d🚀e", 4)].length).toBe(4);
 	});
+
+	test("strips DEL, C1 controls, and Unicode line/paragraph separators", () => {
+		// stripControl must match git-records oneLine's rejected class for
+		// these codes (DEL 0x7F, C1 0x80–0x9F, U+2028/U+2029). sanitizeOneLine
+		// then collapses residual whitespace, so a dropped control between
+		// letters leaves a single space when tab was adjacent — here the
+		// controls sit between printable runs with no whitespace neighbors.
+		expect(sanitizeOneLine("a\x7Fb\x9Bc\u2028d\u2029e")).toBe("abcde");
+		// Representative single-byte CSI (0x9B) must not survive into a row.
+		expect(sanitizeOneLine(`pre\x9B[31mpost`)).toBe("pre[31mpost");
+	});
+
+	test("keeps astral code points intact while filtering controls", () => {
+		const input = `ok\x7F🚀\x9B中\u{1F600}`;
+		expect(sanitizeOneLine(input)).toBe("ok🚀中😀");
+		// Byte-for-byte on the surviving astral characters (no U+FFFD).
+		expect([...sanitizeOneLine(input)]).toEqual(["o", "k", "🚀", "中", "😀"]);
+	});
 });
 
 describe("pending rows", () => {

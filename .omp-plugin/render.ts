@@ -23,9 +23,11 @@ const REMOVED_STAT_COLOR = "#A1471A";
 const INJECT_TITLE_COLOR = "#A4D734";
 
 /**
- * Strip ANSI CSI (ESC[) and OSC (ESC]) sequences. Simpler than git-records.ts
- * `oneLine` (which also handles partial escapes and skip logic); this variant
- * is pure stripping for display sanitization.
+ * Strip ANSI CSI (ESC[) and OSC (ESC]) sequences. Unlike git-records.ts
+ * `oneLine`, this is pure escape stripping: it does not collapse whitespace,
+ * enforce a length budget, or reject control characters — those stay in
+ * `stripControl` / `sanitizeOneLine` so multi-line inject and todo recovery
+ * can keep TAB/LF/CR structure after ANSI is gone.
  */
 function stripAnsi(value: string): string {
 	let result = "";
@@ -66,12 +68,29 @@ function stripAnsi(value: string): string {
 	return result;
 }
 
+/**
+ * Drop terminal-effect control characters while preserving row structure.
+ * Rejected class matches git-records `oneLine`: C0 controls, DEL (0x7F), the
+ * C1 range (0x80–0x9F), and Unicode line/paragraph separators (U+2028/U+2029).
+ * TAB/LF/CR are kept — inject body and todo-reminder recovery still split on
+ * newlines and retain indentation; `oneLine` collapses those into spaces
+ * instead. Iteration is by code point (`for...of`); `charCodeAt(0)` on an
+ * astral character reads its high surrogate (0xD800–0xDBFF), which is outside
+ * every rejected range, so emoji and CJK extension B pass through intact.
+ */
 function stripControl(value: string): string {
 	let output = "";
 	for (const character of value) {
 		const code = character.charCodeAt(0);
-		if (code >= 32 || code === 9 || code === 10 || code === 13)
+		if (
+			code === 9 ||
+			code === 10 ||
+			code === 13 ||
+			(code >= 0x20 && code < 0x7f) ||
+			(code > 0x9f && code !== 0x2028 && code !== 0x2029)
+		) {
 			output += character;
+		}
 	}
 	return output;
 }
