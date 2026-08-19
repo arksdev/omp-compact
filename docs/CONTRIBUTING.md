@@ -39,6 +39,10 @@ OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test
 
 The latest standalone release gate was 774 tests, 0 failures, and 3,928 assertions across 28 files. Treat the current command output as authoritative after further changes.
 
+There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 17.3.1. Bare `bun test …` without that env leaves `stockTest` suites skipped and makes the two host-adapter canaries return early as empty passes.
+
+Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ### Testing Locally
 
 Install or link the checkout for manual testing:

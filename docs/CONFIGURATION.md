@@ -91,6 +91,8 @@ Complete reference for all omp-compact settings, config file format, and environ
 - **thresholdTokens:** Integer 0–10,000,000
 - **Invalid fields:** Fall back to defaults with one warning
 
+- **Writers:** Same-process updates are serialized on an in-process queue and composed with leaf patches; there is no lock file. Separate OS processes writing the same JSON path remain last-writer-wins (atomic rename avoids torn reads, not lost updates).
+
 ---
 
 ## Environment Variables
