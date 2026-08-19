@@ -1152,91 +1152,14 @@ export class RuntimeAdapter {
 	 * from structured `message` before any DescriptorPatch.
 	 */
 	#patchSkillMessage(component: RenderableBlock): void {
-		if (this.#skillPatches.has(component)) return;
-		if (
-			!skillMessageFromComponent(
-				component,
-				this.#skillExpandState.get(component),
-			)
-		)
-			return;
-
-		const originalRender = this.#resolveInstanceMethod(component, "render");
-		const originalSetExpanded = this.#resolveInstanceMethod(
+		this.#patchExpandableLeaf({
 			component,
-			"setExpanded",
-		);
-		if (!originalRender || !originalSetExpanded) return;
-
-		const adapter = this;
-		const state: ExpandObservedState =
-			this.#skillExpandState.get(component) ?? {};
-		this.#skillExpandState.set(component, state);
-
-		try {
-			const patch = new DescriptorPatch(component, ["render", "setExpanded"]);
-			patch.install({
-				render: {
-					configurable: true,
-					writable: true,
-					value(this: RenderableBlock, width: number): readonly string[] {
-						if (adapter.#disposed)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						const theme = adapter.#ui.theme;
-						if (!theme)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						const observed = adapter.#skillExpandState.get(this);
-						const view = skillMessageFromComponent(this, observed);
-						if (!view)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						// Expanded → native card so the skill prompt body is readable.
-						if (view.expanded === true)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						return renderSkillMessageRow(view, theme, width);
-					},
-				},
-				setExpanded: {
-					configurable: true,
-					writable: true,
-					value(this: RenderableBlock, expanded: boolean): unknown {
-						const observed =
-							adapter.#skillExpandState.get(this) ??
-							({} as ExpandObservedState);
-						observed.expanded = expanded === true;
-						adapter.#skillExpandState.set(this, observed);
-						return (
-							originalSetExpanded as (
-								this: RenderableBlock,
-								expanded: boolean,
-							) => unknown
-						).call(this, expanded);
-					},
-				},
-			});
-			this.#skillPatches.set(component, patch);
-		} catch {
-			// Capability skew fails open: leave the stock skill card alone.
-		}
+			patches: this.#skillPatches,
+			states: this.#skillExpandState,
+			// Probe before capture/install so non-skill leaves stay native.
+			extract: skillMessageFromComponent,
+			renderRow: renderSkillMessageRow,
+		});
 	}
 
 	/**
@@ -1251,95 +1174,18 @@ export class RuntimeAdapter {
 	 * empty files leaves never receive a wrapper.
 	 */
 	#patchLateDiagnostics(component: RenderableBlock): void {
-		if (this.#lateDiagnosticsPatches.has(component)) return;
-		if (
-			!lateDiagnosticsFromComponent(
-				component,
-				this.#lateDiagnosticsExpandState.get(component),
-			)
-		)
-			return;
-
-		const originalRender = this.#resolveInstanceMethod(component, "render");
-		const originalSetExpanded = this.#resolveInstanceMethod(
+		this.#patchExpandableLeaf({
 			component,
-			"setExpanded",
-		);
-		if (!originalRender || !originalSetExpanded) return;
-
-		const adapter = this;
-		const state: ExpandObservedState =
-			this.#lateDiagnosticsExpandState.get(component) ?? {};
-		this.#lateDiagnosticsExpandState.set(component, state);
-
-		try {
-			const patch = new DescriptorPatch(component, ["render", "setExpanded"]);
-			patch.install({
-				render: {
-					configurable: true,
-					writable: true,
-					value(this: RenderableBlock, width: number): readonly string[] {
-						if (adapter.#disposed)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						const theme = adapter.#ui.theme;
-						if (!theme)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						const observed = adapter.#lateDiagnosticsExpandState.get(this);
-						const view = lateDiagnosticsFromComponent(this, observed);
-						if (!view)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						// Expanded → native diagnostics tree (full message list).
-						if (view.expanded === true)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						return renderLateDiagnosticsRow(view, theme, width);
-					},
-				},
-				setExpanded: {
-					configurable: true,
-					writable: true,
-					value(this: RenderableBlock, expanded: boolean): unknown {
-						const observed =
-							adapter.#lateDiagnosticsExpandState.get(this) ??
-							({} as ExpandObservedState);
-						observed.expanded = expanded === true;
-						adapter.#lateDiagnosticsExpandState.set(this, observed);
-						return (
-							originalSetExpanded as (
-								this: RenderableBlock,
-								expanded: boolean,
-							) => unknown
-						).call(this, expanded);
-					},
-				},
-			});
-			this.#lateDiagnosticsPatches.set(component, patch);
-		} catch {
-			// Capability skew fails open: leave the stock diagnostics tree alone.
-		}
+			patches: this.#lateDiagnosticsPatches,
+			states: this.#lateDiagnosticsExpandState,
+			// Probe before capture/install so empty/mismatch leaves stay native.
+			extract: lateDiagnosticsFromComponent,
+			renderRow: renderLateDiagnosticsRow,
+		});
 	}
 
 	/**
-	 * Resolve a callable `render` through the prototype chain. Stock
+	 * Resolve a callable instance method through the prototype chain. Stock
 	 * `BashExecutionComponent` overrides `render` on its own class;
 	 * `EvalExecutionComponent` does not and inherits `Container.render`
 	 * several levels up. The existing TTSR/todo one-level lookup would miss
@@ -1360,6 +1206,151 @@ export class RuntimeAdapter {
 			current = Object.getPrototypeOf(current) as object | null;
 		}
 		return undefined;
+	}
+
+	/**
+	 * Shared DescriptorPatch scaffolding for expandable leaf cards (skill,
+	 * late-diagnostics, user bash/python execution). Callers keep their own
+	 * fingerprint gate, patch map, observed-state map, extract, and row
+	 * renderer; this only collapses the install path that was copy-pasted.
+	 *
+	 * TTSR / todo-reminder are intentionally not folded in: they wrap
+	 * `render` only (no setExpanded observe) and are a second shape.
+	 *
+	 * Invariants preserved from the three former copies:
+	 * - per-component idempotency via `patches.has`
+	 * - install-time content probe *before* method resolve / patch install
+	 * - fail-open ladder: disposed → no theme → extract miss → expanded
+	 *   all return native output
+	 * - `restore()` on dispose still goes through the caller's patch map
+	 */
+	#patchExpandableLeaf<
+		TState extends { expanded?: boolean },
+		TView extends { expanded?: boolean },
+	>(args: {
+		component: RenderableBlock;
+		patches: Map<object, DescriptorPatch>;
+		states: WeakMap<object, TState>;
+		extract: (
+			block: unknown,
+			observed: TState | undefined,
+		) => TView | undefined;
+		renderRow: (view: TView, theme: Theme, width?: number) => readonly string[];
+		/**
+		 * User-execution only: also wrap `setComplete` so private exit codes
+		 * reach the next compact render. Omitted for skill / late-diagnostics.
+		 */
+		observeComplete?: (
+			state: TState,
+			exitCode: number | undefined,
+			cancelled: boolean,
+		) => void;
+	}): void {
+		const { component, patches, states, extract, renderRow, observeComplete } =
+			args;
+		if (patches.has(component)) return;
+		// Probe before capture/install so empty/mismatch leaves stay native.
+		if (!extract(component, states.get(component))) return;
+
+		const originalRender = this.#resolveInstanceMethod(component, "render");
+		const originalSetExpanded = this.#resolveInstanceMethod(
+			component,
+			"setExpanded",
+		);
+		if (!originalRender || !originalSetExpanded) return;
+
+		const render = originalRender as (
+			this: RenderableBlock,
+			width: number,
+		) => readonly string[];
+		const setExpanded = originalSetExpanded as (
+			this: RenderableBlock,
+			expanded: boolean,
+		) => unknown;
+
+		let setComplete:
+			| ((
+					this: RenderableBlock,
+					exitCode: number | undefined,
+					cancelled: boolean,
+					options?: unknown,
+			  ) => unknown)
+			| undefined;
+		if (observeComplete) {
+			const originalSetComplete = this.#resolveInstanceMethod(
+				component,
+				"setComplete",
+			);
+			if (!originalSetComplete) return;
+			setComplete = originalSetComplete as (
+				this: RenderableBlock,
+				exitCode: number | undefined,
+				cancelled: boolean,
+				options?: unknown,
+			) => unknown;
+		}
+
+		const adapter = this;
+		const state = states.get(component) ?? ({} as TState);
+		states.set(component, state);
+
+		// Capture order matches the three former sites: render, optional
+		// setComplete, setExpanded. DescriptorPatch install follows this order.
+		const methodNames = observeComplete
+			? (["render", "setComplete", "setExpanded"] as const)
+			: (["render", "setExpanded"] as const);
+
+		try {
+			const patch = new DescriptorPatch(component, methodNames);
+			const wrappers: Record<string, PropertyDescriptor> = {
+				render: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, width: number): readonly string[] {
+						if (adapter.#disposed) return render.call(this, width);
+						const theme = adapter.#ui.theme;
+						if (!theme) return render.call(this, width);
+						const view = extract(this, states.get(this));
+						if (!view) return render.call(this, width);
+						// Expanded → native multi-line card so the full body stays readable.
+						if (view.expanded === true) return render.call(this, width);
+						return renderRow(view, theme, width);
+					},
+				},
+				setExpanded: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, expanded: boolean): unknown {
+						const observed = states.get(this) ?? ({} as TState);
+						observed.expanded = expanded === true;
+						states.set(this, observed);
+						return setExpanded.call(this, expanded);
+					},
+				},
+			};
+			if (observeComplete && setComplete) {
+				const complete = setComplete;
+				wrappers.setComplete = {
+					configurable: true,
+					writable: true,
+					value(
+						this: RenderableBlock,
+						exitCode: number | undefined,
+						cancelled: boolean,
+						options?: unknown,
+					): unknown {
+						const observed = states.get(this) ?? ({} as TState);
+						observeComplete(observed, exitCode, cancelled);
+						states.set(this, observed);
+						return complete.call(this, exitCode, cancelled, options);
+					},
+				};
+			}
+			patch.install(wrappers);
+			patches.set(component, patch);
+		} catch {
+			// Capability skew fails open: leave the stock card alone.
+		}
 	}
 
 	/**
@@ -1391,124 +1382,22 @@ export class RuntimeAdapter {
 		component: RenderableBlock,
 		kind: "bash" | "python",
 	): void {
-		if (this.#userExecutionPatches.has(component)) return;
 		const extract =
 			kind === "bash"
 				? userBashExecutionFromComponent
 				: userEvalExecutionFromComponent;
-		// Probe before capture/install so empty/mismatch leaves stay native.
-		if (!extract(component, this.#userExecutionState.get(component))) return;
-
-		const originalRender = this.#resolveInstanceMethod(component, "render");
-		const originalSetComplete = this.#resolveInstanceMethod(
+		this.#patchExpandableLeaf({
 			component,
-			"setComplete",
-		);
-		const originalSetExpanded = this.#resolveInstanceMethod(
-			component,
-			"setExpanded",
-		);
-		if (!originalRender || !originalSetComplete || !originalSetExpanded) return;
-
-		const adapter = this;
-		const state: UserExecutionObservedState =
-			this.#userExecutionState.get(component) ?? {};
-		this.#userExecutionState.set(component, state);
-
-		try {
-			const patch = new DescriptorPatch(component, [
-				"render",
-				"setComplete",
-				"setExpanded",
-			]);
-			patch.install({
-				render: {
-					configurable: true,
-					writable: true,
-					value(this: RenderableBlock, width: number): readonly string[] {
-						if (adapter.#disposed)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						const theme = adapter.#ui.theme;
-						if (!theme)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						const observed = adapter.#userExecutionState.get(this);
-						const view = extract(this, observed);
-						if (!view)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						// Expanded → native multi-line frame (readable output).
-						if (view.expanded === true)
-							return (
-								originalRender as (
-									this: RenderableBlock,
-									width: number,
-								) => readonly string[]
-							).call(this, width);
-						return renderUserExecutionRow(view, theme, width);
-					},
-				},
-				setComplete: {
-					configurable: true,
-					writable: true,
-					value(
-						this: RenderableBlock,
-						exitCode: number | undefined,
-						cancelled: boolean,
-						options?: unknown,
-					): unknown {
-						const observed =
-							adapter.#userExecutionState.get(this) ??
-							({} as UserExecutionObservedState);
-						if (typeof exitCode === "number") observed.exitCode = exitCode;
-						else delete observed.exitCode;
-						observed.cancelled = cancelled === true;
-						adapter.#userExecutionState.set(this, observed);
-						return (
-							originalSetComplete as (
-								this: RenderableBlock,
-								exitCode: number | undefined,
-								cancelled: boolean,
-								options?: unknown,
-							) => unknown
-						).call(this, exitCode, cancelled, options);
-					},
-				},
-				setExpanded: {
-					configurable: true,
-					writable: true,
-					value(this: RenderableBlock, expanded: boolean): unknown {
-						const observed =
-							adapter.#userExecutionState.get(this) ??
-							({} as UserExecutionObservedState);
-						observed.expanded = expanded === true;
-						adapter.#userExecutionState.set(this, observed);
-						return (
-							originalSetExpanded as (
-								this: RenderableBlock,
-								expanded: boolean,
-							) => unknown
-						).call(this, expanded);
-					},
-				},
-			});
-			this.#userExecutionPatches.set(component, patch);
-		} catch {
-			// Capability skew fails open: leave the stock execution frame alone.
-		}
+			patches: this.#userExecutionPatches,
+			states: this.#userExecutionState,
+			extract,
+			renderRow: renderUserExecutionRow,
+			observeComplete(state, exitCode, cancelled) {
+				if (typeof exitCode === "number") state.exitCode = exitCode;
+				else delete state.exitCode;
+				state.cancelled = cancelled === true;
+			},
+		});
 	}
 
 	#patchToolComponent(component: RenderableBlock): void {
