@@ -151,10 +151,13 @@ Host orchestrator. Installs and manages patches.
 ```typescript
 #startSpinner(): void {
     this.#timer = this.#timers.setInterval(() => {
+        let pending = false;
         for (const state of this.#session.pending()) {
-            if (state.ledger.phase !== "working") continue;
-            if (!state.component) continue;
-            if (!this.#ui.getComponentVisible?.(state.component)) continue;
+            if (state.ledger.phase !== "working" || !state.component) continue;
+            // `clear` renders no compact rows; stock surfaces animate
+            // themselves, so hidden rows must not churn renders.
+            if (this.#session.modeFor(state.ledger).mode === "clear") continue;
+            pending = true;
             state.version++;
             this.#ui.requestComponentRender?.(state.component);
         }
@@ -162,6 +165,8 @@ Host orchestrator. Installs and manages patches.
     }, 80); // 12.5 Hz
 }
 ```
+
+**`noteTreeIntent`:** Explicit no-op seam on `RuntimeAdapter`. `session_tree` is optional intent/coalescing metadata only; the method deliberately has no side effects. Rehydration and presentation-generation bumps key off the transcript `clear` that follows a committed navigation, never this event.
 
 ---
 
@@ -194,59 +199,65 @@ Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
 
 ## Mutation Audit
 
-### Write Verification (render.ts)
+### Write Verification (audit.ts)
+
+There is no `verifyWriteMutation` helper. Write evidence is produced by the audit pair wired through `AuditLifecycle` (`audit-lifecycle.ts`):
 
 ```typescript
-function verifyWriteMutation(
-    resolvedPath: string,
-    preSnapshot: FileSnapshot | undefined,
-    postSnapshot: FileSnapshot | undefined
-): MutationStats {
-    if (!preSnapshot || !postSnapshot) return { added: 0, removed: 0, exact: false };
+// Pre-image at tool_execution_start (sync read — must not lose the race).
+export async function captureWriteCandidate(input: {
+    toolCallId: string;
+    args: unknown;
+    cwd: string;
+}): Promise<MutationCandidate | undefined>;
 
-    const preStat = preSnapshot.stat;
-    const postStat = postSnapshot.stat;
-
-    // Compare sizes, mtimes
-    const added = Math.max(0, postStat.size - preStat.size);
-    const removed = Math.max(0, preStat.size - postStat.size);
-
-    return { added, removed, exact: true };
+// Post-image + line diff at tool_execution_end.
+export async function completeWriteCandidate(
+    candidate: MutationCandidate | undefined,
+    result: unknown,
+    isError: boolean,
+): Promise<MutationMessageDetails[]> {
+    // Require non-error result with absolute details.resolvedPath.
+    // Canonical-path triple-check: snapshot path, resolved path, and
+    // completion-time canonical must agree (symlink/race defense).
+    // Equal bytes → no evidence. Otherwise trimmed-middle + exact line diff.
+    // Returns [{ version: 1, toolCallId, toolName: "write", path, added, removed, exact: true }]
+    // or [] when evidence is missing/untrusted.
 }
 ```
 
 **Evidence required:**
-- Pre/post filesystem snapshots
-- Resolved path matches expected target
-- Size comparison (byte-level)
+- Pre-image text snapshot taken synchronously on start
+- Post-image text after end, only when paths canonicalize to the same target
+- Exact line-level `added` / `removed` (not byte size/mtime guesses)
 
-**Fallback:** If evidence missing, `exact: false`, may not retain row.
+**Fallback:** Missing candidate, path mismatch, identical bytes, or over-budget diffs yield no mutation entries (`[]`); rows are not retained on invented stats.
 
-### Edit Verification (render.ts)
+### Edit Verification (audit-diff.ts)
 
 ```typescript
-function parseUnifiedDiff(diff: string): MutationStats {
-    let added = 0;
-    let removed = 0;
-    let inHunk = false;
+export function countUnifiedDiff(
+    diff: string,
+): { added: number; removed: number } | undefined {
+    // Budget-bounded scan; only lines inside well-formed @@ hunks count.
+    // Malformed headers or overflow → undefined (fail open, no approximate counts).
+}
 
-    for (const line of diff.split('\n')) {
-        if (line.startsWith('@@')) { inHunk = true; continue; }
-        if (!inHunk) continue;
-        if (line.startsWith('+') && !line.startsWith('+++')) added++;
-        if (line.startsWith('-') && !line.startsWith('---')) removed++;
-    }
-
-    return { added, removed, exact: true };
+export function completeEditMutations(
+    toolCallId: string,
+    result: unknown,
+    _isError: boolean,
+): DeleteMutationEvidence[] {
+    // Prefers details.perFileResults; falls back to single-path details.diff / delete.
 }
 ```
 
 **Evidence required:**
-- Native `diff` or `perFileResults`
-- Only `@@` hunks counted
+- Native `diff` or `perFileResults` on the tool result
+- Only `@@` hunk body lines counted (`+` / `-`, not file headers)
 - Per-file success tracked even for multi-file operations
 
-**Fallback:** If diff unavailable, neutral status, may not retain row.
+**Fallback:** If diff unavailable or over budget, no exact counts; deletes may still surface as count-less (`exact: false`) rows when the path is valid.
 
 ---
 
