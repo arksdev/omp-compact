@@ -1353,6 +1353,111 @@ stockTest("verified non-zero write survives final filtering", async () => {
 	await rm(cwd, { recursive: true, force: true });
 });
 
+stockTest(
+	"write audit resolves relative paths against live sessionManager.getCwd",
+	async () => {
+		// Mid-session /move updates SessionManager.#cwd without rebuilding
+		// ExtensionContext: context.cwd stays at the pre-move snapshot while
+		// getCwd() returns the live root. Relative write pre-images must land
+		// under the live root, or +N/−M evidence is wrong or missing.
+		const stale = "/tmp/omp-compact-write-cwd-stale";
+		const live = "/tmp/omp-compact-write-cwd-live";
+		await rm(stale, { recursive: true, force: true });
+		await rm(live, { recursive: true, force: true });
+		await mkdir(stale, { recursive: true });
+		await mkdir(live, { recursive: true });
+		const path = join(live, "moved.ts");
+		await Bun.write(path, "old\n");
+		// A same-named file under the stale snapshot must not be the pre-image.
+		await Bun.write(join(stale, "moved.ts"), "stale-preimage\n");
+
+		const booted = await bootWithTranscript(stale);
+		Object.assign(booted.context.sessionManager, {
+			getCwd: () => live,
+		});
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"write",
+			{ path: "moved.ts", content: "new\n" },
+			"write-live-cwd",
+		);
+		await Bun.write(path, "new\n");
+		await finishTool(booted, call, {
+			toolCallId: "write-live-cwd",
+			toolName: "write",
+			result: {
+				content: [{ type: "text", text: "ok" }],
+				details: { resolvedPath: path },
+			},
+			isError: false,
+		});
+		addAnswer(booted, "written");
+		await finishRun(booted, "written");
+
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("write: moved.ts");
+		// live old→new is +1|1; stale-preimage→new would be a different count
+		// and a path-canonicality miss would publish nothing.
+		expect(rows).toContain("+1|1");
+		expect(booted.appendedEntries[0]).toMatchObject({
+			customType: "omp-compact-write",
+			data: {
+				version: 1,
+				toolCallId: "write-live-cwd",
+				added: 1,
+				removed: 1,
+				exact: true,
+			},
+		});
+		await shutdown(booted);
+		await rm(stale, { recursive: true, force: true });
+		await rm(live, { recursive: true, force: true });
+	},
+);
+
+stockTest(
+	"write audit fails open to context.cwd when getCwd is unavailable",
+	async () => {
+		const cwd = "/tmp/omp-compact-write-cwd-fallback";
+		await rm(cwd, { recursive: true, force: true });
+		await mkdir(cwd, { recursive: true });
+		const path = join(cwd, "fallback.ts");
+		await Bun.write(path, "before\n");
+
+		const booted = await bootWithTranscript(cwd);
+		// sessionManager has getBranch only — no getCwd. Capture must still
+		// resolve the relative path against the snapshot field.
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"write",
+			{ path: "fallback.ts", content: "after\n" },
+			"write-cwd-fallback",
+		);
+		await Bun.write(path, "after\n");
+		await finishTool(booted, call, {
+			toolCallId: "write-cwd-fallback",
+			toolName: "write",
+			result: {
+				content: [{ type: "text", text: "ok" }],
+				details: { resolvedPath: path },
+			},
+			isError: false,
+		});
+		addAnswer(booted, "written");
+		await finishRun(booted, "written");
+
+		expect(visibleRows(booted.transcript).join("\n")).toContain("+1|1");
+		expect(booted.appendedEntries[0]).toMatchObject({
+			customType: "omp-compact-write",
+			data: { toolCallId: "write-cwd-fallback", added: 1, removed: 1 },
+		});
+		await shutdown(booted);
+		await rm(cwd, { recursive: true, force: true });
+	},
+);
+
 stockTest("new write below a symlinked parent keeps exact stats", async () => {
 	const cwd = "/tmp/omp-compact-symlink";
 	await rm(cwd, { recursive: true, force: true });

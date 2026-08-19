@@ -682,7 +682,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				auditLifecycle.startWrite({
 					toolCallId: event.toolCallId,
 					args: event.args,
-					cwd: context.cwd,
+					cwd: resolveSessionCwd(context),
 				});
 				break;
 			case "git-bash": {
