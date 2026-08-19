@@ -2,7 +2,11 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { readExactAsync, readExactSync } from "../../.omp-plugin/audit";
+import {
+	readExactAsync,
+	readExactSync,
+	isPathInsideRoot,
+} from "../../.omp-plugin/audit";
 import {
 	completeEditMutations,
 	countDiffChanges,
@@ -1614,6 +1618,49 @@ describe("write audit for brand-new files", () => {
 		} finally {
 			await cleanup();
 		}
+	});
+});
+
+describe("isPathInsideRoot (shared path-inside-root predicate)", () => {
+	test("inside, equal, and deep descendants", () => {
+		expect(isPathInsideRoot("/foo/bar", "/foo")).toBe(true);
+		expect(isPathInsideRoot("/foo/bar/baz", "/foo/bar")).toBe(true);
+		expect(isPathInsideRoot("/foo/bar", "/foo/bar")).toBe(true);
+		expect(isPathInsideRoot("/foo", "/foo")).toBe(true);
+	});
+
+	test("outside and prefix-boundary lookalikes", () => {
+		expect(isPathInsideRoot("/foo/barbaz", "/foo/bar")).toBe(false);
+		expect(isPathInsideRoot("/foo", "/foo/bar")).toBe(false);
+		expect(isPathInsideRoot("/elsewhere/x", "/foo")).toBe(false);
+		expect(isPathInsideRoot("/foobar", "/foo")).toBe(false);
+	});
+
+	test("trailing slashes on the root are ignored", () => {
+		expect(isPathInsideRoot("/foo/bar", "/foo/")).toBe(true);
+		expect(isPathInsideRoot("/foo", "/foo//")).toBe(true);
+		expect(isPathInsideRoot("/foo/barbaz", "/foo/bar/")).toBe(false);
+	});
+
+	test("root cwd special-case", () => {
+		expect(isPathInsideRoot("/", "/")).toBe(true);
+		expect(isPathInsideRoot("/a", "/")).toBe(true);
+		expect(isPathInsideRoot("/a/b", "/")).toBe(true);
+	});
+
+	test("Windows-style absolutes and non-absolutes fail closed (POSIX-only)", () => {
+		// Documented contract: both sides must start with `/`. Windows roots
+		// and relatives are outside — confinement/config degrade fail-closed.
+		expect(isPathInsideRoot("C:\\Users\\x", "C:\\Users")).toBe(false);
+		expect(isPathInsideRoot("C:/Users/x", "C:/Users")).toBe(false);
+		expect(isPathInsideRoot("\\\\server\\share\\a", "\\\\server\\share")).toBe(
+			false,
+		);
+		expect(isPathInsideRoot("foo/bar", "foo")).toBe(false);
+		expect(isPathInsideRoot("/foo/bar", "foo")).toBe(false);
+		expect(isPathInsideRoot("foo", "/foo")).toBe(false);
+		expect(isPathInsideRoot("", "/")).toBe(false);
+		expect(isPathInsideRoot("/a", "")).toBe(false);
 	});
 });
 

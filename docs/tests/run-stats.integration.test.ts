@@ -588,7 +588,8 @@ stockTest(
 			booted.adapter.showStats("omp-compact-run-1", "[ 0 actions · 100 sent ]"),
 		).toBe(false);
 		expect(() => booted.transcript.render(120)).not.toThrow();
-		expect(booted.clearedTimers.length).toBeGreaterThan(0);
+		// Idle install never arms the spinner; dispose still clears if armed.
+		expect(booted.clearedTimers.length).toBe(0);
 		expect(booted.notifications).toEqual([]);
 	},
 );

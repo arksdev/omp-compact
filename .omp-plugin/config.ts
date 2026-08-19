@@ -3,6 +3,8 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
+import { isPathInsideRoot } from "./path-inside-root";
+
 export type CompactMode = "compact" | "live" | "clear";
 
 export interface CompactStatsSettings {
@@ -248,12 +250,6 @@ function resolveAcceptedExplicitConfigPath(
 	const fromHome = resolve(homeResolved, candidate);
 	if (isPathInsideRoot(fromHome, homeResolved)) return fromHome;
 	return undefined;
-}
-
-function isPathInsideRoot(resolved: string, root: string): boolean {
-	if (resolved === root) return true;
-	const prefix = root.endsWith(sep) ? root : root + sep;
-	return resolved.startsWith(prefix);
 }
 
 type BoundedParseResult =

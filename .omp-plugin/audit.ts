@@ -26,6 +26,9 @@ import {
 import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
 import type { MutationMessageDetails } from "./messages";
 import { objectRecord } from "./object-record";
+import { isPathInsideRoot } from "./path-inside-root";
+
+export { isPathInsideRoot } from "./path-inside-root";
 
 export {
 	completeEditMutations,
@@ -50,22 +53,8 @@ export interface MutationCandidate {
 	before: string;
 }
 
-/**
- * Segment-exact containment of an absolute path inside a root directory.
- * Both sides must already be normalized absolute paths (typically
- * realpath/canonical forms). Trailing slashes on the root are ignored; a
- * path equal to the root counts as inside. Lexical only — callers supply
- * canonical forms when symlink escape must be closed.
- */
-export function isPathInsideRoot(path: string, root: string): boolean {
-	if (path.charCodeAt(0) !== 47 || root.charCodeAt(0) !== 47) return false;
-	let end = root.length;
-	while (end > 1 && root.charCodeAt(end - 1) === 47) end--;
-	const base = root.slice(0, end);
-	if (path === base) return true;
-	if (base === "/") return path.charCodeAt(0) === 47 && path.length > 1;
-	return path.startsWith(base) && path.charCodeAt(base.length) === 47;
-}
+// isPathInsideRoot lives in path-inside-root.ts (shared with config path
+// acceptance). Re-exported above for existing audit callers/tests.
 
 /**
  * Canonical form of a target path that stays stable across the write:
