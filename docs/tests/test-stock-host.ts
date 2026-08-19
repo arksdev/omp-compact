@@ -9,7 +9,7 @@
  * `@oh-my-pi/*` in its root `node_modules`), and isolated generated
  * settings/config state under `.omp-compact-test`.
  *
- * The component instance interfaces mirror the pinned OMP 17.3.1 declarations
+ * The component instance interfaces mirror the pinned OMP 17.3.8 declarations
  * (`node_modules/@oh-my-pi/pi-coding-agent/dist/types/modes/components/*`)
  * so the test boundary is the same API the plugin adapts, not a hand-copied
  * subset: `ToolExecutionComponent`'s ctor takes an optional `toolCallId`,

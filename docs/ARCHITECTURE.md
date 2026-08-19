@@ -605,9 +605,10 @@ The host-supplied agent directory and the live session `Settings` object sit
 
 ## Compatibility and Capacity Notes
 
-- **Two version numbers, different jobs.** `marketplace.json` advertises the
-  public floor `OMP 17.2.12+` (release metadata — do not edit it from a
-  code-review pass). `HostAdapter1731.hostVersion` (`17.3.8`) records the
+- **Two version numbers, different jobs.** `package.json` `engines.omp`
+  (`>=17.2.12`) is the public floor (release metadata — do not edit it from a
+  code-review pass). `marketplace.json` carries plugin version/description only.
+  `HostAdapter1731.hostVersion` (`17.3.8`) records the
   **verified** critical private-surface contract the adapter was written
   against; the class name keeps the historical `1731` suffix. Comments that
   cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
