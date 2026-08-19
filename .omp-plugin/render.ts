@@ -107,6 +107,31 @@ export interface TodoReminderView {
 	items: readonly string[];
 }
 
+/** Compact view of a stock skill-prompt card (structured message.details). */
+export interface SkillMessageView {
+	name: string;
+	args?: string;
+	path?: string;
+	lineCount?: number;
+	/** Observed via patched setExpanded; #expanded is host-private. */
+	expanded?: boolean;
+}
+
+/** Compact view of a stock late-diagnostics card (structured files[]). */
+export interface LateDiagnosticsView {
+	errored: boolean;
+	summary?: string;
+	count: number;
+	firstMessage?: string;
+	/** Observed via patched setExpanded; #expanded is host-private. */
+	expanded?: boolean;
+}
+
+/** Observed expand state for skill / late-diagnostics cards. */
+export interface ExpandObservedState {
+	expanded?: boolean;
+}
+
 /**
  * Compact view of a user-initiated bash (`!`/`!!`) or python (`$`/`$$`)
  * execution block. Labels follow the host triggers, not the agent `eval` tool:
@@ -534,6 +559,149 @@ export function renderTodoReminderRow(
 	const body = first ? ` · ${first}${extra}` : extra;
 	const bullet = theme.fg("dim", "•");
 	const line = `${bullet} ${theme.fg("warning", `${header}${body}`)}`;
+	return [fitTransparentLine(line, width)];
+}
+
+/**
+ * Recover a compact skill view from a live stock `SkillMessageComponent`
+ * via the public parameter-property `message` (customType skill-prompt +
+ * SkillPromptDetails). Returns `undefined` on any mismatch so callers fail
+ * open to native rendering. Does not scrape children/getText.
+ */
+export function skillMessageFromComponent(
+	block: unknown,
+	observed?: ExpandObservedState,
+): SkillMessageView | undefined {
+	if (!block || typeof block !== "object") return undefined;
+	const candidate = block as Record<string, unknown>;
+	const message = record(candidate.message);
+	// Pin literal to OMP 17.3.4 session/messages.ts:42 SKILL_PROMPT_MESSAGE_TYPE.
+	if (message.customType !== "skill-prompt") return undefined;
+
+	const details = record(message.details);
+	const rawName = typeof details.name === "string" ? details.name.trim() : "";
+	const name = sanitizeOneLine(rawName || "unknown", 80);
+	if (!name) return undefined;
+
+	const view: SkillMessageView = { name };
+	if (typeof details.args === "string") {
+		const args = sanitizeOneLine(details.args.replace(/\s+/g, " ").trim(), 120);
+		if (args) view.args = args;
+	}
+	if (typeof details.path === "string") {
+		const path = sanitizeOneLine(details.path, 120);
+		if (path) view.path = path;
+	}
+	if (
+		typeof details.lineCount === "number" &&
+		Number.isFinite(details.lineCount) &&
+		details.lineCount >= 0
+	) {
+		view.lineCount = Math.trunc(details.lineCount);
+	}
+	if (observed?.expanded === true) view.expanded = true;
+	if (observed?.expanded === false) view.expanded = false;
+	return Object.freeze(view);
+}
+
+/**
+ * Recover a compact late-diagnostics view from a live stock
+ * `LateDiagnosticsMessageComponent` via the public `files` array. Mirrors
+ * host `#rebuild` flattening (late-diagnostics-message.ts:51-59): zero
+ * diagnostic messages → `undefined` (native empty / no patch).
+ */
+export function lateDiagnosticsFromComponent(
+	block: unknown,
+	observed?: ExpandObservedState,
+): LateDiagnosticsView | undefined {
+	if (!block || typeof block !== "object") return undefined;
+	const candidate = block as Record<string, unknown>;
+	if (!Array.isArray(candidate.files)) return undefined;
+
+	const messages: string[] = [];
+	const summaries: string[] = [];
+	let errored = false;
+	for (const entry of candidate.files) {
+		const file = record(entry);
+		if (Array.isArray(file.messages)) {
+			for (const msg of file.messages) {
+				if (typeof msg === "string" && msg.length > 0) messages.push(msg);
+			}
+		}
+		if (typeof file.summary === "string" && file.summary.length > 0) {
+			summaries.push(file.summary);
+		}
+		if (file.errored === true) errored = true;
+	}
+	// Host early-return when messages.length === 0 — refuse the view so the
+	// install probe leaves empty leaves fully native.
+	if (messages.length === 0) return undefined;
+
+	const view: LateDiagnosticsView = {
+		errored,
+		count: messages.length,
+	};
+	const summary = sanitizeOneLine(summaries.join(", "), 80);
+	if (summary) view.summary = summary;
+	const first = sanitizeOneLine(messages[0], MAX_DESCRIPTION);
+	if (first) view.firstMessage = first;
+	if (observed?.expanded === true) view.expanded = true;
+	if (observed?.expanded === false) view.expanded = false;
+	return Object.freeze(view);
+}
+
+/**
+ * Compact skill row: ordinary gray-tool bullet chrome with custom-message
+ * identity colors on the marker/name (no customMessageBg card fill).
+ * Expanded is handled by the runtime adapter (native card), not here.
+ */
+export function renderSkillMessageRow(
+	view: SkillMessageView,
+	theme: Theme,
+	width?: number,
+): readonly string[] {
+	const bullet = theme.fg("dim", "•");
+	const marker = theme.fg("customMessageLabel", "skill");
+	const name = theme.fg("customMessageText", sanitizeOneLine(view.name, 80));
+	let line = `${bullet} ${marker} ${name}`;
+	if (view.args) {
+		line += ` ${theme.fg("dim", sanitizeOneLine(view.args, 120))}`;
+	}
+	const meta: string[] = [];
+	if (view.path) meta.push(theme.fg("accent", sanitizeOneLine(view.path, 80)));
+	if (typeof view.lineCount === "number") {
+		const n = view.lineCount;
+		meta.push(theme.fg("muted", `${n} ${n === 1 ? "line" : "lines"}`));
+	}
+	if (meta.length > 0) {
+		const sep = theme.fg("dim", " · ");
+		line += sep + meta.join(sep);
+	}
+	return [fitTransparentLine(line, width)];
+}
+
+/**
+ * Compact late-diagnostics row: tool-title marker with warning/error payload
+ * for severity. Transparent background only.
+ */
+export function renderLateDiagnosticsRow(
+	view: LateDiagnosticsView,
+	theme: Theme,
+	width?: number,
+): readonly string[] {
+	const bullet = theme.fg("dim", "•");
+	const title = theme.fg("toolTitle", "late diagnostics");
+	const summary = view.summary
+		? theme.fg("dim", ` (${sanitizeOneLine(view.summary, 60)})`)
+		: "";
+	const first = view.firstMessage
+		? sanitizeOneLine(view.firstMessage, 120)
+		: "";
+	const extra = view.count > 1 ? ` · +${view.count - 1} more` : "";
+	const body = first ? ` · ${first}${extra}` : extra;
+	const payloadColor = view.errored ? "error" : "warning";
+	const payload = body ? theme.fg(payloadColor, body) : "";
+	const line = `${bullet} ${title}${summary}${payload}`;
 	return [fitTransparentLine(line, width)];
 }
 

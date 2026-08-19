@@ -5,7 +5,9 @@ import {
 	insertTranscriptChildAt,
 	isBashExecutionComponent,
 	isEvalExecutionComponent,
+	isLateDiagnosticsMessageComponent,
 	isReadGroupComponent,
+	isSkillMessageComponent,
 	isTodoReminderComponent,
 	isToolComponent,
 	isTranscriptHost,
@@ -353,6 +355,149 @@ describe("host shape guards", () => {
 				},
 			}),
 		).toBe(false);
+	});
+
+	test("isSkillMessageComponent matches skill-prompt message and rejects collisions", () => {
+		const skill = {
+			render() {
+				return [] as const;
+			},
+			setExpanded() {},
+			message: {
+				role: "custom",
+				customType: "skill-prompt",
+				content: "body",
+				display: true,
+				details: { name: "figma-use", path: "/x", lineCount: 1 },
+			},
+		};
+		expect(isSkillMessageComponent(skill)).toBe(true);
+		expect(isLateDiagnosticsMessageComponent(skill)).toBe(false);
+		expect(isTodoReminderComponent(skill)).toBe(false);
+		expect(isToolComponent(skill)).toBe(false);
+
+		// Generic custom fallthrough — arbitrary customType must never match.
+		expect(
+			isSkillMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+				message: { customType: "my-extension-card", content: "x" },
+			}),
+		).toBe(false);
+		// Handoff customType.
+		expect(
+			isSkillMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+				message: { customType: "handoff", content: "x" },
+			}),
+		).toBe(false);
+		// Plugin's own omp-compact-* cards.
+		expect(
+			isSkillMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+				message: { customType: "omp-compact-stats", content: "x" },
+			}),
+		).toBe(false);
+		// Method surface without message.
+		expect(
+			isSkillMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+			}),
+		).toBe(false);
+		// Late diagnostics activity surface.
+		expect(
+			isSkillMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+				setToolActivityVisible() {},
+				files: [],
+				message: { customType: "skill-prompt" },
+			}),
+		).toBe(false);
+		expect(isSkillMessageComponent(new ToolComponent())).toBe(false);
+		expect(isSkillMessageComponent(null)).toBe(false);
+		expect(isSkillMessageComponent({})).toBe(false);
+	});
+
+	test("isLateDiagnosticsMessageComponent matches files+activity and rejects collisions", () => {
+		const late = {
+			render() {
+				return [] as const;
+			},
+			setExpanded() {},
+			setToolActivityVisible() {},
+			files: [{ messages: ["a.ts:1:1: error: x"] }],
+		};
+		expect(isLateDiagnosticsMessageComponent(late)).toBe(true);
+		expect(isSkillMessageComponent(late)).toBe(false);
+		expect(isTodoReminderComponent(late)).toBe(false);
+		expect(isTtsrNotificationComponent(late)).toBe(false);
+		expect(isToolComponent(late)).toBe(false);
+
+		// Empty files array still matches fingerprint; install probe refuses.
+		expect(
+			isLateDiagnosticsMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+				setToolActivityVisible() {},
+				files: [],
+			}),
+		).toBe(true);
+
+		// ToolActivityContainer-like: expand+activity+children, no files.
+		expect(
+			isLateDiagnosticsMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+				setToolActivityVisible() {},
+				children: [{}],
+			}),
+		).toBe(false);
+
+		// Todo activity-only (no setExpanded, no files).
+		expect(
+			isLateDiagnosticsMessageComponent({
+				render() {
+					return [] as const;
+				},
+				setToolActivityVisible() {},
+			}),
+		).toBe(false);
+
+		// TTSR has addRules.
+		expect(
+			isLateDiagnosticsMessageComponent({
+				render() {
+					return [] as const;
+				},
+				addRules() {},
+				setExpanded() {},
+				setToolActivityVisible() {},
+				files: [],
+			}),
+		).toBe(false);
+
+		// Full tool leaf.
+		expect(isLateDiagnosticsMessageComponent(new ToolComponent())).toBe(false);
+		expect(isLateDiagnosticsMessageComponent(null)).toBe(false);
+		expect(isLateDiagnosticsMessageComponent({})).toBe(false);
 	});
 });
 

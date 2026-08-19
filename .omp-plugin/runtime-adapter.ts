@@ -5,7 +5,9 @@ import {
 	HostAdapter1731,
 	isBashExecutionComponent,
 	isEvalExecutionComponent,
+	isLateDiagnosticsMessageComponent,
 	isReadGroupComponent,
+	isSkillMessageComponent,
 	isTodoReminderComponent,
 	isToolComponent,
 	isTranscriptHost,
@@ -16,11 +18,16 @@ import type { GitMessageDetails, MutationMessageDetails } from "./messages";
 import { DEFAULT_RUN_MODE, type ModePolicy } from "./mode-policy";
 import { DescriptorPatch } from "./patch-kit";
 import {
+	type ExpandObservedState,
 	injectRulesFromTtsrComponent,
+	lateDiagnosticsFromComponent,
 	renderCompactToolRows,
 	renderInjectRuleRows,
+	renderLateDiagnosticsRow,
+	renderSkillMessageRow,
 	renderTodoReminderRow,
 	renderUserExecutionRow,
+	skillMessageFromComponent,
 	terminalGitSummaryLine,
 	todoReminderFromComponent,
 	type UserExecutionObservedState,
@@ -162,6 +169,15 @@ export class RuntimeAdapter {
 	readonly #userExecutionState = new WeakMap<
 		object,
 		UserExecutionObservedState
+	>();
+	/** Exact-instance skill-prompt render overrides (not fold-owned). */
+	readonly #skillPatches = new Map<object, DescriptorPatch>();
+	readonly #skillExpandState = new WeakMap<object, ExpandObservedState>();
+	/** Exact-instance late-diagnostics render overrides (not fold-owned). */
+	readonly #lateDiagnosticsPatches = new Map<object, DescriptorPatch>();
+	readonly #lateDiagnosticsExpandState = new WeakMap<
+		object,
+		ExpandObservedState
 	>();
 	readonly #discoveryPatches = new Map<object, DescriptorPatch>();
 	#transcript: TranscriptHost | undefined;
@@ -490,6 +506,10 @@ export class RuntimeAdapter {
 		this.#todoReminderPatches.clear();
 		for (const patch of this.#userExecutionPatches.values()) patch.restore();
 		this.#userExecutionPatches.clear();
+		for (const patch of this.#skillPatches.values()) patch.restore();
+		this.#skillPatches.clear();
+		for (const patch of this.#lateDiagnosticsPatches.values()) patch.restore();
+		this.#lateDiagnosticsPatches.clear();
 		for (const patch of this.#transcriptPatches) patch.restore();
 		this.#transcriptPatches.length = 0;
 		this.#removeDiscoveryPatches();
@@ -554,6 +574,10 @@ export class RuntimeAdapter {
 		this.#todoReminderPatches.clear();
 		for (const patch of this.#userExecutionPatches.values()) patch.restore();
 		this.#userExecutionPatches.clear();
+		for (const patch of this.#skillPatches.values()) patch.restore();
+		this.#skillPatches.clear();
+		for (const patch of this.#lateDiagnosticsPatches.values()) patch.restore();
+		this.#lateDiagnosticsPatches.clear();
 	}
 
 	/** One generation-guarded settlement microtask per boundary. */
@@ -928,6 +952,14 @@ export class RuntimeAdapter {
 			this.#patchTodoReminder(child);
 			return;
 		}
+		if (isSkillMessageComponent(child)) {
+			this.#patchSkillMessage(child);
+			return;
+		}
+		if (isLateDiagnosticsMessageComponent(child)) {
+			this.#patchLateDiagnostics(child);
+			return;
+		}
 		if (isBashExecutionComponent(child)) {
 			this.#patchUserExecution(child, "bash");
 			return;
@@ -1052,6 +1084,205 @@ export class RuntimeAdapter {
 			this.#todoReminderPatches.set(component, patch);
 		} catch {
 			// Capability skew fails open: leave the stock yellow card alone.
+		}
+	}
+
+	/**
+	 * Override stock skill-prompt card with one compact identity row.
+	 * Exact-instance render + setExpanded wrap only — never fold-owned.
+	 *
+	 * Expanded contract: `#expanded` is host-private, so we observe
+	 * `setExpanded` and fall back to the native multi-line card (prompt
+	 * body is the point of expand), matching user-execution expand
+	 * behavior. Collapsed stays one transparent row.
+	 *
+	 * Install-time probe: `skillMessageFromComponent` must yield a view
+	 * from structured `message` before any DescriptorPatch.
+	 */
+	#patchSkillMessage(component: RenderableBlock): void {
+		if (this.#skillPatches.has(component)) return;
+		if (
+			!skillMessageFromComponent(
+				component,
+				this.#skillExpandState.get(component),
+			)
+		)
+			return;
+
+		const originalRender = this.#resolveInstanceMethod(component, "render");
+		const originalSetExpanded = this.#resolveInstanceMethod(
+			component,
+			"setExpanded",
+		);
+		if (!originalRender || !originalSetExpanded) return;
+
+		const adapter = this;
+		const state: ExpandObservedState =
+			this.#skillExpandState.get(component) ?? {};
+		this.#skillExpandState.set(component, state);
+
+		try {
+			const patch = new DescriptorPatch(component, ["render", "setExpanded"]);
+			patch.install({
+				render: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, width: number): readonly string[] {
+						if (adapter.#disposed)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						const theme = adapter.#ui.theme;
+						if (!theme)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						const observed = adapter.#skillExpandState.get(this);
+						const view = skillMessageFromComponent(this, observed);
+						if (!view)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						// Expanded → native card so the skill prompt body is readable.
+						if (view.expanded === true)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						return renderSkillMessageRow(view, theme, width);
+					},
+				},
+				setExpanded: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, expanded: boolean): unknown {
+						const observed =
+							adapter.#skillExpandState.get(this) ??
+							({} as ExpandObservedState);
+						observed.expanded = expanded === true;
+						adapter.#skillExpandState.set(this, observed);
+						return (
+							originalSetExpanded as (
+								this: RenderableBlock,
+								expanded: boolean,
+							) => unknown
+						).call(this, expanded);
+					},
+				},
+			});
+			this.#skillPatches.set(component, patch);
+		} catch {
+			// Capability skew fails open: leave the stock skill card alone.
+		}
+	}
+
+	/**
+	 * Override stock late-diagnostics tree with one compact severity row.
+	 * Exact-instance render + setExpanded wrap only.
+	 *
+	 * Expanded contract: observe `setExpanded` (host `#expanded` private)
+	 * and fall back to native formatDiagnostics tree so full diagnostic
+	 * lines remain readable — same policy as skill / user-execution.
+	 *
+	 * Install-time probe refuses empty `messages` (host early-return) so
+	 * empty files leaves never receive a wrapper.
+	 */
+	#patchLateDiagnostics(component: RenderableBlock): void {
+		if (this.#lateDiagnosticsPatches.has(component)) return;
+		if (
+			!lateDiagnosticsFromComponent(
+				component,
+				this.#lateDiagnosticsExpandState.get(component),
+			)
+		)
+			return;
+
+		const originalRender = this.#resolveInstanceMethod(component, "render");
+		const originalSetExpanded = this.#resolveInstanceMethod(
+			component,
+			"setExpanded",
+		);
+		if (!originalRender || !originalSetExpanded) return;
+
+		const adapter = this;
+		const state: ExpandObservedState =
+			this.#lateDiagnosticsExpandState.get(component) ?? {};
+		this.#lateDiagnosticsExpandState.set(component, state);
+
+		try {
+			const patch = new DescriptorPatch(component, ["render", "setExpanded"]);
+			patch.install({
+				render: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, width: number): readonly string[] {
+						if (adapter.#disposed)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						const theme = adapter.#ui.theme;
+						if (!theme)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						const observed = adapter.#lateDiagnosticsExpandState.get(this);
+						const view = lateDiagnosticsFromComponent(this, observed);
+						if (!view)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						// Expanded → native diagnostics tree (full message list).
+						if (view.expanded === true)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						return renderLateDiagnosticsRow(view, theme, width);
+					},
+				},
+				setExpanded: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, expanded: boolean): unknown {
+						const observed =
+							adapter.#lateDiagnosticsExpandState.get(this) ??
+							({} as ExpandObservedState);
+						observed.expanded = expanded === true;
+						adapter.#lateDiagnosticsExpandState.set(this, observed);
+						return (
+							originalSetExpanded as (
+								this: RenderableBlock,
+								expanded: boolean,
+							) => unknown
+						).call(this, expanded);
+					},
+				},
+			});
+			this.#lateDiagnosticsPatches.set(component, patch);
+		} catch {
+			// Capability skew fails open: leave the stock diagnostics tree alone.
 		}
 	}
 

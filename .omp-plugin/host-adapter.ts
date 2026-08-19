@@ -367,6 +367,64 @@ export function isEvalExecutionComponent(
 }
 
 /**
+ * Stock skill card fingerprint (OMP 17.3.4 `SkillMessageComponent`):
+ * expand + render, with the host parameter-property `message` carrying
+ * `customType === "skill-prompt"` (session/messages.ts:42,
+ * `SKILL_PROMPT_MESSAGE_TYPE`). TS `private readonly message` is a runtime
+ * own field — same seam as `isCompactCustomMessage`. Rejects tool/TTSR/
+ * activity surfaces so a method mix-in cannot misclassify those leaves.
+ */
+export function isSkillMessageComponent(
+	value: unknown,
+): value is RenderableBlock {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Record<string, unknown>;
+	if (typeof candidate.render !== "function") return false;
+	if (typeof candidate.setExpanded !== "function") return false;
+	// Tools / TTSR / late-diagnostics / todo activity never appear on skill.
+	if (typeof candidate.setToolActivityVisible === "function") return false;
+	if (typeof candidate.addRules === "function") return false;
+	if (typeof candidate.updateArgs === "function") return false;
+	if (typeof candidate.updateResult === "function") return false;
+	if (typeof candidate.setArgsComplete === "function") return false;
+	if (typeof candidate.seal === "function") return false;
+	if (typeof candidate.removeEntry === "function") return false;
+	if (typeof candidate.renameEntry === "function") return false;
+	const message = objectRecord(candidate.message);
+	// Pin literal to OMP 17.3.4 session/messages.ts:42 SKILL_PROMPT_MESSAGE_TYPE.
+	return message.customType === "skill-prompt";
+}
+
+/**
+ * Stock late-LSP-diagnostics fingerprint (OMP 17.3.4
+ * `LateDiagnosticsMessageComponent`): expand + activity + render, with the
+ * host parameter-property `files` array (late-diagnostics-message.ts:21).
+ * The transcript message's customType `"lsp-late-diagnostic"`
+ * (session/messages.ts:43) is NOT retained on the component — only `files`.
+ * Rejects tool/TTSR execution surfaces; `ToolActivityContainer` collides on
+ * methods but never exposes `files`.
+ */
+export function isLateDiagnosticsMessageComponent(
+	value: unknown,
+): value is RenderableBlock {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Record<string, unknown>;
+	if (typeof candidate.render !== "function") return false;
+	if (typeof candidate.setExpanded !== "function") return false;
+	if (typeof candidate.setToolActivityVisible !== "function") return false;
+	if (!Array.isArray(candidate.files)) return false;
+	// Tool / TTSR / read-group execution surface.
+	if (typeof candidate.addRules === "function") return false;
+	if (typeof candidate.updateArgs === "function") return false;
+	if (typeof candidate.updateResult === "function") return false;
+	if (typeof candidate.setArgsComplete === "function") return false;
+	if (typeof candidate.seal === "function") return false;
+	if (typeof candidate.removeEntry === "function") return false;
+	if (typeof candidate.renameEntry === "function") return false;
+	return true;
+}
+
+/**
  * OMP 17.3.1 argument positions. `updateArgs` carries
  * `(payload, toolCallId)`; the read group's `updateResult` carries
  * `(result, isPartial, toolCallId)` while the tool component's

@@ -90,6 +90,52 @@ interface RenderModule {
 		theme: Theme,
 		width?: number,
 	): readonly string[];
+	skillMessageFromComponent(
+		block: unknown,
+		observed?: { expanded?: boolean },
+	):
+		| {
+				name: string;
+				args?: string;
+				path?: string;
+				lineCount?: number;
+				expanded?: boolean;
+		  }
+		| undefined;
+	renderSkillMessageRow(
+		view: {
+			name: string;
+			args?: string;
+			path?: string;
+			lineCount?: number;
+			expanded?: boolean;
+		},
+		theme: Theme,
+		width?: number,
+	): readonly string[];
+	lateDiagnosticsFromComponent(
+		block: unknown,
+		observed?: { expanded?: boolean },
+	):
+		| {
+				errored: boolean;
+				summary?: string;
+				count: number;
+				firstMessage?: string;
+				expanded?: boolean;
+		  }
+		| undefined;
+	renderLateDiagnosticsRow(
+		view: {
+			errored: boolean;
+			summary?: string;
+			count: number;
+			firstMessage?: string;
+			expanded?: boolean;
+		},
+		theme: Theme,
+		width?: number,
+	): readonly string[];
 	gitLine(entry: GitMessageDetails, theme: Theme): string;
 	gitMessageComponent(
 		details: GitMessageDetails | undefined,
@@ -1820,5 +1866,280 @@ describe("user bash/python execution rows", () => {
 		);
 		expect(line ?? "").not.toContain("\x1b[31m");
 		expect(stripAnsi(line ?? "")).toBe("• bash: red");
+	});
+});
+
+describe("skill message row", () => {
+	function skillBlock(options: {
+		customType?: string;
+		name?: string;
+		args?: string;
+		path?: string;
+		lineCount?: number;
+		content?: string;
+	}) {
+		return {
+			message: {
+				role: "custom",
+				customType: options.customType ?? "skill-prompt",
+				content: options.content ?? "prompt body",
+				display: true,
+				details: {
+					name: options.name ?? "figma-use",
+					args: options.args,
+					path: options.path,
+					lineCount: options.lineCount,
+				},
+			},
+			setExpanded() {},
+			render() {
+				return ["NATIVE skill card"] as const;
+			},
+		};
+	}
+
+	test("extractor reads structured message.details", () => {
+		expect(
+			renderModule.skillMessageFromComponent(
+				skillBlock({
+					name: "  keep-the-why  ",
+					args: "a\nb",
+					path: "/tmp/SKILL.md",
+					lineCount: 12,
+				}),
+			),
+		).toEqual({
+			name: "keep-the-why",
+			args: "a b",
+			path: "/tmp/SKILL.md",
+			lineCount: 12,
+		});
+	});
+
+	test("extractor accepts observed expanded state", () => {
+		expect(
+			renderModule.skillMessageFromComponent(skillBlock({}), {
+				expanded: true,
+			}),
+		).toEqual({
+			name: "figma-use",
+			expanded: true,
+		});
+	});
+
+	test("extractor fails open on non-skill customTypes and missing message", () => {
+		expect(
+			renderModule.skillMessageFromComponent(
+				skillBlock({ customType: "my-extension-card" }),
+			),
+		).toBeUndefined();
+		expect(
+			renderModule.skillMessageFromComponent(
+				skillBlock({ customType: "handoff" }),
+			),
+		).toBeUndefined();
+		expect(
+			renderModule.skillMessageFromComponent(
+				skillBlock({ customType: "omp-compact-stats" }),
+			),
+		).toBeUndefined();
+		expect(renderModule.skillMessageFromComponent({})).toBeUndefined();
+		expect(
+			renderModule.skillMessageFromComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+			}),
+		).toBeUndefined();
+	});
+
+	test("missing details name falls back to unknown", () => {
+		expect(
+			renderModule.skillMessageFromComponent({
+				message: {
+					customType: "skill-prompt",
+					content: "x",
+					details: {},
+				},
+			}),
+		).toEqual({ name: "unknown" });
+	});
+
+	test("compact row uses skill identity colors without background", () => {
+		const theme = {
+			...fakeTheme(),
+			fg: (color: string, text: string) => {
+				if (color === "customMessageLabel")
+					return `\x1b[38;2;180;100;255m${text}\x1b[39m`;
+				if (color === "customMessageText")
+					return `\x1b[38;2;200;200;200m${text}\x1b[39m`;
+				if (color === "accent") return `\x1b[38;2;80;160;255m${text}\x1b[39m`;
+				if (color === "muted") return `\x1b[38;2;120;120;120m${text}\x1b[39m`;
+				return `\x1b[38;2;1;1;1m${text}\x1b[39m`;
+			},
+		} as unknown as Theme;
+		const [line] = renderModule.renderSkillMessageRow(
+			{
+				name: "figma-use",
+				args: "--file x",
+				path: "SKILL.md",
+				lineCount: 1,
+			},
+			theme,
+		);
+		expect(stripAnsi(line ?? "")).toBe(
+			"• skill figma-use --file x · SKILL.md · 1 line",
+		);
+		expect(line ?? "").toContain("\x1b[38;2;180;100;255m");
+		expect(line ?? "").toContain("\x1b[38;2;200;200;200m");
+		expect(line ?? "").not.toContain("\x1b[48;");
+		expect(line ?? "").not.toContain("\x1b[7m");
+	});
+
+	test("overflowing skill row fits width without a background", () => {
+		const [line] = renderModule.renderSkillMessageRow(
+			{
+				name: "x".repeat(40),
+				args: "y".repeat(40),
+				path: "/very/long/path/SKILL.md",
+				lineCount: 99,
+			},
+			fakeTheme(),
+			24,
+		);
+		expect(stripAnsi(line ?? "").length).toBeLessThanOrEqual(24);
+		expect(line ?? "").not.toContain("\x1b[48;");
+	});
+});
+
+describe("late diagnostics row", () => {
+	function lateBlock(files: unknown[]) {
+		return {
+			files,
+			setExpanded() {},
+			setToolActivityVisible() {},
+			render() {
+				return ["NATIVE late diagnostics"] as const;
+			},
+		};
+	}
+
+	test("extractor flattens files and counts messages", () => {
+		expect(
+			renderModule.lateDiagnosticsFromComponent(
+				lateBlock([
+					{
+						path: "a.ts",
+						summary: "1 error",
+						errored: true,
+						messages: ["a.ts:1:1: error: boom", "a.ts:2:1: error: two"],
+					},
+					{ summary: "1 warning", messages: ["b.ts:3:1: warning: soft"] },
+				]),
+			),
+		).toEqual({
+			errored: true,
+			summary: "1 error, 1 warning",
+			count: 3,
+			firstMessage: "a.ts:1:1: error: boom",
+		});
+	});
+
+	test("extractor refuses empty messages (host early-return)", () => {
+		expect(
+			renderModule.lateDiagnosticsFromComponent(lateBlock([])),
+		).toBeUndefined();
+		expect(
+			renderModule.lateDiagnosticsFromComponent(
+				lateBlock([{ path: "a.ts", summary: "ok", messages: [] }]),
+			),
+		).toBeUndefined();
+		expect(renderModule.lateDiagnosticsFromComponent({})).toBeUndefined();
+		expect(
+			renderModule.lateDiagnosticsFromComponent({
+				setExpanded() {},
+				setToolActivityVisible() {},
+				children: [{}],
+			}),
+		).toBeUndefined();
+	});
+
+	test("extractor accepts observed expanded state", () => {
+		expect(
+			renderModule.lateDiagnosticsFromComponent(
+				lateBlock([{ messages: ["only"] }]),
+				{ expanded: false },
+			),
+		).toEqual({
+			errored: false,
+			count: 1,
+			firstMessage: "only",
+			expanded: false,
+		});
+	});
+
+	test("compact error row uses toolTitle and error payload without background", () => {
+		const theme = {
+			...fakeTheme(),
+			fg: (color: string, text: string) => {
+				if (color === "toolTitle")
+					return `\x1b[38;2;100;200;255m${text}\x1b[39m`;
+				if (color === "error") return `\x1b[38;2;255;80;80m${text}\x1b[39m`;
+				if (color === "warning") return `\x1b[38;2;200;160;0m${text}\x1b[39m`;
+				return `\x1b[38;2;1;1;1m${text}\x1b[39m`;
+			},
+		} as unknown as Theme;
+		const [line] = renderModule.renderLateDiagnosticsRow(
+			{
+				errored: true,
+				summary: "2 errors",
+				count: 2,
+				firstMessage: "a.ts:1:1: error: boom",
+			},
+			theme,
+		);
+		expect(stripAnsi(line ?? "")).toBe(
+			"• late diagnostics (2 errors) · a.ts:1:1: error: boom · +1 more",
+		);
+		expect(line ?? "").toContain("\x1b[38;2;100;200;255m");
+		expect(line ?? "").toContain("\x1b[38;2;255;80;80m");
+		expect(line ?? "").not.toContain("\x1b[48;");
+		expect(line ?? "").not.toContain("\x1b[7m");
+	});
+
+	test("warning severity uses warning ink", () => {
+		const theme = {
+			...fakeTheme(),
+			fg: (color: string, text: string) =>
+				color === "warning"
+					? `\x1b[38;2;200;160;0m${text}\x1b[39m`
+					: `\x1b[38;2;1;1;1m${text}\x1b[39m`,
+		} as unknown as Theme;
+		const [line] = renderModule.renderLateDiagnosticsRow(
+			{
+				errored: false,
+				count: 1,
+				firstMessage: "soft",
+			},
+			theme,
+		);
+		expect(stripAnsi(line ?? "")).toBe("• late diagnostics · soft");
+		expect(line ?? "").toContain("\x1b[38;2;200;160;0m");
+	});
+
+	test("overflowing late-diagnostics row fits width without a background", () => {
+		const [line] = renderModule.renderLateDiagnosticsRow(
+			{
+				errored: true,
+				summary: "many",
+				count: 9,
+				firstMessage: "x".repeat(80),
+			},
+			fakeTheme(),
+			28,
+		);
+		expect(stripAnsi(line ?? "").length).toBeLessThanOrEqual(28);
+		expect(line ?? "").not.toContain("\x1b[48;");
 	});
 });

@@ -1311,3 +1311,270 @@ stockTest(
 		await booted.adapter.dispose();
 	},
 );
+
+class FakeSkillMessage {
+	nativeRenderCount = 0;
+	message: {
+		role: string;
+		customType: string;
+		content: string;
+		display: boolean;
+		details: {
+			name: string;
+			args?: string;
+			path?: string;
+			lineCount?: number;
+		};
+	};
+	#expanded = false;
+
+	constructor(
+		name: string,
+		options?: { args?: string; path?: string; lineCount?: number },
+	) {
+		this.message = {
+			role: "custom",
+			customType: "skill-prompt",
+			content: "PROMPT BODY",
+			display: true,
+			details: {
+				name,
+				args: options?.args,
+				path: options?.path,
+				lineCount: options?.lineCount,
+			},
+		};
+	}
+
+	setExpanded(expanded: boolean): void {
+		this.#expanded = expanded;
+	}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		if (this.#expanded) {
+			return [
+				`\x1b[48;2;40;20;60mNATIVE skill card ${this.message.details.name} EXPANDED\x1b[49m`,
+				"prompt body line",
+			];
+		}
+		return [
+			`\x1b[48;2;40;20;60mNATIVE skill card ${this.message.details.name}\x1b[49m`,
+		];
+	}
+}
+
+class FakeGenericCustom {
+	nativeRenderCount = 0;
+	message: { customType: string; content: string };
+
+	constructor(customType: string) {
+		this.message = { customType, content: "ext body" };
+	}
+
+	setExpanded(): void {}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		return [`\x1b[48;2;1;1;1mNATIVE custom ${this.message.customType}\x1b[49m`];
+	}
+}
+
+class FakeLateDiagnostics {
+	nativeRenderCount = 0;
+	files: Array<{
+		path?: string;
+		summary?: string;
+		errored?: boolean;
+		messages?: string[];
+	}>;
+	#expanded = false;
+
+	constructor(
+		files: Array<{
+			path?: string;
+			summary?: string;
+			errored?: boolean;
+			messages?: string[];
+		}>,
+	) {
+		this.files = files;
+	}
+
+	setExpanded(expanded: boolean): void {
+		this.#expanded = expanded;
+	}
+
+	setToolActivityVisible(): void {}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		const tag = this.#expanded ? " EXPANDED" : "";
+		return [`\x1b[48;2;60;40;0mNATIVE late diagnostics${tag}\x1b[49m`];
+	}
+}
+
+class FakeToolActivityContainer {
+	children: unknown[];
+	nativeRenderCount = 0;
+
+	constructor(child: unknown) {
+		this.children = [child];
+	}
+
+	setExpanded(): void {}
+	setToolActivityVisible(): void {}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		return ["\x1b[48;2;2;2;2mNATIVE tool-activity container\x1b[49m"];
+	}
+}
+
+stockTest(
+	"Skill + late diagnostics: attach, expand native, rebuild, false positives",
+	async () => {
+		const root = new host.ContainerBase();
+		const transcript = new host.TranscriptContainer();
+		const preSkill = new FakeSkillMessage("pre-skill", {
+			args: "--x",
+			path: "/tmp/S.md",
+			lineCount: 3,
+		});
+		const preLate = new FakeLateDiagnostics([
+			{
+				path: "a.ts",
+				summary: "1 error",
+				errored: true,
+				messages: ["a.ts:1:1: error: boom", "a.ts:2:1: error: two"],
+			},
+		]);
+		transcript.addChild(preSkill);
+		transcript.addChild(preLate);
+		root.addChild(transcript);
+
+		const adapter = new adapterModule.RuntimeAdapter({
+			root,
+			ui: {
+				theme: host.getTheme(),
+				setWidget(_key, content) {
+					if (typeof content === "function") {
+						(content as (tui: unknown) => Renderable)(root);
+					}
+				},
+				requestRender() {},
+				getToolsExpanded: () => false,
+			},
+		});
+		expect(adapter.install()).toBe(true);
+
+		expect(stripAnsi(preSkill.render(120)[0] ?? "")).toBe(
+			"• skill pre-skill --x · /tmp/S.md · 3 lines",
+		);
+		expect(preSkill.nativeRenderCount).toBe(0);
+		expect(stripAnsi(preLate.render(120)[0] ?? "")).toContain(
+			"late diagnostics",
+		);
+		expect(stripAnsi(preLate.render(120)[0] ?? "")).toContain("boom");
+		expect(preLate.nativeRenderCount).toBe(0);
+
+		// Expanded → native multi-line / full tree.
+		preSkill.setExpanded(true);
+		preLate.setExpanded(true);
+		expect(stripAnsi(preSkill.render(120)[0] ?? "")).toContain(
+			"NATIVE skill card",
+		);
+		expect(stripAnsi(preSkill.render(120).join("\n"))).toContain(
+			"prompt body line",
+		);
+		expect(stripAnsi(preLate.render(120)[0] ?? "")).toContain(
+			"NATIVE late diagnostics EXPANDED",
+		);
+
+		preSkill.setExpanded(false);
+		preLate.setExpanded(false);
+		expect(stripAnsi(preSkill.render(120)[0] ?? "")).toMatch(/^• skill /);
+		expect(stripAnsi(preLate.render(120)[0] ?? "")).toMatch(
+			/^• late diagnostics/,
+		);
+
+		// False positives stay native.
+		const generic = new FakeGenericCustom("my-extension-card");
+		const handoff = new FakeGenericCustom("handoff");
+		const compactOwn = new FakeGenericCustom("omp-compact-stats");
+		const emptyLate = new FakeLateDiagnostics([]);
+		const activity = new FakeToolActivityContainer({ id: "inner" });
+		transcript.addChild(generic);
+		transcript.addChild(handoff);
+		transcript.addChild(compactOwn);
+		transcript.addChild(emptyLate);
+		transcript.addChild(activity);
+		expect(stripAnsi(generic.render(40)[0] ?? "")).toContain(
+			"NATIVE custom my-extension-card",
+		);
+		expect(stripAnsi(handoff.render(40)[0] ?? "")).toContain(
+			"NATIVE custom handoff",
+		);
+		expect(stripAnsi(compactOwn.render(40)[0] ?? "")).toContain(
+			"NATIVE custom omp-compact-stats",
+		);
+		expect(stripAnsi(emptyLate.render(40)[0] ?? "")).toContain(
+			"NATIVE late diagnostics",
+		);
+		expect(emptyLate.nativeRenderCount).toBe(1);
+		expect(stripAnsi(activity.render(40)[0] ?? "")).toContain(
+			"NATIVE tool-activity container",
+		);
+		expect(activity.nativeRenderCount).toBe(1);
+
+		// Clear detaches; re-add re-attaches.
+		transcript.clear();
+		expect(stripAnsi(preSkill.render(80)[0] ?? "")).toContain(
+			"NATIVE skill card",
+		);
+		transcript.addChild(preSkill);
+		transcript.addChild(preLate);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(stripAnsi(preSkill.render(120)[0] ?? "")).toMatch(/^• skill /);
+		expect(stripAnsi(preLate.render(120)[0] ?? "")).toMatch(
+			/^• late diagnostics/,
+		);
+
+		// Idempotent second observe.
+		transcript.addChild(preSkill);
+		expect(stripAnsi(preSkill.render(80)[0] ?? "")).toMatch(/^• skill /);
+
+		await adapter.dispose();
+		expect(stripAnsi(preSkill.render(40)[0] ?? "")).toContain(
+			"NATIVE skill card",
+		);
+		expect(stripAnsi(preLate.render(40)[0] ?? "")).toContain(
+			"NATIVE late diagnostics",
+		);
+	},
+);
+
+stockTest(
+	"Skill + late diagnostics: install-time probe refuses empty late files",
+	async () => {
+		const booted = await bootAdapter();
+		const empty = new FakeLateDiagnostics([
+			{ path: "a.ts", summary: "none", messages: [] },
+		]);
+		booted.transcript.addChild(empty);
+		expect(stripAnsi(empty.render(80)[0] ?? "")).toContain(
+			"NATIVE late diagnostics",
+		);
+		expect(empty.nativeRenderCount).toBe(1);
+
+		const good = new FakeLateDiagnostics([
+			{ messages: ["z.ts:1:1: warning: soft"], summary: "1 warning" },
+		]);
+		booted.transcript.addChild(good);
+		expect(stripAnsi(good.render(120)[0] ?? "")).toMatch(/^• late diagnostics/);
+		expect(good.nativeRenderCount).toBe(0);
+
+		await booted.adapter.dispose();
+	},
+);
