@@ -28,20 +28,22 @@ import type { MutationMessageDetails } from "./messages";
 import { objectRecord } from "./object-record";
 import { isPathInsideRoot } from "./path-inside-root";
 
-export { isPathInsideRoot } from "./path-inside-root";
-
 export {
 	completeEditMutations,
 	DIFF_MAX_REMAINING_LINES,
 	lineCount,
 	trimmedMiddleLines,
 } from "./audit-diff";
+export { isPathInsideRoot } from "./path-inside-root";
 
 const URI_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 const COMPOUND_FILE_TARGET =
 	/(?:\.(?:tar\.gz|zip|tar|tgz|jar|war|ear|apk|sqlite3?|db3?)):/i;
 const SNAPSHOT_MAX_BYTES = 1_048_576;
 const SNAPSHOT_MAX_LINES = 50_000;
+/** Shared open flags for both snapshot readers (sync pre-image, async post-image). */
+const SNAPSHOT_OPEN_FLAGS =
+	constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW;
 
 export interface MutationCandidate {
 	toolCallId: string;
@@ -199,11 +201,27 @@ async function boundedText(path: string): Promise<string | undefined> {
 		// Bun.file(path).text() blocks on a writer-less FIFO (Bun reports
 		// its size as Infinity today, which the byte guard happens to catch,
 		// but the text() call itself hangs — a version-dependent accident).
-		// Opening with O_NONBLOCK and deciding on the OPENED descriptor
-		// rejects every non-regular target fail-open before any read, so a
-		// model-controlled path can never hang the read or fabricate
-		// evidence, and a swap after the handle is open cannot be observed.
-		handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		// Open flags match the sync pre-image reader (`SNAPSHOT_OPEN_FLAGS`):
+		// - `O_NONBLOCK` keeps a writer-less FIFO (or another non-regular
+		//   target) from blocking inside open(2) — the path is model-
+		//   controlled / race-exposed.
+		// - `O_NOFOLLOW` refuses to open when the final path component is a
+		//   symlink. Callers hand this reader a fully-resolved canonical
+		//   path (`effectiveResult` after the triple realpath check), so a
+		//   legitimate in-root symlink write never reaches here as a link
+		//   path — only its destination does. A concurrent swap that
+		//   replaces that final component with a symlink (to an outside
+		//   secret, or anything else) fails the open with ELOOP/EMLINK and
+		//   drops evidence fail-closed — no content is read. There is no
+		//   "please follow" flag: a follow option would re-open the TOCTOU
+		//   hole this flag closes.
+		// The regular/non-regular decision is then made on the OPENED
+		// descriptor via `fstat` (no lstat window for the type check). A
+		// swap after the handle is open cannot be observed; `O_NOFOLLOW`
+		// closes the window *before* open. Re-checking identity via
+		// `realpath(/dev/fd/N)` would not add a further guarantee once the
+		// fd is open on a non-symlink path component, so it is not done.
+		handle = await open(path, SNAPSHOT_OPEN_FLAGS);
 		const stats = await handle.stat();
 		if (!stats.isFile()) return undefined;
 		const size = stats.size;
@@ -213,8 +231,9 @@ async function boundedText(path: string): Promise<string | undefined> {
 		const text = buffer.toString("utf8", 0, size);
 		return lineCount(text) <= SNAPSHOT_MAX_LINES ? text : undefined;
 	} catch {
-		// Missing and every other read error fail open: post-image must
-		// exist as a regular file for exact write evidence.
+		// Missing, ELOOP/EMLINK (symlink final component under O_NOFOLLOW),
+		// and every other open/read error: post-image must exist as a
+		// regular file for exact write evidence — drop fail-closed.
 		return undefined;
 	} finally {
 		if (handle !== undefined) await handle.close().catch(() => undefined);
@@ -232,7 +251,7 @@ async function boundedText(path: string): Promise<string | undefined> {
  * path becomes `before = ""` without opening. Oversized/over-long snapshots
  * and non-regular targets -> undefined.
  *
- * Open flags: `O_RDONLY | O_NONBLOCK | O_NOFOLLOW`.
+ * Open flags: `SNAPSHOT_OPEN_FLAGS` (`O_RDONLY | O_NONBLOCK | O_NOFOLLOW`).
  * - `O_NONBLOCK` keeps a writer-less FIFO (or another non-regular target)
  *   from blocking inside open(2) on the main event loop — the path is
  *   model-controlled.
@@ -258,10 +277,7 @@ async function boundedText(path: string): Promise<string | undefined> {
 function boundedTextSync(path: string): string | undefined {
 	let fd: number | undefined;
 	try {
-		fd = openSync(
-			path,
-			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
-		);
+		fd = openSync(path, SNAPSHOT_OPEN_FLAGS);
 		const stats = fstatSync(fd);
 		if (!stats.isFile()) return undefined;
 		const size = stats.size;

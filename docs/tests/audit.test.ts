@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+	isPathInsideRoot,
 	readExactAsync,
 	readExactSync,
-	isPathInsideRoot,
 } from "../../.omp-plugin/audit";
 import {
 	completeEditMutations,
@@ -26,6 +26,11 @@ import type { MutationMessageDetails } from "../../.omp-plugin/messages";
 import { loadStockPlugin } from "./test-stock-host";
 
 interface WriteCandidate {
+	toolCallId?: string;
+	toolName?: "write";
+	displayPath?: string;
+	absolutePath?: string;
+	canonicalPath?: string;
 	before: string;
 }
 
@@ -2112,6 +2117,234 @@ while (!existsSync(stop)) {
 				swapper.kill();
 				await swapper.exited.catch(() => undefined);
 			}
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("post-image path swapped to outside symlink yields no evidence and no secret read", async () => {
+		// TOCTOU contract on the async after-read: between the completion-time
+		// canonicalPath triple-check and boundedText's open, a concurrent swap
+		// can replace the canonical final component with a symlink to an
+		// outside secret. O_NOFOLLOW must refuse that open; evidence is dropped
+		// fail-closed and the secret must never shape the published +N|−M.
+		//
+		// Capture once with a known pre-image, land the safe post-image, then
+		// hammer completeWriteCandidate concurrently while a sibling process
+		// flips the final component between the safe file and an outside
+		// symlink. Cloning the candidate each time keeps `before` intact
+		// (complete clears it in `finally`). The secret body is many lines so
+		// a confused-deputy read is unmistakable in `added` — the hard
+		// contract is that count never approaches the secret line count.
+		const { root, outside, cleanup } = await stage();
+		try {
+			const victim = join(root, "victim.ts");
+			const outsideTarget = join(outside, "secret.ts");
+			const secretLines = 80;
+			const secret = `${Array.from(
+				{ length: secretLines },
+				(_, i) => `post-image-toctou-secret-marker-${i}`,
+			).join("\n")}\n`;
+			const safeBefore = "safe before\n";
+			const safeAfter = "safe before\nsafe after line\n";
+			await writeFile(outsideTarget, secret);
+			await writeFile(victim, safeBefore);
+
+			const base = await captureWriteCandidate({
+				toolCallId: "confine-toctou-post-base",
+				args: { path: "victim.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(base).toBeDefined();
+			expect(base?.before).toBe(safeBefore);
+			expect(typeof base?.displayPath).toBe("string");
+			expect(typeof base?.absolutePath).toBe("string");
+			expect(typeof base?.canonicalPath).toBe("string");
+			const held = base as WriteCandidate & {
+				displayPath: string;
+				absolutePath: string;
+				canonicalPath: string;
+			};
+			await writeFile(victim, safeAfter);
+
+			const swapper = Bun.spawn(
+				[
+					"bun",
+					"-e",
+					`
+const { unlinkSync, symlinkSync, writeFileSync, existsSync } = require("node:fs");
+const victim = process.env.VICTIM;
+const outsideTarget = process.env.OUTSIDE;
+const stop = process.env.STOP;
+const safeAfter = process.env.SAFE_AFTER;
+while (!existsSync(stop)) {
+  try { unlinkSync(victim); } catch {}
+  try { symlinkSync(outsideTarget, victim); } catch {}
+  try { unlinkSync(victim); } catch {}
+  try { writeFileSync(victim, safeAfter); } catch {}
+}
+`,
+				],
+				{
+					env: {
+						...Bun.env,
+						VICTIM: victim,
+						OUTSIDE: outsideTarget,
+						STOP: join(root, "stop"),
+						SAFE_AFTER: safeAfter,
+					},
+					stdout: "ignore",
+					stderr: "ignore",
+				},
+			);
+
+			try {
+				let sawEmpty = false;
+				let sawSafe = false;
+				let n = 0;
+				const deadline = Date.now() + 2_500;
+				while (Date.now() < deadline) {
+					const batch: Promise<MutationMessageDetails[]>[] = [];
+					for (let j = 0; j < 24; j++) {
+						n += 1;
+						batch.push(
+							completeWriteCandidate(
+								{
+									toolCallId: `confine-toctou-post-${n}`,
+									toolName: "write",
+									displayPath: held.displayPath,
+									absolutePath: held.absolutePath,
+									canonicalPath: held.canonicalPath,
+									// Fresh pre-image each time: complete clears
+									// `before` in its finally block.
+									before: safeBefore,
+								},
+								{
+									content: [{ type: "text", text: "ok" }],
+									details: { resolvedPath: victim },
+								},
+								false,
+							),
+						);
+					}
+					const results = await Promise.all(batch);
+					for (const entries of results) {
+						if (entries.length === 0) {
+							sawEmpty = true;
+							continue;
+						}
+						const entry = entries[0];
+						// Confused-deputy read of the 80-line outside secret
+						// yields added ≈ secretLines. Safe overwrite is +1|0.
+						// Transient empty/partial races may publish other small
+						// shapes — never a secret-sized added count.
+						expect(entry.added).toBeLessThan(secretLines);
+						if (entry.added === 1 && entry.removed === 0) {
+							sawSafe = true;
+						}
+					}
+				}
+				expect(n).toBeGreaterThan(0);
+				// The race must have been observable at least once either way;
+				// the hard contract is "secret never leaks".
+				expect(sawEmpty || sawSafe).toBe(true);
+			} finally {
+				await writeFile(join(root, "stop"), "1");
+				swapper.kill();
+				await swapper.exited.catch(() => undefined);
+			}
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("post-image open of a fully-resolved canonical path still yields exact overwrite stats", async () => {
+		// Judgment lock: completeWriteCandidate hands boundedText the
+		// realpath'd effectiveResult, whose final component is never a
+		// symlink. O_NOFOLLOW on that path is free — ordinary in-root
+		// overwrite evidence must keep producing exact +N|−M.
+		const { root, cleanup } = await stage();
+		try {
+			await writeFile(join(root, "edit.ts"), "const a = 1;\nkeep();\n");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-post-canonical",
+				args: { path: "edit.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("const a = 1;\nkeep();\n");
+			await writeFile(
+				join(root, "edit.ts"),
+				"const a = 2;\nkeep();\nextra();\n",
+			);
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: join(root, "edit.ts") },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-post-canonical",
+					toolName: "write",
+					path: "edit.ts",
+					added: 2,
+					removed: 1,
+					exact: true,
+				},
+			]);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("post-image via in-root symlink write still yields exact overwrite stats", async () => {
+		// Judgment lock: the host's details.resolvedPath is the authored
+		// absolute path (not realpath). completeWriteCandidate still opens
+		// the realpath'd effectiveResult (destination), so an in-root
+		// symlink write keeps exact evidence under O_NOFOLLOW on that
+		// resolved destination — same as the pre-image one-hop branch.
+		const { root, cleanup } = await stage();
+		try {
+			await writeFile(join(root, "target.ts"), "const a = 1;\nkeep();\n");
+			await symlink("target.ts", join(root, "alias.ts"));
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-post-symlink",
+				args: { path: "alias.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("const a = 1;\nkeep();\n");
+			await writeFile(
+				join(root, "target.ts"),
+				"const a = 2;\nkeep();\nextra();\n",
+			);
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					// Host emits the authored absolute path, not realpath.
+					details: { resolvedPath: join(root, "alias.ts") },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-post-symlink",
+					toolName: "write",
+					path: "alias.ts",
+					added: 2,
+					removed: 1,
+					exact: true,
+				},
+			]);
 		} finally {
 			await cleanup();
 		}
