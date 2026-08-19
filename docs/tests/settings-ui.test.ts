@@ -330,6 +330,49 @@ describe("threshold editing", () => {
 		expect(dialog.current.autoShake.thresholdTokens).toBe(1);
 	});
 
+	test("multi-character paste with non-digits is ignored entirely", () => {
+		const { dialog } = makeDialog(zeroThreshold);
+		focus(dialog, "Shake threshold");
+		dialog.handleInput(KEY_ENTER);
+		// String-range checks accept chunks that merely start below "9"
+		// ("1a" >= "0" && "1a" <= "9"), then parseInt silently keeps the
+		// leading digits. The whole chunk must be rejected instead.
+		dialog.handleInput("1a");
+		dialog.handleInput("12x3");
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
+		expect(lines(dialog).some((l) => l.includes("threshold must"))).toBe(false);
+	});
+
+	test("all-digit paste is accepted as a single chunk", () => {
+		const { dialog } = makeDialog(zeroThreshold);
+		focus(dialog, "Shake threshold");
+		dialog.handleInput(KEY_ENTER);
+		dialog.handleInput("25000");
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.autoShake.thresholdTokens).toBe(25000);
+	});
+
+	test("commit rejects a buffer that is not entirely digits", () => {
+		const { dialog } = makeDialog(zeroThreshold);
+		focus(dialog, "Shake threshold");
+		dialog.handleInput(KEY_ENTER);
+		// SettingsDialog keeps editBuffer private. Force a polluted buffer past
+		// the keystroke gate so commitEdit's whole-buffer check is exercised
+		// in isolation from the all-digits paste guard.
+		const privateState = dialog as unknown as { editBuffer: string };
+		privateState.editBuffer = "1a";
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
+		expect(
+			lines(dialog).some((l) =>
+				l.includes("threshold must be a non-negative integer"),
+			),
+		).toBe(true);
+		// Still editing after the rejected commit — same as oversized.
+		expect(lines(dialog).some((l) => l.includes("[1a]"))).toBe(true);
+	});
+
 	test("oversized threshold is rejected and editing continues", () => {
 		const { dialog } = makeDialog();
 		focus(dialog, "Shake threshold");

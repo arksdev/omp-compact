@@ -818,9 +818,15 @@ export class SettingsDialog implements ComponentLike {
 	}
 
 	private handleEditing(data: string): void {
-		if (data >= "0" && data <= "9") {
+		// Whole-chunk classification: a paste must be entirely digits or it is
+		// ignored the same way a single non-digit keystroke is. A string-range
+		// check (`data >= "0" && data <= "9"`) lets mixed chunks like "1a"
+		// through because lexicographic order only looks at the first differing
+		// character, and parseInt would then silently keep the leading digits.
+		if (/^[0-9]+$/.test(data)) {
 			if (this.editBuffer.length < MAX_EDIT_DIGITS) {
-				this.editBuffer += data;
+				const room = MAX_EDIT_DIGITS - this.editBuffer.length;
+				this.editBuffer += data.slice(0, room);
 			}
 			return;
 		}
@@ -840,7 +846,14 @@ export class SettingsDialog implements ComponentLike {
 	}
 
 	private commitEdit(): void {
-		const value = Number.parseInt(this.editBuffer, 10);
+		// Reject anything that is not a pure digit string. parseInt("1a", 10)
+		// is 1 and Number.isInteger(1) is true, so leaning on parseInt alone
+		// would silently persist a value the user never typed.
+		if (this.editBuffer.length === 0 || !/^[0-9]+$/.test(this.editBuffer)) {
+			this.error = "threshold must be a non-negative integer";
+			return;
+		}
+		const value = Number(this.editBuffer);
 		if (!Number.isInteger(value) || value < 0) {
 			this.error = "threshold must be a non-negative integer";
 			return;
