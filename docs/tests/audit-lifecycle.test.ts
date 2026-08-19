@@ -596,9 +596,9 @@ describe("agent_end serial chain", () => {
 		// second link still remains serialized behind the first.
 		expect(order).toEqual(["finalize-1", "finalize-2"]);
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
-		h.captures[0].resolve(candidate("w1"));
+		h.captures[0]?.resolve(candidate("w1"));
 		await flush();
-		h.completes[0].resolve([evidence("w1")]);
+		h.completes[0]?.resolve([evidence("w1")]);
 		await flush();
 		expect(order).toEqual(["finalize-1", "finalize-2"]);
 		expect(await first).toBe(true);
@@ -709,7 +709,7 @@ describe("agent_end serial chain", () => {
 		// still in flight. Exactly-once per toolCallId: the superseded
 		// completion must never publish.
 		h.life.startWrite(writeStart("w1"));
-		h.captures[0].resolve(candidate("w1"));
+		h.captures[0]?.resolve(candidate("w1"));
 		await flush();
 		expect(h.completes).toEqual([]); // post-image audit never ran
 		expect(h.published).toEqual([]);
@@ -721,12 +721,12 @@ describe("agent_end serial chain", () => {
 		expect(await barrier).toEqual({ settled: true, evidenceReady: false });
 		// The successor's end publishes exactly once.
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
-		h.captures[1].resolve(candidate("w1"));
+		h.captures[1]?.resolve(candidate("w1"));
 		await flush();
 		// Only the successor reached the post-image audit: the harness's
 		// `completes` list is indexed by invocation order, and the superseded
 		// completion never invoked it.
-		h.completes[0].resolve([evidence("w1")]);
+		h.completes[0]?.resolve([evidence("w1")]);
 		await flush();
 		expect(h.published).toEqual([[evidence("w1")]]);
 	});
@@ -737,7 +737,7 @@ describe("agent_end serial chain", () => {
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
 		h.life.startWrite(writeStart("w1")); // replaced: old completion in flight
 		h.life.dispose(); // teardown while both records exist
-		h.captures[0].resolve(candidate("w1"));
+		h.captures[0]?.resolve(candidate("w1"));
 		await flush();
 		expect(h.completes).toEqual([]);
 		expect(h.published).toEqual([]);

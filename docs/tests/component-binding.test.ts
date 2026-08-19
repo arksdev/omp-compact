@@ -938,9 +938,12 @@ describe("ComponentBinding: order fallbacks", () => {
 		const reads = ["read-1", "read-2"].map((id) =>
 			makeState({ id, toolName: "read" }),
 		);
+		const [read0, read1] = reads;
+		if (read0 === undefined || read1 === undefined)
+			throw new Error("expected two read fixtures");
 		for (const read of reads) states.set(read.id, read);
-		binding.addHydratedReadLedger(reads[0].ledger);
-		binding.addHydratedReadLedger(reads[1].ledger);
+		binding.addHydratedReadLedger(read0.ledger);
+		binding.addHydratedReadLedger(read1.ledger);
 		// The initial-replay owner claimed BOTH ledgers' read states; its
 		// own ledger ends on the last claim (L2), matching its suffix slot
 		// at index 1. The fresh rebuild group ordinals into L1's slot where
@@ -984,11 +987,19 @@ describe("ComponentBinding: order fallbacks", () => {
 		const reads = ["read-1", "read-2", "read-3", "read-4"].map((id) =>
 			makeState({ id, toolName: "read" }),
 		);
+		const [read0, read1, read2, read3] = reads;
+		if (
+			read0 === undefined ||
+			read1 === undefined ||
+			read2 === undefined ||
+			read3 === undefined
+		)
+			throw new Error("expected four read fixtures");
 		for (const read of reads) states.set(read.id, read);
-		binding.addHydratedReadLedger(reads[0].ledger);
-		binding.addHydratedReadLedger(reads[1].ledger);
-		binding.addHydratedReadLedger(reads[2].ledger);
-		binding.addHydratedReadLedger(reads[3].ledger);
+		binding.addHydratedReadLedger(read0.ledger);
+		binding.addHydratedReadLedger(read1.ledger);
+		binding.addHydratedReadLedger(read2.ledger);
+		binding.addHydratedReadLedger(read3.ledger);
 		binding.observeReadMethod(staleMid1, staleMid1Component, "updateArgs", [
 			{ path: "/a" },
 			"stale-1",
@@ -1016,10 +1027,10 @@ describe("ComponentBinding: order fallbacks", () => {
 			expect(binding.mappedReadStates(group)).toEqual([read]);
 			expect(binding.groupCompletelyMapped(group)).toBe(true);
 		};
-		expectMapped(staleMid1Component, reads[0]);
-		expectMapped(staleMid2Component, reads[1]);
-		expectMapped(exactTail1Component, reads[2]);
-		expectMapped(exactTail2Component, reads[3]);
+		expectMapped(staleMid1Component, read0);
+		expectMapped(staleMid2Component, read1);
+		expectMapped(exactTail1Component, read2);
+		expectMapped(exactTail2Component, read3);
 	});
 
 	test("bindHydrated suffix-aligns read groups to the trailing ledgers", () => {

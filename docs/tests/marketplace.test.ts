@@ -21,12 +21,16 @@ describe("marketplace catalog", () => {
 		expect(catalog.name).toBe("arksdev");
 		expect(catalog.owner.name).toBe("arksdev");
 		expect(catalog.plugins).toHaveLength(1);
-		expect(catalog.plugins[0].name).toBe("omp-compact");
-		expect(catalog.plugins[0].source).toBe("./");
+		const plugin = catalog.plugins[0];
+		expect(plugin).toBeDefined();
+		if (!plugin) throw new Error("catalog must contain one plugin");
+		expect(plugin.name).toBe("omp-compact");
+		expect(plugin.source).toBe("./");
 	});
 
 	test("plugin ID resolves to omp-compact@arksdev at the repository root", async () => {
 		const plugin = catalog.plugins[0];
+		if (!plugin) throw new Error("catalog must contain one plugin");
 		expect(buildPluginId(plugin.name, catalog.name)).toBe(
 			"omp-compact@arksdev",
 		);
@@ -46,6 +50,7 @@ describe("marketplace catalog", () => {
 
 	test("plugin metadata mirrors package.json", async () => {
 		const plugin = catalog.plugins[0];
+		if (!plugin) throw new Error("catalog must contain one plugin");
 		expect(plugin.version).toBe(pkg.version);
 		expect(plugin.description).toBe(pkg.description);
 		expect(plugin.author?.name).toBe(pkg.author);
@@ -63,7 +68,7 @@ describe("marketplace catalog", () => {
 
 	test("current patch release metadata is synchronized", async () => {
 		expect(pkg.version).toBe("1.0.4");
-		expect(catalog.plugins[0].version).toBe("1.0.4");
+		expect(catalog.plugins[0]?.version).toBe("1.0.4");
 		const changelog = await Bun.file(join(repoRoot, "CHANGELOG.md")).text();
 		expect(changelog).toContain("## [1.0.4] - 2026-08-17");
 		expect(changelog).toContain(

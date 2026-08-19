@@ -1024,8 +1024,8 @@ describe("edit evidence budgets", () => {
 			false,
 		);
 		expect(entries).toHaveLength(MAX_PER_FILE_RESULTS);
-		expect(entries[0].path).toBe("src/f0.ts");
-		expect(entries[MAX_PER_FILE_RESULTS - 1].path).toBe(
+		expect(entries[0]?.path).toBe("src/f0.ts");
+		expect(entries[MAX_PER_FILE_RESULTS - 1]?.path).toBe(
 			`src/f${MAX_PER_FILE_RESULTS - 1}.ts`,
 		);
 		expect(
@@ -1083,7 +1083,7 @@ describe("edit evidence budgets", () => {
 			false,
 		);
 		expect(entries).toHaveLength(4);
-		expect(entries[3].path).toBe("src/big3.ts");
+		expect(entries[3]?.path).toBe("src/big3.ts");
 		expect(entries.some((entry) => entry.path === "src/big4.ts")).toBe(false);
 	});
 
@@ -2241,6 +2241,7 @@ while (!existsSync(stop)) {
 							continue;
 						}
 						const entry = entries[0];
+						if (entry === undefined) continue;
 						// Confused-deputy read of the 80-line outside secret
 						// yields added ≈ secretLines. Safe overwrite is +1|0.
 						// Transient empty/partial races may publish other small

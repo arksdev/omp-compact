@@ -5783,7 +5783,7 @@ stockTest(
 		);
 		const stats = statsEntries(booted);
 		expect(stats).toHaveLength(1);
-		expect(stats[0].data).toMatchObject({
+		expect(stats[0]?.data).toMatchObject({
 			version: 1,
 			actions: 2,
 			sent: 100,
@@ -5872,8 +5872,8 @@ stockTest(
 		// two consecutive successful runs → two evidence entries
 		const stats = statsEntries(booted);
 		expect(stats).toHaveLength(2);
-		expect(stats[0].data).toMatchObject({ messages: 1, sent: 100 });
-		expect(stats[1].data).toMatchObject({ messages: 1, sent: 100 });
+		expect(stats[0]?.data).toMatchObject({ messages: 1, sent: 100 });
+		expect(stats[1]?.data).toMatchObject({ messages: 1, sent: 100 });
 		await shutdown(booted);
 	},
 );
@@ -5904,7 +5904,7 @@ stockTest("stats wiring: message_end without usage is ignored", async () => {
 	await finishRun(booted, "no usage");
 	const stats = statsEntries(booted);
 	expect(stats).toHaveLength(1);
-	expect(stats[0].data).toMatchObject({ messages: 0, sent: 0 });
+	expect(stats[0]?.data).toMatchObject({ messages: 0, sent: 0 });
 	await shutdown(booted);
 });
 
@@ -5920,7 +5920,7 @@ stockTest("stats wiring: zero-valued usage is counted once", async () => {
 	);
 	const stats = statsEntries(booted);
 	expect(stats).toHaveLength(1);
-	expect(stats[0].data).toMatchObject({
+	expect(stats[0]?.data).toMatchObject({
 		messages: 1,
 		sent: 0,
 		received: 0,
@@ -5944,7 +5944,7 @@ stockTest("stats wiring: duplicate completion counts once", async () => {
 	await finishRun(booted, "dup");
 	const stats = statsEntries(booted);
 	expect(stats).toHaveLength(1);
-	expect(stats[0].data).toMatchObject({
+	expect(stats[0]?.data).toMatchObject({
 		messages: 1,
 		sent: 100,
 		received: 50,
@@ -5966,7 +5966,7 @@ stockTest(
 		);
 		const stats = statsEntries(booted);
 		expect(stats).toHaveLength(1);
-		expect(stats[0].data).toMatchObject({ actions: 0, messages: 1, sent: 7 });
+		expect(stats[0]?.data).toMatchObject({ actions: 0, messages: 1, sent: 7 });
 		const rows = visibleRows(booted.transcript);
 		const line = rows.find((row) => row.includes("0 actions"));
 		expect(line).toBeDefined();
@@ -6013,7 +6013,7 @@ stockTest(
 		);
 		const stats = statsEntries(booted);
 		expect(stats).toHaveLength(1);
-		expect(stats[0].data).toMatchObject({
+		expect(stats[0]?.data).toMatchObject({
 			actions: 1,
 			sent: 11,
 			messages: 1,
@@ -6044,7 +6044,7 @@ stockTest(
 		);
 		const stats = statsEntries(booted);
 		expect(stats).toHaveLength(1);
-		expect(stats[0].data).toMatchObject({ actions: 1, hasError: true });
+		expect(stats[0]?.data).toMatchObject({ actions: 1, hasError: true });
 		await shutdown(booted);
 	},
 );
@@ -6107,7 +6107,7 @@ stockTest(
 		);
 		const stats = statsEntries(booted);
 		expect(stats).toHaveLength(1);
-		expect(stats[0].data).toMatchObject({
+		expect(stats[0]?.data).toMatchObject({
 			actions: 1,
 			sent: 100,
 			received: 50,

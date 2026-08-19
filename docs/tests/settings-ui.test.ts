@@ -150,7 +150,8 @@ function renderedValue(
 ): string | undefined {
 	for (const line of lines(dialog)) {
 		const match = line.match(new RegExp(`${label}\\s+\\[?([^\\]]*)\\]?\\s*$`));
-		if (match) return match[1].trim();
+		const value = match?.[1];
+		if (value !== undefined) return value.trim();
 	}
 	return undefined;
 }

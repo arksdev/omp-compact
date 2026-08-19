@@ -396,7 +396,9 @@ describe("routine rows", () => {
 			fakeTheme(),
 			20,
 		);
-		const hostTruncated = truncateToWidth(line ?? "", 20);
+		expect(line).toBeDefined();
+		if (line === undefined) throw new Error("expected a rendered row");
+		const hostTruncated = truncateToWidth(line, 20);
 		expect(hostTruncated).toBe(line);
 	});
 
