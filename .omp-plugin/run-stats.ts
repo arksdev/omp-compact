@@ -1,11 +1,8 @@
 import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
-import {
-	type Component,
-	truncateToWidth,
-	visibleWidth,
-} from "@oh-my-pi/pi-tui";
+import { type Component, truncateToWidth } from "@oh-my-pi/pi-tui";
 
 import type { CompactStatsSettings } from "./config";
+import { fitTransparentLine } from "./fit-transparent-line";
 import { objectRecord } from "./object-record";
 
 export const STATS_MESSAGE_TYPE = "omp-compact-stats";
@@ -181,21 +178,6 @@ export function formatDuration(milliseconds: number): string {
 function fixedForeground(hex: string, text: string): string {
 	const ansi = Bun.color(hex, "ansi-16m");
 	return ansi ? `${ansi}${text}\u001b[39m` : text;
-}
-
-// Intentional per-module copy of fitTransparentLine; identical logic in
-// render.ts and run-stats.ts.
-/**
- * Keep the row on the terminal's ordinary transparent background while still
- * fitting overlong content to the component width. Short rows are never
- * padded, and no ANSI background open/reset sequence is introduced.
- */
-function fitTransparentLine(line: string, width: number | undefined): string {
-	if (width === undefined) return line;
-	const safeWidth = Math.max(1, width);
-	return visibleWidth(line) > safeWidth
-		? `${truncateToWidth(line, safeWidth)}\u001b[39m`
-		: line;
 }
 
 /**

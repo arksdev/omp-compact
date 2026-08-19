@@ -8,6 +8,7 @@ import {
 import { genericToolDescription } from "./compact";
 import { stripRejectedControls } from "./display-control";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
+import { fitTransparentLine } from "./fit-transparent-line";
 import type {
 	GitMessageDetails,
 	LegacyMutationMessageDetails,
@@ -935,21 +936,6 @@ function pendingFrame(theme: Theme, tick: number): string {
 			: undefined);
 	const frame = frames ? frames[tick % frames.length] : "•";
 	return frame ?? "•";
-}
-
-// Intentional per-module copy of fitTransparentLine; identical logic in
-// render.ts and run-stats.ts.
-/**
- * Keep compact rows on the terminal's ordinary transparent background while
- * still fitting overlong content to the component width. Short rows are never
- * padded, and no ANSI background open/reset sequence is introduced.
- */
-function fitTransparentLine(line: string, width: number | undefined): string {
-	if (width === undefined) return line;
-	const safeWidth = Math.max(1, width);
-	return visibleWidth(line) > safeWidth
-		? `${truncateToWidth(line, safeWidth)}\u001b[39m`
-		: line;
 }
 
 export function renderCompactToolRows(
