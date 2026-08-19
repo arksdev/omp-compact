@@ -634,8 +634,8 @@ The host-supplied agent directory and the live session `Settings` object sit
   compatibility issue to reproduce and add explicitly.
 - **Floor recommendation (not applied here).** If release wants every
   optional fingerprint to be a verified match rather than a clean probe
-  miss, raise the marketplace floor to 17.3.1+. That is metadata, not an
-  adapter change.
+  miss, raise the public `package.json` `engines.omp` floor to `>=17.3.1`.
+  That is release metadata via `engines.omp`, not an adapter change.
 - The spinner samples pending states at 80 ms while the adapter is active; profile real high-concurrency workloads before changing cadence or fairness.
 - Long transcripts retain lightweight display metadata linearly with visible history. The plugin releases it on reconstruction and session disposal, while heavy filtered payloads retire after terminal projection.
 - Stock-host integration contracts cover continuation, rebuild, `/tree`-like and `/shake`-like reconstruction, delayed terminal drains, and lifecycle disposal.
