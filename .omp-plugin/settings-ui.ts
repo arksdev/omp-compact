@@ -23,6 +23,43 @@ export const KEY_SPACE = " ";
 export const KEY_BACKSPACE = "\u007f";
 export const KEY_CTRL_C = "\u0003";
 
+/** CSI/SS3 final byte → direction. */
+const ARROW_FINAL_BYTES: Record<string, ArrowDirection> = {
+	A: "up",
+	B: "down",
+	C: "right",
+	D: "left",
+};
+
+/** `1;<modifiers>` with the optional `:<event-type>` sub-field kitty adds. */
+const KITTY_ARROW_PARAMS = /^1;\d+(?::\d+)?$/;
+
+export type ArrowDirection = "up" | "down" | "left" | "right";
+
+/**
+ * Terminals emit arrows in three families and the host negotiates between
+ * them at runtime: plain CSI (`ESC [ A`), SS3 (`ESC O A`, sent whenever the
+ * TTY is left in DECCKM application-cursor-keys mode), and the kitty
+ * keyboard-protocol parameterized forms (`ESC [ 1;1 A`, `ESC [ 1;1:1 A`,
+ * `ESC [ 1;3 B` …) that OMP requests with `CSI > 5 u` on kitty-capable
+ * terminals. Stock TUI components decode all three, so a dialog that compares
+ * raw bytes against {@link KEY_UP}/{@link KEY_DOWN} alone loses arrow
+ * navigation on terminals OMP itself fully supports.
+ */
+export function normalizeArrowKey(data: string): ArrowDirection | undefined {
+	if (data.length < 3 || data[0] !== KEY_ESCAPE) return undefined;
+	const direction = ARROW_FINAL_BYTES[data[data.length - 1] ?? ""];
+	if (direction === undefined) return undefined;
+	// Plain CSI and SS3 carry no parameters; anything longer must be the
+	// parameterized CSI form, so its parameter bytes are validated rather
+	// than assumed (`ESC [ 1;2 H` is Home, not an arrow).
+	if (data.length === 3) {
+		return data[1] === "[" || data[1] === "O" ? direction : undefined;
+	}
+	if (data[1] !== "[") return undefined;
+	return KITTY_ARROW_PARAMS.test(data.slice(2, -1)) ? direction : undefined;
+}
+
 // =============================================================================
 // Structural host types (no runtime dependency on the host packages)
 // =============================================================================
@@ -1017,33 +1054,44 @@ export class SettingsDialog implements ComponentLike {
 			case "s":
 				this.save();
 				return;
-			case KEY_UP:
 			case "k":
 				this.move(-1);
 				return;
-			case KEY_DOWN:
 			case "j":
 				this.move(1);
-				return;
-			case KEY_LEFT:
-				if (this.focusedRow()?.kind === "cycle") {
-					this.cycle(-1);
-				} else {
-					this.move(-1);
-				}
-				return;
-			case KEY_RIGHT:
-				if (this.focusedRow()?.kind === "cycle") {
-					this.cycle(1);
-				} else {
-					this.move(1);
-				}
 				return;
 			case KEY_SPACE:
 			case KEY_ENTER:
 				this.activate();
 				return;
+			default: {
+				// KEY_UP/KEY_DOWN/KEY_LEFT/KEY_RIGHT are only the plain-CSI
+				// spelling of these keys; normalizeArrowKey also accepts the
+				// SS3 and kitty parameterized forms the host may deliver.
+				const arrow = normalizeArrowKey(data);
+				if (arrow !== undefined) this.moveOrCycle(arrow);
+				return;
+			}
 		}
+	}
+
+	/**
+	 * Vertical arrows move the focus; horizontal arrows cycle the focused
+	 * option when it has one and otherwise move the focus, so left/right stay
+	 * usable on rows with nothing to cycle.
+	 */
+	private moveOrCycle(direction: ArrowDirection): void {
+		if (direction === "up") {
+			this.move(-1);
+			return;
+		}
+		if (direction === "down") {
+			this.move(1);
+			return;
+		}
+		const delta = direction === "left" ? -1 : 1;
+		if (this.focusedRow()?.kind === "cycle") this.cycle(delta);
+		else this.move(delta);
 	}
 
 	render(width: number): readonly string[] {

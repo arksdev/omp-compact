@@ -30,6 +30,7 @@ import {
 	KEY_SPACE,
 	KEY_UP,
 	type KeybindingsLike,
+	normalizeArrowKey,
 	openSettingsDialog,
 	registerSettingsCommand,
 	SettingsDialog,
@@ -1736,5 +1737,75 @@ describe("headless and dialog opening", () => {
 		const result = await promise;
 		expect(saves).toHaveLength(1);
 		expect(result?.enabled).toBe(false);
+	});
+});
+
+describe("arrow key encodings", () => {
+	test("normalizeArrowKey accepts plain CSI, SS3, and kitty forms", () => {
+		expect(normalizeArrowKey("\u001b[A")).toBe("up");
+		expect(normalizeArrowKey("\u001b[B")).toBe("down");
+		expect(normalizeArrowKey("\u001b[C")).toBe("right");
+		expect(normalizeArrowKey("\u001b[D")).toBe("left");
+		// SS3: sent while the TTY is in application-cursor-keys mode.
+		expect(normalizeArrowKey("\u001bOA")).toBe("up");
+		expect(normalizeArrowKey("\u001bOB")).toBe("down");
+		expect(normalizeArrowKey("\u001bOC")).toBe("right");
+		expect(normalizeArrowKey("\u001bOD")).toBe("left");
+		// kitty keyboard protocol: parameterized, with and without event type.
+		expect(normalizeArrowKey("\u001b[1;1A")).toBe("up");
+		expect(normalizeArrowKey("\u001b[1;1B")).toBe("down");
+		expect(normalizeArrowKey("\u001b[1;1:1B")).toBe("down");
+		expect(normalizeArrowKey("\u001b[1;3D")).toBe("left");
+	});
+
+	test("normalizeArrowKey rejects everything that is not an arrow", () => {
+		expect(normalizeArrowKey("j")).toBeUndefined();
+		expect(normalizeArrowKey("")).toBeUndefined();
+		expect(normalizeArrowKey(KEY_ESCAPE)).toBeUndefined();
+		expect(normalizeArrowKey(KEY_ENTER)).toBeUndefined();
+		// SS3 P is F1, CSI 1;2H is Home — same shape, different keys.
+		expect(normalizeArrowKey("\u001bOP")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;2H")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[200~")).toBeUndefined();
+	});
+
+	test("SS3 arrows move the focus like plain CSI arrows", () => {
+		const { dialog } = makeDialog();
+		expect(focusedRow(dialog)).toContain("Global compact");
+		dialog.handleInput("\u001bOB");
+		expect(focusedRow(dialog)).toContain("Mode");
+		dialog.handleInput("\u001bOB");
+		expect(focusedRow(dialog)).toContain("Compact paths");
+		dialog.handleInput("\u001bOA");
+		expect(focusedRow(dialog)).toContain("Mode");
+	});
+
+	test("kitty parameterized arrows move the focus", () => {
+		const { dialog } = makeDialog();
+		dialog.handleInput("\u001b[1;1B");
+		expect(focusedRow(dialog)).toContain("Mode");
+		dialog.handleInput("\u001b[1;1:1B");
+		expect(focusedRow(dialog)).toContain("Compact paths");
+		dialog.handleInput("\u001b[1;1A");
+		expect(focusedRow(dialog)).toContain("Mode");
+	});
+
+	test("SS3 left/right cycle the focused option row", () => {
+		const { dialog } = makeDialog({ ...DEFAULT_SETTINGS, mode: "live" });
+		dialog.handleInput("\u001bOB"); // Mode
+		dialog.handleInput("\u001bOC");
+		expect(renderedValue(dialog, "Mode")).toBe("clear");
+		dialog.handleInput("\u001bOD");
+		expect(renderedValue(dialog, "Mode")).toBe("live");
+	});
+
+	test("unhandled input still leaves the dialog untouched", () => {
+		const harness = makeDialog();
+		const { dialog } = harness;
+		dialog.handleInput("\u001b[1;2H");
+		dialog.handleInput("x");
+		expect(focusedRow(dialog)).toContain("Global compact");
+		expect(dialog.isDirty).toBe(false);
+		expect(harness.doneResult).toBeUndefined();
 	});
 });
