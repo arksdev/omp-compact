@@ -4,6 +4,7 @@ import type { DisplayPathOptions } from "./display-path";
 import {
 	HostAdapter1731,
 	isReadGroupComponent,
+	isTodoReminderComponent,
 	isToolComponent,
 	isTranscriptHost,
 	isTtsrNotificationComponent,
@@ -16,7 +17,9 @@ import {
 	injectRulesFromTtsrComponent,
 	renderCompactToolRows,
 	renderInjectRuleRows,
+	renderTodoReminderRow,
 	terminalGitSummaryLine,
+	todoReminderFromComponent,
 } from "./render";
 import { decideReadGroupRender, decideToolRender } from "./render-decision";
 import type { RunStatsEvidence } from "./run-stats";
@@ -142,6 +145,8 @@ export class RuntimeAdapter {
 	readonly #patchedComponents = new Map<object, DescriptorPatch>();
 	/** Exact-instance TTSR notification render overrides (not fold-owned). */
 	readonly #ttsrPatches = new Map<object, DescriptorPatch>();
+	/** Exact-instance todo-reminder render overrides (not fold-owned). */
+	readonly #todoReminderPatches = new Map<object, DescriptorPatch>();
 	readonly #discoveryPatches = new Map<object, DescriptorPatch>();
 	#transcript: TranscriptHost | undefined;
 	#fold: TranscriptFold | undefined;
@@ -465,6 +470,8 @@ export class RuntimeAdapter {
 		this.#patchedComponents.clear();
 		for (const patch of this.#ttsrPatches.values()) patch.restore();
 		this.#ttsrPatches.clear();
+		for (const patch of this.#todoReminderPatches.values()) patch.restore();
+		this.#todoReminderPatches.clear();
 		for (const patch of this.#transcriptPatches) patch.restore();
 		this.#transcriptPatches.length = 0;
 		this.#removeDiscoveryPatches();
@@ -525,6 +532,8 @@ export class RuntimeAdapter {
 		this.#patchedComponents.clear();
 		for (const patch of this.#ttsrPatches.values()) patch.restore();
 		this.#ttsrPatches.clear();
+		for (const patch of this.#todoReminderPatches.values()) patch.restore();
+		this.#todoReminderPatches.clear();
 	}
 
 	/** One generation-guarded settlement microtask per boundary. */
@@ -895,6 +904,10 @@ export class RuntimeAdapter {
 			this.#patchTtsrNotification(child);
 			return;
 		}
+		if (isTodoReminderComponent(child)) {
+			this.#patchTodoReminder(child);
+			return;
+		}
 		if (isToolComponent(child)) {
 			this.#patchToolComponent(child);
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
@@ -947,6 +960,55 @@ export class RuntimeAdapter {
 				},
 			});
 			this.#ttsrPatches.set(component, patch);
+		} catch {
+			// Capability skew fails open: leave the stock yellow card alone.
+		}
+	}
+
+	/**
+	 * Override stock TodoReminder yellow multi-line card with one compact
+	 * warning row. Exact-instance render wrap only — never folded into a tool
+	 * run. Unrecognized trees fail open to the native renderer.
+	 */
+	#patchTodoReminder(component: RenderableBlock): void {
+		if (this.#todoReminderPatches.has(component)) return;
+		const own = Object.getOwnPropertyDescriptor(component, "render");
+		const proto = Object.getPrototypeOf(component) as object | null;
+		const inherited =
+			proto && proto !== Object.prototype
+				? Object.getOwnPropertyDescriptor(proto, "render")
+				: undefined;
+		const original =
+			typeof own?.value === "function"
+				? (own.value as (
+						this: RenderableBlock,
+						width: number,
+					) => readonly string[])
+				: typeof inherited?.value === "function"
+					? (inherited.value as (
+							this: RenderableBlock,
+							width: number,
+						) => readonly string[])
+					: undefined;
+		if (!original) return;
+		const adapter = this;
+		try {
+			const patch = new DescriptorPatch(component, ["render"]);
+			patch.install({
+				render: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, width: number): readonly string[] {
+						if (adapter.#disposed) return original.call(this, width);
+						const theme = adapter.#ui.theme;
+						if (!theme) return original.call(this, width);
+						const view = todoReminderFromComponent(this);
+						if (!view) return original.call(this, width);
+						return renderTodoReminderRow(view, theme, width);
+					},
+				},
+			});
+			this.#todoReminderPatches.set(component, patch);
 		} catch {
 			// Capability skew fails open: leave the stock yellow card alone.
 		}

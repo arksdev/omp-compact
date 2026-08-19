@@ -99,6 +99,14 @@ export interface InjectRuleView {
 	body?: string;
 }
 
+/** One incomplete-todo reminder recovered from a stock TodoReminder card. */
+export interface TodoReminderView {
+	count: number;
+	attempt: number;
+	maxAttempts: number;
+	items: readonly string[];
+}
+
 export class CompactLines implements Component {
 	readonly #lines: readonly string[];
 
@@ -235,6 +243,83 @@ export function injectRulesFromTtsrComponent(
 		rules.push(body ? { name, body } : { name });
 	}
 	return rules.length > 0 ? Object.freeze(rules.slice()) : undefined;
+}
+
+const TODO_REMINDER_HEADER =
+	/(\d+)\s+incomplete\s+todos?\s*-\s*reminder\s+(\d+)\s*\/\s*(\d+)/i;
+
+/**
+ * Recover incomplete-todo counts and item text from a live stock
+ * `TodoReminderComponent`. Walks public `children` / `getText()` only — never
+ * touches private constructor fields. Returns `undefined` when the tree is
+ * not the expected reminder card so callers can fail open to native rendering.
+ */
+export function todoReminderFromComponent(
+	block: unknown,
+): TodoReminderView | undefined {
+	const texts: string[] = [];
+	collectComponentTexts(block, texts);
+	if (texts.length === 0) return undefined;
+	const header = stripControl(stripAnsi(texts[0] ?? ""))
+		.replace(/\s+/g, " ")
+		.trim();
+	const match = header.match(TODO_REMINDER_HEADER);
+	if (!match) return undefined;
+	const count = Number(match[1]);
+	const attempt = Number(match[2]);
+	const maxAttempts = Number(match[3]);
+	if (
+		!Number.isFinite(count) ||
+		!Number.isFinite(attempt) ||
+		!Number.isFinite(maxAttempts) ||
+		count < 1 ||
+		attempt < 1 ||
+		maxAttempts < 1
+	) {
+		return undefined;
+	}
+	const items: string[] = [];
+	for (const raw of texts.slice(1)) {
+		const plain = stripControl(stripAnsi(raw));
+		for (const segment of plain.split(/\r\n|\n|\r/)) {
+			// Stock body lines are "  <checkbox> <content>"; the checkbox glyph
+			// is theme-dependent, so drop one leading non-space token only.
+			const trimmed = segment.replace(/^\s+/, "").trimEnd();
+			if (!trimmed) continue;
+			const content = sanitizeOneLine(
+				trimmed.replace(/^\S+\s+/, ""),
+				MAX_DESCRIPTION,
+			);
+			if (content) items.push(content);
+		}
+	}
+	if (items.length === 0) return undefined;
+	return Object.freeze({
+		count,
+		attempt,
+		maxAttempts,
+		items: Object.freeze(items.slice()),
+	});
+}
+
+/**
+ * Compact todo-reminder row: one yellow warning line with the reminder
+ * fraction and the first incomplete item. No background/inverse sequences —
+ * only theme warning foreground on the transparent terminal background.
+ */
+export function renderTodoReminderRow(
+	view: TodoReminderView,
+	theme: Theme,
+	width?: number,
+): readonly string[] {
+	const label = view.count === 1 ? "todo" : "todos";
+	const header = `${view.count} incomplete ${label} - reminder ${view.attempt}/${view.maxAttempts}`;
+	const first = view.items[0] ? sanitizeOneLine(view.items[0], 120) : "";
+	const extra =
+		view.items.length > 1 ? ` · +${view.items.length - 1} more` : "";
+	const body = first ? ` · ${first}${extra}` : extra;
+	const line = theme.fg("warning", `${header}${body}`);
+	return [fitTransparentLine(line, width)];
 }
 
 /**

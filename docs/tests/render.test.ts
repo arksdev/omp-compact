@@ -26,6 +26,24 @@ interface RenderModule {
 	injectRulesFromTtsrComponent(
 		block: unknown,
 	): readonly { name: string; body?: string }[] | undefined;
+	todoReminderFromComponent(block: unknown):
+		| {
+				count: number;
+				attempt: number;
+				maxAttempts: number;
+				items: readonly string[];
+		  }
+		| undefined;
+	renderTodoReminderRow(
+		view: {
+			count: number;
+			attempt: number;
+			maxAttempts: number;
+			items: readonly string[];
+		},
+		theme: Theme,
+		width?: number,
+	): readonly string[];
 	gitLine(entry: GitMessageDetails, theme: Theme): string;
 	gitMessageComponent(
 		details: GitMessageDetails | undefined,
@@ -1389,5 +1407,142 @@ describe("inject rule rows", () => {
 				children: [{ getText: () => "not an inject header" }],
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("todo reminder row", () => {
+	function reminderTheme(): Theme {
+		return {
+			...fakeTheme(),
+			fg: (color: string, text: string) =>
+				color === "warning"
+					? `\x1b[38;2;200;160;0m${text}\x1b[39m`
+					: `\x1b[38;2;1;1;1m${text}\x1b[39m`,
+			inverse: (text: string) => `\x1b[7m${text}\x1b[27m`,
+		} as unknown as Theme;
+	}
+
+	function stockTree(header: string, body: string) {
+		return {
+			children: [
+				{},
+				{
+					children: [{ getText: () => header }, {}, { getText: () => body }],
+				},
+			],
+			render() {
+				return [] as const;
+			},
+			setToolActivityVisible() {},
+		};
+	}
+
+	test("extractor recovers header counts and checkbox body lines", () => {
+		const tree = stockTree(
+			"⚠ 2 incomplete todos - reminder 1/3",
+			"  ☐ ship compact row\n  ☐ keep yellow",
+		);
+		expect(renderModule.todoReminderFromComponent(tree)).toEqual({
+			count: 2,
+			attempt: 1,
+			maxAttempts: 3,
+			items: ["ship compact row", "keep yellow"],
+		});
+	});
+
+	test("extractor accepts singular todo label", () => {
+		const tree = stockTree(
+			"⚠ 1 incomplete todo - reminder 2/3",
+			"  ☐ only item",
+		);
+		expect(renderModule.todoReminderFromComponent(tree)).toEqual({
+			count: 1,
+			attempt: 2,
+			maxAttempts: 3,
+			items: ["only item"],
+		});
+	});
+
+	test("extractor fails open on inject headers and empty trees", () => {
+		expect(renderModule.todoReminderFromComponent({})).toBeUndefined();
+		expect(
+			renderModule.todoReminderFromComponent(
+				stockTree("⚠ Injecting rule: sticky-rule  ↺", "body"),
+			),
+		).toBeUndefined();
+		expect(
+			renderModule.todoReminderFromComponent(
+				stockTree("not a reminder header", "  ☐ x"),
+			),
+		).toBeUndefined();
+	});
+
+	test("compact row is one yellow line with reminder count and todos", () => {
+		const theme = reminderTheme();
+		const rows = renderModule.renderTodoReminderRow(
+			{
+				count: 1,
+				attempt: 1,
+				maxAttempts: 3,
+				items: ["finish the row"],
+			},
+			theme,
+		);
+		expect(rows).toHaveLength(1);
+		expect(stripAnsi(rows[0] ?? "")).toBe(
+			"1 incomplete todo - reminder 1/3 · finish the row",
+		);
+		expect(rows[0] ?? "").toContain("\x1b[38;2;200;160;0m");
+		expect(rows[0] ?? "").not.toContain("\x1b[48;");
+		expect(rows[0] ?? "").not.toContain("\x1b[49m");
+		expect(rows[0] ?? "").not.toContain("\x1b[7m");
+		expect(rows[0] ?? "").not.toContain(
+			Bun.color("#A4D734", "ansi-16m") ?? "NOPE",
+		);
+	});
+
+	test("multiple items keep the first and show +K more", () => {
+		const [line] = renderModule.renderTodoReminderRow(
+			{
+				count: 3,
+				attempt: 2,
+				maxAttempts: 3,
+				items: ["alpha", "beta", "gamma"],
+			},
+			reminderTheme(),
+		);
+		expect(stripAnsi(line ?? "")).toBe(
+			"3 incomplete todos - reminder 2/3 · alpha · +2 more",
+		);
+	});
+
+	test("ANSI and control characters in payload are stripped", () => {
+		const tree = stockTree(
+			"⚠ 1 incomplete todo - reminder 1/3",
+			"  ☐ safe\x1b[48;2;255;0;0mcard\x1b[49m",
+		);
+		const view = renderModule.todoReminderFromComponent(tree);
+		expect(view?.items).toEqual(["safecard"]);
+		expect(view).toBeDefined();
+		if (!view) return;
+		const [line] = renderModule.renderTodoReminderRow(view, reminderTheme());
+		expect(line ?? "").not.toContain("\x1b[48;");
+		expect(stripAnsi(line ?? "")).toContain("safecard");
+	});
+
+	test("overflowing reminder row fits width without a background", () => {
+		const [line] = renderModule.renderTodoReminderRow(
+			{
+				count: 1,
+				attempt: 1,
+				maxAttempts: 3,
+				items: ["x".repeat(80)],
+			},
+			reminderTheme(),
+			24,
+		);
+		expect(stripAnsi(line ?? "").length).toBeLessThanOrEqual(24);
+		expect(line ?? "").not.toContain("\x1b[48;");
+		expect(line ?? "").not.toContain("\x1b[7m");
 	});
 });

@@ -4,6 +4,7 @@ import {
 	HostAdapter1731,
 	insertTranscriptChildAt,
 	isReadGroupComponent,
+	isTodoReminderComponent,
 	isToolComponent,
 	isTranscriptHost,
 	isTtsrNotificationComponent,
@@ -193,6 +194,55 @@ describe("host shape guards", () => {
 		expect(isTtsrNotificationComponent(new ToolComponent())).toBe(false);
 		expect(isTtsrNotificationComponent(null)).toBe(false);
 		expect(isTtsrNotificationComponent({})).toBe(false);
+	});
+
+	test("isTodoReminderComponent matches activity-only surface and rejects TTSR/tools", () => {
+		const reminder = {
+			render() {
+				return [] as const;
+			},
+			setToolActivityVisible() {},
+		};
+		expect(isTodoReminderComponent(reminder)).toBe(true);
+		expect(isTtsrNotificationComponent(reminder)).toBe(false);
+		expect(isToolComponent(reminder)).toBe(false);
+		expect(isReadGroupComponent(reminder)).toBe(false);
+
+		// TTSR has addRules + setExpanded — never a todo reminder.
+		expect(
+			isTodoReminderComponent({
+				render() {
+					return [] as const;
+				},
+				addRules() {},
+				setExpanded() {},
+				setToolActivityVisible() {},
+			}),
+		).toBe(false);
+
+		// Late diagnostics-like: activity + expand, no addRules.
+		expect(
+			isTodoReminderComponent({
+				render() {
+					return [] as const;
+				},
+				setExpanded() {},
+				setToolActivityVisible() {},
+			}),
+		).toBe(false);
+
+		// Full tool / read-group leaves must never classify as reminders.
+		expect(isTodoReminderComponent(new ToolComponent())).toBe(false);
+		expect(isTodoReminderComponent(new ReadGroup())).toBe(false);
+		expect(isTodoReminderComponent(null)).toBe(false);
+		expect(isTodoReminderComponent({})).toBe(false);
+		expect(
+			isTodoReminderComponent({
+				render() {
+					return [] as const;
+				},
+			}),
+		).toBe(false);
 	});
 });
 

@@ -794,3 +794,165 @@ stockTest(
 		expect(stripAnsi(afterDispose[0] ?? "")).toContain("NATIVE inject card");
 	},
 );
+
+/**
+ * Minimal stock TodoReminder fingerprint: public children/getText for
+ * extraction, setToolActivityVisible only (no addRules/setExpanded), and a
+ * native render that paints a yellow inverse card so the override is observable.
+ */
+class FakeTodoReminder {
+	children: Array<
+		| { getText(): string }
+		| { children: Array<{ getText(): string } | Record<string, never>> }
+		| Record<string, never>
+	> = [];
+	#count: number;
+	#attempt: number;
+	#maxAttempts: number;
+	#items: readonly string[];
+	/** Counts every native render; the patch must not stack wrappers. */
+	nativeRenderCount = 0;
+
+	constructor(
+		count: number,
+		attempt: number,
+		maxAttempts: number,
+		items: readonly string[],
+	) {
+		this.#count = count;
+		this.#attempt = attempt;
+		this.#maxAttempts = maxAttempts;
+		this.#items = items;
+		this.#rebuild();
+	}
+
+	#rebuild(): void {
+		const label = this.#count === 1 ? "todo" : "todos";
+		const header = `⚠ ${this.#count} incomplete ${label} - reminder ${this.#attempt}/${this.#maxAttempts}`;
+		const body = this.#items.map((item) => `  ☐ ${item}`).join("\n");
+		this.children = [
+			{},
+			{
+				children: [{ getText: () => header }, {}, { getText: () => body }],
+			},
+		];
+	}
+
+	setToolActivityVisible(): void {}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		return [
+			`\x1b[7m\x1b[38;2;200;160;0mNATIVE todo reminder ${this.#count}\x1b[39m\x1b[27m`,
+		];
+	}
+}
+
+stockTest(
+	"Todo reminder: pre-install child and post-install addChild both attach the override",
+	async () => {
+		const root = new host.ContainerBase();
+		const transcript = new host.TranscriptContainer();
+		const pre = new FakeTodoReminder(1, 1, 3, ["pre item"]);
+		transcript.addChild(pre);
+		root.addChild(transcript);
+
+		const adapter = new adapterModule.RuntimeAdapter({
+			root,
+			ui: {
+				theme: host.getTheme(),
+				setWidget(_key, content) {
+					if (typeof content === "function") {
+						(content as (tui: unknown) => Renderable)(root);
+					}
+				},
+				requestRender() {},
+				getToolsExpanded: () => false,
+			},
+		});
+		expect(adapter.install()).toBe(true);
+
+		const preRows = pre.render(120);
+		expect(preRows).toHaveLength(1);
+		expect(stripAnsi(preRows[0] ?? "")).toBe(
+			"1 incomplete todo - reminder 1/3 · pre item",
+		);
+		expect(preRows.join("\n")).not.toContain("\x1b[48;");
+		expect(preRows.join("\n")).not.toContain("\x1b[7m");
+		expect(preRows.join("\n")).not.toContain("NATIVE");
+		expect(pre.nativeRenderCount).toBe(0);
+
+		const post = new FakeTodoReminder(2, 2, 3, ["alpha", "beta"]);
+		transcript.addChild(post);
+		const postRows = post.render(120);
+		expect(postRows).toHaveLength(1);
+		expect(stripAnsi(postRows[0] ?? "")).toBe(
+			"2 incomplete todos - reminder 2/3 · alpha · +1 more",
+		);
+		expect(postRows.join("\n")).not.toContain("\x1b[48;");
+		expect(post.nativeRenderCount).toBe(0);
+
+		// Idempotent: a second observe of the same instance must not stack wrappers.
+		transcript.addChild(post);
+		const again = post.render(80);
+		expect(again).toHaveLength(1);
+		expect(stripAnsi(again[0] ?? "")).toContain("reminder 2/3");
+		expect(post.nativeRenderCount).toBe(0);
+
+		// TTSR still takes the inject path on the same adapter.
+		const ttsr = new FakeTtsrNotification("still-inject", "body");
+		transcript.addChild(ttsr);
+		expect(stripAnsi(ttsr.render(120)[0] ?? "")).toBe("• inject: still-inject");
+
+		await adapter.dispose();
+	},
+);
+
+stockTest(
+	"Todo reminder: clear/rebuild restores native then re-attaches without double-wrap",
+	async () => {
+		const booted = await bootAdapter();
+		const reminder = new FakeTodoReminder(1, 1, 3, ["rebuild item"]);
+		booted.transcript.addChild(reminder);
+
+		const live = reminder.render(120);
+		expect(live).toHaveLength(1);
+		expect(stripAnsi(live[0] ?? "")).toBe(
+			"1 incomplete todo - reminder 1/3 · rebuild item",
+		);
+		expect(live.join("\n")).not.toContain("\x1b[7m");
+		expect(reminder.nativeRenderCount).toBe(0);
+
+		booted.transcript.clear();
+		const nativeAfterDetach = reminder.render(120);
+		expect(nativeAfterDetach.join("\n")).toContain("\x1b[7m");
+		expect(stripAnsi(nativeAfterDetach[0] ?? "")).toContain(
+			"NATIVE todo reminder",
+		);
+		expect(reminder.nativeRenderCount).toBe(1);
+
+		booted.transcript.addChild(reminder);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		const reattached = reminder.render(120);
+		expect(reattached).toHaveLength(1);
+		expect(stripAnsi(reattached[0] ?? "")).toBe(
+			"1 incomplete todo - reminder 1/3 · rebuild item",
+		);
+		expect(reattached.join("\n")).not.toContain("\x1b[7m");
+		expect(reminder.nativeRenderCount).toBe(1);
+
+		booted.transcript.clear();
+		booted.transcript.addChild(reminder);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(reminder.render(40)).toHaveLength(1);
+		expect(reminder.nativeRenderCount).toBe(1);
+
+		await booted.adapter.dispose();
+		const afterDispose = reminder.render(120);
+		expect(afterDispose.join("\n")).toContain("\x1b[7m");
+		expect(stripAnsi(afterDispose[0] ?? "")).toContain("NATIVE todo reminder");
+	},
+);

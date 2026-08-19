@@ -277,6 +277,33 @@ export function isTtsrNotificationComponent(
 }
 
 /**
+ * Stock todo-reminder fingerprint (OMP 17.3.4 `TodoReminderComponent`):
+ * activity visibility + render only. Rejects TTSR (`addRules`/`setExpanded`/
+ * `isExpanded`), tool leaves, and read groups so only the yellow incomplete-
+ * todo card is matched.
+ */
+export function isTodoReminderComponent(
+	value: unknown,
+): value is RenderableBlock {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Record<string, unknown>;
+	if (typeof candidate.render !== "function") return false;
+	if (typeof candidate.setToolActivityVisible !== "function") return false;
+	// TTSR and late-diagnostics expose expand controls; tools expose the
+	// execution surface. Any of those means this is not a todo reminder.
+	if (typeof candidate.addRules === "function") return false;
+	if (typeof candidate.setExpanded === "function") return false;
+	if (typeof candidate.isExpanded === "function") return false;
+	if (typeof candidate.updateArgs === "function") return false;
+	if (typeof candidate.updateResult === "function") return false;
+	if (typeof candidate.setArgsComplete === "function") return false;
+	if (typeof candidate.seal === "function") return false;
+	if (typeof candidate.removeEntry === "function") return false;
+	if (typeof candidate.renameEntry === "function") return false;
+	return true;
+}
+
+/**
  * OMP 17.3.1 argument positions. `updateArgs` carries
  * `(payload, toolCallId)`; the read group's `updateResult` carries
  * `(result, isPartial, toolCallId)` while the tool component's
