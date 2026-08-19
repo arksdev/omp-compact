@@ -1,7 +1,7 @@
 import { type AgentEndEvent, classifyAgentEnd } from "./turn-ledger";
 
 /**
- * Post-turn auto-shake (upgrade2 item 5): after a visible, successful
+ * Post-turn auto-shake: after a visible, successful
  * terminal assistant answer — never after toolUse/willContinue/abort/error —
  * and strictly after the plugin's audit/Git evidence has been persisted,
  * invoke the NATIVE shake/elide behavior on the main agent session.
@@ -15,7 +15,7 @@ import { type AgentEndEvent, classifyAgentEnd } from "./turn-ledger";
  * session's public `shake("elide", { signal })`. No typed `/shake` input is
  * ever imitated: no `sendUserMessage`, no terminal input, no shell.
  *
- * E05: when the native shake resolves successfully (including a successful
+ * When the native shake resolves successfully (including a successful
  * no-op), the module reports the actual `ShakeResult` through the ephemeral
  * `notify` success sink as the stock `formatShakeSummary` one-liner — never
  * as an appended session/custom entry, at most once per logical run, and
@@ -102,7 +102,7 @@ export interface PostTurnShakeDeps {
 		signal?: AbortSignal,
 	): Promise<ShakeResultLike>;
 	/**
-	 * Ephemeral success sink (E05): invoked once per logical run after the
+	 * Ephemeral success sink: invoked once per logical run after the
 	 * native shake resolves successfully — including a successful no-op —
 	 * with the stock-formatted one-line summary (see `formatShakeSummary`).
 	 * Never invoked for gate skips, persistence failure, abort/dispose, or
@@ -118,7 +118,7 @@ export const MAIN_AGENT_ID = "Main";
 /**
  * `OMP_COMPACT_SHAKE=1` enables and `OMP_COMPACT_SHAKE=0` disables auto-shake
  * regardless of the stored settings (the documented environment switch from
- * upgrade2 item 5). Any other value leaves the configured settings untouched.
+ * auto-shake). Any other value leaves the configured settings untouched.
  * The threshold is never changed by the environment.
  */
 export function resolveAutoShake(
@@ -329,7 +329,7 @@ export class PostTurnShake {
 					((target, passedSignal) =>
 						target.shake("elide", { signal: passedSignal }));
 				const result = await shake(session, signal);
-				// E05: report success only while the session still owns the
+				// Report success only while the session still owns the
 				// run — dispose()/session switch bumps the generation and
 				// aborts the controller, so a late resolution after an abort
 				// is never confirmed.

@@ -440,12 +440,12 @@ export async function completeWriteCandidate(
 		return [];
 	const after = await boundedText(effectiveResult);
 	if (after === undefined) return [];
-	// F02: zero-allocation equal-snapshot fast path — identical bytes mean
+	// Zero-allocation equal-snapshot fast path — identical bytes mean
 	// no mutation, so no diff work and no native call.
 	if (after === candidate.before) return [];
 	const middle = trimmedMiddleLines(candidate.before, after);
 	if (middle.beforeLines === 0 && middle.afterLines === 0) return [];
-	// F02 diff complexity budget: the native Myers-style diff is quadratic
+	// Diff complexity budget: the native Myers-style diff is quadratic
 	// in its remaining tokens, so enforce the static budget before the
 	// call; over the budget the exact candidate is dropped (fail open)
 	// instead of blocking the event loop. The trim already proved that a

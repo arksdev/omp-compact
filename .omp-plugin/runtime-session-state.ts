@@ -125,7 +125,7 @@ export interface GroupState {
 
 export interface SessionStateOptions {
 	/**
-	 * RuntimeModes: per-run mode policy. The session snapshots the mode when
+	 * Per-run mode policy. The session snapshots the mode when
 	 * a ledger starts (agent_start or branch hydration) and keeps it frozen
 	 * for that logical run; settings changes apply at the next boundary.
 	 */
@@ -422,7 +422,7 @@ export class RuntimeSessionState {
 						if (Array.isArray(contents)) {
 							for (const content of contents) {
 								const call = objectRecord(content);
-								// F01: identity and payload bounds run before any
+								// Identity and payload bounds run before any
 								// state allocation; oversized entries stay native.
 								if (
 									call.type !== "toolCall" ||
@@ -462,7 +462,7 @@ export class RuntimeSessionState {
 					) {
 						const state = this.#states.get(message.toolCallId);
 						if (state) {
-							// F01: an oversized result payload is settled but never
+							// An oversized result payload is settled but never
 							// retained — the giant object stays in the parsed
 							// branch, not in ToolState.
 							if (isPayloadWithinBudget(message)) state.result = message;
@@ -481,7 +481,7 @@ export class RuntimeSessionState {
 					entry.customType === "tool_execution_start"
 				) {
 					const data = objectRecord(entry.data);
-					// F01: identity and payload bounds run before any state
+					// Identity and payload bounds run before any state
 					// allocation; oversized entries stay native.
 					if (
 						isBoundedString(data.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
@@ -539,7 +539,7 @@ export class RuntimeSessionState {
 	 */
 	beginRebuild(): RebuildSnapshot {
 		if (this.#rebuildInProgress) {
-			// C02 two-quick-clears: a newer clear supersedes the pending
+			// Two quick clears: a newer clear supersedes the pending
 			// rebuild. The preserved active ownership is unchanged (the
 			// first beginRebuild kept it in the state map), but components
 			// re-added since may have bound — re-capture the identity map
@@ -630,7 +630,7 @@ export class RuntimeSessionState {
 						if (Array.isArray(contents)) {
 							for (const content of contents) {
 								const call = objectRecord(content);
-								// F01: identity and payload bounds run before any
+								// Identity and payload bounds run before any
 								// state allocation; oversized entries stay native.
 								if (
 									call.type !== "toolCall" ||
@@ -673,7 +673,7 @@ export class RuntimeSessionState {
 						// preserved run's states; branch results must never
 						// replace pending/partial evidence.
 						if (state && state.ledger !== activeLedger) {
-							// F01: an oversized result payload is settled but never
+							// An oversized result payload is settled but never
 							// retained — the giant object stays in the parsed
 							// branch, not in ToolState.
 							if (isPayloadWithinBudget(message)) state.result = message;
@@ -692,7 +692,7 @@ export class RuntimeSessionState {
 					entry.customType === "tool_execution_start"
 				) {
 					const data = objectRecord(entry.data);
-					// F01: identity and payload bounds run before any state
+					// Identity and payload bounds run before any state
 					// allocation; oversized entries stay native.
 					if (
 						isBoundedString(data.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
@@ -930,7 +930,7 @@ export class RuntimeSessionState {
 	/**
 	 * tool_execution_start: create/absorb and mark in-flight.
 	 *
-	 * Live identity bounds match hydration (F01): a missing/non-string or
+	 * Live identity bounds match hydration: a missing/non-string or
 	 * oversized `toolCallId`/`toolName` never allocates a compact state, so
 	 * the call stays native and cannot win a single-pair `tryBindByOrder`
 	 * compact binding. Empty-string provisional ids remain valid (stock
@@ -1059,7 +1059,7 @@ export class RuntimeSessionState {
 				(entry.added ?? 0) > 0 ||
 				(entry.removed ?? 0) > 0,
 		);
-		// F01: the live batch respects the same per-state evidence cap as
+		// The live batch respects the same per-state evidence cap as
 		// replay hydration; a set beyond the cap cannot claim exactness over
 		// the truncated tail (the caller's array is never mutated).
 		const truncated = kept.length > MAX_MUTATION_ENTRIES;
@@ -1077,7 +1077,7 @@ export class RuntimeSessionState {
 					0,
 				),
 				// The aggregate never claims exactness over unknown counts
-				// (count-less deletes demote it, matching the F01 truncation
+				// (count-less deletes demote it, matching the truncation
 				// demotion).
 				exact: state.mutations.every((entry) => entry.exact === true),
 			};
@@ -1356,7 +1356,7 @@ export class RuntimeSessionState {
 	}
 
 	/**
-	 * RuntimeModes: the mode snapshot for a new ledger — the armed restore
+	 * Mode snapshot for a new ledger — the armed restore
 	 * override (a restored session's historical transcript hydrates
 	 * compact), else the active run's frozen snapshot (captured by
 	 * ModePolicy at agent_start), else the latest resolved settings, else
@@ -1397,7 +1397,7 @@ export class RuntimeSessionState {
 			// Rebuild: active states keep their live evidence; the event
 			// stream delivers it again on completion.
 			if (state && state.ledger !== skipLedger) {
-				// F01: a corrupted branch must not grow the evidence array
+				// A corrupted branch must not grow the evidence array
 				// without bound. Excess carriers are ignored evidence, and
 				// the aggregate must not claim exactness of a truncated set.
 				if (state.mutations.length >= MAX_MUTATION_ENTRIES) {
@@ -1421,7 +1421,7 @@ export class RuntimeSessionState {
 			// A preserved active run renders its stats row only at its own
 			// live finalization; branch evidence must not pre-place it.
 			if (target && target !== skipLedger) {
-				// F01: exactly one stats row per logical run — duplicate
+				// Exactly one stats row per logical run — duplicate
 				// carriers in a corrupted branch are ignored evidence.
 				if (!this.#hydratedStatsEvidence.some((r) => r.ledger === target))
 					this.#hydratedStatsEvidence.push({
@@ -1433,7 +1433,7 @@ export class RuntimeSessionState {
 	}
 
 	/**
-	 * F01: a mutation carrier was ignored because the per-state evidence
+	 * A mutation carrier was ignored because the per-state evidence
 	 * array is at its cap. The aggregate summary must not claim exactness
 	 * over a truncated set, so it is demoted to inexact (the filtered
 	 * retention then drops the row instead of presenting partial evidence

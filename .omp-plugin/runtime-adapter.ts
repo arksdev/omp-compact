@@ -99,13 +99,13 @@ export interface RuntimeAdapterOptions {
 	 */
 	displayPaths?: () => DisplayPathOptions;
 	/**
-	 * Terminal run seam (owned by RuntimeModes' endRun): invoked once per
+	 * Terminal run seam (owned by endRun): invoked once per
 	 * logical run when it reaches a successful terminal answer — in every
 	 * presentation mode (`live` filtered, `compact` full-retained log,
 	 * `clear` hidden rows). Aborts, errors and working continuations never
 	 * fire it. Runs after the ledger finalizes (its evidence has drained)
 	 * and the run render bumps. RunStats registers it to render the usage
-	 * row above the assistant answer; D03 registers the terminal scrollback
+	 * row above the assistant answer; the terminal scrollback
 	 * replay after that insertion attempt.
 	 */
 	onRunFinalized?(runId: string): void;
@@ -117,12 +117,12 @@ export interface RuntimeAdapterOptions {
 	 * runs fail open rather than guessing transcript positions.
 	 */
 	statsRenderer?: (evidence: RunStatsEvidence) => string | undefined;
-	// RuntimeModes: per-run mode policy. The session snapshots the mode when
+	// Per-run mode policy. The session snapshots the mode when
 	// a ledger starts (agent_start or branch hydration) and keeps it frozen
 	// for that logical run; settings changes apply at the next boundary.
 	modePolicy?: ModePolicy;
 	/**
-	 * C03: identity-matched current-branch resolver of the live main
+	 * Identity-matched current-branch resolver of the live main
 	 * session, wired by index.ts from the event context's sessionManager —
 	 * never a global settings/session lookup. Consulted when a transcript
 	 * rebuild begins (and by branch hydration callers). Absent, throwing,
@@ -194,7 +194,7 @@ export class RuntimeAdapter {
 	#fold: TranscriptFold | undefined;
 	#timer: unknown;
 	#disposed = false;
-	// C02–C07 presentation generation: the exact transcript `clear` is the
+	// Presentation generation: the exact transcript `clear` is the
 	// rebuild boundary. RuntimeSessionState owns the generation counter;
 	// each boundary returns the new token and this class schedules exactly
 	// one microtask guarded by it. A newer clear or dispose invalidates
@@ -278,7 +278,7 @@ export class RuntimeAdapter {
 	hydrateBranch(entries: readonly unknown[]): void {
 		if (this.#disposed) return;
 		if (this.#session.hydrateBranch(entries)) {
-			// C04/C07: schedule one generation-guarded settlement microtask
+			// Schedule one generation-guarded settlement microtask
 			// so a resumed session with committed startup rows replays
 			// through the optional exact-root `resetDisplay` once mapping
 			// is validated (missing/incompatible capability fails open, no
@@ -288,7 +288,7 @@ export class RuntimeAdapter {
 	}
 
 	/**
-	 * C05: `session_tree` is optional intent/coalescing metadata only —
+	 * `session_tree` is optional intent/coalescing metadata only —
 	 * stock emits it before the caller-side UI rebuild, so it never begins
 	 * a presentation generation here. The exact transcript `clear` that
 	 * follows a committed navigation is the only rebuild boundary; a
@@ -302,13 +302,13 @@ export class RuntimeAdapter {
 	}
 
 	/**
-	 * C07 public replay seam: generation-guarded, capability-checked full
+	 * Public replay seam: generation-guarded, capability-checked full
 	 * scrollback replay of the current transcript through the exact-root
 	 * `TUI.resetDisplay()`. Fires only when the presentation mapping is
 	 * validated (installed, current generation, no pending settlement) and
 	 * the capability exists; missing/incompatible hosts fail open and the
 	 * method never throws. Safe to call outside the rebuild path — a
-	 * future terminal-replay caller (D03) reuses it after its own state
+	 * future terminal-replay caller reuses it after its own state
 	 * changes.
 	 */
 	replayCurrentPresentation(): boolean {
@@ -318,7 +318,7 @@ export class RuntimeAdapter {
 		if (!this.#transcript || !this.#fold?.installed) return false;
 		if (!this.#host.tuiCapabilities().resetDisplay) return false;
 		try {
-			// C07: retire the container's committed-scrollback diff cache so
+			// Retire the container's committed-scrollback diff cache so
 			// the root's resetDisplay re-derives rows through the patched
 			// renders. Without this, finalized blocks wholly inside the
 			// committed prefix replay their stale native rows and a resumed
@@ -341,7 +341,7 @@ export class RuntimeAdapter {
 	}
 
 	/**
-	 * D03 terminal scrollback replay seam: invoked once per successful
+	 * Terminal scrollback replay seam: invoked once per successful
 	 * filtered terminal run, after the terminal projection and the stats
 	 * carrier insertion. Stock freezes mutable live-region rows into native
 	 * scrollback when they move above the viewport, so a filtered answer
@@ -542,7 +542,7 @@ export class RuntimeAdapter {
 	}
 
 	/**
-	 * C02 rebuild boundary, invoked by the exact transcript `clear`
+	 * Rebuild boundary, invoked by the exact transcript `clear`
 	 * wrapper BEFORE the native clear. Begins a new presentation
 	 * generation (cancelling any pending settlement of the previous one),
 	 * preserves active working ownership, retires stale historical
@@ -609,7 +609,7 @@ export class RuntimeAdapter {
 	}
 
 	/**
-	 * C07 settlement: runs after stock's synchronous repopulation. A stale
+	 * Settlement: runs after stock's synchronous repopulation. A stale
 	 * token (newer clear or dispose) aborts without side effects. A
 	 * pending rebuild commits through RuntimeSessionState: rehydrates the
 	 * branch (active working ownership wins for any toolCallId that
@@ -630,7 +630,7 @@ export class RuntimeAdapter {
 				this.#rebuildSnapshot = undefined;
 				if (snapshot) {
 					const branch = this.#getBranch?.();
-					// C03: absent or non-array results fail open — the
+					// Absent or non-array branch results fail open — the
 					// rebuild keeps only the preserved active working
 					// ownership and leaves ambiguous surfaces native.
 					this.#session.commitRebuild(snapshot, {
@@ -950,7 +950,7 @@ export class RuntimeAdapter {
 				this.#rollback(`omp-compact disabled: ${String(error)}`);
 			}
 		});
-		// C02: the exact transcript `clear` is the rebuild boundary. The
+		// The exact transcript `clear` is the rebuild boundary. The
 		// wrapper runs the rebuild prologue before the native clear exactly
 		// once; stock then synchronously repopulates through addChild, and
 		// one generation-guarded microtask settles the presentation. Only

@@ -464,7 +464,7 @@ function normalizeWithDiagnostics(
 }
 
 // =============================================================================
-// Bounded leaf-field patch (E02): concurrent stores with stale snapshots must
+// Bounded leaf-field patch: concurrent stores with stale snapshots must
 // not lose each other's distinct edits. `update()` derives a patch of ONLY
 // the leaf fields that differ from this store's loaded snapshot, then applies
 // it to a fresh bounded reread immediately before the atomic rename.
@@ -708,7 +708,7 @@ export function createSettingsStore(
 	const subscribers = new Set<(settings: CompactSettings) => void>();
 
 	/**
-	 * Hard environment overrides (legacy + upgrade2 contracts):
+	 * Hard environment overrides (legacy contracts):
 	 * `OMP_COMPACT_PLUGIN=0|false` and legacy `OMP_COMPACT_MODE=off` disable
 	 * the runtime (the settings command stays registered); an explicit
 	 * `OMP_COMPACT_MODE` of compact/live/clear pins the mode. Reapplied on
@@ -871,7 +871,7 @@ export function createSettingsStore(
 				`omp-compact: invalid settings update (${invalid.join(", ")}); nothing was saved`,
 			);
 		}
-		// E02: only the leaf fields this save actually changes relative to
+		// Only the leaf fields this save actually changes relative to
 		// this store's snapshot are written. The bounded in-process queue keeps
 		// reread and atomic rename ordered for Promise.all callers; a same-field
 		// conflict still resolves by queue/rename order (last successful writer).

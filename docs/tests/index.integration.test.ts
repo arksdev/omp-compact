@@ -6344,6 +6344,71 @@ stockTest(
 );
 
 stockTest(
+	"install() false and constructor throw share one bring-up failure path",
+	async () => {
+		// install() === false (multiple transcripts) and a throwing construct
+		// must produce the same observables: one warning, probe widget gone,
+		// adapter disabled for the session, no throw into the event stream.
+		// captureHostRoot usually already cleared the probe; the shared path
+		// still re-attempts removal so a hostile host cannot leave it behind.
+		async function bringUpWith(
+			label: string,
+			prepare: (
+				booted: BootedPlugin & { transcript: TranscriptInstance },
+				widgets: Set<string>,
+			) => void,
+		): Promise<void> {
+			const booted = await bootWithTranscript();
+			const widgets = new Set<string>();
+			const workingSetWidget = booted.context.ui.setWidget;
+			prepare(booted, widgets);
+			await dispatch(booted, { type: "session_before_switch" });
+			await dispatch(booted, { type: "session_start" });
+			expect(booted.notifications, label).toHaveLength(1);
+			expect(booted.notifications[0], label).toContain("omp-compact disabled");
+			expect(widgets.size, label).toBe(0);
+			expect(Object.hasOwn(booted.transcript, "addChild"), label).toBe(false);
+			expect(booted.intervalCallbacks, label).toHaveLength(0);
+			// disabled for the rest of the session: no retry, no second warning
+			await beginRun(booted);
+			await dispatch(booted, {
+				type: "tool_execution_start",
+				toolCallId: `${label}-after`,
+				toolName: "bash",
+				args: { command: "printf after" },
+			});
+			expect(booted.notifications, label).toHaveLength(1);
+			expect(Object.hasOwn(booted.transcript, "addChild"), label).toBe(false);
+			// restore a working setWidget so shutdown cannot trip on the stub
+			booted.context.ui.setWidget = workingSetWidget;
+			await shutdown(booted);
+		}
+
+		await bringUpWith("install-false", (booted, widgets) => {
+			// Sibling second transcript: install() hard-fails after rollback.
+			const second = new booted.host.TranscriptContainer();
+			booted.root.addChild(second);
+			booted.context.ui.setWidget = trackingSetWidget(
+				booted,
+				widgets,
+				() => {},
+			);
+		});
+
+		await bringUpWith("construct-throw", (booted, widgets) => {
+			booted.context.ui.setWidget = trackingSetWidget(
+				booted,
+				widgets,
+				(_key, content) => {
+					if (typeof content !== "function") return;
+					throw new Error("setWidget registration failed");
+				},
+			);
+		});
+	},
+);
+
+stockTest(
 	"headless root absence (no setWidget) stays a quiet fail-open",
 	async () => {
 		const booted = await bootWithTranscript();
