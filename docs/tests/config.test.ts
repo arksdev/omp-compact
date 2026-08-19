@@ -1255,4 +1255,104 @@ describe("subscribers", () => {
 		expect(calls).toBe(0);
 		await rm(dir, { recursive: true, force: true });
 	});
+
+	test("throwing subscriber does not reject a committed update", async () => {
+		const dir = await tempDir();
+		const { store, warnings } = storeAt(dir);
+		await store.load();
+
+		const seen: CompactSettings[] = [];
+		store.subscribe(() => {
+			throw new Error("subscriber boom");
+		});
+		store.subscribe((settings) => {
+			seen.push(settings);
+		});
+
+		const updated = await store.update({ mode: "compact" });
+		expect(updated.mode).toBe("compact");
+		expect(store.snapshot()).toBe(updated);
+		expect(store.snapshot().mode).toBe("compact");
+		expect(seen).toEqual([updated]);
+
+		const raw = JSON.parse(
+			await readFile(join(dir, "omp-compact", "config.json"), "utf8"),
+		) as CompactSettings;
+		expect(raw.mode).toBe("compact");
+		expect(warnings.some((w) => w.includes("subscriber"))).toBe(true);
+
+		// One warning per failure class for the life of the store, not per call.
+		await store.update({ mode: "clear" });
+		expect(warnings.filter((w) => w.includes("subscriber")).length).toBe(1);
+
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("validation failure still rejects without writing or notifying", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		const before = store.snapshot();
+
+		let notified = 0;
+		store.subscribe(() => {
+			notified++;
+			throw new Error("must not run");
+		});
+
+		await expect(store.update({ mode: "bogus" as never })).rejects.toThrow();
+		expect(notified).toBe(0);
+		expect(store.snapshot()).toBe(before);
+		expect(store.snapshot().mode).toBe(before.mode);
+
+		// No config file written on pure validation failure before first save.
+		await expect(
+			readFile(join(dir, "omp-compact", "config.json"), "utf8"),
+		).rejects.toThrow();
+
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("bounded-JSON contract breach still rejects after a prior save", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		await store.update({ mode: "live" });
+		const beforeText = await readFile(
+			join(dir, "omp-compact", "config.json"),
+			"utf8",
+		);
+		const before = store.snapshot();
+
+		let notified = 0;
+		store.subscribe(() => {
+			notified++;
+		});
+
+		// Oversized unknown key would push the merged record past the byte budget
+		// if it were accepted; force via a patch that is valid at normalize but
+		// is not the path under test. Use ConfigUpdateError path: oversized file
+		// already present fails closed on reread.
+		const padded = `${"x".repeat(MAX_CONFIG_BYTES + 1)}`;
+		const oversized = `${JSON.stringify(
+			{ version: 1, mode: "live", junk: padded },
+			null,
+			2,
+		)}\n`;
+		await writeFile(join(dir, "omp-compact", "config.json"), oversized, "utf8");
+
+		await expect(store.update({ mode: "compact" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
+		expect(notified).toBe(0);
+		expect(store.snapshot()).toBe(before);
+		expect(
+			await readFile(join(dir, "omp-compact", "config.json"), "utf8"),
+		).toBe(oversized);
+		// Sanity: prior committed text is not what we assert equality against after
+		// the oversized rewrite — file stays the oversized payload (not rewritten).
+		expect(beforeText).not.toBe(oversized);
+
+		await rm(dir, { recursive: true, force: true });
+	});
 });

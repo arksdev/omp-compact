@@ -935,8 +935,18 @@ export function createSettingsStore(
 		});
 		persisted = cloneAndFreeze(next);
 		current = cloneAndFreeze(applyEnvOverrides(next));
+		// Post-commit: the file and snapshots are already authoritative. A
+		// throwing subscriber must not make the save look failed or skip later
+		// listeners. Failures are warn-once by class (never by Error.message).
 		for (const fn of [...subscribers]) {
-			fn(current);
+			try {
+				fn(current);
+			} catch {
+				warnOnce(
+					"subscriber",
+					"settings subscriber failed after commit (later listeners still notified)",
+				);
+			}
 		}
 		return current;
 	}
