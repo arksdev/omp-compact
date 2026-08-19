@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import {
 	type CompactSettings,
 	type CompactSettingsStore,
@@ -25,6 +26,7 @@ import {
 	type MutationMessageDetails,
 } from "../../.omp-plugin/messages";
 import { ModePolicy } from "../../.omp-plugin/mode-policy";
+import { renderCompactToolRows } from "../../.omp-plugin/render";
 import { MAX_STATS_ACTIONS } from "../../.omp-plugin/run-stats";
 import {
 	RuntimeSessionState,
@@ -522,6 +524,9 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			args: {},
 		});
 		expect(session.endRun({ messages: [assistant("done")] })).toBe("filtered");
+		// Finalization settles the visual partial flag; late stream events
+		// must not resurrect a spinner or rewrite the settled run.
+		expect(state.isPartial).toBe(false);
 		const version = state.version;
 
 		expect(
@@ -534,9 +539,8 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			}),
 		).toBeUndefined();
 		expect(state.result).toBeUndefined();
-		expect(state.isPartial).toBe(true);
+		expect(state.isPartial).toBe(false);
 		expect(state.version).toBe(version);
-		// A frozen ledger must never resurrect a spinner row.
 		expect(session.pending()).toEqual([]);
 
 		expect(
@@ -549,6 +553,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		).toBeUndefined();
 		expect(state.result).toBeUndefined();
 		expect(state.isError).toBe(false);
+		// Never-finished tool: no fabricated success after finalization.
 		expect(state.entry.state).toBe("running");
 		expect(state.version).toBe(version);
 		expect(session.pending()).toEqual([]);
@@ -564,6 +569,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		});
 		session.finishFull();
 		expect(session.activeLedger?.phase).toBe("full");
+		expect(state.isPartial).toBe(false);
 		const version = state.version;
 
 		expect(
@@ -575,6 +581,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			}),
 		).toBeUndefined();
 		expect(state.entry.state).toBe("running");
+		expect(state.isPartial).toBe(false);
 		expect(state.version).toBe(version);
 
 		expect(
@@ -587,6 +594,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			}),
 		).toBeUndefined();
 		expect(session.pending()).toEqual([]);
+		expect(state.isPartial).toBe(false);
 		expect(state.version).toBe(version);
 	});
 
@@ -625,11 +633,14 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.version).toBe(version);
 		expect(state.result).toBeUndefined();
 		expect(state.entry.state).toBe("running");
+		// Still partial while deferred — settle happens at finalization.
+		expect(state.isPartial).toBe(true);
 
-		// Fallback finalization at release keeps the state frozen; the
-		// finalization itself performs its single presentation bump.
+		// Fallback finalization at release settles visual partial and keeps
+		// stream events frozen; the finalization itself bumps presentation.
 		session.releaseTerminalRun(runId);
 		expect(first?.phase).toBe("full");
+		expect(state.isPartial).toBe(false);
 		const postRelease = state.version;
 		expect(
 			session.finishTool({
@@ -640,6 +651,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			}),
 		).toBeUndefined();
 		expect(state.entry.state).toBe("running");
+		expect(state.isPartial).toBe(false);
 		expect(state.version).toBe(postRelease);
 	});
 
@@ -859,6 +871,91 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		).toBeUndefined();
 		expect(state.mutations).toEqual(mutations);
 		expect(state.version).toBe(postRelease);
+	});
+
+	test("deferred terminal settles isPartial so drain mutations render (no stuck Working…)", () => {
+		// Stock may drop tool_execution_end after agent_end parks the run.
+		// finishTool is frozen in the deferred window, but the audit drain
+		// still publishes verified mutations. Finalization must clear the
+		// visual partial flag so render shows mutation rows, not Working….
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		const state = mustStart(session, {
+			toolCallId: "c1",
+			toolName: "write",
+			args: { path: "/tmp/x.ts" },
+		});
+		expect(state.isPartial).toBe(true);
+		const runId = session.captureTerminalRunId();
+		expect(runId).toBe(first?.runId);
+		expect(first?.phase).toBe("working");
+
+		// Drain publishes evidence while the ledger is still working.
+		expect(session.setMutations("c1", [mutationDetails("c1", 4, 2)])).toBe(
+			undefined,
+		);
+		expect(state.mutations).toHaveLength(1);
+		// No tool_execution_end ever arrives; finishTool stays frozen.
+		expect(
+			session.finishTool({
+				toolCallId: "c1",
+				toolName: "write",
+				result: { ok: true },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.isPartial).toBe(true);
+
+		expect(session.endRun({ messages: [assistant("done")] }, runId)).toBe(
+			"filtered",
+		);
+		expect(first?.phase).toBe("filtered");
+		// Visual settle: no spinner residual after terminal finalization.
+		expect(state.isPartial).toBe(false);
+		expect(session.pending()).not.toContain(state);
+		// Mutation retention already promoted entry.state during the drain;
+		// finalization must not fabricate a different success claim.
+		expect(state.entry.state).toBe("success");
+		// Late finish still must not rewrite the settled run.
+		const version = state.version;
+		expect(
+			session.finishTool({
+				toolCallId: "c1",
+				toolName: "write",
+				result: { forged: true },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.result).toBeUndefined();
+		expect(state.version).toBe(version);
+
+		const theme = {
+			fg: (_color: string, text: string) => text,
+			bg: (_color: string, text: string) => text,
+			getFgAnsi: () => "",
+			getBgAnsi: () => "",
+			spinnerFrames: ["⣾"],
+			getSpinnerFrames: () => ["⠦"],
+		} as unknown as Theme;
+		const rows = renderCompactToolRows(
+			{
+				toolName: state.toolName,
+				args: state.args,
+				result: state.result,
+				isError: state.isError,
+				isPartial: state.isPartial,
+				tick: state.version,
+				mutationEntries: state.mutations,
+			},
+			theme,
+		);
+		const text = rows.map((line) => Bun.stripANSI(line)).join("\n");
+		expect(text).not.toContain("Working…");
+		expect(text).toContain("write:");
+		expect(text).toContain("/tmp/x.ts");
+		expect(text).toMatch(/\+4/);
+		expect(text).toMatch(/2/);
 	});
 
 	test("working-phase setMutations/setGit still process (live evidence is not blocked)", () => {

@@ -1074,10 +1074,8 @@ export class RuntimeSessionState {
 			return "working";
 		}
 		if (isActiveLedger) this.#continuationPending = false;
+		this.#settleLedgerVisualState(ledger);
 		this.#bumpLedger(ledger);
-		for (const state of this.#pendingStates) {
-			if (state.ledger === ledger) this.#pendingStates.delete(state);
-		}
 		return finalization.mode;
 	}
 
@@ -1091,18 +1089,43 @@ export class RuntimeSessionState {
 	 * Abort-finalize one exact ledger (fail-closed fallback for a failed
 	 * terminal drain and the shared `finishFull` path): the full retention
 	 * keeps the complete diagnostic log, the ledger leaves the working phase,
-	 * and its pending states leave the spinner set. Idempotent per ledger
+	 * and its pending/partial visual state is settled. Idempotent per ledger
 	 * through `TurnLedger.finalize`; returns true only when this call
 	 * performed the finalization.
 	 */
 	#finalizeWorkingLedger(ledger: TurnLedger): boolean {
 		if (ledger.phase !== "working") return false;
 		this.finalizeLedger(ledger, { messages: [], willContinue: false });
+		this.#settleLedgerVisualState(ledger);
 		this.#bumpLedger(ledger);
-		for (const state of this.#pendingStates) {
-			if (state.ledger === ledger) this.#pendingStates.delete(state);
-		}
 		return true;
+	}
+
+	/**
+	 * After a ledger leaves `working` (`filtered`/`full`), no tool row may
+	 * remain in a live partial/pending visual state. Stock can drop
+	 * `tool_execution_end` after `agent_end` parks the claim; `finishTool`
+	 * then no-ops under `#stateMutable`, which used to leave `isPartial`
+	 * true forever — the renderer kept `Working…` and suppressed mutation/
+	 * Git rows behind `!view.isPartial` even though the audit drain had
+	 * already published verified evidence.
+	 *
+	 * Settle the visual flags only:
+	 * - `isPartial = false` and drop from `#pendingStates` for every state
+	 *   on this ledger (evidence rows can render; spinner stops).
+	 * - Do **not** fabricate a settled result or promote `entry.state` to
+	 *   success/error here. `finishTool` and audit `setMutations` already
+	 *   promote when real evidence exists; a tool that never received an
+	 *   end event keeps its prior entry state (typically `running`) so the
+	 *   ledger does not claim success it never observed. Late
+	 *   `tool_execution_update`/`end` remain frozen via `#stateMutable`.
+	 */
+	#settleLedgerVisualState(ledger: TurnLedger): void {
+		for (const state of this.#states.values()) {
+			if (state.ledger !== ledger) continue;
+			state.isPartial = false;
+			this.#pendingStates.delete(state);
+		}
 	}
 
 	/**

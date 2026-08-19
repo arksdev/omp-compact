@@ -163,9 +163,7 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 		// computer, resolve, reject) deliberately stay compact when explicitly
 		// expanded.
 		when: (input) =>
-			input.phase === "working" &&
-			input.expanded &&
-			!input.compactOnExpand,
+			input.phase === "working" && input.expanded && !input.compactOnExpand,
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{
