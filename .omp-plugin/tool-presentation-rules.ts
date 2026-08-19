@@ -215,9 +215,15 @@ const RESOLUTION_DETAILS = [
 	"status",
 ] as const;
 
-const TOOL_ALIASES: Readonly<Partial<Record<string, string>>> = Object.freeze({
-	apply_patch: "edit",
-});
+// Null prototype: direct index of collision keys (constructor/toString/…) must
+// yield undefined even for callers that bypass normalizeToolName. Object.hasOwn
+// guards on the accessors are belt-and-braces at the untrusted-host boundary.
+export const TOOL_ALIASES: Readonly<Partial<Record<string, string>>> =
+	Object.freeze(
+		Object.assign(Object.create(null), {
+			apply_patch: "edit",
+		}) as Partial<Record<string, string>>,
+	);
 
 function pathValue(
 	value: Record<string, unknown>,
@@ -466,157 +472,161 @@ function presentationRule(
  * Keys are canonical underscore names only; aliases resolve through
  * `normalizeToolName`. Lookups that miss return `undefined` — never an
  * implicit compact rule.
+ * Null prototype: exported table indexing must not inherit Object.prototype.
+ * Accessors still use Object.hasOwn as defence in depth for untrusted host input.
  */
 export const TOOL_RULES: Readonly<
 	Partial<Record<string, ToolPresentationRule>>
-> = Object.freeze({
-	read: presentationRule(
-		"read-group",
-		"none",
-		READ_ARGS,
-		READ_DETAILS,
-		describeRead,
-	),
-	bash: presentationRule(
-		"compact",
-		"git-bash",
-		BASH_ARGS,
-		BASH_DETAILS,
-		describeBash,
-		resultMetaBash,
-	),
-	write: presentationRule(
-		"compact",
-		"write",
-		WRITE_ARGS,
-		WRITE_DETAILS,
-		describeWrite,
-	),
-	edit: presentationRule(
-		"compact",
-		"edit",
-		EDIT_ARGS,
-		EDIT_DETAILS,
-		describeEdit,
-	),
-	grep: presentationRule(
-		"compact",
-		"none",
-		GREP_ARGS,
-		GREP_DETAILS,
-		describeGrep,
-		resultMetaGrep,
-	),
-	glob: presentationRule(
-		"compact",
-		"none",
-		GLOB_ARGS,
-		GLOB_DETAILS,
-		describeGlob,
-		resultMetaGlob,
-	),
-	hub: presentationRule(
-		"compact",
-		"none",
-		HUB_ARGS,
-		HUB_DETAILS,
-		genericDescribe("hub"),
-	),
-	todo: presentationRule(
-		"compact",
-		"none",
-		TODO_ARGS,
-		TODO_DETAILS,
-		genericDescribe("todo"),
-	),
-	eval: presentationRule(
-		"compact",
-		"none",
-		EVAL_ARGS,
-		EVAL_DETAILS,
-		genericDescribe("eval"),
-	),
-	yield: presentationRule(
-		"compact",
-		"none",
-		YIELD_ARGS,
-		YIELD_DETAILS,
-		genericDescribe("yield"),
-	),
-	hus: presentationRule("compact", "none", [], [], genericDescribe("hus")),
-	web_search: presentationRule(
-		"compact",
-		"none",
-		WEB_SEARCH_ARGS,
-		[],
-		genericDescribe("web_search"),
-	),
-	ast_grep: presentationRule(
-		"compact",
-		"none",
-		AST_GREP_ARGS,
-		[],
-		describeAstGrep,
-	),
-	ast_edit: presentationRule(
-		"compact",
-		"none",
-		AST_EDIT_ARGS,
-		[],
-		describeAstEdit,
-	),
-	inspect_image: presentationRule(
-		"compact",
-		"none",
-		INSPECT_IMAGE_ARGS,
-		[],
-		describeInspectImage,
-	),
-	browser: presentationRule(
-		"compact",
-		"none",
-		BROWSER_ARGS,
-		BROWSER_DETAILS,
-		describeBrowser,
-		undefined,
-		true,
-	),
-	ask: presentationRule(
-		"native-live",
-		"none",
-		ASK_ARGS,
-		ASK_DETAILS,
-		genericDescribe("ask"),
-	),
-	resolve: presentationRule(
-		"compact",
-		"none",
-		RESOLUTION_ARGS,
-		RESOLUTION_DETAILS,
-		(args) => describeResolution("resolve", "#A4D734", args),
-		resultMetaResolution,
-		true,
-	),
-	reject: presentationRule(
-		"compact",
-		"none",
-		RESOLUTION_ARGS,
-		RESOLUTION_DETAILS,
-		(args) => describeResolution("reject", "#A1471A", args),
-		resultMetaResolution,
-		true,
-	),
-	computer: presentationRule(
-		"compact",
-		"none",
-		COMPUTER_ARGS,
-		COMPUTER_DETAILS,
-		describeComputer,
-		undefined,
-		true,
-	),
-	task: presentationRule("compact", "none", [], [], genericDescribe("task")),
-});
+> = Object.freeze(
+	Object.assign(Object.create(null), {
+		read: presentationRule(
+			"read-group",
+			"none",
+			READ_ARGS,
+			READ_DETAILS,
+			describeRead,
+		),
+		bash: presentationRule(
+			"compact",
+			"git-bash",
+			BASH_ARGS,
+			BASH_DETAILS,
+			describeBash,
+			resultMetaBash,
+		),
+		write: presentationRule(
+			"compact",
+			"write",
+			WRITE_ARGS,
+			WRITE_DETAILS,
+			describeWrite,
+		),
+		edit: presentationRule(
+			"compact",
+			"edit",
+			EDIT_ARGS,
+			EDIT_DETAILS,
+			describeEdit,
+		),
+		grep: presentationRule(
+			"compact",
+			"none",
+			GREP_ARGS,
+			GREP_DETAILS,
+			describeGrep,
+			resultMetaGrep,
+		),
+		glob: presentationRule(
+			"compact",
+			"none",
+			GLOB_ARGS,
+			GLOB_DETAILS,
+			describeGlob,
+			resultMetaGlob,
+		),
+		hub: presentationRule(
+			"compact",
+			"none",
+			HUB_ARGS,
+			HUB_DETAILS,
+			genericDescribe("hub"),
+		),
+		todo: presentationRule(
+			"compact",
+			"none",
+			TODO_ARGS,
+			TODO_DETAILS,
+			genericDescribe("todo"),
+		),
+		eval: presentationRule(
+			"compact",
+			"none",
+			EVAL_ARGS,
+			EVAL_DETAILS,
+			genericDescribe("eval"),
+		),
+		yield: presentationRule(
+			"compact",
+			"none",
+			YIELD_ARGS,
+			YIELD_DETAILS,
+			genericDescribe("yield"),
+		),
+		hus: presentationRule("compact", "none", [], [], genericDescribe("hus")),
+		web_search: presentationRule(
+			"compact",
+			"none",
+			WEB_SEARCH_ARGS,
+			[],
+			genericDescribe("web_search"),
+		),
+		ast_grep: presentationRule(
+			"compact",
+			"none",
+			AST_GREP_ARGS,
+			[],
+			describeAstGrep,
+		),
+		ast_edit: presentationRule(
+			"compact",
+			"none",
+			AST_EDIT_ARGS,
+			[],
+			describeAstEdit,
+		),
+		inspect_image: presentationRule(
+			"compact",
+			"none",
+			INSPECT_IMAGE_ARGS,
+			[],
+			describeInspectImage,
+		),
+		browser: presentationRule(
+			"compact",
+			"none",
+			BROWSER_ARGS,
+			BROWSER_DETAILS,
+			describeBrowser,
+			undefined,
+			true,
+		),
+		ask: presentationRule(
+			"native-live",
+			"none",
+			ASK_ARGS,
+			ASK_DETAILS,
+			genericDescribe("ask"),
+		),
+		resolve: presentationRule(
+			"compact",
+			"none",
+			RESOLUTION_ARGS,
+			RESOLUTION_DETAILS,
+			(args) => describeResolution("resolve", "#A4D734", args),
+			resultMetaResolution,
+			true,
+		),
+		reject: presentationRule(
+			"compact",
+			"none",
+			RESOLUTION_ARGS,
+			RESOLUTION_DETAILS,
+			(args) => describeResolution("reject", "#A1471A", args),
+			resultMetaResolution,
+			true,
+		),
+		computer: presentationRule(
+			"compact",
+			"none",
+			COMPUTER_ARGS,
+			COMPUTER_DETAILS,
+			describeComputer,
+			undefined,
+			true,
+		),
+		task: presentationRule("compact", "none", [], [], genericDescribe("task")),
+	}) as Partial<Record<string, ToolPresentationRule>>,
+);
 
 /**
  * Canonical spelling of a tool name: hyphen aliases map to their underscore
@@ -625,8 +635,10 @@ export const TOOL_RULES: Readonly<
  */
 export function normalizeToolName(name: string): string {
 	const normalized = name.replaceAll("-", "_");
-	// Own-property only: `TOOL_ALIASES[normalized] ?? …` would return
-	// Object.prototype members (constructor/toString/…) for collision names.
+	// Own-property only (belt-and-braces): tables are null-prototype, so bare
+	// index already yields undefined for collision keys. Object.hasOwn remains
+	// at the untrusted-host boundary in case a future edit reintroduces a
+	// prototype-bearing table without updating the accessors.
 	return Object.hasOwn(TOOL_ALIASES, normalized)
 		? (TOOL_ALIASES[normalized] as string)
 		: normalized;
@@ -641,9 +653,7 @@ export function resolveToolRule(
 	name: string,
 ): ToolPresentationRule | undefined {
 	const key = normalizeToolName(name);
-	// Own-property only: bare index can inherit Object.prototype functions.
-	// The previous `?? undefined` only hid collisions because normalizeToolName
-	// itself returned a non-string key for those names.
+	// Own-property only (belt-and-braces): see normalizeToolName.
 	return Object.hasOwn(TOOL_RULES, key) ? TOOL_RULES[key] : undefined;
 }
 

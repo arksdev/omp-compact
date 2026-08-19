@@ -5,6 +5,7 @@ import {
 	describeTool,
 	normalizeToolName,
 	resolveToolRule,
+	TOOL_ALIASES,
 	TOOL_RULES,
 	type ToolAuditKind,
 	type ToolRoute,
@@ -194,6 +195,28 @@ describe("explicit unknown lookup", () => {
 			expect(resolveToolRule(name), name).toBeUndefined();
 			expect(describeTool(name, {}), name).toBeUndefined();
 		}
+	});
+
+	test("direct registry index of prototype collision keys is undefined", () => {
+		// Residual hazard after accessor-only guards: exported tables that still
+		// inherit Object.prototype make TOOL_RULES["constructor"] a function.
+		const collisions = [
+			"constructor",
+			"toString",
+			"__proto__",
+			"hasOwnProperty",
+		] as const;
+		for (const key of collisions) {
+			expect(TOOL_RULES[key], `TOOL_RULES[${key}]`).toBeUndefined();
+			expect(TOOL_ALIASES[key], `TOOL_ALIASES[${key}]`).toBeUndefined();
+		}
+	});
+
+	test("registries are null-prototype so collision keys cannot reappear", () => {
+		// Locks the table shape itself: reverting to a plain object literal fails
+		// even if Object.hasOwn guards remain on the accessors.
+		expect(Object.getPrototypeOf(TOOL_RULES)).toBeNull();
+		expect(Object.getPrototypeOf(TOOL_ALIASES)).toBeNull();
 	});
 });
 
