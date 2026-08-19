@@ -143,6 +143,7 @@ function fakeReadGroup(): ReadGroupComponent {
 interface FakeTranscript {
 	children: unknown[];
 	addChild(child: unknown): void;
+	clear(): void;
 	render(width: number): readonly string[];
 	renderViewportTail(width: number, maxRows: number): readonly string[];
 	isBlockUncommitted(component: unknown): boolean;
@@ -155,6 +156,9 @@ function fakeTranscript(): FakeTranscript {
 		children,
 		addChild(child: unknown) {
 			children.push(child);
+		},
+		clear() {
+			children.length = 0;
 		},
 		render(width: number) {
 			const rows: string[] = [];
@@ -1147,6 +1151,124 @@ describe("runtime adapter: unpatchable read-group capability skew", () => {
 		expect(() => booted.transcript.addChild(after)).not.toThrow();
 		expect(booted.transcript.children).toContain(after);
 		expect(() => booted.transcript.render(120)).not.toThrow();
+	});
+});
+
+describe("runtime adapter: mid-session rollback notifies the owner", () => {
+	// Host-invariant #rollback disposes the adapter in place. index.ts must
+	// learn about that death: otherwise ensureAdapter keeps handing out the
+	// disposed instance (zombie) for the rest of the session. Reinstall is
+	// deliberately NOT offered here — multiple transcripts / unpatchable
+	// core / settle throws are host-shape faults that almost certainly
+	// recur immediately, so a clean reinstall would warn/rollback-loop.
+	// Session-terminal disable (clear handle + stay native until dispose
+	// boundary) is the only option that cannot spin.
+	test("rollback fires onDisabled once; plain dispose does not", () => {
+		const warned: string[] = [];
+		const disabled: string[] = [];
+		const root: { children: unknown[]; addChild(child: unknown): void } = {
+			children: [],
+			addChild() {},
+		};
+		const adapter = new adapterModule.RuntimeAdapter({
+			root,
+			ui: {
+				theme: fakeTheme(),
+				setWidget() {},
+				requestRender() {},
+				requestComponentRender() {},
+				getToolsExpanded: () => false,
+			},
+			timers: {
+				setInterval: () => 1,
+				clearTimer: () => {},
+			},
+			warn: (message: string) => warned.push(message),
+			onDisabled: () => disabled.push("disabled"),
+		});
+		expect(adapter.install()).toBe(true);
+		// Plain dispose is an intentional teardown (session boundary /
+		// settings disable) — not a host-invariant failure.
+		const idle = new adapterModule.RuntimeAdapter({
+			root: fakeTranscript(),
+			ui: {
+				theme: fakeTheme(),
+				setWidget() {},
+				requestRender() {},
+				requestComponentRender() {},
+				getToolsExpanded: () => false,
+			},
+			onDisabled: () => disabled.push("idle-dispose"),
+		});
+		expect(idle.install()).toBe(true);
+		expect(() => idle.dispose()).not.toThrow();
+		expect(disabled).toEqual([]);
+
+		// Mid-session host-invariant failure: unpatchable read group.
+		adapter.beginRun();
+		const transcript = fakeTranscript();
+		transcript.children.push(Object.freeze(fakeReadGroup()));
+		root.children.push(transcript);
+		expect(() =>
+			adapter.startTool({ toolCallId: "r1", toolName: "read", args: {} }),
+		).not.toThrow();
+		expect(warned).toHaveLength(1);
+		expect(warned[0]).toContain("omp-compact disabled");
+		expect(disabled).toEqual(["disabled"]);
+		// Further events stay quiet and never re-enter a live adapter.
+		expect(() =>
+			adapter.startTool({ toolCallId: "r2", toolName: "read", args: {} }),
+		).not.toThrow();
+		expect(disabled).toEqual(["disabled"]);
+		expect(warned).toHaveLength(1);
+		expect(() => adapter.dispose()).not.toThrow();
+		expect(disabled).toEqual(["disabled"]);
+	});
+
+	test("a throwing presentation settle rolls back and notifies onDisabled", async () => {
+		const warned: string[] = [];
+		const disabled: string[] = [];
+		const transcript = fakeTranscript();
+		const adapter = new adapterModule.RuntimeAdapter({
+			root: transcript,
+			ui: {
+				theme: fakeTheme(),
+				setWidget() {},
+				requestRender() {},
+				requestComponentRender() {},
+				getToolsExpanded: () => false,
+			},
+			timers: {
+				setInterval: () => 1,
+				clearTimer: () => {},
+			},
+			// Force #settlePresentation's try body to throw after a rebuild
+			// boundary (transcript clear). Host-invariant: session-terminal.
+			getBranch: () => {
+				throw new Error("settle boom");
+			},
+			warn: (message: string) => warned.push(message),
+			onDisabled: () => disabled.push("disabled"),
+		});
+		expect(adapter.install()).toBe(true);
+		adapter.beginRun();
+		// Exact transcript clear is the rebuild boundary; the generation
+		// microtask settles and must contain the throw.
+		expect(() => transcript.clear()).not.toThrow();
+		await Promise.resolve();
+		expect(warned.some((message) => message.includes("settle boom"))).toBe(
+			true,
+		);
+		expect(disabled).toEqual(["disabled"]);
+		// Dead adapter: further events neither throw nor warn again.
+		expect(() =>
+			adapter.startTool({
+				toolCallId: "after",
+				toolName: "bash",
+				args: { command: "printf after" },
+			}),
+		).not.toThrow();
+		expect(disabled).toEqual(["disabled"]);
 	});
 });
 

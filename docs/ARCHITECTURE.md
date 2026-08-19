@@ -254,6 +254,13 @@ export async function completeWriteCandidate(
 
 **Fallback:** Missing candidate, path mismatch, identical bytes, or over-budget diffs yield no mutation entries (`[]`); rows are not retained on invented stats.
 
+**Path confinement (POSIX-only):** Pre-image reads and config-path acceptance
+share one predicate (`path-inside-root.ts` `isPathInsideRoot`). Both sides must
+be `/`-absolute; segment-exact prefix checks reject `/foo/barbaz` under
+`/foo/bar`. Windows-style absolutes fail closed (no overwrite evidence; config
+path rejected) — the plugin does not implement Windows path semantics.
+
+
 ### Edit Verification (audit-diff.ts)
 
 ```typescript
@@ -508,13 +515,16 @@ Host-invariant failures still trigger complete rollback:
     } catch {}
 
     this.dispose(); // Remove all patches, clear state
+    this.#onDisabled?.(); // index clears handle + marks session native
 }
 ```
 
 **Error sources (session-wide `#rollback`):**
 - Incompatible TUI shape / unpatchable core surface
 - Multiple transcript containers
-- Unexpected host exception during discovery/patch
+- Unexpected host exception during discovery/patch / presentation settle
+
+**Owner policy:** mid-session `#rollback` is **session-terminal**. The adapter fires `onDisabled` once after `dispose()`; `index.ts` drops its live handle and sets `adapterDisabled`. A dead adapter is never handed to event handlers, and the runtime does **not** reinstall until a session boundary (`session_before_switch` / `session_shutdown` → `dispose` resets the flags). Reinstall is refused because host-invariant causes almost certainly recur immediately — an unbounded retry would warn/rollback-loop on every event, which is worse than staying native.
 
 **Error sources (per-component quarantine):**
 - Ambiguous provisional→real toolCallId migration

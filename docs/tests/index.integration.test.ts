@@ -3561,7 +3561,6 @@ stockTest(
 	},
 );
 
-
 stockTest(
 	"compound Git Bash calls leave one aggregate commit summary after the answer",
 	async () => {

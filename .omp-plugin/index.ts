@@ -337,6 +337,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		if (!modePolicy.enabled) return undefined;
 		if (adapterDisabled) return undefined;
 		if (adapter) return adapter;
+		// Mid-session host-invariant rollback clears `adapter` via onDisabled
+		// and sets adapterDisabled; the check above already covers that path.
 		// AdapterFailOpenFix: host-probe capture, adapter construction, and
 		// install run as one transaction. Any exception (a throwing setWidget
 		// probe, a failing host getter, an install fault) must never escape
@@ -458,6 +460,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					typeof notify === "function"
 						? (message) => notify.call(context.ui, message, "warning")
 						: undefined,
+				// Host-invariant mid-session rollback: drop the live handle and
+				// stay native until a session boundary. Reinstall is deliberately
+				// refused — multiple transcripts / unpatchable core / settle
+				// throws almost certainly recur immediately, and an unbounded
+				// retry would warn/rollback-loop on every event.
+				onDisabled: () => {
+					adapter = undefined;
+					adapterDisabled = true;
+				},
 			});
 			if (!candidate.install()) {
 				adapterDisabled = true;
