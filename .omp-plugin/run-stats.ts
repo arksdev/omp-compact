@@ -389,10 +389,12 @@ export class RunStats {
 	}
 
 	/**
-	 * Observe one finalized assistant completion (message_update `done`/
-	 * `error` payloads only — never partial deltas). Each unique completion
-	 * with a structural usage record is aggregated once, regardless of how
-	 * many tool calls it carries; completions without one are ignored.
+	 * RunStats: observe one finalized assistant completion from stock
+	 * `message_end` only — never partial `message_update` deltas (those
+	 * feed RuntimeAdapter.observeAssistantMessage for presentation).
+	 * Each unique completion with a structural usage record is aggregated
+	 * once, regardless of how many tool calls it carries; completions
+	 * without one are ignored.
 	 */
 	observeAssistantMessage(message: unknown): void {
 		if (this.#state !== "running") return;
