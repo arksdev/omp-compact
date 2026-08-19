@@ -568,9 +568,15 @@ export class AuditLifecycle {
 	}
 
 	/**
-	 * Wait for state change or timeout, whichever comes first. Waiters are
-	 * removed from the queue on completion to prevent memory accumulation in
-	 * long-lived sessions with frequent drain cycles.
+	 * Wait for state change or timeout, whichever comes first.
+	 *
+	 * On early settle (change wins), `finish` dequeues itself from
+	 * `#changeWaiters` so the waiter queue never accumulates across drains.
+	 * The injectable `sleep` seam is intentionally cancel-free
+	 * (`(ms) => Promise<void>`): the underlying timer is left to expire and
+	 * resolves into an already-`done` `finish` that is a no-op. Bound: at most
+	 * one pending timer per drain, cleared within `barrierMs`. Do not widen
+	 * the seam to cancel that timer — the cost is bounded, not a leak.
 	 */
 	#waitForChangeOrTimeout(ms: number): Promise<void> {
 		return new Promise((resolve) => {
