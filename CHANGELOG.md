@@ -8,13 +8,50 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-19
+
+### Fixed
+
+- Restored compact presentation after committed `/tree` and `/branch` navigation by arming the session_tree / session_branch restore path so rebuilt history keeps compact tool rows.
+- После зафиксированной навигации `/tree` и `/branch` компактное представление восстанавливается: путь session_tree / session_branch вооружает restore, и пересобранная история сохраняет компактные строки инструментов.
+- LLM compaction and collapsed-transcript rebuild keep history on the compact surface via suffix-bind of the rebuilt ledger instead of falling back to native cards.
+- Компактация LLM и пересборка свёрнутого транскрипта удерживают историю на компактной поверхности за счёт suffix-bind пересобранного леджера вместо отката к нативным карточкам.
+- Unbound non-read tools rebind on host rebuild through `updateResult` `toolCallId`, so post-shake native cards return to compact rows when the host rehydrates results.
+- Непривязанные non-read инструменты повторно связываются при пересборке хоста через `toolCallId` в `updateResult`, поэтому нативные карточки после shake снова становятся компактными строками при регидрации результатов.
+- Write-audit hardening: open pre-image and post-image with `O_NOFOLLOW` on the authorized/canonical path, confine pre-image reads to the live session cwd, release pre-images after publish or abandon, and probe symlink destinations without a content read.
+- Укрепление write-audit: pre-image и post-image открываются с `O_NOFOLLOW` на authorized/canonical пути, чтение pre-image ограничено живым cwd сессии, pre-image освобождается после publish или abandon, а symlink-цели зондируются без чтения содержимого.
+- ModePolicy ignores stale loads after dispose so a disposed policy cannot re-arm presentation from an outdated generation.
+- ModePolicy игнорирует устаревшие load после dispose, поэтому disposed-политика не может снова включить представление из устаревшего generation.
+- Config subscriber throws are isolated after commit; threshold paste rejects non-digits and parses strictly; settings focus stays on a stable row id across list rebuilds.
+- Исключения подписчиков конфига изолируются после commit; вставка threshold отклоняет нецифровые символы и парсится строго; фокус настроек удерживается на стабильном id строки при пересборке списка.
+- Host-settings apply rolls back on mutation-phase `set` failure, serializes concurrent applies per target, and keeps the host-invariant latch across settings toggle so a failed or overlapping save cannot diverge host and plugin state.
+- Применение host-settings откатывается при сбое `set` на mutation-phase, сериализует параллельные apply по цели и удерживает latch host-инварианта при переключении настроек, поэтому неудачное или перекрывающееся сохранение не рассогласовывает host и plugin.
+- RunStats message identity keys on responseId / provider / model / content digest so colliding assistant payloads never silently under-count usage.
+- Идентичность сообщений RunStats строится на responseId / provider / model / дайджесте содержимого, поэтому совпадающие assistant-payload'ы больше не занижают usage молча.
+- Compact one-liners cover rule inject, todo reminder (ordinary tool bullet + yellow warning), user `!bash` / `$python`, skill, and late-diagnostics cards.
+- Компактные однострочники охватывают rule inject, todo reminder (обычный tool-bullet + жёлтое предупреждение), пользовательские `!bash` / `$python`, skill и late-diagnostics карточки.
+- Tool presentation registries and name lookups use null-prototype maps; mutation rows fit terminal width without clipping stats; silent audit and decorative failures warn once.
+- Реестры presentation инструментов и lookup имён используют null-prototype maps; строки мутаций подгоняются под ширину терминала без обрезки статистики; тихие сбои audit и decorative-патчей предупреждают один раз.
+- Adapter bring-up, mid-session dispose/rollback, spinner pause while idle, and deferred-drain acceptance of late `tool_execution_end` are hardened so partial visuals settle cleanly and failed bring-up exits uniformly.
+- Укреплены bring-up адаптера, mid-session dispose/rollback, пауза spinner при простое и приём late `tool_execution_end` во время deferred-drain, чтобы частичная визуализация завершалась корректно, а неудачный bring-up завершался единообразно.
+
 ### Changed
 
+- Moved the pinned development and release-gate host to stock OMP 17.3.8 while retaining the public `engines.omp >=17.2.12` compatibility floor; the stock capability canary asserts the pin only after constructing host components so a version mismatch cannot skip seam probes.
+- Закреплённый development/release host переведён на штатный OMP 17.3.8 при сохранении публичного порога совместимости `engines.omp >=17.2.12`; stock capability canary проверяет pin только после создания host-компонентов, чтобы несовпадение версии не пропускало проверки seam'ов.
 - The Russian README is now the repository default (`README.md`); the English version moved to `README.en.md` and is linked from the language navigation.
 - README на русском теперь является основным в репозитории (`README.md`); английская версия переехала в `README.en.md` и доступна по ссылке в языковой навигации.
+- Enabled TypeScript `noUncheckedIndexedAccess` and shared small helpers (`objectRecord`, chain walk, descriptor-patch scaffolding, path-inside-root, line fit) without behaviour change.
+- Включён TypeScript `noUncheckedIndexedAccess` и вынесены общие мелкие хелперы (`objectRecord`, обход цепочки, scaffolding descriptor-patch, path-inside-root, подгонка строк) без изменения поведения.
+- Documented measured `#states` memory retention figures in ARCHITECTURE.
+- В ARCHITECTURE зафиксированы измеренные показатели удержания памяти `#states`.
 
-- Moved the pinned development and release-gate host to stock OMP 17.3.8 while retaining the public `>=17.2.12` compatibility floor; the stock capability canary now asserts the pin only after constructing host components so a version mismatch cannot skip seam probes.
-- Закреплённый development/release host переведён на штатный OMP 17.3.8 при сохранении публичного порога совместимости `>=17.2.12`; stock capability canary теперь проверяет pin только после создания host-компонентов, чтобы несовпадение версии не пропускало проверки seam'ов.
+### Verified
+
+- Stock OMP 17.3.8 release gate: 1175 tests, 0 failures, and 6546 assertions across 28 files.
+- Проверка релиза на штатном OMP 17.3.8: 1175 тестов, 0 ошибок и 6546 утверждений в 28 файлах.
+- Strict TypeScript, Biome lint/format, and Marketplace metadata sync checks.
+- Пройдены строгая проверка TypeScript, lint и format Biome, а также синхронизация метаданных Marketplace.
 
 ## [1.0.4] - 2026-08-17
 
@@ -169,7 +206,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - A future incompatible host shape rolls back the presentation adapter, leaves native rendering active, and should be reported with the exact OMP version and reproduction.
 - При будущей несовместимой форме хоста адаптер представления откатывается, оставляет активным нативный рендеринг; о таком случае следует сообщить с точной версией OMP и сценарием воспроизведения.
 
-[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/arksdev/omp-compact/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/arksdev/omp-compact/compare/v1.0.4...v1.1.0
 [1.0.4]: https://github.com/arksdev/omp-compact/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/arksdev/omp-compact/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/arksdev/omp-compact/compare/v1.0.1...v1.0.2

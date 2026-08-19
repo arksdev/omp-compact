@@ -66,13 +66,13 @@ describe("marketplace catalog", () => {
 		);
 	});
 
-	test("current patch release metadata is synchronized", async () => {
-		expect(pkg.version).toBe("1.0.4");
-		expect(catalog.plugins[0]?.version).toBe("1.0.4");
+	test("current minor release metadata is synchronized", async () => {
+		expect(pkg.version).toBe("1.1.0");
+		expect(catalog.plugins[0]?.version).toBe("1.1.0");
 		const changelog = await Bun.file(join(repoRoot, "CHANGELOG.md")).text();
-		expect(changelog).toContain("## [1.0.4] - 2026-08-17");
+		expect(changelog).toContain("## [1.1.0] - 2026-08-19");
 		expect(changelog).toContain(
-			"[1.0.4]: https://github.com/arksdev/omp-compact/compare/v1.0.3...v1.0.4",
+			"[1.1.0]: https://github.com/arksdev/omp-compact/compare/v1.0.4...v1.1.0",
 		);
 	});
 });
