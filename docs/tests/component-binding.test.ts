@@ -1658,6 +1658,65 @@ describe("ComponentBinding: bindByObservedId collision hardening", () => {
 		expect(binding.mappedReadStates(group)).toEqual([first, second]);
 	});
 
+	test("mappedReadStates sees bindByObservedId claims without a version bump", () => {
+		// bindByObservedId claims state.component without group.version++.
+		// A memo keyed only on group.version would go stale here and drop
+		// the newly adopted read from every subsequent frame.
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		const first = makeState({ id: "read-1", toolName: "read" });
+		states.set("read-1", first);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/a" },
+			"read-1",
+		]);
+		// Host-first: observe the second id before its state exists.
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/b" },
+			"read-2",
+		]);
+		// Warm any version-keyed memo before the silent claim.
+		expect(binding.mappedReadStates(group)).toEqual([first]);
+		const versionAfterObserve = group.version;
+		const second = makeState({
+			id: "read-2",
+			toolName: "read",
+			ledger: first.ledger,
+			// Higher seq than first so chronological order is unambiguous.
+			seq: first.seq + 10,
+		});
+		states.set("read-2", second);
+		expect(binding.bindByObservedId("read-2", second)).toBe("bound");
+		expect(group.version).toBe(versionAfterObserve);
+		expect(binding.mappedReadStates(group)).toEqual([first, second]);
+	});
+
+	test("mappedReadStates orders by seq even when observe order differs", () => {
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		// Force creation-sequence order opposite to observe order via seq.
+		const later = makeState({ id: "read-later", toolName: "read", seq: 2 });
+		const earlier = makeState({
+			id: "read-earlier",
+			toolName: "read",
+			ledger: later.ledger,
+			seq: 1,
+		});
+		states.set("read-later", later);
+		states.set("read-earlier", earlier);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/later" },
+			"read-later",
+		]);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/earlier" },
+			"read-earlier",
+		]);
+		expect(binding.mappedReadStates(group)).toEqual([earlier, later]);
+	});
+
 	test("a provisional empty-string id adopts per the existing contract", () => {
 		const { binding, states } = makeBinding();
 		const groupComponent = new FakeReadGroup();

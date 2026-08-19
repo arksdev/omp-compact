@@ -776,11 +776,21 @@ export class ComponentBinding {
 	 * Read rows are built from the mapped ToolState of this group in
 	 * chronological tool-call order (creation sequence), never from native
 	 * presentation text or the order of `updateArgs` calls.
+	 *
+	 * Iterates the group's observed ids (O(entries in this group)), not the
+	 * session-wide `#states` map. A version-only memo is intentionally not
+	 * used: `bindByObservedId` claims `state.component` without bumping
+	 * `group.version`, so a memo keyed only on version would go stale and
+	 * drop newly adopted reads from subsequent frames. Invalidating on
+	 * every `#states` mutation would need more bookkeeping than this scan.
 	 */
 	mappedReadStates(group: GroupState): ToolState[] {
 		const states: ToolState[] = [];
-		for (const state of this.#states.values()) {
-			if (state.toolName !== "read" || state.component !== group.component)
+		for (const id of group.observedIds) {
+			const state = this.#states.get(id);
+			// Same membership as the full-map scan: typed read claimed by
+			// this group's component. Missing ids stay out (native gate).
+			if (state?.toolName !== "read" || state.component !== group.component)
 				continue;
 			states.push(state);
 		}
