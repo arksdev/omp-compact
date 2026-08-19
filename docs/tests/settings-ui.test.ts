@@ -257,6 +257,36 @@ describe("keyboard navigation", () => {
 		expect(dialog.current.stats.actions).toBe(true);
 	});
 
+	test("focus stays on the same row when stats children collapse under it", () => {
+		const { dialog } = makeDialog();
+		// Land on a trailing host row while the five stats children are still
+		// focusable (cursor index 13 of 14). Shrinking the focusable set must
+		// not remap that high index onto an unrelated earlier row.
+		focus(dialog, "Thinking blocks");
+		expect(focusedRow(dialog)).toContain("Thinking blocks");
+		// Collapse via the draft so the focusable set shrinks without move()
+		// rewriting the cursor — the same length change activate() causes when
+		// the stats parent is toggled, isolated from navigation side effects.
+		dialog.current.stats.enabled = false;
+		expect(focusedRow(dialog)).toContain("Thinking blocks");
+		// Re-expanding must still leave focus on Thinking blocks by id.
+		dialog.current.stats.enabled = true;
+		expect(focusedRow(dialog)).toContain("Thinking blocks");
+	});
+
+	test("focus on a stats child retreats to the parent when children collapse", () => {
+		const { dialog } = makeDialog();
+		focus(dialog, "Sent tokens");
+		expect(focusedRow(dialog)).toContain("Sent tokens");
+		dialog.current.stats.enabled = false;
+		// The focused row itself disappeared; land on the toggle that owns the
+		// collapsed subtree rather than an unrelated neighbour.
+		expect(focusedRow(dialog)).toContain("Run statistics");
+		dialog.current.stats.enabled = true;
+		// Id was repaired to the parent and must survive the re-render.
+		expect(focusedRow(dialog)).toContain("Run statistics");
+	});
+
 	test("toggling a stats child flips the real draft field", () => {
 		const { dialog } = makeDialog();
 		focus(dialog, "Actions");

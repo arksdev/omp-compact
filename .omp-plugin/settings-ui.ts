@@ -566,7 +566,8 @@ export class SettingsDialog implements ComponentLike {
 	private readonly draft: CompactSettings;
 	/** False when no verified live host settings instance exists. */
 	private readonly hostAvailable: boolean;
-	private cursor = 0;
+	/** Stable id of the focused row; resolved against the live focusable set. */
+	private focusedId = "enabled";
 	private editing = false;
 	private editBuffer = "";
 	private error = "";
@@ -781,16 +782,50 @@ export class SettingsDialog implements ComponentLike {
 		return this.buildRows().filter((row) => row.focusable);
 	}
 
+	/**
+	 * Resolve `focusedId` against the current focusable rows. When the id is
+	 * still present it wins. When the focused row itself has disappeared
+	 * (stats children collapsing under their parent), walk the full row order
+	 * backwards for the nearest still-focusable ancestor/neighbour — for the
+	 * stats subtree that is the "Run statistics" toggle — and repair the
+	 * stored id so the next render keeps it. Falls forward, then to the first
+	 * focusable row, only if nothing earlier survives.
+	 */
+	private resolveFocusIndex(focusable: readonly Row[]): number {
+		if (focusable.length === 0) return -1;
+		const current = focusable.findIndex((row) => row.id === this.focusedId);
+		if (current >= 0) return current;
+
+		const all = this.buildRows();
+		const lostAt = all.findIndex((row) => row.id === this.focusedId);
+		const adopt = (row: Row): number => {
+			this.focusedId = row.id;
+			return focusable.findIndex((candidate) => candidate.id === row.id);
+		};
+		if (lostAt >= 0) {
+			for (let index = lostAt - 1; index >= 0; index--) {
+				if (all[index].focusable) return adopt(all[index]);
+			}
+			for (let index = lostAt + 1; index < all.length; index++) {
+				if (all[index].focusable) return adopt(all[index]);
+			}
+		}
+		this.focusedId = focusable[0].id;
+		return 0;
+	}
+
 	private focusedRow(): Row | undefined {
 		const rows = this.focusableRows();
-		if (rows.length === 0) return undefined;
-		return rows[this.cursor % rows.length];
+		const index = this.resolveFocusIndex(rows);
+		return index >= 0 ? rows[index] : undefined;
 	}
 
 	private move(delta: number): void {
 		const rows = this.focusableRows();
 		if (rows.length === 0) return;
-		this.cursor = (this.cursor + delta + rows.length) % rows.length;
+		const index = this.resolveFocusIndex(rows);
+		const next = (index + delta + rows.length) % rows.length;
+		this.focusedId = rows[next].id;
 		this.error = "";
 	}
 
@@ -1007,8 +1042,9 @@ export class SettingsDialog implements ComponentLike {
 		const theme = this.deps.theme;
 		const rows = this.buildRows();
 		const focusable = rows.filter((row) => row.focusable);
+		const focusedIndex = this.resolveFocusIndex(focusable);
 		const focusedId =
-			focusable[this.cursor % Math.max(focusable.length, 1)]?.id;
+			focusedIndex >= 0 ? focusable[focusedIndex]?.id : undefined;
 
 		const lines: string[] = [];
 		// Line index of the focused row, so the viewport can keep the row the
