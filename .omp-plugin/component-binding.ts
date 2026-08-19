@@ -588,10 +588,13 @@ export class ComponentBinding {
 
 	/**
 	 * Tool component method observation (runs before the native method).
-	 * Exact-ID binding through `updateArgs`, provisional-ID migration, and
-	 * result/partial/expanded state tracking. Returns the significant
-	 * status; the caller maps `ambiguous` to per-component native
-	 * quarantine (not session-wide rollback).
+	 * Exact-ID binding through `updateArgs`, provisional-ID migration,
+	 * first-time exact-ID binding through `updateResult`'s toolCallId when
+	 * the component is still unbound (stock rebuild reconstructs tool cards
+	 * without replaying `updateArgs(args, id)`), and result/partial/expanded
+	 * state tracking. Returns the significant status; the caller maps
+	 * `ambiguous` to per-component native quarantine (not session-wide
+	 * rollback).
 	 */
 	observeToolMethod(
 		component: RenderableBlock,
@@ -628,6 +631,24 @@ export class ComponentBinding {
 						state.args = updateArgsPayload(args);
 						state.version++;
 					}
+				}
+			}
+		} else if (
+			name === "updateResult" &&
+			!this.#componentStates.has(component)
+		) {
+			// Host rebuild path: ToolExecutionComponent is constructed with a
+			// discarded `_toolCallId` and never gets updateArgs(args, id). Stock
+			// still delivers updateResult(result, isPartial, toolCallId). That
+			// third-arg id is exact ownership for an unbound non-read state —
+			// same conflict rules as updateArgs bind, never migration, never
+			// order. Reads stay on the group path exclusively.
+			const id = updateResultToolCallId(args);
+			if (id) {
+				const candidate = this.#states.get(id);
+				if (candidate && candidate.toolName !== "read") {
+					const bindStatus = this.bind(component, candidate);
+					if (bindStatus !== "bound") return bindStatus;
 				}
 			}
 		}

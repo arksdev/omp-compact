@@ -162,14 +162,14 @@ describe("ComponentBinding: exact-ID binding", () => {
 		expect(binding.componentState(component)).toBeUndefined();
 	});
 
-	test("observeToolMethod updateResult never binds by toolCallId (host rebuild shape)", () => {
+	test("observeToolMethod updateResult binds unbound non-read by toolCallId", () => {
 		// Stock ToolExecutionComponent constructor takes `_toolCallId` but does
 		// not call updateArgs with it. rebuildChatFromMessages reconstructs a
-		// tool card then delivers only updateResult(result, false, toolCallId)
-		// (chat-transcript-builder.ts appendToolResult). Read groups bind
-		// through updateArgs(args, id) / updateResult(..., id); tool cards
-		// must not silently ignore that third-arg id or post-shake non-read
-		// rows stay native unless order pairing later rescues them.
+		// tool card then delivers updateResult(result, false, toolCallId)
+		// (chat-transcript-builder.ts appendToolResult). Intended contract:
+		// that third-arg id is exact ownership evidence — bind when the
+		// component is unbound and the state is an unbound non-read. No
+		// migration, no order guess.
 		const { binding, states } = makeBinding();
 		const component = new FakeToolComponent();
 		const state = makeState({
@@ -189,23 +189,22 @@ describe("ComponentBinding: exact-ID binding", () => {
 				false,
 				"bash-1",
 			]),
-		).toBe("unmapped");
-		expect(binding.componentState(component)).toBeUndefined();
-		expect(state.component).toBeUndefined();
-		expect(state.result).toBeUndefined();
-		expect(binding.unboundComponents()).toEqual([component]);
+		).toBe("bound");
+		expect(binding.componentState(component)).toBe(state);
+		expect(state.component).toBe(component);
+		expect(state.result).toEqual({
+			content: [{ type: "text", text: "[shaken ~12 tokens]" }],
+			isError: false,
+		});
+		expect(state.isPartial).toBe(false);
+		expect(binding.unboundComponents()).toEqual([]);
 	});
 
-	test("post-shake rebuild: read groups bind by observed id; non-reads stay native without order/suffix", () => {
-		// Models host shake("elide") → rebuildChatFromMessages (NOT
-		// session_compact, so collapsedRebuildArmed stays false):
-		// - toolCall args survive elide (only toolResult content is replaced)
-		// - read groups reconstruct with updateArgs(args, id) → exact bind
-		// - non-read ToolExecutionComponents reconstruct without an
-		//   updateArgs(id) delivery; updateResult's toolCallId is ignored
-		// - bindHydrated then needs full-cardinality order or an armed
-		//   suffix permit. A collapsed visible tail (display.collapseCompacted)
-		//   with an unarmed permit is exactly the post-auto-shake shape.
+	test("post-shake rebuild: updateResult-id binds non-reads; reads stay on group path", () => {
+		// Host shake("elide") → rebuildChatFromMessages (NOT session_compact):
+		// toolCall args survive; read groups reconstruct with updateArgs(args, id);
+		// non-read cards reconstruct with updateResult-only. Intended: exact-id
+		// bind on that updateResult for non-reads. Order/suffix still unarmed.
 		const { binding, states } = makeBinding();
 		const readLedger = new TurnLedger("shake-read-run");
 		const readA = makeState({
@@ -240,7 +239,7 @@ describe("ComponentBinding: exact-ID binding", () => {
 			toolName: "eval",
 			args: { code: "1+1", language: "js" },
 		});
-		// Hidden prefix states (collapsed compacted history still on getBranch).
+		// Hidden prefix state (collapsed compacted history still on getBranch).
 		const hiddenBash = makeState({
 			id: "bash-old",
 			toolName: "bash",
@@ -272,7 +271,10 @@ describe("ComponentBinding: exact-ID binding", () => {
 		for (const component of [globC, grepC, bashC, evalC]) {
 			binding.registerUnboundComponent(component);
 		}
-		// Host rebuild delivers updateResult(result, false, id) only — no bind.
+		const shaken = {
+			content: [{ type: "text", text: "[shaken ~8 tokens]" }],
+			isError: false,
+		};
 		for (const [component, id] of [
 			[globC, "glob-1"],
 			[grepC, "grep-1"],
@@ -281,34 +283,182 @@ describe("ComponentBinding: exact-ID binding", () => {
 		] as const) {
 			expect(
 				binding.observeToolMethod(component, "updateResult", [
-					{
-						content: [{ type: "text", text: "[shaken ~8 tokens]" }],
-						isError: false,
-					},
+					shaken,
 					false,
 					id,
 				]),
-			).toBe("unmapped");
+			).toBe("bound");
 		}
 
-		// Shake does not arm collapsedRebuildArmed / restoreOverride.
-		expect(binding.bindHydrated(true, false)).toBe(false);
+		// Order/suffix still unarmed — exact-id already resolved the visible set.
+		expect(binding.bindHydrated(true, false)).toBe(true);
 
-		// Reads survive via exact observed ids.
 		expect(readA.component).toBe(group);
 		expect(readB.component).toBe(group);
 		expect(binding.groupState(group)?.ledger).toBe(readA.ledger);
 
-		// Payload-bearing non-reads stay native — not because args/results
-		// were elided, but because nothing bound the reconstructed cards.
-		expect(glob.component).toBeUndefined();
-		expect(grep.component).toBeUndefined();
-		expect(bash.component).toBeUndefined();
-		expect(ev.component).toBeUndefined();
-		expect(binding.componentState(globC)).toBeUndefined();
-		expect(binding.componentState(grepC)).toBeUndefined();
-		expect(binding.componentState(bashC)).toBeUndefined();
-		expect(binding.componentState(evalC)).toBeUndefined();
+		expect(glob.component).toBe(globC);
+		expect(grep.component).toBe(grepC);
+		expect(bash.component).toBe(bashC);
+		expect(ev.component).toBe(evalC);
+		expect(binding.componentState(globC)).toBe(glob);
+		expect(binding.componentState(grepC)).toBe(grep);
+		expect(binding.componentState(bashC)).toBe(bash);
+		expect(binding.componentState(evalC)).toBe(ev);
+		// Hidden prefix never received a component — stays unbound, not stolen.
+		expect(hiddenBash.component).toBeUndefined();
+	});
+
+	test("updateResult-id: two components claiming the same id stay ambiguous", () => {
+		const { binding, states } = makeBinding();
+		const first = new FakeToolComponent();
+		const second = new FakeToolComponent();
+		const state = makeState({ id: "bash-1", toolName: "bash" });
+		states.set("bash-1", state);
+		expect(
+			binding.observeToolMethod(first, "updateResult", [
+				{ ok: 1 },
+				false,
+				"bash-1",
+			]),
+		).toBe("bound");
+		expect(
+			binding.observeToolMethod(second, "updateResult", [
+				{ ok: 2 },
+				false,
+				"bash-1",
+			]),
+		).toBe("ambiguous");
+		expect(state.component).toBe(first);
+		expect(binding.componentState(first)).toBe(state);
+		expect(binding.componentState(second)).toBeUndefined();
+		// Second never applied its payload.
+		expect(state.result).toEqual({ ok: 1 });
+	});
+
+	test("updateResult-id: successive different ids do not migrate", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const first = makeState({ id: "bash-1", toolName: "bash" });
+		const second = makeState({ id: "bash-2", toolName: "bash" });
+		states.set("bash-1", first);
+		states.set("bash-2", second);
+		expect(
+			binding.observeToolMethod(component, "updateResult", [
+				{ n: 1 },
+				false,
+				"bash-1",
+			]),
+		).toBe("bound");
+		// Already bound: later updateResult with another id is payload-only on
+		// the first binding (no migrateToRealId on this path).
+		expect(
+			binding.observeToolMethod(component, "updateResult", [
+				{ n: 2 },
+				false,
+				"bash-2",
+			]),
+		).toBe("bound");
+		expect(binding.componentState(component)).toBe(first);
+		expect(first.component).toBe(component);
+		expect(second.component).toBeUndefined();
+		expect(first.result).toEqual({ n: 2 });
+		expect(second.result).toBeUndefined();
+	});
+
+	test("updateResult-id: refuses a state already bound to another component", () => {
+		const { binding, states } = makeBinding();
+		const owner = new FakeToolComponent();
+		const other = new FakeToolComponent();
+		const state = makeState({ id: "grep-1", toolName: "grep" });
+		states.set("grep-1", state);
+		binding.bind(owner, state);
+		expect(
+			binding.observeToolMethod(other, "updateResult", [
+				{ stolen: true },
+				false,
+				"grep-1",
+			]),
+		).toBe("ambiguous");
+		expect(state.component).toBe(owner);
+		expect(binding.componentState(other)).toBeUndefined();
+		expect(state.result).toBeUndefined();
+	});
+
+	test("updateResult-id: read state on tool path is refused; group path unaffected", () => {
+		const { binding, states } = makeBinding();
+		const toolCard = new FakeToolComponent();
+		const group = new FakeReadGroup();
+		const groupState = binding.createGroup(group, false);
+		const read = makeState({
+			id: "read-1",
+			toolName: "read",
+			args: { path: "/a" },
+		});
+		states.set("read-1", read);
+		expect(
+			binding.observeToolMethod(toolCard, "updateResult", [
+				{ content: [] },
+				false,
+				"read-1",
+			]),
+		).toBe("unmapped");
+		expect(read.component).toBeUndefined();
+		expect(binding.componentState(toolCard)).toBeUndefined();
+		expect(
+			binding.observeReadMethod(groupState, group, "updateArgs", [
+				read.args,
+				"read-1",
+			]),
+		).toBe("bound");
+		expect(read.component).toBe(group);
+		expect(groupState.ledger).toBe(read.ledger);
+	});
+
+	test("updateResult-id: frozen ledger binds ownership without writing payload", () => {
+		const { binding, states } = makeBinding({
+			isStateMutable: () => false,
+		});
+		const component = new FakeToolComponent();
+		const state = makeState({
+			id: "bash-1",
+			toolName: "bash",
+			args: { command: "true" },
+			result: { kept: true },
+			isPartial: false,
+			version: 7,
+		});
+		states.set("bash-1", state);
+		expect(
+			binding.observeToolMethod(component, "updateResult", [
+				{ content: [{ type: "text", text: "late" }], isError: true },
+				true,
+				"bash-1",
+			]),
+		).toBe("bound");
+		expect(binding.componentState(component)).toBe(state);
+		expect(state.component).toBe(component);
+		// Ownership only — settled evidence frozen.
+		expect(state.result).toEqual({ kept: true });
+		expect(state.isPartial).toBe(false);
+		expect(state.isError).toBe(false);
+		expect(state.version).toBe(7);
+	});
+
+	test("updateResult without toolCallId fails open to native", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "bash-1", toolName: "bash" });
+		states.set("bash-1", state);
+		expect(
+			binding.observeToolMethod(component, "updateResult", [
+				{ content: [{ type: "text", text: "x" }] },
+				false,
+			]),
+		).toBe("unmapped");
+		expect(binding.componentState(component)).toBeUndefined();
+		expect(state.component).toBeUndefined();
+		expect(state.result).toBeUndefined();
 	});
 
 	test("observeToolMethod tracks result, partial and expanded state", () => {

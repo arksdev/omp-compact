@@ -1773,13 +1773,12 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		expect(session.modeFor(newest.ledger).mode).toBe("live");
 	});
 
-	test("post-shake rebuild keeps toolCall args; collapsed tail stays unbound without permit", () => {
-		// Host elide rewrites toolResult content only; assistant toolCall
-		// arguments stay on the branch. After rebuild, hydrated states must
-		// still carry those args. What fails open is binding: shake does not
-		// arm collapsedRebuildArmed, so a collapsed visible tail (fewer
-		// components than branch tool states) cannot suffix-pair and non-read
-		// cards stay native even though describe() could still print args.
+	test("post-shake rebuild: updateResult-id binds collapsed tail without permit", () => {
+		// Host elide keeps toolCall.arguments; shake does not arm
+		// collapsedRebuildArmed. After commitRebuild hydrates states, stock
+		// delivers updateResult(result, false, id) on each reconstructed
+		// non-read card. Exact-id bind must pair the visible tail without
+		// suffix guessing; the hidden prefix state stays unbound.
 		const session = makeSession();
 		const branch: unknown[] = [
 			{ type: "message", message: { role: "user", content: [] } },
@@ -1822,7 +1821,6 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 					stopReason: "toolUse",
 				},
 			},
-			// Elided results — placeholder text only; args live on toolCall above.
 			...["bash-old", "glob-1", "grep-1", "bash-1", "eval-1"].map((id) => ({
 				type: "message",
 				message: {
@@ -1851,20 +1849,20 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		];
 
 		const snapshot = session.beginRebuild();
-		// Collapsed visible tail: four cards for five branch tool states.
-		const visible = [
-			new FakeToolComponent(),
-			new FakeToolComponent(),
-			new FakeToolComponent(),
-			new FakeToolComponent(),
-		];
+		const globC = new FakeToolComponent();
+		const grepC = new FakeToolComponent();
+		const bashC = new FakeToolComponent();
+		const evalC = new FakeToolComponent();
+		const visible = [globC, grepC, bashC, evalC];
 		for (const component of visible)
 			session.binding.registerUnboundComponent(component);
 
+		// Order/suffix still unarmed: commitRebuild alone cannot pair a
+		// collapsed tail. Exact-id arrives on the subsequent updateResult
+		// deliveries (stock rebuild order).
 		const outcome = session.commitRebuild(snapshot, { branchEntries: branch });
 		expect(outcome.mapped).toBe(false);
 
-		// Args survived elide + rebuild hydration.
 		expect(session.state("glob-1")?.args).toEqual({ path: [".omp-plugin/**"] });
 		expect(session.state("grep-1")?.args).toEqual({
 			pattern: "resolveToolRule",
@@ -1874,18 +1872,36 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 			code: "1+1",
 			language: "js",
 		});
-		// Elided results were hydrated onto states (placeholder), not dropped.
-		expect(session.state("bash-1")?.result).toMatchObject({
-			content: [{ type: "text", text: "[shaken ~9 tokens]" }],
-		});
 
-		// No component bound — fail-open native despite intact args.
-		for (const id of ["bash-old", "glob-1", "grep-1", "bash-1", "eval-1"]) {
-			expect(session.state(id)?.component).toBeUndefined();
+		const shaken = {
+			content: [{ type: "text", text: "[shaken ~9 tokens]" }],
+			isError: false,
+		};
+		for (const [component, id] of [
+			[globC, "glob-1"],
+			[grepC, "grep-1"],
+			[bashC, "bash-1"],
+			[evalC, "eval-1"],
+		] as const) {
+			expect(
+				session.binding.observeToolMethod(component, "updateResult", [
+					shaken,
+					false,
+					id,
+				]),
+			).toBe("bound");
 		}
-		for (const component of visible) {
-			expect(session.binding.componentState(component)).toBeUndefined();
-		}
+
+		expect(session.state("glob-1")?.component).toBe(globC);
+		expect(session.state("grep-1")?.component).toBe(grepC);
+		expect(session.state("bash-1")?.component).toBe(bashC);
+		expect(session.state("eval-1")?.component).toBe(evalC);
+		expect(session.binding.componentState(globC)).toBe(session.state("glob-1"));
+		expect(session.binding.componentState(grepC)).toBe(session.state("grep-1"));
+		expect(session.binding.componentState(bashC)).toBe(session.state("bash-1"));
+		expect(session.binding.componentState(evalC)).toBe(session.state("eval-1"));
+		// Collapsed prefix never got a card.
+		expect(session.state("bash-old")?.component).toBeUndefined();
 	});
 });
 
