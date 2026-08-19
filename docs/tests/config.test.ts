@@ -1198,14 +1198,20 @@ describe("snapshots are immutable", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
-	test("snapshot references do not alias store internals", async () => {
+	test("snapshot returns the stable frozen current without cloning", async () => {
 		const dir = await tempDir();
 		const { store } = storeAt(dir);
 		await store.load();
 		const first = store.snapshot();
 		const second = store.snapshot();
-		expect(first).toEqual(second);
-		expect(first.stats).not.toBe(second.stats);
+		// current is replaced (never mutated) and deep-frozen at construction,
+		// so snapshot can share identity instead of clone-and-freeze per call.
+		expect(first).toBe(second);
+		expect(first.stats).toBe(second.stats);
+		expect(Object.isFrozen(first)).toBe(true);
+		expect(Object.isFrozen(first.stats)).toBe(true);
+		expect(Object.isFrozen(first.autoShake)).toBe(true);
+		expect(Object.isFrozen(first.host)).toBe(true);
 		await rm(dir, { recursive: true, force: true });
 	});
 });

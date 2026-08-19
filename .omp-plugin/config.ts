@@ -942,7 +942,10 @@ export function createSettingsStore(
 	}
 
 	function snapshot(): CompactSettings {
-		return cloneAndFreeze(current);
+		// `current` is deep-frozen at every assignment (load/update replace the
+		// whole object; nested stats/autoShake/host are frozen too). Returning
+		// it avoids a per-call clone on hot paths (displayPaths, stats render).
+		return current;
 	}
 
 	function subscribe(fn: (settings: CompactSettings) => void): () => void {
