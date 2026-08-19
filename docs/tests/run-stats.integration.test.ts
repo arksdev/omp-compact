@@ -956,3 +956,68 @@ stockTest(
 		expect(stripAnsi(afterDispose[0] ?? "")).toContain("NATIVE todo reminder");
 	},
 );
+
+/**
+ * Activity-only leaf matching the StrippedToolCallsPlaceholder surface
+ * (render + setToolActivityVisible, no reminder tree). Must stay native —
+ * no DescriptorPatch install.
+ */
+class FakeStrippedPlaceholder {
+	nativeRenderCount = 0;
+	#count: number;
+
+	constructor(count: number) {
+		this.#count = count;
+	}
+
+	// Text-like leaf: no children tree, just getText on self.
+	getText(): string {
+		const noun = this.#count === 1 ? "tool call" : "tool calls";
+		return `${this.#count} ${noun} elided — no result on this branch`;
+	}
+
+	setToolActivityVisible(): void {}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		return [`NATIVE elided ${this.getText()}`];
+	}
+}
+
+stockTest(
+	"Todo reminder: stripped-placeholder surface stays native; real reminder still compact",
+	async () => {
+		const booted = await bootAdapter();
+		const placeholder = new FakeStrippedPlaceholder(1);
+		booted.transcript.addChild(placeholder);
+
+		const nativeRows = placeholder.render(120);
+		expect(nativeRows).toEqual([
+			"NATIVE elided 1 tool call elided — no result on this branch",
+		]);
+		expect(placeholder.nativeRenderCount).toBe(1);
+
+		// A second observe (idempotent path) must still leave native alone.
+		booted.transcript.addChild(placeholder);
+		expect(placeholder.render(80)).toEqual([
+			"NATIVE elided 1 tool call elided — no result on this branch",
+		]);
+		expect(placeholder.nativeRenderCount).toBe(2);
+
+		const reminder = new FakeTodoReminder(1, 1, 3, ["still compact"]);
+		booted.transcript.addChild(reminder);
+		const compact = reminder.render(120);
+		expect(compact).toHaveLength(1);
+		expect(stripAnsi(compact[0] ?? "")).toBe(
+			"• 1 incomplete todo - reminder 1/3 · still compact",
+		);
+		expect(reminder.nativeRenderCount).toBe(0);
+
+		await booted.adapter.dispose();
+		// Placeholder was never patched: dispose does not change native path.
+		expect(placeholder.render(40)[0]).toContain("NATIVE elided");
+		expect(stripAnsi(reminder.render(40)[0] ?? "")).toContain(
+			"NATIVE todo reminder",
+		);
+	},
+);

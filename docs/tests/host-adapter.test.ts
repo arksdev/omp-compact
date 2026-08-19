@@ -243,6 +243,19 @@ describe("host shape guards", () => {
 				},
 			}),
 		).toBe(false);
+
+		// StrippedToolCallsPlaceholder (OMP 17.3.4) also exposes only
+		// render + setToolActivityVisible. Surface matching alone collides;
+		// containment is install-time extraction in #patchTodoReminder plus
+		// render-time fail-open — not a stricter method fingerprint.
+		expect(
+			isTodoReminderComponent({
+				render() {
+					return ["1 tool call elided — no result on this branch"] as const;
+				},
+				setToolActivityVisible() {},
+			}),
+		).toBe(true);
 	});
 });
 

@@ -280,7 +280,9 @@ export function isTtsrNotificationComponent(
  * Stock todo-reminder fingerprint (OMP 17.3.4 `TodoReminderComponent`):
  * activity visibility + render only. Rejects TTSR (`addRules`/`setExpanded`/
  * `isExpanded`), tool leaves, and read groups so only the yellow incomplete-
- * todo card is matched.
+ * todo card is matched among those surfaces. Note: `StrippedToolCallsPlaceholder`
+ * collides on methods alone; `#patchTodoReminder` contains that by probing
+ * `todoReminderFromComponent` before any DescriptorPatch install.
  */
 export function isTodoReminderComponent(
 	value: unknown,

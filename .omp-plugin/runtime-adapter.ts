@@ -968,10 +968,23 @@ export class RuntimeAdapter {
 	/**
 	 * Override stock TodoReminder yellow multi-line card with one compact
 	 * warning row. Exact-instance render wrap only — never folded into a tool
-	 * run. Unrecognized trees fail open to the native renderer.
+	 * run.
+	 *
+	 * Install-time containment: `isTodoReminderComponent` also matches other
+	 * activity-only leaves (notably OMP 17.3.4 `StrippedToolCallsPlaceholder`,
+	 * which exposes only `render` + `setToolActivityVisible`). Stock
+	 * `TodoReminderComponent` builds its Spacer/Box/Text tree in the
+	 * constructor via `#rebuild()`, so a successful `todoReminderFromComponent`
+	 * probe here is exact evidence the instance is a real reminder card. We
+	 * only install a DescriptorPatch when that probe yields a view — collision
+	 * leaves stay fully native. Render-time extraction remains the second
+	 * fail-open line if the tree later drifts.
 	 */
 	#patchTodoReminder(component: RenderableBlock): void {
 		if (this.#todoReminderPatches.has(component)) return;
+		// Probe before capture/install so unrelated activity-only leaves never
+		// receive a render wrapper.
+		if (!todoReminderFromComponent(component)) return;
 		const own = Object.getOwnPropertyDescriptor(component, "render");
 		const proto = Object.getPrototypeOf(component) as object | null;
 		const inherited =

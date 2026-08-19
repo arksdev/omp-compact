@@ -1475,6 +1475,22 @@ describe("todo reminder row", () => {
 				stockTree("not a reminder header", "  ☐ x"),
 			),
 		).toBeUndefined();
+		// StrippedToolCallsPlaceholder body — same activity surface as a
+		// reminder, but never a reminder header/items tree.
+		expect(
+			renderModule.todoReminderFromComponent({
+				getText: () => "1 tool call elided — no result on this branch",
+			}),
+		).toBeUndefined();
+		expect(
+			renderModule.todoReminderFromComponent({
+				children: [
+					{
+						getText: () => "2 tool calls elided — no result on this branch",
+					},
+				],
+			}),
+		).toBeUndefined();
 	});
 
 	test("compact row is one yellow line with reminder count and todos", () => {
