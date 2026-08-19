@@ -37,6 +37,7 @@ import {
 	updateResultPayload,
 	updateResultToolCallId,
 } from "./host-adapter";
+import { objectRecord } from "./object-record";
 import type { GroupState, ToolState } from "./runtime-session-state";
 import type { RenderableBlock } from "./transcript-fold";
 import type { TurnLedger } from "./turn-ledger";
@@ -70,12 +71,6 @@ export interface BindingDelegates {
 interface HydratedReadSegment {
 	ledger: TurnLedger;
 	stateIds: readonly string[] | undefined;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
 }
 
 /**
