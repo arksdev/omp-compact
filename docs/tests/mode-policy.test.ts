@@ -221,6 +221,117 @@ describe("ModePolicy disposal", () => {
 		policy.dispose();
 		expect(policy.run).toBeUndefined();
 	});
+
+	test("late pre-dispose load does not overwrite post-dispose settings", async () => {
+		// Reproduces the cross-session load race: an in-flight store.load()
+		// started before dispose() must never write #current after a newer
+		// session has already resolved its own load.
+		const oldSettings = settings({ mode: "compact" });
+		const newSettings = settings({ mode: "clear" });
+		const pending: Array<{
+			resolve: (value: CompactSettings) => void;
+		}> = [];
+		const store: CompactSettingsStore = {
+			load: () =>
+				new Promise<CompactSettings>((resolve) => {
+					pending.push({ resolve });
+				}),
+			snapshot: () => newSettings,
+			update: async () => newSettings,
+			subscribe: () => () => {},
+		};
+
+		const policy = new ModePolicy(store);
+		// Session A: fire-and-forget prime starts load #1 and leaves it hanging.
+		policy.prime();
+		expect(pending.length).toBe(1);
+
+		policy.dispose();
+
+		// Session B: prepareRun starts a fresh load and freezes from it.
+		const prepared = policy.prepareRun();
+		expect(pending.length).toBe(2);
+		pending[1]?.resolve(newSettings);
+		await expect(prepared).resolves.toMatchObject({ mode: "clear" });
+		expect(policy.current?.mode).toBe("clear");
+		expect(policy.enabled).toBe(true);
+
+		// Late settlement of the pre-dispose load must not clobber session B.
+		pending[0]?.resolve(oldSettings);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(policy.current?.mode).toBe("clear");
+		await expect(policy.prepareRun()).resolves.toMatchObject({
+			mode: "clear",
+		});
+	});
+
+	test("in-session load still populates current after settling", async () => {
+		let resolveLoad!: (value: CompactSettings) => void;
+		const loaded = settings({ mode: "live" });
+		const store: CompactSettingsStore = {
+			load: () =>
+				new Promise<CompactSettings>((resolve) => {
+					resolveLoad = resolve;
+				}),
+			snapshot: () => loaded,
+			update: async () => loaded,
+			subscribe: () => () => {},
+		};
+
+		const policy = new ModePolicy(store);
+		const prepared = policy.prepareRun();
+		expect(policy.current).toBeUndefined();
+		resolveLoad(loaded);
+		await expect(prepared).resolves.toMatchObject({ mode: "live" });
+		expect(policy.current?.mode).toBe("live");
+	});
+
+	test("dispose then prepareRun re-reads fresh settings", async () => {
+		let current = settings({ mode: "compact" });
+		const store: CompactSettingsStore = {
+			load: async () => current,
+			snapshot: () => current,
+			update: async () => current,
+			subscribe: () => () => {},
+		};
+		const policy = new ModePolicy(store);
+
+		await expect(policy.prepareRun()).resolves.toMatchObject({
+			mode: "compact",
+		});
+		policy.dispose();
+		current = settings({ mode: "clear" });
+		await expect(policy.prepareRun()).resolves.toMatchObject({
+			mode: "clear",
+		});
+		expect(policy.current?.mode).toBe("clear");
+	});
+
+	test("repeated dispose stays safe across re-arm cycles", async () => {
+		const store = fakeStore(settings({ mode: "compact" }));
+		const policy = new ModePolicy(store);
+
+		await policy.prepareRun();
+		policy.dispose();
+		policy.dispose();
+		policy.dispose();
+
+		await expect(policy.prepareRun()).resolves.toMatchObject({
+			mode: "compact",
+		});
+		policy.dispose();
+		policy.dispose();
+
+		await store.update({ mode: "clear" });
+		expect(policy.current).toBeUndefined();
+
+		await expect(policy.prepareRun()).resolves.toMatchObject({
+			mode: "clear",
+		});
+		expect(policy.current?.mode).toBe("clear");
+	});
 });
 
 describe("runModeFromSettings", () => {

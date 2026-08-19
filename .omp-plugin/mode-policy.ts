@@ -47,6 +47,8 @@ export class ModePolicy {
 	readonly #store: CompactSettingsStore;
 	#unsubscribe: () => void;
 	#disposed = false;
+	/** Bumped on every dispose so in-flight loads cannot write after teardown. */
+	#generation = 0;
 	#resolved: Promise<CompactSettings> | undefined;
 	#current: CompactSettings | undefined;
 	#run: RunModeSnapshot | undefined;
@@ -196,11 +198,16 @@ export class ModePolicy {
 
 	#resolve(): Promise<CompactSettings> {
 		// #resolved is cleared by dispose() and re-populated on the next call.
-		// A concurrent prepareRun() after dispose() may race to call store.load()
-		// twice; both resolve to the same data and the last write to #current wins,
-		// so the race is benign. A proper once-guard is not needed here.
+		// Across a session boundary store.load() re-reads the config file and
+		// env overrides, which can differ — so two concurrent loads do NOT
+		// "resolve to the same data". An already-running load cannot be
+		// cancelled; capture the generation at start and only commit #current
+		// when that generation is still live. Stale settlements are ignored.
+		// Concurrent loads within one generation remain benign (same file).
 		if (!this.#resolved) {
+			const generation = this.#generation;
 			this.#resolved = this.#store.load().then((settings) => {
+				if (generation !== this.#generation) return settings;
 				this.#current = settings;
 				return settings;
 			});
@@ -236,6 +243,7 @@ export class ModePolicy {
 	dispose(): void {
 		if (this.#disposed) return;
 		this.#disposed = true;
+		this.#generation++;
 		this.#unsubscribe();
 		this.#unsubscribe = () => {};
 		this.#resolved = undefined;
