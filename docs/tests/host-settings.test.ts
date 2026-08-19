@@ -10,6 +10,8 @@ import {
 	type HostSettingPath,
 	type HostSettingsApi,
 	HostSettingsApplyError,
+	MAX_HOST_SETTINGS_YAML_BYTES,
+	MAX_HOST_SETTINGS_YAML_DEPTH,
 	type PersistentPreImage,
 	type SessionSettingsLike,
 } from "../../.omp-plugin/host-settings";
@@ -991,6 +993,119 @@ describe("createSessionSettingsApi", () => {
 				flush: async () => {},
 			});
 			await expect(api.persistent()).rejects.toThrow(/not valid YAML/i);
+		} finally {
+			await rm(agentDir, { recursive: true, force: true });
+		}
+	});
+
+	test("persistent() rejects an oversized profile YAML (fail-closed seam)", async () => {
+		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
+		try {
+			// One byte over the shared host-YAML budget. Realistic stock
+			// config.yml is a few KB of toggles; anything this large is not a
+			// trustworthy pre-image and must not be parsed.
+			const padding = "x".repeat(MAX_HOST_SETTINGS_YAML_BYTES + 1);
+			await writeFile(join(agentDir, "config.yml"), `padding: ${padding}\n`);
+			const api = createSessionSettingsApi({
+				getAgentDir: () => agentDir,
+				get: () => undefined,
+				set: () => {},
+				flush: async () => {},
+			});
+			await expect(api.persistent()).rejects.toThrow(/oversized/i);
+		} finally {
+			await rm(agentDir, { recursive: true, force: true });
+		}
+	});
+
+	test("persistent() rejects over-deep profile YAML (fail-closed seam)", async () => {
+		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
+		try {
+			// Depth budget matches config.ts MAX_CONFIG_DEPTH. Nest one level
+			// past it so the pre-parse gate rejects before YAML.parse.
+			let body = "leaf: true\n";
+			for (let depth = 0; depth < MAX_HOST_SETTINGS_YAML_DEPTH + 1; depth++) {
+				body = `a:\n${body
+					.split("\n")
+					.map((line) => (line.length > 0 ? `  ${line}` : line))
+					.join("\n")}`;
+			}
+			await writeFile(join(agentDir, "config.yml"), body);
+			const api = createSessionSettingsApi({
+				getAgentDir: () => agentDir,
+				get: () => undefined,
+				set: () => {},
+				flush: async () => {},
+			});
+			await expect(api.persistent()).rejects.toThrow(/depth/i);
+		} finally {
+			await rm(agentDir, { recursive: true, force: true });
+		}
+	});
+
+	test("oversized pre-image aborts apply fail-closed with no host mutation", async () => {
+		// End-to-end: createSessionSettingsApi is the real persistent() seam.
+		// An oversized profile must surface as HostSettingsApplyError before
+		// set()/flush(), with no rollback attempt against a missing pre-image.
+		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
+		try {
+			const padding = "x".repeat(MAX_HOST_SETTINGS_YAML_BYTES + 1);
+			await writeFile(
+				join(agentDir, "config.yml"),
+				`recap:\n  enabled: true\npadding: ${padding}\n`,
+			);
+			const setCalls: Array<[string, unknown]> = [];
+			let flushCalls = 0;
+			const sessionSettings: SessionSettingsLike = {
+				get: (path) => (path === "recap.enabled" ? true : undefined),
+				set: (path, value) => {
+					setCalls.push([path, value]);
+				},
+				flush: async () => {
+					flushCalls += 1;
+				},
+				getAgentDir: () => agentDir,
+			};
+			const bridge = createHostSettingsBridge({
+				api: createSessionSettingsApi(sessionSettings),
+			});
+			let caught: unknown;
+			try {
+				await bridge.apply({ recapEnabled: false });
+			} catch (error) {
+				caught = error;
+			}
+			expect(caught).toBeInstanceOf(HostSettingsApplyError);
+			expect((caught as HostSettingsApplyError).message).toMatch(
+				/refusing to apply/i,
+			);
+			expect((caught as HostSettingsApplyError).rollbackFailed).toBe(false);
+			expect(setCalls).toEqual([]);
+			expect(flushCalls).toBe(0);
+		} finally {
+			await rm(agentDir, { recursive: true, force: true });
+		}
+	});
+
+	test("normal-sized profile YAML still yields a raw pre-image", async () => {
+		// Regression guard: the byte/depth gates must not reject a realistic
+		// stock config.yml that only carries the two host toggles.
+		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
+		try {
+			await writeFile(
+				join(agentDir, "config.yml"),
+				"recap:\n  enabled: false\nhideThinkingBlock: true\n",
+			);
+			const api = createSessionSettingsApi({
+				getAgentDir: () => agentDir,
+				get: () => undefined,
+				set: () => {},
+				flush: async () => {},
+			});
+			await expect(api.persistent()).resolves.toEqual({
+				"recap.enabled": { present: true, value: false },
+				hideThinkingBlock: { present: true, value: true },
+			});
 		} finally {
 			await rm(agentDir, { recursive: true, force: true });
 		}

@@ -190,6 +190,141 @@ const HOST_SETTING_DEFAULTS: Record<HostSettingPath, boolean> = {
  */
 const MAIN_CONFIG_FILENAMES = ["config.yml", "config.yaml"] as const;
 
+/**
+ * Byte budget for the stock host settings YAML pre-image. Mirrors
+ * `MAX_CONFIG_BYTES` in config.ts: a realistic stock `config.yml` is a few
+ * KB of toggles and paths, so 64 KiB is generous headroom while still
+ * rejecting multi-MB junk before `YAML.parse` allocates a tree.
+ */
+export const MAX_HOST_SETTINGS_YAML_BYTES = 65_536;
+/**
+ * Nesting-depth budget for the same pre-image. Matches `MAX_CONFIG_DEPTH`
+ * in config.ts. Bun's `YAML.parse` recurses on nested mappings/sequences
+ * and can stack-overflow on pathological depth; a linear pre-scan rejects
+ * that without allocating a parse tree.
+ */
+export const MAX_HOST_SETTINGS_YAML_DEPTH = 16;
+
+/**
+ * Linear structure scan for YAML nesting depth. Counts indentation-free
+ * flow collection openers (`{`/`[`) outside scalars the same way
+ * `parseBoundedJson` counts JSON brackets, and also counts block-mapping
+ * nesting via leading indentation steps of 2 (stock YAML indent). Not a
+ * full YAML lexer — it only rejects obviously over-deep input before
+ * `YAML.parse`. Malformed YAML that passes the scan is still caught by
+ * the parse below.
+ */
+function yamlNestingDepth(text: string): number {
+	let maxDepth = 0;
+	let flowDepth = 0;
+	let inSingle = false;
+	let inDouble = false;
+	let escaped = false;
+	// Track block indent depth from the start of each non-empty line.
+	let blockDepth = 0;
+	let atLineStart = true;
+	let lineIndent = 0;
+	let countingIndent = true;
+
+	for (let i = 0; i < text.length; i++) {
+		const ch = text[i];
+		if (ch === undefined) break;
+		if (ch === "\n" || ch === "\r") {
+			atLineStart = true;
+			lineIndent = 0;
+			countingIndent = true;
+			inSingle = false;
+			inDouble = false;
+			escaped = false;
+			continue;
+		}
+		if (atLineStart && countingIndent) {
+			if (ch === " ") {
+				lineIndent += 1;
+				continue;
+			}
+			if (ch === "\t") {
+				// Tabs are unusual in stock YAML; treat as one indent unit so
+				// depth still advances rather than stalling the scan.
+				lineIndent += 2;
+				continue;
+			}
+			countingIndent = false;
+			atLineStart = false;
+			// Stock and this plugin indent mappings by 2 spaces.
+			blockDepth = Math.floor(lineIndent / 2);
+			if (blockDepth + flowDepth > maxDepth) {
+				maxDepth = blockDepth + flowDepth;
+			}
+		}
+		if (inSingle) {
+			if (ch === "'") {
+				// YAML single-quoted escape is doubled '' — peek next.
+				if (text[i + 1] === "'") {
+					i += 1;
+				} else {
+					inSingle = false;
+				}
+			}
+			continue;
+		}
+		if (inDouble) {
+			if (escaped) {
+				escaped = false;
+			} else if (ch === "\\") {
+				escaped = true;
+			} else if (ch === '"') {
+				inDouble = false;
+			}
+			continue;
+		}
+		if (ch === "'") {
+			inSingle = true;
+		} else if (ch === '"') {
+			inDouble = true;
+		} else if (ch === "{" || ch === "[") {
+			flowDepth += 1;
+			const depth = blockDepth + flowDepth;
+			if (depth > maxDepth) maxDepth = depth;
+		} else if (ch === "}" || ch === "]") {
+			if (flowDepth > 0) flowDepth -= 1;
+		} else if (ch === "#") {
+			// Rest of the line is a comment — skip to newline.
+			while (
+				i + 1 < text.length &&
+				text[i + 1] !== "\n" &&
+				text[i + 1] !== "\r"
+			) {
+				i += 1;
+			}
+		}
+	}
+	return maxDepth;
+}
+
+/**
+ * Fail-closed pre-parse gate for the host settings YAML pre-image. Rejects
+ * oversized or over-deep input before `YAML.parse` so the apply path never
+ * mutates without a trustworthy rollback source.
+ */
+function assertHostSettingsYamlWithinBudget(
+	content: string,
+	configPath: string,
+): void {
+	const bytes = Buffer.byteLength(content, "utf8");
+	if (bytes > MAX_HOST_SETTINGS_YAML_BYTES) {
+		throw new Error(
+			`Persistent host settings config ${configPath} is oversized (${bytes} bytes; max ${MAX_HOST_SETTINGS_YAML_BYTES})`,
+		);
+	}
+	const depth = yamlNestingDepth(content);
+	if (depth > MAX_HOST_SETTINGS_YAML_DEPTH) {
+		throw new Error(
+			`Persistent host settings config ${configPath} nesting depth exceeds ${MAX_HOST_SETTINGS_YAML_DEPTH}`,
+		);
+	}
+}
+
 /** YAML-path segments for each host path, matching stock `setByPath`. */
 const HOST_SETTING_SEGMENTS: Record<HostSettingPath, readonly string[]> = {
 	"recap.enabled": ["recap", "enabled"],
@@ -561,7 +696,21 @@ export function createSessionSettingsApi(
 				try {
 					const file = Bun.file(candidate);
 					if (!(await file.exists())) continue;
+					// Bound before allocating the full text when size is known.
+					// Bun.file().size is the on-disk byte length; when it is
+					// available and already over budget, refuse without reading.
+					const knownSize = file.size;
+					if (
+						typeof knownSize === "number" &&
+						Number.isFinite(knownSize) &&
+						knownSize > MAX_HOST_SETTINGS_YAML_BYTES
+					) {
+						throw new Error(
+							`Persistent host settings config ${candidate} is oversized (${knownSize} bytes; max ${MAX_HOST_SETTINGS_YAML_BYTES})`,
+						);
+					}
 					content = await file.text();
+					assertHostSettingsYamlWithinBudget(content, candidate);
 				} catch (error) {
 					throw new Error(
 						`Cannot read persistent host settings config ${candidate}: ${
