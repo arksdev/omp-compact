@@ -1756,6 +1756,89 @@ describe("write audit pre-image confinement", () => {
 		}
 	});
 
+	test("dangling in-root symlink yields exact +N|0 as creation", async () => {
+		const { root, cleanup } = await stage();
+		try {
+			// Link lives inside the root; destination is missing. Existence of
+			// the destination must decide creation — no content open on the
+			// link path (boundedTextSync missingAsEmpty is not the path).
+			const destination = join(root, "created.ts");
+			await symlink(destination, join(root, "link.ts"));
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-dangle-in",
+				args: { path: "link.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("");
+			// Native write through the link creates the destination file.
+			await writeFile(destination, "one\ntwo\nthree\n");
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: destination },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-dangle-in",
+					toolName: "write",
+					path: "link.ts",
+					added: 3,
+					removed: 0,
+					exact: true,
+				},
+			]);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("in-root symlink to an existing file still yields exact overwrite stats", async () => {
+		const { root, cleanup } = await stage();
+		try {
+			await writeFile(join(root, "target.ts"), "const a = 1;\nkeep();\n");
+			await symlink("target.ts", join(root, "alias.ts"));
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-symlink-in",
+				args: { path: "alias.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("const a = 1;\nkeep();\n");
+			await writeFile(
+				join(root, "target.ts"),
+				"const a = 2;\nkeep();\nextra();\n",
+			);
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: join(root, "target.ts") },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-symlink-in",
+					toolName: "write",
+					path: "alias.ts",
+					added: 2,
+					removed: 1,
+					exact: true,
+				},
+			]);
+		} finally {
+			await cleanup();
+		}
+	});
+
 	test("symlink to an existing outside file does not read the pre-image", async () => {
 		const { root, outside, cleanup } = await stage();
 		try {

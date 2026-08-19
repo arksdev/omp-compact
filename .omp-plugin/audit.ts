@@ -196,10 +196,7 @@ export async function readExactAsync(
 	return buffer;
 }
 
-async function boundedText(
-	path: string,
-	missingAsEmpty: boolean,
-): Promise<string | undefined> {
+async function boundedText(path: string): Promise<string | undefined> {
 	let handle: FileHandle | undefined;
 	try {
 		// Gate the async path explicitly instead of relying on Bun.file:
@@ -219,9 +216,9 @@ async function boundedText(
 		if (buffer === undefined) return undefined;
 		const text = buffer.toString("utf8", 0, size);
 		return lineCount(text) <= SNAPSHOT_MAX_LINES ? text : undefined;
-	} catch (error) {
-		if (missingAsEmpty && (error as NodeJS.ErrnoException).code === "ENOENT")
-			return "";
+	} catch {
+		// Missing and every other read error fail open: post-image must
+		// exist as a regular file for exact write evidence.
 		return undefined;
 	} finally {
 		if (handle !== undefined) await handle.close().catch(() => undefined);
@@ -229,26 +226,24 @@ async function boundedText(
 }
 
 /**
- * Synchronous twin of `boundedText` for the pre-image read in
+ * Synchronous twin of `boundedText` for overwrite pre-image reads in
  * `captureWriteCandidate`. Stock OMP invokes the `tool_execution_start`
  * listener without awaiting it, so an async read can lose the race against
  * the tool's own write and snapshot the post-image bytes (no diff -> no
  * evidence). Running the read synchronously inside the start handler captures
- * the pre-image before the handler yields. Semantics mirror `boundedText`
- * exactly: missing file -> "" when `missingAsEmpty`, oversized/over-long
- * snapshots -> undefined, other read errors -> undefined. The path is opened
- * with `O_NONBLOCK` and gated on `fstat` of the opened descriptor: FIFOs,
- * devices, sockets and directories are rejected fail-open, so a
- * model-controlled non-regular target can never block the event loop, and a
- * symlink resolving to a regular file keeps its exact snapshot. The exact
- * snapshot is read through `readExactSync`: short reads are looped and any
- * growth/shrink between stat and read rejects the evidence instead of
- * fabricating a partial pre-image.
+ * the pre-image before the handler yields. Creation never reaches this
+ * reader: existence is decided by lstat/stat probes up front, so a missing
+ * path becomes `before = ""` without opening. Oversized/over-long snapshots
+ * and non-regular targets -> undefined. The path is opened with `O_NONBLOCK`
+ * and gated on `fstat` of the opened descriptor: FIFOs, devices, sockets and
+ * directories are rejected fail-open, so a model-controlled non-regular
+ * target can never block the event loop, and a symlink resolving to a
+ * regular file keeps its exact snapshot. The exact snapshot is read through
+ * `readExactSync`: short reads are looped and any growth/shrink between
+ * stat and read rejects the evidence instead of fabricating a partial
+ * pre-image.
  */
-function boundedTextSync(
-	path: string,
-	missingAsEmpty: boolean,
-): string | undefined {
+function boundedTextSync(path: string): string | undefined {
 	let fd: number | undefined;
 	try {
 		// O_NONBLOCK: opening a writer-less FIFO (or another non-regular
@@ -269,9 +264,8 @@ function boundedTextSync(
 		if (buffer === undefined) return undefined;
 		const text = buffer.toString("utf8", 0, size);
 		return lineCount(text) <= SNAPSHOT_MAX_LINES ? text : undefined;
-	} catch (error) {
-		if (missingAsEmpty && (error as NodeJS.ErrnoException).code === "ENOENT")
-			return "";
+	} catch {
+		// Overwrite path only: ENOENT/errors mean no exact pre-image.
 		return undefined;
 	} finally {
 		if (fd !== undefined) closeSync(fd);
@@ -319,7 +313,14 @@ export async function captureWriteCandidate(input: {
 	// Entire existence + confinement + pre-image path is synchronous: any
 	// await before `before` is set reopens the stock fire-and-forget race
 	// (tool write lands first → empty diff → no evidence).
+	//
+	// Invariant: content is read only for overwrites. Creations set
+	// `before = ""` from an existence probe alone (no open).
 	let before: string;
+	// Snapshot-time canonical identity. Plain paths use absolutePath;
+	// symlinks pin the destination so a dangling in-root create still
+	// matches completion-time realpath once the write lands through the link.
+	let snapshotCanonical: string;
 	try {
 		const st = lstatSync(absolutePath);
 		if (st.isSymbolicLink()) {
@@ -343,11 +344,32 @@ export async function captureWriteCandidate(input: {
 				// empty-before creation (dangling or live).
 				return undefined;
 			}
-			// Destination is inside the root. Read through the link (open
-			// follows); dangling inside-root → "" (creation equivalence).
-			const text = boundedTextSync(absolutePath, true);
-			if (text === undefined) return undefined;
-			before = text;
+			snapshotCanonical = destinationCanonical;
+			// Probe destination existence without opening content.
+			let destExistsAsFile = false;
+			try {
+				const destSt = lstatSync(destination);
+				if (!destSt.isFile()) {
+					// Directory / fifo / device / nested symlink: fail open.
+					// Only a regular file at the first hop is an overwrite.
+					return undefined;
+				}
+				destExistsAsFile = true;
+			} catch (destError) {
+				if ((destError as NodeJS.ErrnoException).code !== "ENOENT") {
+					return undefined;
+				}
+				// Dangling in-root link: creation, no content read.
+			}
+			if (destExistsAsFile) {
+				// Existing regular file at the destination: genuine overwrite.
+				// Read content through the original link path (open follows).
+				const text = boundedTextSync(absolutePath);
+				if (text === undefined) return undefined;
+				before = text;
+			} else {
+				before = "";
+			}
 		} else if (st.isFile()) {
 			// Overwrite path: pre-image is pre-existing user data — confine
 			// before any content read. Comparison is canonical so a symlink
@@ -357,9 +379,10 @@ export async function captureWriteCandidate(input: {
 			const pathCanonical = canonicalPathSync(absolutePath);
 			const rootCanonical = canonicalPathSync(rootPath);
 			if (!isPathInsideRoot(pathCanonical, rootCanonical)) return undefined;
-			const text = boundedTextSync(absolutePath, false);
+			const text = boundedTextSync(absolutePath);
 			if (text === undefined) return undefined;
 			before = text;
+			snapshotCanonical = pathCanonical;
 		} else {
 			// Directory, fifo, device, socket: fail open, no evidence.
 			return undefined;
@@ -369,19 +392,21 @@ export async function captureWriteCandidate(input: {
 		// True missing path: creation. Only the post-image is read later;
 		// confinement does not apply — outside-root creates keep +N|0.
 		before = "";
+		snapshotCanonical = canonicalPathSync(absolutePath);
 	}
 	// Pre-image is fixed. The trailing await keeps the capture promise
 	// pending across the start handler's return so a fire-and-forget
 	// tool_execution_end cannot run the post-image read before the native
 	// write lands (integration race tests: settle start → writeFileSync →
-	// settle end). Same happens-before window HEAD got from awaiting
-	// canonicalPath after the snapshot; confinement stays fully sync above.
+	// settle end). Identity stays the snapshot-time value (destination for
+	// symlinks); the await is only a happens-before yield, matching HEAD.
+	await canonicalPath(absolutePath);
 	return {
 		toolCallId: input.toolCallId,
 		toolName: "write",
 		displayPath,
 		absolutePath,
-		canonicalPath: await canonicalPath(absolutePath),
+		canonicalPath: snapshotCanonical,
 		before,
 	};
 }
@@ -424,7 +449,7 @@ export async function completeWriteCandidate(
 		effectiveResult !== candidate.canonicalPath
 	)
 		return [];
-	const after = await boundedText(effectiveResult, false);
+	const after = await boundedText(effectiveResult);
 	if (after === undefined) return [];
 	// F02: zero-allocation equal-snapshot fast path — identical bytes mean
 	// no mutation, so no diff work and no native call.
