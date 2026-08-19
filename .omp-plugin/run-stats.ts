@@ -6,6 +6,7 @@ import {
 } from "@oh-my-pi/pi-tui";
 
 import type { CompactStatsSettings } from "./config";
+import { objectRecord } from "./object-record";
 
 export const STATS_MESSAGE_TYPE = "omp-compact-stats";
 export const STATS_EVIDENCE_VERSION = 1;
@@ -71,12 +72,6 @@ export interface StatsCarrier {
 }
 
 const STATS_SEPARATOR_COLOR = "#A4D734";
-
-function objectRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
-}
 
 function nonNegativeNumber(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0

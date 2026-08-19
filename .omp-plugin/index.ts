@@ -30,6 +30,7 @@ import {
 // RuntimeModes (upgrade2 item 2): per-logical-run mode policy (compact/live/
 // clear + enabled + retainGitLive), consumed by the runtime adapter.
 import { ModePolicy } from "./mode-policy";
+import { objectRecord } from "./object-record";
 import {
 	createSessionResolver,
 	PostTurnShake,
@@ -78,15 +79,6 @@ function pendingGitFrom(payload: unknown): PendingGit | undefined {
 		if (typeof command === "string") return { command };
 	}
 	return undefined;
-}
-
-// Note: objectRecord is intentionally duplicated per-module (no shared
-// util) to keep each module independently tree-shakeable and avoid a
-// cross-cutting import that would couple otherwise unrelated modules.
-function objectRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
 }
 
 function textFromResult(result: unknown): string {

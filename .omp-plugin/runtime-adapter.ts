@@ -17,6 +17,7 @@ import {
 import { isPayloadWithinBudget } from "./hydration-bounds";
 import type { GitMessageDetails, MutationMessageDetails } from "./messages";
 import { DEFAULT_RUN_MODE, type ModePolicy } from "./mode-policy";
+import { objectRecord } from "./object-record";
 import { DescriptorPatch } from "./patch-kit";
 import {
 	type ExpandObservedState,
@@ -121,14 +122,6 @@ export interface RuntimeAdapterOptions {
 	 * active working ownership and leaves ambiguous surfaces native.
 	 */
 	getBranch?: () => readonly unknown[] | undefined;
-}
-
-// Intentional per-module copy of objectRecord for tree-shakeability;
-// identical logic in 7 files across the plugin.
-function objectRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
 }
 
 function isCompactCustomMessage(value: unknown): value is RenderableBlock {

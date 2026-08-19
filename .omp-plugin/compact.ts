@@ -1,3 +1,5 @@
+import { objectRecord as record } from "./object-record";
+
 export interface ToolDescription {
 	title: string;
 	description: string;
@@ -25,11 +27,7 @@ function truncateCodePoints(value: string, limit: number): string {
 	return chars.length <= limit ? value : chars.slice(0, limit).join("");
 }
 
-export function record(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
-}
+export { record };
 
 export function stringValue(
 	value: Record<string, unknown>,

@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
-import { open, realpath } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
+import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 // External dependency: peelWriteUrlSelector/unwrapHashlineHeaderPath from
 // @oh-my-pi/pi-coding-agent. API stability: integration tests cover contract.
@@ -15,8 +15,8 @@ import {
 } from "./audit-diff";
 
 import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
-
 import type { MutationMessageDetails } from "./messages";
+import { objectRecord } from "./object-record";
 
 export {
 	completeEditMutations,
@@ -38,12 +38,6 @@ export interface MutationCandidate {
 	absolutePath: string;
 	canonicalPath: string;
 	before: string;
-}
-
-function objectRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
 }
 
 /**
