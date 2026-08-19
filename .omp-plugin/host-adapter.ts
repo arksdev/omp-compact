@@ -49,8 +49,8 @@
  * `DescriptorPatch` kit, never on prototypes or shared shapes.
  */
 
-import { DescriptorPatch } from "./patch-kit";
 import { objectRecord } from "./object-record";
+import { DescriptorPatch } from "./patch-kit";
 import type { RenderableBlock, TranscriptHost } from "./transcript-fold";
 
 /**
@@ -224,14 +224,16 @@ export function leafCapabilities(value: unknown): LeafCapabilities {
 
 export function isTranscriptHost(value: unknown): value is TranscriptHost {
 	if (!value || typeof value !== "object") return false;
-	const capabilities = transcriptCapabilities(value);
+	const candidate = value as Record<string, unknown>;
+	// Short-circuit form of transcriptCapabilities critical keys. Optional
+	// `clear` is intentionally omitted — same as the record-based check.
 	return (
-		capabilities.children &&
-		capabilities.addChild &&
-		capabilities.render &&
-		capabilities.renderViewportTail &&
-		capabilities.isBlockUncommitted &&
-		capabilities.isBlockInLiveRegion
+		Array.isArray(candidate.children) &&
+		typeof candidate.addChild === "function" &&
+		typeof candidate.render === "function" &&
+		typeof candidate.renderViewportTail === "function" &&
+		typeof candidate.isBlockUncommitted === "function" &&
+		typeof candidate.isBlockInLiveRegion === "function"
 	);
 }
 
@@ -301,17 +303,35 @@ export function insertTranscriptChildAt(
 		return false;
 	}
 }
-
 export function isToolComponent(value: unknown): value is RenderableBlock {
 	if (!value || typeof value !== "object") return false;
-	const capabilities = leafCapabilities(value);
-	return capabilities.render && capabilities.kind === "tool";
+	const candidate = value as Record<string, unknown>;
+	if (typeof candidate.render !== "function") return false;
+	// Mirror leafCapabilities kind ranking: a full read-group surface wins
+	// over the generic tool surface. Partial overlap stays a tool.
+	let readGroup = true;
+	for (const name of READ_GROUP_METHODS) {
+		if (typeof candidate[name] !== "function") {
+			readGroup = false;
+			break;
+		}
+	}
+	if (readGroup) return false;
+	for (const name of TOOL_METHODS) {
+		if (typeof candidate[name] !== "function") return false;
+	}
+	return true;
 }
 
 export function isReadGroupComponent(value: unknown): value is RenderableBlock {
 	if (!value || typeof value !== "object") return false;
-	const capabilities = leafCapabilities(value);
-	return capabilities.render && capabilities.kind === "readGroup";
+	const candidate = value as Record<string, unknown>;
+	if (typeof candidate.render !== "function") return false;
+	// Same READ_GROUP_METHODS every-check leafCapabilities uses for kind.
+	for (const name of READ_GROUP_METHODS) {
+		if (typeof candidate[name] !== "function") return false;
+	}
+	return true;
 }
 
 /**

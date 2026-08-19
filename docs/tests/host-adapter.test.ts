@@ -170,6 +170,109 @@ describe("host shape guards", () => {
 		expect(isToolComponent(partialTool)).toBe(false);
 	});
 
+	test("boolean predicates match capability records without allocating them", () => {
+		// Oracle: the record builders remain the diagnostic source of truth.
+		// Predicates must accept/reject the same objects so a host surface
+		// never silently degrades to native because the fast path drifted.
+		const transcriptViaRecord = (value: unknown): boolean => {
+			if (!value || typeof value !== "object") return false;
+			const c = transcriptCapabilities(value);
+			return (
+				c.children &&
+				c.addChild &&
+				c.render &&
+				c.renderViewportTail &&
+				c.isBlockUncommitted &&
+				c.isBlockInLiveRegion
+			);
+		};
+		const toolViaRecord = (value: unknown): boolean => {
+			if (!value || typeof value !== "object") return false;
+			const c = leafCapabilities(value);
+			return c.render && c.kind === "tool";
+		};
+		const readGroupViaRecord = (value: unknown): boolean => {
+			if (!value || typeof value !== "object") return false;
+			const c = leafCapabilities(value);
+			return c.render && c.kind === "readGroup";
+		};
+
+		const fullTranscript = {
+			children: [],
+			addChild() {},
+			render() {},
+			renderViewportTail() {},
+			isBlockUncommitted() {},
+			isBlockInLiveRegion() {},
+			clear() {},
+		};
+		const partialTranscript = {
+			children: [],
+			addChild() {},
+			render() {},
+			renderViewportTail() {},
+			isBlockUncommitted() {},
+		};
+		const nonArrayChildren = {
+			children: {},
+			addChild() {},
+			render() {},
+			renderViewportTail() {},
+			isBlockUncommitted() {},
+			isBlockInLiveRegion() {},
+		};
+		const tool = new ToolComponent();
+		const readGroup = new ReadGroup();
+		// Full tool surface plus read-group discriminators: record form ranks
+		// readGroup over tool, so the predicate must reject as a tool too.
+		const toolPlusReadGroup = {
+			render() {},
+			updateArgs() {},
+			updateResult() {},
+			setArgsComplete() {},
+			setExpanded() {},
+			seal() {},
+			setToolActivityVisible() {},
+			removeEntry() {},
+			renameEntry() {},
+		};
+		const missingRenderTool = {
+			updateArgs() {},
+			updateResult() {},
+			setArgsComplete() {},
+			setExpanded() {},
+			seal() {},
+			setToolActivityVisible() {},
+		};
+		const samples: unknown[] = [
+			null,
+			undefined,
+			42,
+			"x",
+			{},
+			[],
+			fullTranscript,
+			partialTranscript,
+			nonArrayChildren,
+			new FakeTranscript(),
+			tool,
+			readGroup,
+			toolPlusReadGroup,
+			missingRenderTool,
+			{ render() {} },
+		];
+
+		for (const sample of samples) {
+			expect(isTranscriptHost(sample)).toBe(transcriptViaRecord(sample));
+			expect(isToolComponent(sample)).toBe(toolViaRecord(sample));
+			expect(isReadGroupComponent(sample)).toBe(readGroupViaRecord(sample));
+		}
+
+		// Sanity: the interesting dual-surface case is read-group, not tool.
+		expect(isReadGroupComponent(toolPlusReadGroup)).toBe(true);
+		expect(isToolComponent(toolPlusReadGroup)).toBe(false);
+	});
+
 	test("isTtsrNotificationComponent matches TTSR surface and rejects tools/todos", () => {
 		const ttsr = {
 			render() {
