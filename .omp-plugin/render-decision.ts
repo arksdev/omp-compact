@@ -116,7 +116,7 @@ function effectiveHashes(input: ToolRenderInput): number {
 }
 
 // Rules evaluated top-to-bottom; first match wins. Order is critical:
-// specific conditions (registry routing, clear mode) before fallbacks.
+// specific conditions (registry routing, native-live) before fallbacks.
 const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	{
 		// Registry routing: only explicitly registered tools get compact
@@ -126,8 +126,11 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{
-		// `clear` keeps stock interactive/subagent surfaces native.
-		when: (input) => input.mode === "clear" && input.route === "native-live",
+		// native-live (ask and any future interactive stock chrome) stays on
+		// the stock renderer in every mode and every phase — working, filtered
+		// terminal answer, and full abort/error alike. clear never hides it;
+		// filtered retention never drops it; full never forces tool-rows.
+		when: (input) => input.route === "native-live",
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{
@@ -156,13 +159,13 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	},
 	{
 		// Expanded mode uses the original native render as inspection escape
-		// hatch for ordinary compact tools; native-live tools never receive
-		// compact rows. `compactOnExpand` tools (browser, computer, resolve,
-		// reject) deliberately stay compact when explicitly expanded.
+		// hatch for ordinary compact tools. `compactOnExpand` tools (browser,
+		// computer, resolve, reject) deliberately stay compact when explicitly
+		// expanded.
 		when: (input) =>
 			input.phase === "working" &&
-			(input.route === "native-live" ||
-				(input.expanded && !input.compactOnExpand)),
+			input.expanded &&
+			!input.compactOnExpand,
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{

@@ -184,16 +184,16 @@ Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
 **Decision table (simplified):**
 ```
 1. Unknown tool → native (fail-open)
-2. clear + native-live → native (interactive surfaces such as ask)
+2. native-live → native (every mode × every phase; interactive stock chrome such as ask)
 3. clear + not-full → empty
 4. filtered + no mutations + no hashes → empty
 5. working + live + no retainGitLive + hasGit → empty
-6. working + expanded + !compactOnExpand → native (inspection escape hatch)
+6. working + expanded + !compactOnExpand → native (inspection escape hatch for ordinary compact tools)
 7. filtered → tool-rows (retention policy applied)
 8. Fallback → tool-rows (full log)
 ```
 
-**Key insight:** First matching rule wins. Order is critical.
+**Key insight:** First matching rule wins. Order is critical. `native-live` is phase- and mode-independent: a settled run never hides or collapses interactive stock chrome.
 
 ---
 

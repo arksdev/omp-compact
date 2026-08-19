@@ -49,15 +49,29 @@ describe("decideToolRender: registry routing and native fallback", () => {
 		).toEqual({ kind: "native" });
 	});
 
-	test("native-live route keeps the stock renderer in clear mode", () => {
-		expect(
-			decideToolRender(toolInput({ route: "native-live", mode: "clear" })),
-		).toEqual({ kind: "native" });
-		expect(
-			decideToolRender(
-				toolInput({ route: "native-live", mode: "clear", phase: "full" }),
-			),
-		).toEqual({ kind: "native" });
+	test("native-live route stays native in every mode and phase", () => {
+		// Interactive stock chrome (ask) must never collapse into compact
+		// rows or be hidden by filtered/clear retention — phase and mode
+		// are irrelevant once the registry marks the tool native-live.
+		for (const mode of ["live", "compact", "clear"] as const) {
+			for (const phase of ["working", "filtered", "full"] as const) {
+				expect(
+					decideToolRender(
+						toolInput({
+							route: "native-live",
+							mode,
+							phase,
+							// Exercise retention traps that previously stole
+							// native-live after the run settled.
+							hasMutations: false,
+							hashesLength: 0,
+							hasGit: false,
+							expanded: false,
+						}),
+					),
+				).toEqual({ kind: "native" });
+			}
+		}
 	});
 });
 test("task route uses compact rows instead of native rendering", () => {

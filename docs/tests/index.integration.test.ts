@@ -672,8 +672,30 @@ stockTest(
 		expect(live).toContain("task: description: subagent work");
 		for (const toolName of ["browser", "computer", "resolve", "reject", "task"])
 			expect(live).not.toContain(`native-${toolName}`);
+
+		// Terminal answer (filtered): native-live must survive the settle —
+		// previously filtered+no-mutations hid ask, and full forced tool-rows.
 		addAnswer(booted, "done");
 		await finishRun(booted, "done");
+		const filtered = visibleRows(booted.transcript).join("\n");
+		expect(filtered).toContain("native-ask");
+		for (const toolName of ["browser", "computer", "resolve", "reject", "task"])
+			expect(filtered).not.toContain(`native-${toolName}`);
+
+		// Abort/error terminal (full): same native contract, fresh ask.
+		await beginRun(booted);
+		const askAbort = await addTool(
+			booted,
+			"ask",
+			{ question: "retry?" },
+			"interactive-ask-abort",
+		);
+		askAbort.render = () => ["native-ask-abort"];
+		await finishRun(booted, "", "aborted");
+		const aborted = visibleRows(booted.transcript).join("\n");
+		expect(aborted).toContain("native-ask");
+		expect(aborted).toContain("native-ask-abort");
+		expect(aborted).not.toContain("ask: question:");
 		await shutdown(booted);
 	},
 );
