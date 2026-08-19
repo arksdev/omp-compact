@@ -492,11 +492,18 @@ export async function completeWriteCandidate(
 		const middle = trimmedMiddleLines(candidate.before, after);
 		if (middle.beforeLines === 0 && middle.afterLines === 0) return [];
 		// Diff complexity budget: the native Myers-style diff is quadratic
-		// in its remaining tokens, so enforce the static budget before the
-		// call; over the budget the exact candidate is dropped (fail open)
-		// instead of blocking the event loop. The trim already proved that a
-		// wholly added/removed middle counts exactly, so those never need the
-		// native diff at all.
+		// in its *remaining* tokens after it strips common leading/trailing
+		// line tokens internally (jsdiff-compatible). Budgeting on
+		// `trimmedMiddleLines` is therefore sound even though
+		// `exactLineChanges` still hands the full before/after texts to
+		// `diffLines` — the native call pays for the middle, not the file.
+		// Verified 2026-08-19 against `@oh-my-pi/pi-natives@17.3.1`
+		// (`pi_natives.darwin-arm64`): same-size pairs with one mid-file
+		// edit stay ~O(scan) (N=10k → ~1.4 ms) while all-different pairs
+		// are quadratic (N=10k → ~18 s). The d.ts only documents jsdiff
+		// semantics, not the affix strip; the timing is the ground truth.
+		// A wholly added/removed middle already counts exactly here, so
+		// those never need the native diff at all.
 		if (middle.beforeLines + middle.afterLines > DIFF_MAX_REMAINING_LINES)
 			return [];
 		const { added, removed } =
