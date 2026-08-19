@@ -94,6 +94,29 @@ const DEFAULT_BARRIER_MS = 5_000;
 
 const defaultNow = (): number => Date.now();
 
+/** Drop retained pre-image bytes once evidence is done or abandoned. */
+function releaseCandidatePreImage(
+	candidate: MutationCandidate | undefined,
+): void {
+	if (candidate) candidate.before = "";
+}
+
+/**
+ * When a record is abandoned, release any pre-image the capture promise
+ * already holds (or will hold when it settles). endWrite's finally covers
+ * the path where completion was already running; this covers discard,
+ * dispose, supersede, terminal purge, and barrier timeout while the
+ * capture is still pending or settled without an end.
+ *
+ * If `record.completion` is set, endWrite already owns the candidate and
+ * will release in its finally (and `completeWriteCandidate` clears after
+ * the diff). Attaching here would race with those `before` reads.
+ */
+function releaseRecordPreImage(record: AuditRecord): void {
+	if (!record.capture || record.completion) return;
+	void record.capture.then(releaseCandidatePreImage, () => undefined);
+}
+
 const defaultSleep = (ms: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -175,7 +198,9 @@ export class AuditLifecycle {
 	 * publish exactly once inside a tracked promise. `publish` is invoked
 	 * only with non-empty evidence, and only while the record is not
 	 * abandoned, so a late completion after the drain bound or teardown
-	 * appends nothing.
+	 * appends nothing. The pre-image held on the candidate is released
+	 * after `complete` returns (and on abandon-before-complete) so up to
+	 * SNAPSHOT_MAX_BYTES of user file content does not stay resident.
 	 */
 	endWrite(
 		event: WriteEndInput,
@@ -185,16 +210,23 @@ export class AuditLifecycle {
 		if (!record || record.capture === undefined) return;
 		this.#pending.delete(event.toolCallId);
 		const completion = (async () => {
-			if (record.abandoned) return;
-			const candidate = await record.capture;
-			if (record.abandoned) return;
-			const mutations = await this.#options.complete(
-				candidate,
-				event.result,
-				event.isError,
-			);
-			if (record.abandoned || mutations.length === 0) return;
-			publish(mutations);
+			let candidate: MutationCandidate | undefined;
+			try {
+				if (record.abandoned) return;
+				candidate = await record.capture;
+				if (record.abandoned) return;
+				const mutations = await this.#options.complete(
+					candidate,
+					event.result,
+					event.isError,
+				);
+				if (record.abandoned || mutations.length === 0) return;
+				publish(mutations);
+			} finally {
+				// completeWriteCandidate also clears; this covers the
+				// abandon-before-complete path where complete never ran.
+				releaseCandidatePreImage(candidate);
+			}
 		})().catch(() => {
 			// Fail closed: an audit error must not crash the fire-and-forget
 			// handler, reject an untracked promise, or double-publish.
@@ -231,6 +263,7 @@ export class AuditLifecycle {
 		const record = this.#records.get(toolCallId);
 		if (!record) return;
 		record.abandoned = true;
+		releaseRecordPreImage(record);
 		this.#removeIfCurrent(record);
 		this.#signalChange();
 	}
@@ -308,6 +341,7 @@ export class AuditLifecycle {
 				const record = token as AuditRecord;
 				if (this.#pending.get(record.toolCallId) === record) {
 					record.abandoned = true;
+					releaseRecordPreImage(record);
 					this.#removeIfCurrent(record);
 				}
 			}
@@ -340,6 +374,7 @@ export class AuditLifecycle {
 						record.completion
 					) {
 						record.abandoned = true;
+						releaseRecordPreImage(record);
 						this.#removeIfCurrent(record);
 					}
 				}
@@ -408,7 +443,10 @@ export class AuditLifecycle {
 	 */
 	dispose(): void {
 		this.#generation++;
-		for (const record of this.#records.values()) record.abandoned = true;
+		for (const record of this.#records.values()) {
+			record.abandoned = true;
+			releaseRecordPreImage(record);
+		}
 		this.#pending.clear();
 		this.#records.clear();
 		this.#signalChange();
@@ -429,6 +467,7 @@ export class AuditLifecycle {
 			// is abandoned and can never publish, and teardown/dispose needs
 			// no separate reach into replaced records.
 			previous.abandoned = true;
+			releaseRecordPreImage(previous);
 		}
 		const record: AuditRecord = {
 			toolCallId,

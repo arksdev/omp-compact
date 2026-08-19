@@ -1785,6 +1785,48 @@ describe("write audit pre-image confinement", () => {
 		}
 	});
 
+	test("completeWriteCandidate releases the pre-image after publishing evidence", async () => {
+		const { root, cleanup } = await stage();
+		try {
+			await writeFile(join(root, "edit.ts"), "const a = 1;\nkeep();\n");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-release-before",
+				args: { path: "edit.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("const a = 1;\nkeep();\n");
+			await writeFile(
+				join(root, "edit.ts"),
+				"const a = 2;\nkeep();\nextra();\n",
+			);
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: join(root, "edit.ts") },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-release-before",
+					toolName: "write",
+					path: "edit.ts",
+					added: 2,
+					removed: 1,
+					exact: true,
+				},
+			]);
+			// Pre-image must not stay resident after the exact diff is done.
+			expect(candidate?.before).toBe("");
+		} finally {
+			await cleanup();
+		}
+	});
+
 	test("dangling symlink to an outside target is not treated as creation", async () => {
 		const { root, outside, cleanup } = await stage();
 		try {
@@ -2074,7 +2116,6 @@ while (!existsSync(stop)) {
 			await cleanup();
 		}
 	});
-
 
 	test("empty create still yields no entry", async () => {
 		const { root, cleanup } = await stage();

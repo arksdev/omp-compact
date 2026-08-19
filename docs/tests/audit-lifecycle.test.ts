@@ -147,6 +147,51 @@ describe("synchronous write-audit registration", () => {
 		expect(h.published[0]?.[0]?.toolCallId).toBe("w1");
 	});
 
+	test("publish releases the pre-image after exact evidence is emitted", async () => {
+		const h = harness();
+		const held = candidate("w1");
+		held.before = "pre-image payload that must not linger\n".repeat(8);
+		h.life.startWrite(writeStart("w1"));
+		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
+		h.captures[0]?.resolve(held);
+		await flush();
+		// complete is still deferred: pre-image must remain for the diff.
+		expect(held.before.length).toBeGreaterThan(0);
+		h.completes[0]?.resolve([evidence("w1")]);
+		await flush();
+		expect(h.published).toEqual([[evidence("w1")]]);
+		expect(held.before).toBe("");
+	});
+
+	test("discard releases a settled pre-image without publishing", async () => {
+		const h = harness();
+		const held = candidate("w1");
+		held.before = "abandoned pre-image\n";
+		h.life.startWrite(writeStart("w1"));
+		h.captures[0]?.resolve(held);
+		await flush();
+		expect(held.before).toBe("abandoned pre-image\n");
+		h.life.discard("w1");
+		await flush();
+		expect(held.before).toBe("");
+		expect(h.published).toEqual([]);
+	});
+
+	test("supersede releases the outer pre-image and never publishes it", async () => {
+		const h = harness();
+		const outer = candidate("w1-old");
+		outer.before = "outer pre-image\n";
+		h.life.startWrite(writeStart("w1"));
+		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
+		// Outer completion suspended on capture; replacement abandons it.
+		h.life.startWrite(writeStart("w1"));
+		h.captures[0]?.resolve(outer);
+		await flush();
+		expect(h.completes).toHaveLength(0);
+		expect(h.published).toEqual([]);
+		expect(outer.before).toBe("");
+	});
+
 	test("a duplicate tool_execution_end publishes at most once", async () => {
 		const h = harness();
 		h.life.startWrite(writeStart("w1"));

@@ -49,7 +49,14 @@ export interface MutationCandidate {
 	displayPath: string;
 	absolutePath: string;
 	canonicalPath: string;
-	/** Pre-image text; empty string for a true creation (or empty file). */
+	/**
+	 * Pre-image text; empty string for a true creation (or empty file).
+	 * Cleared to `""` once the exact diff has been computed (or the
+	 * candidate is abandoned) so up to SNAPSHOT_MAX_BYTES of user file
+	 * content does not stay resident for the rest of the session. Nothing
+	 * re-reads this field after `completeWriteCandidate` returns — the only
+	 * consumers are the equality check and line diff inside that function.
+	 */
 	before: string;
 }
 
@@ -439,55 +446,64 @@ export async function completeWriteCandidate(
 	result: unknown,
 	isError: boolean,
 ): Promise<MutationMessageDetails[]> {
-	if (!candidate || isError || objectRecord(result).isError === true) return [];
-	const details = objectRecord(objectRecord(result).details);
-	if (
-		typeof details.resolvedPath !== "string" ||
-		!isAbsolute(details.resolvedPath)
-	)
-		return [];
-	const resolvedPath = resolve(details.resolvedPath);
-	const [effectiveCandidate, effectiveResult] = await Promise.all([
-		canonicalPath(candidate.absolutePath),
-		canonicalPath(resolvedPath),
-	]);
-	// Triple equality check defends against race: effectiveCandidate and
-	// effectiveResult resolve symlinks independently (timing-sensitive on
-	// network mounts), and both must match the snapshot-time canonical path.
-	if (
-		effectiveCandidate !== effectiveResult ||
-		effectiveResult !== candidate.canonicalPath
-	)
-		return [];
-	const after = await boundedText(effectiveResult);
-	if (after === undefined) return [];
-	// Zero-allocation equal-snapshot fast path — identical bytes mean
-	// no mutation, so no diff work and no native call.
-	if (after === candidate.before) return [];
-	const middle = trimmedMiddleLines(candidate.before, after);
-	if (middle.beforeLines === 0 && middle.afterLines === 0) return [];
-	// Diff complexity budget: the native Myers-style diff is quadratic
-	// in its remaining tokens, so enforce the static budget before the
-	// call; over the budget the exact candidate is dropped (fail open)
-	// instead of blocking the event loop. The trim already proved that a
-	// wholly added/removed middle counts exactly, so those never need the
-	// native diff at all.
-	if (middle.beforeLines + middle.afterLines > DIFF_MAX_REMAINING_LINES)
-		return [];
-	const { added, removed } =
-		middle.beforeLines === 0 || middle.afterLines === 0
-			? { added: middle.afterLines, removed: middle.beforeLines }
-			: exactLineChanges(candidate.before, after);
-	if (added === 0 && removed === 0) return [];
-	return [
-		{
-			version: 1,
-			toolCallId: candidate.toolCallId,
-			toolName: "write",
-			path: candidate.displayPath,
-			added,
-			removed,
-			exact: true,
-		},
-	];
+	if (!candidate) return [];
+	try {
+		if (isError || objectRecord(result).isError === true) return [];
+		const details = objectRecord(objectRecord(result).details);
+		if (
+			typeof details.resolvedPath !== "string" ||
+			!isAbsolute(details.resolvedPath)
+		)
+			return [];
+		const resolvedPath = resolve(details.resolvedPath);
+		const [effectiveCandidate, effectiveResult] = await Promise.all([
+			canonicalPath(candidate.absolutePath),
+			canonicalPath(resolvedPath),
+		]);
+		// Triple equality check defends against race: effectiveCandidate and
+		// effectiveResult resolve symlinks independently (timing-sensitive on
+		// network mounts), and both must match the snapshot-time canonical path.
+		if (
+			effectiveCandidate !== effectiveResult ||
+			effectiveResult !== candidate.canonicalPath
+		)
+			return [];
+		const after = await boundedText(effectiveResult);
+		if (after === undefined) return [];
+		// Zero-allocation equal-snapshot fast path — identical bytes mean
+		// no mutation, so no diff work and no native call.
+		if (after === candidate.before) return [];
+		const middle = trimmedMiddleLines(candidate.before, after);
+		if (middle.beforeLines === 0 && middle.afterLines === 0) return [];
+		// Diff complexity budget: the native Myers-style diff is quadratic
+		// in its remaining tokens, so enforce the static budget before the
+		// call; over the budget the exact candidate is dropped (fail open)
+		// instead of blocking the event loop. The trim already proved that a
+		// wholly added/removed middle counts exactly, so those never need the
+		// native diff at all.
+		if (middle.beforeLines + middle.afterLines > DIFF_MAX_REMAINING_LINES)
+			return [];
+		const { added, removed } =
+			middle.beforeLines === 0 || middle.afterLines === 0
+				? { added: middle.afterLines, removed: middle.beforeLines }
+				: exactLineChanges(candidate.before, after);
+		if (added === 0 && removed === 0) return [];
+		return [
+			{
+				version: 1,
+				toolCallId: candidate.toolCallId,
+				toolName: "write",
+				path: candidate.displayPath,
+				added,
+				removed,
+				exact: true,
+			},
+		];
+	} finally {
+		// Drop the pre-image once the exact diff path has finished (success,
+		// early bail, or throw). Consumers of `before` are only the equality
+		// check and line diff above; nothing re-reads it after return. Keeping
+		// up to SNAPSHOT_MAX_BYTES resident for the session is unnecessary.
+		candidate.before = "";
+	}
 }
