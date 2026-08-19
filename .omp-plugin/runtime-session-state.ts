@@ -929,13 +929,22 @@ export class RuntimeSessionState {
 
 	/**
 	 * A tool event may mutate a state only while its ledger is still the
-	 * mutable working run. Once a ledger finalizes (`filtered`/`full`) — or
-	 * a terminal `agent_end` parks it in the deferred-terminal map while the
-	 * audit drain runs — its states are frozen against late
-	 * `tool_execution_update`/`end` deliveries: those must not rewrite the
-	 * settled run's result/pending/version. Continuation runs
-	 * (`willContinue`) are never captured as deferred and stay working, so
-	 * their legitimate events pass unchanged.
+	 * mutable working run. Once a ledger finalizes (`filtered`/`full`) its
+	 * states are frozen against late `tool_execution_update`/`end`
+	 * deliveries: those must not rewrite a settled run's
+	 * result/pending/version.
+	 *
+	 * A terminal `agent_end` parks the ledger in the deferred-terminal map
+	 * while the audit drain runs — the phase is still `working`. In that
+	 * window:
+	 * - streaming `updateTool` stays frozen (partials must not thrash the
+	 *   view mid-drain or race the audit evidence);
+	 * - authentic `finishTool` for an already-known `toolCallId` stays
+	 *   open: stock's fire-and-forget end can land after the park, and
+	 *   dropping it would lose the real result (visual settle alone never
+	 *   fabricates one). Unknown ids never allocate. Continuation runs
+	 *   (`willContinue`) are never captured as deferred and stay fully
+	 *   mutable.
 	 *
 	 * Audit evidence setters (`setMutations`/`setGit`) use a narrower gate
 	 * (`#evidenceMutable`): they stay legal while the ledger is still
@@ -977,10 +986,17 @@ export class RuntimeSessionState {
 		return state.component;
 	}
 
-	/** tool_execution_end: settled result. */
+	/**
+	 * tool_execution_end: settled result. Allowed for any already-known
+	 * state whose ledger is still `working` — including the deferred-
+	 * terminal window after `captureTerminalRunId` — so a late host end
+	 * records the authentic payload. Gate is phase-only (not the deferred
+	 * map): `#states.get` already limits to known ids, and a finalized
+	 * ledger (`filtered`/`full`) stays frozen. Never allocates unknown ids.
+	 */
 	finishTool(input: ToolResultInput): RenderableBlock | undefined {
 		const state = this.#states.get(input.toolCallId);
-		if (!state || !this.#stateMutable(state)) return undefined;
+		if (state?.ledger.phase !== "working") return undefined;
 		state.result = input.result;
 		state.isPartial = false;
 		this.#pendingStates.delete(state);
@@ -1104,8 +1120,8 @@ export class RuntimeSessionState {
 	/**
 	 * After a ledger leaves `working` (`filtered`/`full`), no tool row may
 	 * remain in a live partial/pending visual state. Stock can drop
-	 * `tool_execution_end` after `agent_end` parks the claim; `finishTool`
-	 * then no-ops under `#stateMutable`, which used to leave `isPartial`
+	 * `tool_execution_end` after `agent_end` parks the claim; when the end
+	 * never arrives, `finishTool` never runs and used to leave `isPartial`
 	 * true forever — the renderer kept `Working…` and suppressed mutation/
 	 * Git rows behind `!view.isPartial` even though the audit drain had
 	 * already published verified evidence.
@@ -1114,11 +1130,12 @@ export class RuntimeSessionState {
 	 * - `isPartial = false` and drop from `#pendingStates` for every state
 	 *   on this ledger (evidence rows can render; spinner stops).
 	 * - Do **not** fabricate a settled result or promote `entry.state` to
-	 *   success/error here. `finishTool` and audit `setMutations` already
-	 *   promote when real evidence exists; a tool that never received an
-	 *   end event keeps its prior entry state (typically `running`) so the
-	 *   ledger does not claim success it never observed. Late
-	 *   `tool_execution_update`/`end` remain frozen via `#stateMutable`.
+	 *   success/error here. `finishTool` (allowed during the deferred
+	 *   window for known ids) and audit `setMutations` already promote
+	 *   when real evidence exists; a tool that never received an end
+	 *   event keeps its prior entry state (typically `running`) so the
+	 *   ledger does not claim success it never observed. After
+	 *   finalization, late `tool_execution_update`/`end` stay frozen.
 	 */
 	#settleLedgerVisualState(ledger: TurnLedger): void {
 		for (const state of this.#states.values()) {

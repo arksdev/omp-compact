@@ -598,7 +598,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.version).toBe(version);
 	});
 
-	test("tool events freeze while a terminal ledger awaits its audit drain", () => {
+	test("streaming updateTool freezes while a terminal ledger awaits its audit drain", () => {
 		const session = makeSession();
 		session.beginRun();
 		const first = session.activeLedger;
@@ -613,6 +613,9 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(first?.phase).toBe("working");
 
 		const version = state.version;
+		// Streaming partials stay frozen — they can rewrite a settled view
+		// mid-drain. Authentic finishTool for a known id is the exception
+		// (covered by the late-end test below).
 		expect(
 			session.updateTool({
 				toolCallId: "c1",
@@ -622,22 +625,15 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 				isPartial: true,
 			}),
 		).toBeUndefined();
-		expect(
-			session.finishTool({
-				toolCallId: "c1",
-				toolName: "bash",
-				result: { content: ["late end"] },
-				isError: false,
-			}),
-		).toBeUndefined();
 		expect(state.version).toBe(version);
 		expect(state.result).toBeUndefined();
 		expect(state.entry.state).toBe("running");
-		// Still partial while deferred — settle happens at finalization.
+		// Still partial while deferred and no end arrived — visual settle
+		// happens at finalization.
 		expect(state.isPartial).toBe(true);
 
 		// Fallback finalization at release settles visual partial and keeps
-		// stream events frozen; the finalization itself bumps presentation.
+		// post-finalization stream events frozen.
 		session.releaseTerminalRun(runId);
 		expect(first?.phase).toBe("full");
 		expect(state.isPartial).toBe(false);
@@ -653,6 +649,105 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.entry.state).toBe("running");
 		expect(state.isPartial).toBe(false);
 		expect(state.version).toBe(postRelease);
+	});
+
+	test("late tool_execution_end during deferred drain records the real result", () => {
+		// agent_end parks the claim before stock's fire-and-forget
+		// tool_execution_end may land. A known id's authentic end must still
+		// write result/isError and clear partial — unlike streaming
+		// updateTool, which stays frozen for the deferred window.
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		const state = mustStart(session, {
+			toolCallId: "late-end",
+			toolName: "bash",
+			args: { command: "printf done" },
+		});
+		session.updateTool({
+			toolCallId: "late-end",
+			toolName: "bash",
+			result: { content: ["partial"] },
+			isError: false,
+			isPartial: true,
+		});
+		expect(state.isPartial).toBe(true);
+		expect(state.result).toEqual({ content: ["partial"] });
+
+		const runId = session.captureTerminalRunId();
+		expect(runId).toBe(first?.runId);
+		expect(first?.phase).toBe("working");
+
+		// Streaming partials stay frozen in the deferred window.
+		expect(
+			session.updateTool({
+				toolCallId: "late-end",
+				toolName: "bash",
+				result: { content: ["should-not-land"] },
+				isError: false,
+				isPartial: true,
+			}),
+		).toBeUndefined();
+		expect(state.result).toEqual({ content: ["partial"] });
+
+		// Authentic end for the already-known id lands.
+		expect(
+			session.finishTool({
+				toolCallId: "late-end",
+				toolName: "bash",
+				result: { content: ["final-output"] },
+				isError: false,
+			}),
+		).toBeUndefined(); // no component bound
+		expect(state.result).toEqual({ content: ["final-output"] });
+		expect(state.isPartial).toBe(false);
+		expect(state.isError).toBe(false);
+		expect(state.entry.state).toBe("success");
+		expect(session.pending()).not.toContain(state);
+
+		// Finalization keeps the real result; does not fabricate over it.
+		expect(session.endRun({ messages: [assistant("done")] }, runId)).toBe(
+			"filtered",
+		);
+		expect(first?.phase).toBe("filtered");
+		expect(state.result).toEqual({ content: ["final-output"] });
+		expect(state.isPartial).toBe(false);
+		expect(state.entry.state).toBe("success");
+
+		// After finalization, further ends stay frozen.
+		const version = state.version;
+		expect(
+			session.finishTool({
+				toolCallId: "late-end",
+				toolName: "bash",
+				result: { content: ["forged"] },
+				isError: true,
+			}),
+		).toBeUndefined();
+		expect(state.result).toEqual({ content: ["final-output"] });
+		expect(state.isError).toBe(false);
+		expect(state.version).toBe(version);
+	});
+
+	test("unknown toolCallId finishTool during deferred never allocates", () => {
+		const session = makeSession();
+		session.beginRun();
+		mustStart(session, {
+			toolCallId: "known",
+			toolName: "bash",
+			args: {},
+		});
+		const runId = session.captureTerminalRunId();
+		expect(
+			session.finishTool({
+				toolCallId: "ghost-never-started",
+				toolName: "bash",
+				result: { ok: true },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(session.state("ghost-never-started")).toBeUndefined();
+		session.releaseTerminalRun(runId);
 	});
 
 	test("working-phase events still process (legitimate events are not blocked)", () => {
@@ -847,20 +942,23 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.git?.text).toBe("git commit cafe0001 Drain");
 		expect(state.entry.retention).toBe("git");
 
-		// Tool stream events remain frozen for the deferred ledger even
-		// after evidence landed (mutation sets success retention above).
+		// Streaming tool_execution_update remains frozen for the deferred
+		// ledger even after evidence landed. Authentic finishTool for a
+		// known id is allowed separately; here only updateTool stays closed.
 		const version = state.version;
 		const entryState = state.entry.state;
 		expect(
-			session.finishTool({
+			session.updateTool({
 				toolCallId: "c1",
 				toolName: "write",
 				result: { ok: true },
 				isError: false,
+				isPartial: true,
 			}),
 		).toBeUndefined();
 		expect(state.entry.state).toBe(entryState);
 		expect(state.version).toBe(version);
+		expect(state.result).toBeUndefined();
 
 		session.releaseTerminalRun(runId);
 		expect(first?.phase).toBe("full");
@@ -875,9 +973,10 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 
 	test("deferred terminal settles isPartial so drain mutations render (no stuck Working…)", () => {
 		// Stock may drop tool_execution_end after agent_end parks the run.
-		// finishTool is frozen in the deferred window, but the audit drain
-		// still publishes verified mutations. Finalization must clear the
+		// When the end never arrives, finalization must still clear the
 		// visual partial flag so render shows mutation rows, not Working….
+		// (When the end does arrive late, finishTool records the real
+		// result — covered separately.)
 		const session = makeSession();
 		session.beginRun();
 		const first = session.activeLedger;
@@ -896,16 +995,9 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			undefined,
 		);
 		expect(state.mutations).toHaveLength(1);
-		// No tool_execution_end ever arrives; finishTool stays frozen.
-		expect(
-			session.finishTool({
-				toolCallId: "c1",
-				toolName: "write",
-				result: { ok: true },
-				isError: false,
-			}),
-		).toBeUndefined();
+		// No tool_execution_end arrives in this scenario.
 		expect(state.isPartial).toBe(true);
+		expect(state.result).toBeUndefined();
 
 		expect(session.endRun({ messages: [assistant("done")] }, runId)).toBe(
 			"filtered",
