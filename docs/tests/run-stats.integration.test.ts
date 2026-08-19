@@ -592,3 +592,205 @@ stockTest(
 		expect(booted.notifications).toEqual([]);
 	},
 );
+
+/**
+ * Minimal stock TTSR fingerprint: public children/getText for extraction,
+ * addRules/setExpanded/setToolActivityVisible for classification, and a
+ * native render that paints a background so the override is observable.
+ */
+class FakeTtsrNotification {
+	children: Array<
+		{ getText(): string } | { children: Array<{ getText(): string }> }
+	> = [];
+	#name: string;
+	#body: string;
+	#expanded = false;
+	/** Counts every native render; the patch must not stack wrappers. */
+	nativeRenderCount = 0;
+
+	constructor(name: string, body: string) {
+		this.#name = name;
+		this.#body = body;
+		this.#rebuild();
+	}
+
+	#rebuild(): void {
+		const body = this.#expanded
+			? this.#body
+			: this.#body.split("\n").slice(0, 2).join("\n");
+		this.children = [
+			{ getText: () => `⚠ Injecting rule: ${this.#name}  ↺` },
+			{ getText: () => body },
+		];
+	}
+
+	addRules(): void {}
+	setExpanded(expanded: boolean): void {
+		if (this.#expanded === expanded) return;
+		this.#expanded = expanded;
+		this.#rebuild();
+	}
+	setToolActivityVisible(): void {}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		// Stock yellow card signature: a background open/reset pair.
+		return [`\x1b[48;2;80;80;0mNATIVE inject card ${this.#name}\x1b[49m`];
+	}
+}
+
+class UnrecognizedTtsrLike {
+	children = [{ getText: () => "not an inject header" }];
+	addRules(): void {}
+	setExpanded(): void {}
+	setToolActivityVisible(): void {}
+	render(_width: number): readonly string[] {
+		return ["\x1b[48;2;1;1;1mNATIVE fallback\x1b[49m"];
+	}
+}
+
+function stripAnsi(value: string): string {
+	return value.replace(ansiPattern, "");
+}
+
+stockTest(
+	"TTSR inject: pre-install child and post-install addChild both attach the override",
+	async () => {
+		const root = new host.ContainerBase();
+		const transcript = new host.TranscriptContainer();
+		const pre = new FakeTtsrNotification(
+			"pre-rule",
+			"body before install\nsecond",
+		);
+		// Present BEFORE adapter install: #installTranscript walks existing children.
+		transcript.addChild(pre);
+		root.addChild(transcript);
+
+		const adapter = new adapterModule.RuntimeAdapter({
+			root,
+			ui: {
+				theme: host.getTheme(),
+				setWidget(_key, content) {
+					if (typeof content === "function") {
+						(content as (tui: unknown) => Renderable)(root);
+					}
+				},
+				requestRender() {},
+				getToolsExpanded: () => false,
+			},
+		});
+		expect(adapter.install()).toBe(true);
+
+		const preRows = pre.render(120);
+		expect(preRows.map(stripAnsi)).toEqual([
+			"• inject: pre-rule",
+			"body before install",
+			"second",
+		]);
+		expect(preRows.join("\n")).not.toContain("\x1b[48;");
+		expect(preRows.join("\n")).not.toContain("NATIVE");
+		// Extraction succeeded: native body never ran.
+		expect(pre.nativeRenderCount).toBe(0);
+
+		const post = new FakeTtsrNotification("post-rule", "after install body");
+		// Present AFTER install: the exact addChild wrapper observes it.
+		transcript.addChild(post);
+		const postRows = post.render(120);
+		expect(postRows.map(stripAnsi)).toEqual([
+			"• inject: post-rule",
+			"after install body",
+		]);
+		expect(postRows.join("\n")).not.toContain("\x1b[48;");
+		expect(post.nativeRenderCount).toBe(0);
+
+		// Idempotent: a second observe of the same instance must not stack wrappers.
+		transcript.addChild(post);
+		const again = post.render(80);
+		expect(again.map(stripAnsi)[0]).toBe("• inject: post-rule");
+		expect(post.nativeRenderCount).toBe(0);
+
+		await adapter.dispose();
+	},
+);
+
+stockTest(
+	"TTSR inject: clear/rebuild restores native then re-attaches without double-wrap",
+	async () => {
+		const booted = await bootAdapter();
+		const ttsr = new FakeTtsrNotification(
+			"rebuild-rule",
+			"line one\nline two\nline three",
+		);
+		booted.transcript.addChild(ttsr);
+
+		const live = ttsr.render(120);
+		expect(stripAnsi(live[0] ?? "")).toBe("• inject: rebuild-rule");
+		expect(live.join("\n")).not.toContain("\x1b[48;");
+		expect(ttsr.nativeRenderCount).toBe(0);
+
+		// Expanded only grows recoverable body text; compact inject still wins.
+		ttsr.setExpanded(true);
+		const expanded = ttsr.render(120);
+		expect(expanded.map(stripAnsi)).toEqual([
+			"• inject: rebuild-rule",
+			"line one",
+			"line two",
+			"line three",
+		]);
+		expect(expanded.join("\n")).not.toContain("\x1b[48;");
+		expect(ttsr.nativeRenderCount).toBe(0);
+
+		// Clear detaches TTSR patches (native restored) before stock empties.
+		booted.transcript.clear();
+		const nativeAfterDetach = ttsr.render(120);
+		expect(nativeAfterDetach.join("\n")).toContain("\x1b[48;");
+		expect(stripAnsi(nativeAfterDetach[0] ?? "")).toContain(
+			"NATIVE inject card",
+		);
+		expect(ttsr.nativeRenderCount).toBe(1);
+
+		// Stock repopulates through the surviving addChild wrapper.
+		booted.transcript.addChild(ttsr);
+		// Settlement microtask re-observes any already-present children too.
+		await Promise.resolve();
+		await Promise.resolve();
+
+		const reattached = ttsr.render(120);
+		expect(stripAnsi(reattached[0] ?? "")).toBe("• inject: rebuild-rule");
+		expect(reattached.join("\n")).not.toContain("\x1b[48;");
+		// Successful extraction never hits native after re-attach.
+		expect(ttsr.nativeRenderCount).toBe(1);
+
+		// Second clear + re-add stays single-wrapped; no extra native calls.
+		booted.transcript.clear();
+		booted.transcript.addChild(ttsr);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(stripAnsi(ttsr.render(40)[0] ?? "")).toMatch(/^• inject:/);
+		// Only the explicit post-detach native probe above should have run.
+		expect(ttsr.nativeRenderCount).toBe(1);
+
+		await booted.adapter.dispose();
+	},
+);
+
+stockTest(
+	"TTSR inject: unrecognized trees fail open to native; dispose restores native",
+	async () => {
+		const booted = await bootAdapter();
+		const bad = new UnrecognizedTtsrLike();
+		booted.transcript.addChild(bad);
+		const rows = bad.render(120);
+		expect(rows.join("\n")).toContain("\x1b[48;");
+		expect(stripAnsi(rows[0] ?? "")).toBe("NATIVE fallback");
+
+		const good = new FakeTtsrNotification("dispose-rule", "payload");
+		booted.transcript.addChild(good);
+		expect(stripAnsi(good.render(120)[0] ?? "")).toBe("• inject: dispose-rule");
+
+		await booted.adapter.dispose();
+		const afterDispose = good.render(120);
+		expect(afterDispose.join("\n")).toContain("\x1b[48;");
+		expect(stripAnsi(afterDispose[0] ?? "")).toContain("NATIVE inject card");
+	},
+);

@@ -566,6 +566,18 @@ export class RuntimeAdapter {
 					this.#session.commitRebuild(snapshot, {
 						branchEntries: Array.isArray(branch) ? branch : [],
 					});
+					// Detach restored TTSR/tool patches; stock usually
+					// re-addChilds through the surviving wrapper, but any
+					// child already present (or reinserted without a fresh
+					// addChild) must be re-observed here so inject overrides
+					// re-attach without double-wrapping (#ttsrPatches.has).
+					const transcript = this.#transcript;
+					if (transcript) {
+						for (const child of transcript.children) {
+							if (this.#disposed) break;
+							this.#observeTranscriptChild(child);
+						}
+					}
 					this.#installFold();
 					if (this.#session.activeLedger)
 						this.#requestLedgerRender(this.#session.activeLedger);
@@ -892,7 +904,9 @@ export class RuntimeAdapter {
 	/**
 	 * Override stock TTSR card chrome with ordinary gray tool rows and a green
 	 * `inject` marker. Exact-instance render wrap only — never folded into a
-	 * tool run. Unrecognized trees fail open to the native renderer.
+	 * tool run. Expansion (`setExpanded`) only changes the recoverable body
+	 * text; compact inject rows still render when extraction succeeds.
+	 * Unrecognized trees fail open to the native renderer.
 	 */
 	#patchTtsrNotification(component: RenderableBlock): void {
 		if (this.#ttsrPatches.has(component)) return;
