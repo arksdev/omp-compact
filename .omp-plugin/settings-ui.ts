@@ -1,12 +1,13 @@
 import {
-	MAX_THRESHOLD_TOKENS,
 	type CompactHostSettings,
 	type CompactMode,
 	type CompactSettings,
 	type CompactSettingsPatch,
 	type CompactSettingsStore,
 	type CompactStatsSettings,
+	MAX_THRESHOLD_TOKENS,
 } from "./config";
+import { isRejectedControlCode } from "./display-control";
 
 // =============================================================================
 // Key codes (raw terminal input data)
@@ -83,48 +84,55 @@ export function stripAnsi(text: string): string {
 }
 
 /**
- * Count code points rather than UTF-16 units: `.length`/`slice` split
- * surrogate pairs, corrupting astral characters at truncation boundaries.
- * Code points (not wcwidth cells) match the plugin's character-budget
- * display convention; full cell-width fitting stays with pi-tui's
- * `truncateToWidth`.
- */
-function codePointLength(value: string): number {
-	let length = 0;
-	for (let index = 0; index < value.length; index++) {
-		const code = value.codePointAt(index);
-		if (code !== undefined && code > 0xffff) index++;
-		length++;
-	}
-	return length;
-}
-
-/**
  * Truncate text to `width` visible columns while keeping ANSI SGR sequences
- * intact and never splitting surrogate pairs. If the cut lands inside styled
- * text, a reset is appended so color never leaks onto subsequent lines.
+ * intact and never splitting surrogate pairs. Rejected terminal controls
+ * (shared `display-control` class: DEL, C1, U+2028/U+2029, other C0 except
+ * TAB/LF/CR) are dropped and do not count toward width. If the cut lands
+ * inside styled text, a reset is appended so color never leaks onto
+ * subsequent lines.
  */
 export function truncateAnsiSafe(text: string, width: number): string {
 	if (width <= 0) return "\x1b[0m";
-	if (codePointLength(stripAnsi(text)) <= width) return text;
+	// Single walk: drop rejected controls (they never count toward width),
+	// preserve SGR sequences, stop at `width` visible code points. A reset is
+	// appended only when the walk truncated — short clean strings return
+	// byte-identical so existing callers keep their exact styled output.
 	let out = "";
 	let visible = 0;
 	let i = 0;
-	while (i < text.length && visible < width) {
+	let truncated = false;
+	while (i < text.length) {
 		const code = text.codePointAt(i) ?? 0;
 		if (code === 0x1b) {
 			const sequence = ANSI_SGR_PREFIX_RE.exec(text.slice(i));
 			if (sequence) {
+				if (visible >= width) {
+					// Past the cut: keep trailing SGR only when we already
+					// started emitting (so color state can still close).
+					// Simpler: stop; the final reset covers leakage.
+					truncated = true;
+					break;
+				}
 				out += sequence[0];
 				i += sequence[0].length;
 				continue;
 			}
 		}
+		const widthUnits = code > 0xffff ? 2 : 1;
+		if (isRejectedControlCode(code)) {
+			i += widthUnits;
+			continue;
+		}
+		if (visible >= width) {
+			truncated = true;
+			break;
+		}
 		out += String.fromCodePoint(code);
 		visible++;
-		i += code > 0xffff ? 2 : 1;
+		i += widthUnits;
 	}
-	return `${out}\x1b[0m`;
+	if (truncated) return `${out}\x1b[0m`;
+	return out;
 }
 
 // =============================================================================

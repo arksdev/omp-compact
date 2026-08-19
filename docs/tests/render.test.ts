@@ -1,7 +1,10 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-
 import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import type { Component } from "@oh-my-pi/pi-tui";
+import {
+	isRejectedControlCode,
+	stripRejectedControls,
+} from "../../.omp-plugin/display-control";
 import type { DisplayPathOptions } from "../../.omp-plugin/display-path";
 import type {
 	GitMessageDetails,
@@ -854,6 +857,45 @@ describe("sanitizeOneLine", () => {
 		expect(sanitizeOneLine(input)).toBe("ok🚀中😀");
 		// Byte-for-byte on the surviving astral characters (no U+FFFD).
 		expect([...sanitizeOneLine(input)]).toEqual(["o", "k", "🚀", "中", "😀"]);
+	});
+});
+
+describe("shared display control class", () => {
+	// Single pin for the rejected control class shared by render stripControl,
+	// git-records oneLine, and settings-ui truncation. A future edit to the
+	// class fails here instead of drifting silently between call sites.
+	test("rejects DEL, C1, and Unicode line/paragraph separators", () => {
+		expect(isRejectedControlCode(0x7f)).toBe(true); // DEL
+		expect(isRejectedControlCode(0x9b)).toBe(true); // single-byte CSI
+		expect(isRejectedControlCode(0x80)).toBe(true);
+		expect(isRejectedControlCode(0x9f)).toBe(true);
+		expect(isRejectedControlCode(0x2028)).toBe(true);
+		expect(isRejectedControlCode(0x2029)).toBe(true);
+		expect(isRejectedControlCode(0x00)).toBe(true);
+		expect(isRejectedControlCode(0x1b)).toBe(true); // ESC (ANSI stripped separately)
+	});
+
+	test("preserves TAB/LF/CR for multi-line row shaping callers", () => {
+		expect(isRejectedControlCode(0x09)).toBe(false);
+		expect(isRejectedControlCode(0x0a)).toBe(false);
+		expect(isRejectedControlCode(0x0d)).toBe(false);
+		expect(stripRejectedControls("a\tb\nc\rd")).toBe("a\tb\nc\rd");
+	});
+
+	test("keeps printable ASCII and astral code points intact", () => {
+		expect(isRejectedControlCode(0x20)).toBe(false); // space
+		expect(isRejectedControlCode(0x41)).toBe(false); // A
+		// High surrogate of 🚀 is outside every rejected range when the
+		// caller iterates by code point and reads charCodeAt(0).
+		expect(isRejectedControlCode("🚀".charCodeAt(0))).toBe(false);
+		expect(stripRejectedControls("ok\x7F🚀\x9B中\u{1F600}")).toBe("ok🚀中😀");
+		expect([...stripRejectedControls("ok\x7F🚀\x9B中\u{1F600}")]).toEqual([
+			"o",
+			"k",
+			"🚀",
+			"中",
+			"😀",
+		]);
 	});
 });
 

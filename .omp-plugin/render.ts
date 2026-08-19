@@ -6,6 +6,7 @@ import {
 } from "@oh-my-pi/pi-tui";
 
 import { genericToolDescription } from "./compact";
+import { stripRejectedControls } from "./display-control";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
 import type {
 	GitMessageDetails,
@@ -68,32 +69,12 @@ function stripAnsi(value: string): string {
 	return result;
 }
 
-/**
- * Drop terminal-effect control characters while preserving row structure.
- * Rejected class matches git-records `oneLine`: C0 controls, DEL (0x7F), the
- * C1 range (0x80–0x9F), and Unicode line/paragraph separators (U+2028/U+2029).
- * TAB/LF/CR are kept — inject body and todo-reminder recovery still split on
- * newlines and retain indentation; `oneLine` collapses those into spaces
- * instead. Iteration is by code point (`for...of`); `charCodeAt(0)` on an
- * astral character reads its high surrogate (0xD800–0xDBFF), which is outside
- * every rejected range, so emoji and CJK extension B pass through intact.
- */
-function stripControl(value: string): string {
-	let output = "";
-	for (const character of value) {
-		const code = character.charCodeAt(0);
-		if (
-			code === 9 ||
-			code === 10 ||
-			code === 13 ||
-			(code >= 0x20 && code < 0x7f) ||
-			(code > 0x9f && code !== 0x2028 && code !== 0x2029)
-		) {
-			output += character;
-		}
-	}
-	return output;
-}
+// Re-export the shared control class so existing render tests and any
+// external pin of the rejected ranges keep a stable import path.
+export {
+	isRejectedControlCode,
+	stripRejectedControls,
+} from "./display-control";
 
 const MAX_DESCRIPTION = 220;
 
@@ -193,7 +174,9 @@ export function sanitizeOneLine(
 ): string {
 	// Non-string inputs (numbers, objects, undefined) are intentionally silenced to "".
 	const text = typeof value === "string" ? value : "";
-	const clean = stripControl(stripAnsi(text)).replace(/\s+/g, " ").trim();
+	const clean = stripRejectedControls(stripAnsi(text))
+		.replace(/\s+/g, " ")
+		.trim();
 	// The budget counts code points, not UTF-16 units: slicing by UTF-16
 	// index would split surrogate pairs (astral emoji) at the boundary.
 	if (clean.length <= limit) return clean;
@@ -273,14 +256,14 @@ export function injectRulesFromTtsrComponent(
 	if (texts.length === 0) return undefined;
 	// Keep the raw header long enough to split name from the trailing rewind
 	// icon (stock uses two spaces); only then collapse residual whitespace.
-	const rawHeader = stripControl(stripAnsi(texts[0] ?? "")).trim();
+	const rawHeader = stripRejectedControls(stripAnsi(texts[0] ?? "")).trim();
 	const single = rawHeader.match(/Injecting rule:\s*(.+)$/i);
 	if (single?.[1] !== undefined) {
 		const name = sanitizeOneLine(single[1].split(/\s{2,}/)[0] ?? single[1], 80);
 		if (!name) return undefined;
 		const body = texts
 			.slice(1)
-			.map((line) => stripControl(stripAnsi(line)))
+			.map((line) => stripRejectedControls(stripAnsi(line)))
 			.join("\n")
 			.replace(/\s*\(ctrl\+o to expand\)\s*/gi, "\n")
 			.trim();
@@ -290,7 +273,9 @@ export function injectRulesFromTtsrComponent(
 	if (!/Injecting\s+\d+\s+rules:/i.test(header)) return undefined;
 	const rules: InjectRuleView[] = [];
 	for (const raw of texts.slice(1)) {
-		const plain = stripControl(stripAnsi(raw)).replace(/\s+/g, " ").trim();
+		const plain = stripRejectedControls(stripAnsi(raw))
+			.replace(/\s+/g, " ")
+			.trim();
 		if (!plain) continue;
 		if (/\(ctrl\+o to expand\)/i.test(plain)) continue;
 		if (
@@ -327,7 +312,7 @@ export function todoReminderFromComponent(
 	const texts: string[] = [];
 	collectComponentTexts(block, texts);
 	if (texts.length === 0) return undefined;
-	const header = stripControl(stripAnsi(texts[0] ?? ""))
+	const header = stripRejectedControls(stripAnsi(texts[0] ?? ""))
 		.replace(/\s+/g, " ")
 		.trim();
 	const match = header.match(TODO_REMINDER_HEADER);
@@ -347,7 +332,7 @@ export function todoReminderFromComponent(
 	}
 	const items: string[] = [];
 	for (const raw of texts.slice(1)) {
-		const plain = stripControl(stripAnsi(raw));
+		const plain = stripRejectedControls(stripAnsi(raw));
 		for (const segment of plain.split(/\r\n|\n|\r/)) {
 			// Stock body lines are "  <checkbox> <content>"; the checkbox glyph
 			// is theme-dependent, so drop one leading non-space token only.
@@ -409,7 +394,9 @@ function scrapeExecutionFooter(
 	let exitCode: number | undefined;
 	let cancelled: boolean | undefined;
 	for (const raw of texts) {
-		const plain = stripControl(stripAnsi(raw)).replace(/\s+/g, " ").trim();
+		const plain = stripRejectedControls(stripAnsi(raw))
+			.replace(/\s+/g, " ")
+			.trim();
 		if (!plain) continue;
 		if (/\(cancelled\)/i.test(plain)) cancelled = true;
 		const exit = plain.match(/\(exit\s+(-?\d+)\)/i);

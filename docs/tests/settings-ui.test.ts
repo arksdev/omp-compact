@@ -1598,6 +1598,18 @@ describe("rendering safety", () => {
 		expect(stripAnsi(styledTruncated)).toBe("🚀a");
 		expect(styledTruncated.endsWith("\x1b[0m")).toBe(true);
 	});
+
+	test("truncateAnsiSafe drops DEL, C1, and line separators from visible text", () => {
+		// Shared rejected class: controls never count toward width and never
+		// land in the truncated output. Astral characters still count as one.
+		const dirty = "a\x7Fb\x9Bc\u2028d\u2029e🚀";
+		const truncated = truncateAnsiSafe(dirty, 10);
+		expect(stripAnsi(truncated)).toBe("abcde🚀");
+		expect(truncated.includes("\x7f")).toBe(false);
+		expect(truncated.includes("\x9b")).toBe(false);
+		expect(truncated.includes("\u2028")).toBe(false);
+		expect(truncated.includes("\u2029")).toBe(false);
+	});
 });
 
 describe("headless and dialog opening", () => {

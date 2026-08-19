@@ -172,6 +172,20 @@ describe("Git record formatting", () => {
 			}),
 		).toBeUndefined();
 	});
+
+	test("oneLine drops DEL, C1, and line separators while keeping astral text", () => {
+		// Shared rejected class (display-control): C1 must not survive into a
+		// git row even though oneLine still collapses whitespace runs itself.
+		// Printable remnants after a dropped single-byte CSI (e.g. "[31m")
+		// stay — same as sanitizeOneLine after stripControl.
+		expect(
+			formatGitRecord({
+				command: "git commit -m 'x'",
+				resultText: "[main abcd] hi\x7Fthere\x9B[31m🚀\u2028bye\u2029",
+				isError: false,
+			}),
+		).toBe("git commit abcd hi there [31m🚀 bye");
+	});
 });
 
 describe("Multiple Git invocations in one Bash call", () => {

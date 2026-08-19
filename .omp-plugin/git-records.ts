@@ -1,3 +1,5 @@
+import { isRejectedControlCode } from "./display-control";
+
 export interface GitEvidence {
 	command: string;
 	resultText: string;
@@ -383,20 +385,32 @@ function skipEscapeSequence(value: string, index: number): number {
 /**
  * Collapse whitespace and strip ANSI escapes into a single bounded line.
  * Uses array accumulation to avoid O(n²) string concatenation for long
- * inputs near MAX_RECORD_LENGTH.
+ * inputs near MAX_RECORD_LENGTH. Rejected controls share the class in
+ * `display-control` (DEL, C1, U+2028/U+2029, other C0); TAB/LF/CR are
+ * treated as whitespace here and collapsed into a single space — unlike
+ * render's multi-line path, which keeps those structural breaks.
  */
 function oneLine(value: string, limit = MAX_RECORD_LENGTH): string {
 	const parts: string[] = [];
 	let length = 0;
 	let pendingSpace = false;
-	for (let index = 0; index < value.length && length < limit; index++) {
-		const code = value.charCodeAt(index);
-		if (code === 0x1b) {
-			index = skipEscapeSequence(value, index);
+	for (let index = 0; index < value.length && length < limit; ) {
+		const unit = value.charCodeAt(index);
+		if (unit === 0x1b) {
+			index = skipEscapeSequence(value, index) + 1;
 			continue;
 		}
-		if (code <= 0x20 || code === 0x7f || code === 0x2028 || code === 0x2029) {
+		// Advance by code point so astral pairs stay intact and the class
+		// check never sees a lone high surrogate as a separate character.
+		const code = value.codePointAt(index) ?? unit;
+		const width = code > 0xffff ? 2 : 1;
+		// Shared rejected class, plus TAB/LF/CR/space which oneLine collapses
+		// (row shaping — render keeps those structural breaks instead).
+		const isWhitespace =
+			code === 0x09 || code === 0x0a || code === 0x0d || code === 0x20;
+		if (isWhitespace || isRejectedControlCode(code)) {
 			if (parts.length > 0 || length > 0) pendingSpace = true;
+			index += width;
 			continue;
 		}
 		if (pendingSpace) {
@@ -405,8 +419,9 @@ function oneLine(value: string, limit = MAX_RECORD_LENGTH): string {
 			length++;
 			pendingSpace = false;
 		}
-		parts.push(value[index]);
+		parts.push(value.slice(index, index + width));
 		length++;
+		index += width;
 	}
 	return parts.join("");
 }
