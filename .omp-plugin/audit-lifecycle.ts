@@ -434,11 +434,10 @@ export class AuditLifecycle {
 			payload: init.payload,
 			abandoned: false,
 		};
-		// A repeated start for the same id (a nested xd:// device dispatch
-		// reuses the model's toolCallId) replaces the previous record, which
-		// matches the previous last-candidate-wins semantics; an in-flight
-		// completion of the older record still settles and publishes unless
-		// it was abandoned.
+		// Map swap is last-candidate-wins for the shared toolCallId: only the
+		// new record is addressable. The previous entry was already abandoned
+		// above, so any in-flight completion it still holds settles without
+		// publishing (exactly-once — never a double-publish of mutation evidence).
 		this.#records.set(toolCallId, record);
 		this.#pending.set(toolCallId, record);
 	}

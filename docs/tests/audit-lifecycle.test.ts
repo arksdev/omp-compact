@@ -162,6 +162,35 @@ describe("synchronous write-audit registration", () => {
 		expect(h.published[0]).toEqual([evidence("w1")]);
 	});
 
+	test("a second startWrite for the same toolCallId publishes only the successor", async () => {
+		// Nested xd:// device dispatch reuses the model's toolCallId while the
+		// outer completion is still in flight. Exactly-once: register abandons
+		// the superseded record so its later settle cannot emit evidence.
+		const h = harness();
+		h.life.startWrite(writeStart("w1"));
+		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
+		// Outer completion is suspended on capture when the replacement arrives.
+		h.life.startWrite(writeStart("w1"));
+
+		// Superseded capture settles — must not reach complete/publish.
+		h.captures[0]?.resolve(candidate("w1-old"));
+		await flush();
+		expect(h.completes).toHaveLength(0);
+		expect(h.published).toEqual([]);
+
+		// Successor end + capture + complete publishes exactly once.
+		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
+		h.captures[1]?.resolve(candidate("w1"));
+		await flush();
+		h.completes[0]?.resolve([evidence("w1")]);
+		await flush();
+
+		expect(h.published).toEqual([[evidence("w1")]]);
+		expect(h.published).toHaveLength(1);
+		// Only the successor reached the post-image audit.
+		expect(h.completedWith).toEqual([candidate("w1")]);
+	});
+
 	test("concurrent writes each publish their own evidence exactly once", async () => {
 		const h = harness();
 		h.life.startWrite(writeStart("w1"));
