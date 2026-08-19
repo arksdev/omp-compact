@@ -6,6 +6,7 @@ export interface AuditLifecycleOptions {
 		toolCallId: string;
 		args: unknown;
 		cwd: string;
+		root?: string;
 	}): Promise<MutationCandidate | undefined>;
 	complete(
 		candidate: MutationCandidate | undefined,
@@ -29,6 +30,8 @@ export interface WriteStartInput {
 	toolCallId: string;
 	args: unknown;
 	cwd: string;
+	/** Optional confinement root; defaults to cwd inside capture. */
+	root?: string;
 }
 
 export interface WriteEndInput {

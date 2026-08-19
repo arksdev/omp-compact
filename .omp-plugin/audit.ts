@@ -1,4 +1,13 @@
-import { closeSync, constants, fstatSync, openSync, readSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	fstatSync,
+	lstatSync,
+	openSync,
+	readlinkSync,
+	readSync,
+	realpathSync,
+} from "node:fs";
 import type { FileHandle } from "node:fs/promises";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
@@ -37,7 +46,25 @@ export interface MutationCandidate {
 	displayPath: string;
 	absolutePath: string;
 	canonicalPath: string;
+	/** Pre-image text; empty string for a true creation (or empty file). */
 	before: string;
+}
+
+/**
+ * Segment-exact containment of an absolute path inside a root directory.
+ * Both sides must already be normalized absolute paths (typically
+ * realpath/canonical forms). Trailing slashes on the root are ignored; a
+ * path equal to the root counts as inside. Lexical only — callers supply
+ * canonical forms when symlink escape must be closed.
+ */
+export function isPathInsideRoot(path: string, root: string): boolean {
+	if (path.charCodeAt(0) !== 47 || root.charCodeAt(0) !== 47) return false;
+	let end = root.length;
+	while (end > 1 && root.charCodeAt(end - 1) === 47) end--;
+	const base = root.slice(0, end);
+	if (path === base) return true;
+	if (base === "/") return path.charCodeAt(0) === 47 && path.length > 1;
+	return path.startsWith(base) && path.charCodeAt(base.length) === 47;
 }
 
 /**
@@ -49,7 +76,34 @@ export interface MutationCandidate {
  * prefixes (e.g. macOS `/tmp` -> `/private/tmp`) once native created the
  * directories — a false mismatch that dropped exact stats for every new file
  * written below a newly created directory on a symlinked prefix.
+ *
+ * Sync twin is used inside `captureWriteCandidate` so confinement + the
+ * pre-image snapshot never yield before the content is taken (stock
+ * `tool_execution_start` is fire-and-forget against the tool's own write).
  */
+function canonicalPathSync(path: string): string {
+	const absolutePath = resolve(path);
+	try {
+		return realpathSync(absolutePath);
+	} catch {
+		const suffix: string[] = [];
+		let current = absolutePath;
+		let depth = 0;
+		const MAX_DEPTH = 100; // Defensive: typical max path depth
+		for (;;) {
+			if (++depth > MAX_DEPTH) return absolutePath;
+			const parent = dirname(current);
+			if (parent === current) return absolutePath;
+			suffix.unshift(basename(current));
+			try {
+				return resolve(realpathSync(parent), ...suffix);
+			} catch {
+				current = parent;
+			}
+		}
+	}
+}
+
 async function canonicalPath(path: string): Promise<string> {
 	const absolutePath = resolve(path);
 	try {
@@ -58,7 +112,7 @@ async function canonicalPath(path: string): Promise<string> {
 		const suffix: string[] = [];
 		let current = absolutePath;
 		let depth = 0;
-		const MAX_DEPTH = 100; // Defensive: typical max path depth
+		const MAX_DEPTH = 100;
 		for (;;) {
 			if (++depth > MAX_DEPTH) return absolutePath;
 			const parent = dirname(current);
@@ -228,6 +282,13 @@ export async function captureWriteCandidate(input: {
 	toolCallId: string;
 	args: unknown;
 	cwd: string;
+	/**
+	 * Confinement root for overwrite pre-image reads. Defaults to `cwd`.
+	 * Injectable so tests can state the root explicitly instead of depending
+	 * on `process.cwd()` (fixtures live under OS temp, outside the project).
+	 * Production passes the live session cwd from `resolveSessionCwd`.
+	 */
+	root?: string;
 }): Promise<MutationCandidate | undefined> {
 	const args = objectRecord(input.args);
 	if (typeof args.path !== "string" || typeof args.content !== "string")
@@ -254,11 +315,67 @@ export async function captureWriteCandidate(input: {
 	const absolutePath = isAbsolute(displayPath)
 		? resolve(displayPath)
 		: resolve(input.cwd, displayPath);
-	// Synchronous pre-image read: the start handler must not yield before the
-	// snapshot is taken (stock delivery is fire-and-forget; the tool's write
-	// can otherwise land first and the diff collapses to zero).
-	const before = boundedTextSync(absolutePath, true);
-	if (before === undefined) return undefined;
+	const rootPath = resolve(input.root ?? input.cwd);
+	// Entire existence + confinement + pre-image path is synchronous: any
+	// await before `before` is set reopens the stock fire-and-forget race
+	// (tool write lands first → empty diff → no evidence).
+	let before: string;
+	try {
+		const st = lstatSync(absolutePath);
+		if (st.isSymbolicLink()) {
+			// Resolve one link hop against the link's directory; confinement
+			// and the pre-image decision key off the destination, not the
+			// in-root link path. A dangling link's own path realpath's to
+			// root/linkname and would wrongly look inside the root.
+			let linkTarget: string;
+			try {
+				linkTarget = readlinkSync(absolutePath);
+			} catch {
+				return undefined;
+			}
+			const destination = isAbsolute(linkTarget)
+				? resolve(linkTarget)
+				: resolve(dirname(absolutePath), linkTarget);
+			const destinationCanonical = canonicalPathSync(destination);
+			const rootCanonical = canonicalPathSync(rootPath);
+			if (!isPathInsideRoot(destinationCanonical, rootCanonical)) {
+				// Outside destination: never read pre-image, never claim
+				// empty-before creation (dangling or live).
+				return undefined;
+			}
+			// Destination is inside the root. Read through the link (open
+			// follows); dangling inside-root → "" (creation equivalence).
+			const text = boundedTextSync(absolutePath, true);
+			if (text === undefined) return undefined;
+			before = text;
+		} else if (st.isFile()) {
+			// Overwrite path: pre-image is pre-existing user data — confine
+			// before any content read. Comparison is canonical so a symlink
+			// escape cannot hide outside the root, accepting that macOS
+			// /tmp→/private/tmp and symlinked worktrees need matching
+			// canonical roots (session cwd realpath covers the common case).
+			const pathCanonical = canonicalPathSync(absolutePath);
+			const rootCanonical = canonicalPathSync(rootPath);
+			if (!isPathInsideRoot(pathCanonical, rootCanonical)) return undefined;
+			const text = boundedTextSync(absolutePath, false);
+			if (text === undefined) return undefined;
+			before = text;
+		} else {
+			// Directory, fifo, device, socket: fail open, no evidence.
+			return undefined;
+		}
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") return undefined;
+		// True missing path: creation. Only the post-image is read later;
+		// confinement does not apply — outside-root creates keep +N|0.
+		before = "";
+	}
+	// Pre-image is fixed. The trailing await keeps the capture promise
+	// pending across the start handler's return so a fire-and-forget
+	// tool_execution_end cannot run the post-image read before the native
+	// write lands (integration race tests: settle start → writeFileSync →
+	// settle end). Same happens-before window HEAD got from awaiting
+	// canonicalPath after the snapshot; confinement stays fully sync above.
 	return {
 		toolCallId: input.toolCallId,
 		toolName: "write",

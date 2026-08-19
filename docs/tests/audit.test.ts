@@ -30,6 +30,7 @@ interface AuditModule {
 		toolCallId: string;
 		args: unknown;
 		cwd: string;
+		root?: string;
 	}): Promise<WriteCandidate | undefined>;
 	completeWriteCandidate(
 		candidate: WriteCandidate | undefined,
@@ -1616,6 +1617,227 @@ describe("write audit for brand-new files", () => {
 	});
 });
 
+describe("write audit pre-image confinement", () => {
+	async function stage(): Promise<{
+		root: string;
+		outside: string;
+		cleanup: () => Promise<void>;
+	}> {
+		const root = await mkdtemp(join(tmpdir(), "omp-compact-confine-root-"));
+		const outside = await mkdtemp(join(tmpdir(), "omp-compact-confine-out-"));
+		return {
+			root,
+			outside,
+			cleanup: async () => {
+				await rm(root, { recursive: true, force: true });
+				await rm(outside, { recursive: true, force: true });
+			},
+		};
+	}
+
+	test("creation outside the root still yields exact +N|0", async () => {
+		const { root, outside, cleanup } = await stage();
+		try {
+			const absolute = join(outside, "fresh.ts");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-create-out",
+				args: { path: absolute, content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("");
+			await writeFile(absolute, "one\ntwo\n");
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: absolute },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-create-out",
+					toolName: "write",
+					path: absolute,
+					added: 2,
+					removed: 0,
+					exact: true,
+				},
+			]);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("overwrite outside the root yields no candidate and no evidence", async () => {
+		const { root, outside, cleanup } = await stage();
+		try {
+			const absolute = join(outside, "secret.ts");
+			await writeFile(absolute, "pre-existing secret\nline two\n");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-over-out",
+				args: { path: absolute, content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeUndefined();
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: absolute },
+				},
+				false,
+			);
+			expect(entries).toEqual([]);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("overwrite inside the root still yields exact evidence", async () => {
+		const { root, cleanup } = await stage();
+		try {
+			await writeFile(join(root, "edit.ts"), "const a = 1;\nkeep();\n");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-over-in",
+				args: { path: "edit.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("const a = 1;\nkeep();\n");
+			await writeFile(
+				join(root, "edit.ts"),
+				"const a = 2;\nkeep();\nextra();\n",
+			);
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: join(root, "edit.ts") },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-over-in",
+					toolName: "write",
+					path: "edit.ts",
+					added: 2,
+					removed: 1,
+					exact: true,
+				},
+			]);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("dangling symlink to an outside target is not treated as creation", async () => {
+		const { root, outside, cleanup } = await stage();
+		try {
+			const outsideTarget = join(outside, "missing-secret");
+			await symlink(outsideTarget, join(root, "escape"));
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-dangle",
+				args: { path: "escape", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			// Must not launder an out-of-root write as empty-before creation.
+			expect(candidate).toBeUndefined();
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("symlink to an existing outside file does not read the pre-image", async () => {
+		const { root, outside, cleanup } = await stage();
+		try {
+			const outsideTarget = join(outside, "secret.ts");
+			await writeFile(outsideTarget, "outside secret pre-image\n");
+			await symlink(outsideTarget, join(root, "alias.ts"));
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-symlink-out",
+				args: { path: "alias.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeUndefined();
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("empty create still yields no entry", async () => {
+		const { root, cleanup } = await stage();
+		try {
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-empty",
+				args: { path: "empty.ts", content: "" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("");
+			await writeFile(join(root, "empty.ts"), "");
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: join(root, "empty.ts") },
+				},
+				false,
+			);
+			expect(entries).toEqual([]);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("existing empty file inside the root still yields exact +N|0", async () => {
+		const { root, cleanup } = await stage();
+		try {
+			await writeFile(join(root, "empty.ts"), "");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-empty-exist",
+				args: { path: "empty.ts", content: "untrusted" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeDefined();
+			expect(candidate?.before).toBe("");
+			await writeFile(join(root, "empty.ts"), "only\n");
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: join(root, "empty.ts") },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "confine-empty-exist",
+					toolName: "write",
+					path: "empty.ts",
+					added: 1,
+					removed: 0,
+					exact: true,
+				},
+			]);
+		} finally {
+			await cleanup();
+		}
+	});
+});
+
 describe("boundedTextSync special-file safety", () => {
 	// The synchronous pre-image read must never block the main event loop on a
 	// model-controlled path. A writer-less FIFO blocks a plain O_RDONLY open
@@ -1649,7 +1871,7 @@ const { join } = require("node:path");
 
 	const ASYNC_SWAP_PROBE_SCRIPT = `
 const { pathToFileURL } = require("node:url");
-const { join } = require("node:path");
+const { dirname, join } = require("node:path");
 const { unlinkSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
 (async () => {
@@ -1658,18 +1880,24 @@ const { spawnSync } = require("node:child_process");
       pathToFileURL(join(process.cwd(), ".omp-plugin", "audit.ts")).href +
       "?special-file-async-probe";
     const mod = await import(href);
+    const probePath = process.env.PROBE_PATH;
+    // Fixture lives under OS temp; pin the confinement root to the probe's
+    // directory so overwrite capture is not silently disabled by the default
+    // cwd=process.cwd() root (which is the repo, outside the fixture).
+    const probeRoot = dirname(probePath);
     const candidate = await mod.captureWriteCandidate({
       toolCallId: "async-probe",
-      args: { path: process.env.PROBE_PATH, content: "x" },
-      cwd: process.cwd(),
+      args: { path: probePath, content: "x" },
+      cwd: probeRoot,
+      root: probeRoot,
     });
     if (!candidate) {
       console.log("null");
       process.exit(0);
     }
     // Swap the captured target for a writer-less FIFO, then complete.
-    unlinkSync(process.env.PROBE_PATH);
-    const made = spawnSync("mkfifo", [process.env.PROBE_PATH]);
+    unlinkSync(probePath);
+    const made = spawnSync("mkfifo", [probePath]);
     if (made.status !== 0) {
       console.error("mkfifo failed: " + String(made.stderr));
       process.exit(2);
@@ -1678,7 +1906,7 @@ const { spawnSync } = require("node:child_process");
       candidate,
       {
         content: [{ type: "text", text: "ok" }],
-        details: { resolvedPath: process.env.PROBE_PATH },
+        details: { resolvedPath: probePath },
       },
       false,
     );

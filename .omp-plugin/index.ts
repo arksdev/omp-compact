@@ -671,11 +671,19 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				// filesystem await: stock invokes listeners fire-and-forget, so a
 				// fast tool_execution_end can otherwise arrive while the pre-image
 				// capture is still in flight and find no record.
-				auditLifecycle.startWrite({
-					toolCallId: event.toolCallId,
-					args: event.args,
-					cwd: resolveSessionCwd(context),
-				});
+				{
+					const cwd = resolveSessionCwd(context);
+					auditLifecycle.startWrite({
+						toolCallId: event.toolCallId,
+						args: event.args,
+						cwd,
+						// Confinement root = live session cwd (same source as
+						// display-path resolution). Injectable on the capture
+						// API so tests can pin a fixture root; production never
+						// invents a second mechanism.
+						root: cwd,
+					});
+				}
 				break;
 			case "git-bash": {
 				const command = objectRecord(event.args).command;
