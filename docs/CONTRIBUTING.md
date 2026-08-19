@@ -37,9 +37,9 @@ bun run test
 OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test.ts
 ```
 
-The latest standalone release gate was 774 tests, 0 failures, and 3,928 assertions across 28 files. Treat the current command output as authoritative after further changes.
+The latest standalone release gate was 1047 tests, 0 failures, and 5,202 assertions across 28 files. Treat the current command output as authoritative after further changes.
 
-There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 17.3.1. Bare `bun test …` without that env leaves `stockTest` suites skipped and makes the two host-adapter canaries return early as empty passes.
+There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 17.3.1. Bare `bun test …` without that env leaves every stock-host-dependent test (including the host-adapter canaries) reported as skipped.
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
