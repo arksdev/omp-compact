@@ -259,6 +259,10 @@ share one predicate (`path-inside-root.ts` `isPathInsideRoot`). Both sides must
 be `/`-absolute; segment-exact prefix checks reject `/foo/barbaz` under
 `/foo/bar`. Windows-style absolutes fail closed (no overwrite evidence; config
 path rejected) — the plugin does not implement Windows path semantics.
+Overwrite pre-image opens use `O_NOFOLLOW` on the already-confined destination
+(plain path, or one-hop symlink destination); a concurrent swap-to-symlink
+drops evidence fail-closed rather than following outside the root. Nested
+symlink hops are rejected by `lstat` on the first destination.
 
 
 ### Edit Verification (audit-diff.ts)

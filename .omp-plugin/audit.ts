@@ -223,25 +223,38 @@ async function boundedText(path: string): Promise<string | undefined> {
  * the pre-image before the handler yields. Creation never reaches this
  * reader: existence is decided by lstat/stat probes up front, so a missing
  * path becomes `before = ""` without opening. Oversized/over-long snapshots
- * and non-regular targets -> undefined. The path is opened with `O_NONBLOCK`
- * and gated on `fstat` of the opened descriptor: FIFOs, devices, sockets and
- * directories are rejected fail-open, so a model-controlled non-regular
- * target can never block the event loop, and a symlink resolving to a
- * regular file keeps its exact snapshot. The exact snapshot is read through
- * `readExactSync`: short reads are looped and any growth/shrink between
- * stat and read rejects the evidence instead of fabricating a partial
- * pre-image.
+ * and non-regular targets -> undefined.
+ *
+ * Open flags: `O_RDONLY | O_NONBLOCK | O_NOFOLLOW`.
+ * - `O_NONBLOCK` keeps a writer-less FIFO (or another non-regular target)
+ *   from blocking inside open(2) on the main event loop — the path is
+ *   model-controlled.
+ * - `O_NOFOLLOW` refuses to open when the final path component is a
+ *   symlink. Callers must hand this reader a real destination they have
+ *   already confined (plain overwrite path, or the one-hop destination of
+ *   an in-root link). A concurrent swap that replaces that path with a
+ *   symlink (to an outside secret, or anything else) fails the open with
+ *   ELOOP/EMLINK and drops evidence fail-closed — no content is read.
+ *   There is no "please follow" flag: a follow option would re-open the
+ *   TOCTOU hole this flag closes.
+ *
+ * The regular/non-regular decision is then made on the OPENED descriptor
+ * via `fstat` (no lstat window for the type check), and every non-regular
+ * target is rejected fail-open before any allocation or read. `O_NOFOLLOW`
+ * already closes the symlink-escape window on the open itself; re-checking
+ * identity via `realpath(/dev/fd/N)` would not add a further guarantee
+ * once the fd is open on a non-symlink path component, so it is not done
+ * here. The exact snapshot is read through `readExactSync`: short reads
+ * are looped and any growth/shrink between stat and read rejects the
+ * evidence instead of fabricating a partial pre-image.
  */
 function boundedTextSync(path: string): string | undefined {
 	let fd: number | undefined;
 	try {
-		// O_NONBLOCK: opening a writer-less FIFO (or another non-regular
-		// target) with plain "r" blocks inside open(2) and hangs the main
-		// event loop — the path is model-controlled. The regular/non-regular
-		// decision is made on the OPENED descriptor (race-safe: no lstat
-		// window a concurrent swap could slip through), and every non-regular
-		// target is rejected fail-open before any allocation or read.
-		fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+		fd = openSync(
+			path,
+			constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW,
+		);
 		const stats = fstatSync(fd);
 		if (!stats.isFile()) return undefined;
 		const size = stats.size;
@@ -254,7 +267,9 @@ function boundedTextSync(path: string): string | undefined {
 		const text = buffer.toString("utf8", 0, size);
 		return lineCount(text) <= SNAPSHOT_MAX_LINES ? text : undefined;
 	} catch {
-		// Overwrite path only: ENOENT/errors mean no exact pre-image.
+		// Overwrite path only: ENOENT, ELOOP/EMLINK (symlink final component
+		// under O_NOFOLLOW), and every other open/read error mean no exact
+		// pre-image — drop evidence fail-closed, never surface the error.
 		return undefined;
 	} finally {
 		if (fd !== undefined) closeSync(fd);
@@ -352,8 +367,14 @@ export async function captureWriteCandidate(input: {
 			}
 			if (destExistsAsFile) {
 				// Existing regular file at the destination: genuine overwrite.
-				// Read content through the original link path (open follows).
-				const text = boundedTextSync(absolutePath);
+				// Read the object that was authorized — the confined
+				// destination — with O_NOFOLLOW. Opening the link path and
+				// letting open(2) follow it is a confused deputy: confinement
+				// checked one object and the read targeted another, so a
+				// concurrent re-point of the link (or any later hop) could
+				// exfiltrate an outside secret into the pre-image. Opening the
+				// destination itself refuses a swap-to-symlink at that path.
+				const text = boundedTextSync(destination);
 				if (text === undefined) return undefined;
 				before = text;
 			} else {

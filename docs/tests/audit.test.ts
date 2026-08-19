@@ -1904,6 +1904,178 @@ describe("write audit pre-image confinement", () => {
 		}
 	});
 
+	test("nested in-root symlink hop is not followed for pre-image", async () => {
+		// Single-hop only: link → mid-link → outside must not treat the chain
+		// as an in-root regular file (lstat on the first destination sees a
+		// symlink, not a regular file).
+		const { root, outside, cleanup } = await stage();
+		try {
+			const outsideTarget = join(outside, "secret.ts");
+			await writeFile(outsideTarget, "nested-hop-secret-marker\n");
+			const mid = join(root, "mid.ts");
+			await symlink(outsideTarget, mid);
+			await symlink(mid, join(root, "alias.ts"));
+			const candidate = await captureWriteCandidate({
+				toolCallId: "confine-nested-hop",
+				args: { path: "alias.ts", content: "untrusted raw input" },
+				cwd: root,
+				root,
+			});
+			expect(candidate).toBeUndefined();
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("plain path swapped to outside symlink yields no evidence and no secret read", async () => {
+		// TOCTOU contract: between the confinement lstat and the pre-image
+		// open, a concurrent swap can replace an in-root regular file with a
+		// symlink to an outside secret. The open must not follow that link
+		// (O_NOFOLLOW); evidence is dropped fail-closed. A tight sibling
+		// process hammers the swap while this process captures repeatedly —
+		// the secret marker must never appear in a captured pre-image.
+		const { root, outside, cleanup } = await stage();
+		try {
+			const victim = join(root, "victim.ts");
+			const outsideTarget = join(outside, "secret.ts");
+			const secret = "plain-path-toctou-secret-marker\n";
+			await writeFile(outsideTarget, secret);
+			await writeFile(victim, "safe pre-image\n");
+
+			const swapper = Bun.spawn(
+				[
+					"bun",
+					"-e",
+					`
+const { unlinkSync, symlinkSync, writeFileSync } = require("node:fs");
+const victim = process.env.VICTIM;
+const outsideTarget = process.env.OUTSIDE;
+const stop = process.env.STOP;
+const { existsSync } = require("node:fs");
+while (!existsSync(stop)) {
+  try { unlinkSync(victim); } catch {}
+  try { symlinkSync(outsideTarget, victim); } catch {}
+  try { unlinkSync(victim); } catch {}
+  try { writeFileSync(victim, "safe pre-image\\n"); } catch {}
+}
+`,
+				],
+				{
+					env: {
+						...Bun.env,
+						VICTIM: victim,
+						OUTSIDE: outsideTarget,
+						STOP: join(root, "stop"),
+					},
+					stdout: "ignore",
+					stderr: "ignore",
+				},
+			);
+
+			try {
+				let sawUndefined = false;
+				let sawSafe = false;
+				for (let i = 0; i < 400; i++) {
+					const candidate = await captureWriteCandidate({
+						toolCallId: `confine-toctou-plain-${i}`,
+						args: { path: "victim.ts", content: "untrusted raw input" },
+						cwd: root,
+						root,
+					});
+					if (candidate === undefined) {
+						sawUndefined = true;
+						continue;
+					}
+					expect(candidate.before).not.toContain(
+						"plain-path-toctou-secret-marker",
+					);
+					if (candidate.before === "safe pre-image\n") sawSafe = true;
+				}
+				// The race must have been observable at least once either way;
+				// the hard contract is "secret never leaks".
+				expect(sawUndefined || sawSafe).toBe(true);
+			} finally {
+				await writeFile(join(root, "stop"), "1");
+				swapper.kill();
+				await swapper.exited.catch(() => undefined);
+			}
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("symlink path re-pointed outside during capture yields no secret read", async () => {
+		// Confused-deputy / TOCTOU on the symlink branch: confinement keys
+		// off the resolved destination, so the pre-image open must target
+		// that destination (O_NOFOLLOW), not re-follow the link path. A
+		// sibling process re-points the in-root link at an outside secret
+		// while capture runs; the secret must never land in `before`.
+		const { root, outside, cleanup } = await stage();
+		try {
+			const target = join(root, "target.ts");
+			const alias = join(root, "alias.ts");
+			const outsideTarget = join(outside, "secret.ts");
+			const secret = "symlink-branch-toctou-secret-marker\n";
+			await writeFile(target, "const a = 1;\nkeep();\n");
+			await writeFile(outsideTarget, secret);
+			await symlink(target, alias);
+
+			const swapper = Bun.spawn(
+				[
+					"bun",
+					"-e",
+					`
+const { unlinkSync, symlinkSync } = require("node:fs");
+const { existsSync } = require("node:fs");
+const alias = process.env.ALIAS;
+const target = process.env.TARGET;
+const outsideTarget = process.env.OUTSIDE;
+const stop = process.env.STOP;
+while (!existsSync(stop)) {
+  try { unlinkSync(alias); } catch {}
+  try { symlinkSync(outsideTarget, alias); } catch {}
+  try { unlinkSync(alias); } catch {}
+  try { symlinkSync(target, alias); } catch {}
+}
+`,
+				],
+				{
+					env: {
+						...Bun.env,
+						ALIAS: alias,
+						TARGET: target,
+						OUTSIDE: outsideTarget,
+						STOP: join(root, "stop"),
+					},
+					stdout: "ignore",
+					stderr: "ignore",
+				},
+			);
+
+			try {
+				for (let i = 0; i < 400; i++) {
+					const candidate = await captureWriteCandidate({
+						toolCallId: `confine-toctou-link-${i}`,
+						args: { path: "alias.ts", content: "untrusted raw input" },
+						cwd: root,
+						root,
+					});
+					if (candidate === undefined) continue;
+					expect(candidate.before).not.toContain(
+						"symlink-branch-toctou-secret-marker",
+					);
+				}
+			} finally {
+				await writeFile(join(root, "stop"), "1");
+				swapper.kill();
+				await swapper.exited.catch(() => undefined);
+			}
+		} finally {
+			await cleanup();
+		}
+	});
+
+
 	test("empty create still yields no entry", async () => {
 		const { root, cleanup } = await stage();
 		try {
