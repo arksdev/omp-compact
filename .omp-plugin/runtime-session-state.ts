@@ -886,11 +886,18 @@ export class RuntimeSessionState {
 	 */
 	stateForLedger(input: ToolStartInput, ledger: TurnLedger): ToolState {
 		const existing = this.#states.get(input.toolCallId);
+		// Live and hydrate share one retained-payload budget: over-budget
+		// args stay out of ToolState while the state itself still allocates
+		// and binds (losing a row is not acceptable; losing an oversized
+		// payload is).
+		const retainedArgs = isPayloadWithinBudget(input.args)
+			? input.args
+			: undefined;
 		if (existing) {
 			// A rebuild may replay a stale branch snapshot for an in-flight
 			// active state. Only the owning ledger can refresh its args; live
 			// event state remains authoritative across that boundary.
-			if (existing.ledger === ledger) existing.args = input.args;
+			if (existing.ledger === ledger) existing.args = retainedArgs;
 			return existing;
 		}
 		const entry: LedgerEntry = {
@@ -905,7 +912,7 @@ export class RuntimeSessionState {
 			id: input.toolCallId,
 			toolName: input.toolName,
 			seq: ++this.#seq,
-			args: input.args,
+			args: retainedArgs,
 			result: undefined,
 			isError: false,
 			isPartial: true,
@@ -939,7 +946,10 @@ export class RuntimeSessionState {
 			return undefined;
 		}
 		const state = this.stateForLedger(input, this.ensureLedger());
-		state.args = input.args;
+		// stateForLedger already applied the retained-payload budget; keep
+		// the live refresh on the same rule so a second start with huge
+		// args cannot reintroduce the payload.
+		state.args = isPayloadWithinBudget(input.args) ? input.args : undefined;
 		state.isPartial = true;
 		this.#pendingStates.add(state);
 		state.version++;
@@ -995,7 +1005,9 @@ export class RuntimeSessionState {
 	updateTool(input: ToolResultInput): RenderableBlock | undefined {
 		const state = this.#states.get(input.toolCallId);
 		if (!state || !this.#stateMutable(state)) return undefined;
-		state.result = input.result;
+		state.result = isPayloadWithinBudget(input.result)
+			? input.result
+			: undefined;
 		state.isPartial = input.isPartial === true;
 		if (state.isPartial) this.#pendingStates.add(state);
 		else this.#pendingStates.delete(state);
@@ -1012,11 +1024,15 @@ export class RuntimeSessionState {
 	 * records the authentic payload. Gate is phase-only (not the deferred
 	 * map): `#states.get` already limits to known ids, and a finalized
 	 * ledger (`filtered`/`full`) stays frozen. Never allocates unknown ids.
+	 * Over-budget results settle the entry without retaining the payload
+	 * (same budget as hydrateBranch / commitRebuild).
 	 */
 	finishTool(input: ToolResultInput): RenderableBlock | undefined {
 		const state = this.#states.get(input.toolCallId);
 		if (state?.ledger.phase !== "working") return undefined;
-		state.result = input.result;
+		state.result = isPayloadWithinBudget(input.result)
+			? input.result
+			: undefined;
 		state.isPartial = false;
 		this.#pendingStates.delete(state);
 		state.isError =

@@ -858,6 +858,70 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(first?.args).toEqual({ command: "two" });
 	});
 
+	test("live over-budget args do not enter the state but the row still allocates", () => {
+		// Live ≡ hydrate asymmetry fix: oversized payloads are dropped, not the
+		// ToolState. Binding/pending/ledger still work so the row can render.
+		const session = makeSession();
+		session.beginRun();
+		const hugeArgs = { content: "x".repeat(MAX_PAYLOAD_BYTES + 1) };
+		const state = mustStart(session, {
+			toolCallId: "live-big-args",
+			toolName: "bash",
+			args: hugeArgs,
+		});
+		expect(state.args).toBeUndefined();
+		expect(session.state("live-big-args")).toBe(state);
+		expect(state.isPartial).toBe(true);
+		expect(session.pending()).toContain(state);
+
+		// In-budget refresh still lands.
+		const okArgs = { command: "printf ok" };
+		const again = mustStart(session, {
+			toolCallId: "live-big-args",
+			toolName: "bash",
+			args: okArgs,
+		});
+		expect(again).toBe(state);
+		expect(state.args).toEqual(okArgs);
+	});
+
+	test("live over-budget results settle the state without retaining the payload", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = mustStart(session, {
+			toolCallId: "live-big-result",
+			toolName: "bash",
+			args: { command: "cat big" },
+		});
+		const hugeResult = {
+			content: [{ type: "text", text: "y".repeat(MAX_PAYLOAD_BYTES + 1) }],
+		};
+		expect(
+			session.updateTool({
+				toolCallId: "live-big-result",
+				toolName: "bash",
+				result: hugeResult,
+				isError: false,
+				isPartial: true,
+			}),
+		).toBeUndefined(); // no component yet, but state mutates
+		expect(state.result).toBeUndefined();
+		expect(state.isPartial).toBe(true);
+
+		expect(
+			session.finishTool({
+				toolCallId: "live-big-result",
+				toolName: "bash",
+				result: hugeResult,
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.result).toBeUndefined();
+		expect(state.isPartial).toBe(false);
+		expect(state.entry.state).toBe("success");
+		expect(session.pending()).not.toContain(state);
+	});
+
 	test("setMutations/setGit are no-ops after a filtered finalization", () => {
 		const session = makeSession();
 		session.beginRun();

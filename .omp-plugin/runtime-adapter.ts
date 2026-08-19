@@ -14,6 +14,7 @@ import {
 	isTtsrNotificationComponent,
 	transcriptCapabilities,
 } from "./host-adapter";
+import { isPayloadWithinBudget } from "./hydration-bounds";
 import type { GitMessageDetails, MutationMessageDetails } from "./messages";
 import { DEFAULT_RUN_MODE, type ModePolicy } from "./mode-policy";
 import { DescriptorPatch } from "./patch-kit";
@@ -379,7 +380,11 @@ export class RuntimeAdapter {
 				continue;
 			const state = this.#session.state(call.id);
 			if (!state || state.ledger !== ledger) continue;
-			state.args = call.arguments;
+			// Same retained-payload budget as startState/hydrate: over-budget
+			// stream deltas must not reintroduce a dropped args blob.
+			state.args = isPayloadWithinBudget(call.arguments)
+				? call.arguments
+				: undefined;
 		}
 		this.#session.binding.tryBindByOrder(ledger);
 	}
