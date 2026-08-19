@@ -452,6 +452,62 @@ describe("save vs cancel", () => {
 		expect(warnings.some((w) => w.includes("disk full"))).toBe(true);
 		expect(lines(dialog).some((l) => l.includes("disk full"))).toBe(true);
 	});
+
+	test("queued save persists the draft snapshot from save invocation, not later draft mutations", async () => {
+		// m11: save() must capture an immutable snapshot at confirmation time.
+		// Input may keep mutating the live draft while a slow onSave is pending;
+		// the already-confirmed payload must not observe those later edits.
+		let releaseSave!: () => void;
+		const saveStarted = new Promise<void>((resolve) => {
+			releaseSave = resolve;
+		});
+		const saves: CompactSettings[] = [];
+		let doneResult: CompactSettings | undefined;
+		const dialog = new SettingsDialog(
+			{
+				settings: DEFAULT_SETTINGS,
+				onSave: async (next) => {
+					saves.push(next);
+					await saveStarted;
+				},
+				theme: fakeTheme(),
+				keybindings: noopKeybindings(),
+			},
+			(result) => {
+				doneResult = result;
+			},
+		);
+
+		// Confirm: Global compact off.
+		dialog.handleInput(KEY_SPACE);
+		expect(dialog.current.enabled).toBe(false);
+		dialog.handleInput(KEY_S);
+
+		// While the write is pending, keep editing the live draft (mode +
+		// re-enable). These must not rewrite the already-queued payload.
+		dialog.handleInput(KEY_DOWN); // Mode
+		dialog.handleInput(KEY_RIGHT); // live -> clear
+		expect(dialog.current.mode).toBe("clear");
+		dialog.handleInput(KEY_UP); // Global compact
+		dialog.handleInput(KEY_SPACE); // re-enable
+		expect(dialog.current.enabled).toBe(true);
+
+		releaseSave();
+		await dialog.settled();
+
+		expect(saves).toHaveLength(1);
+		expect(saves[0]?.enabled).toBe(false);
+		expect(saves[0]?.mode).toBe(DEFAULT_SETTINGS.mode);
+		// Nested objects are snapshots too: mutating the live draft after
+		// confirmation must not rewrite the queued payload by reference.
+		expect(saves[0]?.stats).not.toBe(dialog.current.stats);
+		expect(saves[0]?.autoShake).not.toBe(dialog.current.autoShake);
+		expect(saves[0]?.host).not.toBe(dialog.current.host);
+		// Successful save still resolves with the confirmed snapshot.
+		expect(doneResult?.enabled).toBe(false);
+		expect(doneResult?.mode).toBe(DEFAULT_SETTINGS.mode);
+		expect(doneResult).not.toBe(dialog.current);
+	});
 });
 
 function flowHarness(overrides: {

@@ -262,7 +262,8 @@ Default path:
 - `thresholdTokens` — integer от `0` до `10,000,000`;
 - поддерживается только `version: 1`;
 - invalid fields получают defaults и вызывают одно предупреждение;
-- запись выполняется через temporary file и same-directory atomic rename.
+- запись выполняется через temporary file и same-directory atomic rename;
+- очередь writers — только in-process: disjoint edits в одном процессе сливаются leaf-патчем, а writers в разных OS processes на одном JSON path остаются last-writer-wins (без lock file; atomic rename не даёт torn reads).
 
 Host fields в JSON служат persisted mirror. Для изменения stock OMP settings используйте интерактивное меню либо штатный config OMP: простое ручное изменение этих двух JSON fields само по себе не вызывает host flush.
 
@@ -416,11 +417,11 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 
 ### Меню сообщает, что нужен interactive terminal
 
-`ctx.ui.custom()` недоступен в headless/RPC context. Plugin-only settings можно изменить в JSON и применить со следующего logical run. Stock recap/thinking settings изменяйте через interactive menu либо штатный config OMP.
+`ctx.ui.custom()` недоступен в headless/RPC context. Plugin-only settings можно изменить через JSON file; in-process store updates (включая `/compact-settings` save) применяются на следующей границе logical run. Ручная правка JSON вне процесса подхватывается после reload config (новый process / session restart), а не автоматически mid-session. Stock recap/thinking settings изменяйте через interactive menu либо штатный config OMP.
 
 ### Сохранённая настройка не действует
 
-Проверьте `OMP_COMPACT_PLUGIN`, `OMP_COMPACT_MODE` и `OMP_COMPACT_SHAKE`. Env overrides имеют приоритет над JSON. `Thinking blocks` требует restart OMP; остальные runtime changes применяются на следующей границе logical run.
+Проверьте `OMP_COMPACT_PLUGIN`, `OMP_COMPACT_MODE` и `OMP_COMPACT_SHAKE`. Env overrides имеют приоритет над JSON. `Thinking blocks` требует restart OMP; остальные runtime changes через store применяются на следующей границе logical run.
 
 ### Host rows показывают `n/a`
 

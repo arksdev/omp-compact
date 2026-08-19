@@ -334,7 +334,7 @@ async function withUpdateQueue<T>(path: string, op: () => Promise<T>): Promise<T
 }
 ```
 
-**Concurrent update flow:**
+**Concurrent update flow (same process):**
 1. Agent A calls `update({ mode: "compact" })`
 2. Agent B calls `update({ stats: { enabled: false } })`
 3. Both queued on same path
@@ -342,7 +342,7 @@ async function withUpdateQueue<T>(path: string, op: () => Promise<T>): Promise<T
 5. B: read config (with A's mode), derive patch `{ stats: { enabled: false } }`, reread, apply, write
 6. Final config has both changes
 
-**Key:** Leaf-level patch merge preserves concurrent edits to different fields.
+**Key:** Leaf-level patch merge preserves concurrent in-process edits to different fields. The queue is in-process only (no lock file): writers in separate OS processes still race on the same JSON path, and the last successful atomic rename wins for any overlapping leaf.
 
 ---
 

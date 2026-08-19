@@ -879,13 +879,23 @@ export class SettingsDialog implements ComponentLike {
 			this.deps.warn?.(message);
 			return;
 		}
+		// Capture an immutable snapshot at confirmation time. Input may keep
+		// mutating the live draft while a slow onSave is pending; the queued
+		// payload and the dialog's resolved value must stay the confirmed
+		// draft, not whatever the working copy holds when the write runs.
+		const confirmed: CompactSettings = {
+			...this.draft,
+			stats: { ...this.draft.stats },
+			autoShake: { ...this.draft.autoShake },
+			host: { ...this.draft.host },
+		};
 		this.saving = true;
 		this.pending = this.pending.then(async () => {
 			try {
-				await this.deps.onSave(this.draft);
+				await this.deps.onSave(confirmed);
 				this.saving = false;
-				this.emitHostChanges();
-				this.finish(this.draft);
+				this.emitHostChanges(confirmed.host);
+				this.finish(confirmed);
 			} catch (error) {
 				this.saving = false;
 				const message = error instanceof Error ? error.message : String(error);
@@ -895,12 +905,11 @@ export class SettingsDialog implements ComponentLike {
 		});
 	}
 
-	private emitHostChanges(): void {
+	private emitHostChanges(after: CompactHostSettings = this.draft.host): void {
 		// Host rows must never claim success when unavailable: with no live
 		// host settings instance there is nothing to report.
 		if (!this.hostAvailable) return;
 		const before = this.initial.host;
-		const after = this.draft.host;
 		const changed: CompactHostSettings = {};
 		let any = false;
 		if ((after.recapEnabled ?? true) !== (before.recapEnabled ?? true)) {
