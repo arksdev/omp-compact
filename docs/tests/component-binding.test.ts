@@ -694,6 +694,27 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(newest.component).toBeUndefined();
 	});
 
+	test("collapsed post-compaction rebuild suffix-binds without a restore arm", () => {
+		// Same shape as stock rebuildChatFromMessages after LLM /compact or
+		// auto context-full: full branch states, collapsed visible tool tail,
+		// no preserved active run. Production commitRebuild now arms a
+		// dedicated collapsed-rebuild permit (not restoreOverride) so
+		// restoredArmed=true without forcing compact mode on ledgers.
+		const { binding, states } = makeBinding();
+		const old = makeState({ id: "bash-old", toolName: "bash" });
+		const newest = makeState({ id: "bash-new", toolName: "bash" });
+		states.set("bash-old", old);
+		states.set("bash-new", newest);
+		const visibleTail = new FakeToolComponent();
+		binding.registerUnboundComponent(visibleTail);
+
+		// Permit-armed path (restoredArmed=true): suffix pairs the newest
+		// state. The unarmed path remains fail-open (covered below).
+		expect(binding.bindHydrated(true, true)).toBe(true);
+		expect(newest.component).toBe(visibleTail);
+		expect(old.component).toBeUndefined();
+	});
+
 	test("bindHydrated fails open when visible components exceed states", () => {
 		const { binding, states } = makeBinding();
 		const first = new FakeToolComponent();

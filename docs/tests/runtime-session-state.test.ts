@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+	type CompactSettings,
+	type CompactSettingsStore,
+	DEFAULT_SETTINGS,
+} from "../../.omp-plugin/config";
+import {
 	MAX_EVIDENCE_PATH_LENGTH,
 	MAX_EVIDENCE_TEXT_LENGTH,
 	MAX_MUTATION_COUNT,
@@ -19,6 +24,7 @@ import {
 	isMutationMessageDetails,
 	type MutationMessageDetails,
 } from "../../.omp-plugin/messages";
+import { ModePolicy } from "../../.omp-plugin/mode-policy";
 import { MAX_STATS_ACTIONS } from "../../.omp-plugin/run-stats";
 import {
 	RuntimeSessionState,
@@ -85,6 +91,34 @@ function makeStatsSession(): RuntimeSessionState {
 		statsRenderer: () => "usage row",
 		placeStatsCarrier: insertTranscriptChildAt,
 	});
+}
+
+function fakeModeStore(
+	initial: CompactSettings = DEFAULT_SETTINGS,
+): CompactSettingsStore {
+	let current = initial;
+	const subscribers = new Set<(settings: CompactSettings) => void>();
+	return {
+		load: async () => current,
+		snapshot: () => current,
+		update: async (patch) => {
+			current = {
+				...current,
+				...patch,
+				stats: { ...current.stats, ...(patch.stats ?? {}) },
+				autoShake: { ...current.autoShake, ...(patch.autoShake ?? {}) },
+				host: { ...current.host, ...(patch.host ?? {}) },
+			} as CompactSettings;
+			for (const fn of [...subscribers]) fn(current);
+			return current;
+		},
+		subscribe: (fn) => {
+			subscribers.add(fn);
+			return () => {
+				subscribers.delete(fn);
+			};
+		},
+	};
 }
 
 /** Live start that must allocate (in-budget id/name). Refusal tests call startState directly. */
@@ -1335,6 +1369,123 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		expect(session.commitRebuild(snapshot, { branchEntries: [] }).mapped).toBe(
 			false,
 		);
+	});
+
+	test("in-session collapsed LLM-compaction rebuild suffix-binds via collapsed rebuild permit", async () => {
+		// Models stock post-LLM-compaction UI rebuild (NOT /shake, NOT resume):
+		//   session_compact → armCollapsedRebuild
+		//   rebuildChatFromMessages → chatContainer.clear → collapsed tail only
+		//   (display.collapseCompacted default true), while getBranch() still
+		//   walks the FULL path including pre-compaction tool calls.
+		// restoreOverride stays undefined so historical ledgers keep live mode.
+		const store = fakeModeStore({
+			...DEFAULT_SETTINGS,
+			mode: "live",
+			enabled: true,
+		});
+		const policy = new ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		// session_compact path: permit only, never armRestoreOverride.
+		policy.armCollapsedRebuild();
+		expect(policy.restoreOverride).toBeUndefined();
+		expect(policy.collapsedRebuildArmed).toBe(true);
+
+		const session = new RuntimeSessionState({
+			placeStatsCarrier: insertTranscriptChildAt,
+			modePolicy: policy,
+		});
+		const branch: unknown[] = [
+			{ type: "message", message: { role: "user", content: [] } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "bash-old",
+							name: "bash",
+							arguments: { command: "printf old" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "bash-old",
+					toolName: "bash",
+					content: [{ type: "text", text: "old" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("old done") },
+			{ type: "message", message: { role: "user", content: [] } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "bash-new",
+							name: "bash",
+							arguments: { command: "printf new" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "bash-new",
+					toolName: "bash",
+					content: [{ type: "text", text: "new" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("new done") },
+		];
+		expect(session.hydrateBranch(branch)).toBe(true);
+		// Permit is not spent by hydrateBranch (cold path); only commitRebuild
+		// / abortRebuild / prepareRun / dispose consume it.
+		expect(policy.collapsedRebuildArmed).toBe(true);
+		const oldState = session.state("bash-old");
+		const newState = session.state("bash-new");
+		expect(oldState).toBeDefined();
+		expect(newState).toBeDefined();
+		if (!oldState || !newState)
+			throw new Error("expected hydrated tool states");
+		const oldLedgerMode = session.modeFor(oldState.ledger);
+		const newLedgerMode = session.modeFor(newState.ledger);
+		// Without restoreOverride, ledgers keep the persisted live policy.
+		expect(oldLedgerMode.mode).toBe("live");
+		expect(newLedgerMode.mode).toBe("live");
+		expect(session.activeLedger?.phase).not.toBe("working");
+
+		const snapshot = session.beginRebuild();
+		expect(snapshot.activeStates).toEqual([]);
+		const visibleTail = new FakeToolComponent();
+		session.binding.registerUnboundComponent(visibleTail);
+
+		const outcome = session.commitRebuild(snapshot, { branchEntries: branch });
+		const newest = session.state("bash-new");
+		const oldest = session.state("bash-old");
+		expect(outcome.mapped).toBe(true);
+		expect(newest?.component).toBe(visibleTail);
+		expect(oldest?.component).toBeUndefined();
+		expect(session.binding.componentState(visibleTail)).toBe(newest);
+		// One-shot: spent after settlement so a later /shake clear cannot reuse it.
+		expect(policy.collapsedRebuildArmed).toBe(false);
+		// Mode still live after rebuild (not forced compact by the permit).
+		expect(newest).toBeDefined();
+		if (!newest) throw new Error("expected newest state after rebuild");
+		expect(session.modeFor(newest.ledger).mode).toBe("live");
 	});
 });
 

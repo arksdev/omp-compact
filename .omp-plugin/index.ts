@@ -583,6 +583,21 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		ensureAdapter(context);
 	});
 
+	pi.on("session_compact", async () => {
+		// Successful LLM compaction (manual /compact or auto context-full):
+		// stock writes the compaction entry then rebuilds the transcript via
+		// rebuildChatFromMessages with display.collapseCompacted (default
+		// true) — only the post-summary tail is reconstructed while
+		// getBranch() still walks the full path. Arm a one-shot suffix
+		// permit so commitRebuild can pair the visible tail without forcing
+		// compact mode on historical ledgers (unlike armRestoreOverride).
+		// Emitted only after a successful compaction entry; cancelled/
+		// failed compact never fires this event. Shake does not emit it.
+		await modePolicy.ready();
+		if (!modePolicy.enabled) return;
+		modePolicy.armCollapsedRebuild();
+	});
+
 	pi.on("session_tree", async (event) => {
 		// C05: `session_tree` is intent/coalescing metadata only — stock
 		// emits it before the caller-side UI rebuild, so the actual

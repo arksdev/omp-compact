@@ -495,10 +495,8 @@ export class RuntimeSessionState {
 			this.#ledger = ledger;
 			this.#queueReadSegments();
 			this.#pendingStates.clear();
-			this.binding.bindHydrated(
-				true,
-				this.#modePolicy?.restoreOverride !== undefined,
-			);
+			this.binding.bindHydrated(true, this.#suffixAlignmentArmed());
+
 			this.#insertHydratedStatsCarriers();
 			return true;
 		} finally {
@@ -736,16 +734,20 @@ export class RuntimeSessionState {
 			// evidence binds and ambiguous surfaces stay native.
 			const mapped = this.binding.bindHydrated(
 				snapshot.activeStates.length === 0,
-				// Suffix alignment is a restored-history contract: it pairs the
-				// visible tail only when the restore override is armed. A
-				// live-session rebuild (no arm — e.g. a finished run re-rendered
-				// after a later clear) must never guess positions.
-				this.#modePolicy?.restoreOverride !== undefined,
+				// Suffix alignment pairs a collapsed visible tail with the
+				// trailing branch states when either the resume restore
+				// override is armed OR a one-shot post-LLM-compaction
+				// collapsed-rebuild permit is armed. Ordinary live-session
+				// clears (e.g. /shake) leave both unset and never guess.
+				this.#suffixAlignmentArmed(),
 			);
 			// Settlement closes the identity window: the synchronous repopulation
 			// is over, so preserved active ownership must not bind components of
 			// any later generation or logical run.
 			this.binding.clearPreserved();
+			// One-shot: the post-compaction suffix permit is spent with this
+			// settlement so a later /shake or live clear cannot reuse it.
+			this.#modePolicy?.consumeCollapsedRebuild();
 			this.#insertHydratedStatsCarriers();
 			return { generation: this.#generation, mapped };
 		} finally {
@@ -804,10 +806,24 @@ export class RuntimeSessionState {
 			if (snapshot.generation === this.#generation) {
 				this.#rebuildInProgress = false;
 				this.binding.clearPreserved();
+				// A cancelled rebuild must not leave the compaction permit
+				// armed for a later unrelated clear (/shake, theme toggle).
+				this.#modePolicy?.consumeCollapsedRebuild();
 			}
 		} catch {
 			// Abort must never throw into the clear wrapper.
 		}
+	}
+
+	/**
+	 * Whether bindHydrated may suffix-align a collapsed visible tail.
+	 * Resume restore override OR the one-shot post-compaction permit.
+	 * Never invents a mode change — mode capture stays on restoreOverride alone.
+	 */
+	#suffixAlignmentArmed(): boolean {
+		const policy = this.#modePolicy;
+		if (!policy) return false;
+		return policy.restoreOverride !== undefined || policy.collapsedRebuildArmed;
 	}
 
 	/** Release every reference; idempotent, never throws. */

@@ -57,6 +57,16 @@ export class ModePolicy {
 	// next run boundary so the resumed session's live runs keep the
 	// persisted mode policy. The persisted `mode` is never touched.
 	#restore: RunModeSnapshot | undefined;
+	// Collapsed-rebuild permit: one-shot suffix-alignment arm for the
+	// post-LLM-compaction transcript rebuild. Stock emits `session_compact`
+	// after a successful compaction entry is written and BEFORE
+	// `rebuildChatFromMessages` clears/repaints the collapsed visible tail
+	// while `getBranch()` still walks the full pre-compact path. Unlike
+	// `#restore`, this never forces compact mode on historical ledgers —
+	// it only unlocks bindHydrated suffix pairing. Cleared after the
+	// rebuild settlement consumes it, at the next run boundary, and on
+	// dispose so /shake, live clears, and later runs never inherit it.
+	#collapsedRebuildArmed = false;
 
 	constructor(store: CompactSettingsStore) {
 		this.#store = store;
@@ -137,6 +147,37 @@ export class ModePolicy {
 		};
 	}
 
+	/**
+	 * Whether the one-shot collapsed-rebuild suffix permit is armed.
+	 * True only between a successful `session_compact` and the rebuild
+	 * settlement (or run/session boundary) that consumes it. Does not
+	 * change presentation mode.
+	 */
+	get collapsedRebuildArmed(): boolean {
+		return this.#collapsedRebuildArmed;
+	}
+
+	/**
+	 * Arm the one-shot collapsed-rebuild suffix permit. Call from the
+	 * public `session_compact` extension event after a successful LLM
+	 * compaction entry lands and before the host transcript clear/rebuild.
+	 * Does not touch `restoreOverride` or the persisted/run mode. No-op
+	 * while the runtime is disabled.
+	 */
+	armCollapsedRebuild(): void {
+		const base = this.#current ?? DEFAULT_SETTINGS;
+		if (!base.enabled) return;
+		this.#collapsedRebuildArmed = true;
+	}
+
+	/**
+	 * Consume the collapsed-rebuild permit after a rebuild settlement (or
+	 * an abort of the matching generation). Idempotent.
+	 */
+	consumeCollapsedRebuild(): void {
+		this.#collapsedRebuildArmed = false;
+	}
+
 	/** Latest resolved settings (kept fresh by store notifications). */
 	get current(): CompactSettings | undefined {
 		return this.#current;
@@ -178,6 +219,9 @@ export class ModePolicy {
 		// Restore view: the override is one-shot — the first run boundary of
 		// the resumed session re-arms the normal persisted policy.
 		this.#restore = undefined;
+		// A stale post-compaction permit must never outlive the idle gap
+		// into the next logical run (e.g. arm then user aborts rebuild UI).
+		this.#collapsedRebuildArmed = false;
 		this.#run = runModeFromSettings(this.#current ?? DEFAULT_SETTINGS);
 		return this.#run;
 	}
@@ -198,5 +242,6 @@ export class ModePolicy {
 		this.#current = undefined;
 		this.#run = undefined;
 		this.#restore = undefined;
+		this.#collapsedRebuildArmed = false;
 	}
 }

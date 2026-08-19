@@ -55,7 +55,10 @@ interface AdapterModule {
 			retainGitLive: boolean;
 		}>;
 		armRestoreOverride(): void;
+		armCollapsedRebuild(): void;
+		consumeCollapsedRebuild(): void;
 		dispose(): void;
+		collapsedRebuildArmed: boolean;
 		restoreOverride?: {
 			mode: string;
 			enabled: boolean;
@@ -1001,6 +1004,50 @@ describe("restore override (upgrade2 item 3)", () => {
 		expect(rows).toContain("bash: printf replay");
 		// live filters the routine rows of the new run
 		expect(rows).not.toContain("printf next");
+	});
+});
+
+describe("collapsed rebuild permit (post-LLM compaction)", () => {
+	test("armCollapsedRebuild is one-shot and does not force compact mode", async () => {
+		const store = fakeStore(settings({ mode: "live", enabled: true }));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		policy.armCollapsedRebuild();
+		expect(policy.collapsedRebuildArmed).toBe(true);
+		// Must not arm the restore compact-mode override.
+		expect(policy.restoreOverride).toBeUndefined();
+		expect((await store.load()).mode).toBe("live");
+		policy.consumeCollapsedRebuild();
+		expect(policy.collapsedRebuildArmed).toBe(false);
+		// Idempotent consume.
+		policy.consumeCollapsedRebuild();
+		expect(policy.collapsedRebuildArmed).toBe(false);
+	});
+
+	test("armCollapsedRebuild is a no-op while the runtime is disabled", async () => {
+		const store = fakeStore(settings({ enabled: false, mode: "live" }));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		policy.armCollapsedRebuild();
+		expect(policy.collapsedRebuildArmed).toBe(false);
+	});
+
+	test("prepareRun and dispose clear the collapsed rebuild permit", async () => {
+		const store = fakeStore(settings({ mode: "live", enabled: true }));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		policy.armCollapsedRebuild();
+		expect(policy.collapsedRebuildArmed).toBe(true);
+		await policy.prepareRun();
+		expect(policy.collapsedRebuildArmed).toBe(false);
+
+		policy.armCollapsedRebuild();
+		expect(policy.collapsedRebuildArmed).toBe(true);
+		policy.dispose();
+		expect(policy.collapsedRebuildArmed).toBe(false);
 	});
 });
 
