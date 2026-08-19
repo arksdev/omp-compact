@@ -230,6 +230,10 @@ export class RuntimeSessionState {
 	#continuationPending = false;
 	#generation = 0;
 	#rebuildInProgress = false;
+	// True only while hydrateBranch/commitRebuild walks apply persisted
+	// mutation/Git carriers onto (possibly already-finalized) historical
+	// states. Live late publishes after filtered/full stay frozen.
+	#replayingBranch = false;
 	#disposed = false;
 
 	constructor(options: SessionStateOptions) {
@@ -271,7 +275,16 @@ export class RuntimeSessionState {
 		return this.#ledger;
 	}
 
-	/** Claim the current working ledger for its delayed terminal audit drain. */
+	/**
+	 * Claim the current working ledger for its delayed terminal audit drain.
+	 * Captures the current transcript tail as a best-effort stats answer
+	 * anchor. A later transcript `clear`/rebuild may drop that child; stats
+	 * placement then fails open (indexOf miss → bound-block / branch-tail
+	 * fallbacks, never invents a position). Anchors are intentionally not
+	 * cleared in `beginRebuild`: the deferred claim must outlive the rebuild
+	 * so a late drain still finalizes the exact ledger, and evidence stays
+	 * persisted for hydrate reinsert even when the live row is skipped.
+	 */
 	captureTerminalRunId(): string | undefined {
 		if (this.#disposed || this.#ledger?.phase !== "working") return undefined;
 		const children = this.#transcript?.children;
@@ -361,126 +374,136 @@ export class RuntimeSessionState {
 		if (this.#disposed || this.#states.size > 0 || entries.length === 0)
 			return false;
 		this.#displayPaths = this.#displayPathsSource?.();
-		let ledger: TurnLedger | undefined;
-		const ensureLedger = (): TurnLedger => {
-			if (ledger?.phase !== "working") {
-				ledger = this.#createLedger("omp-compact-replay-");
-			}
-			return ledger;
-		};
-
-		for (const value of entries) {
-			const entry = objectRecord(value);
-			if (entry.type === "message") {
-				const message = objectRecord(entry.message);
-				if (message.role === "user") {
-					if (ledger?.phase === "working" && ledger.entries.length > 0) {
-						this.finalizeLedger(ledger, { messages: [], willContinue: false });
-					}
+		this.#replayingBranch = true;
+		try {
+			let ledger: TurnLedger | undefined;
+			const ensureLedger = (): TurnLedger => {
+				if (ledger?.phase !== "working") {
 					ledger = this.#createLedger("omp-compact-replay-");
-					continue;
 				}
-				if (message.role === "assistant") {
-					const contents = message.content;
-					if (Array.isArray(contents)) {
-						for (const content of contents) {
-							const call = objectRecord(content);
-							// F01: identity and payload bounds run before any
-							// state allocation; oversized entries stay native.
-							if (
-								call.type !== "toolCall" ||
-								!isBoundedString(call.id, MAX_TOOL_CALL_ID_LENGTH) ||
-								!isBoundedString(call.name, MAX_TOOL_NAME_LENGTH) ||
-								!isPayloadWithinBudget(call.arguments)
-							) {
-								continue;
-							}
-							this.stateForLedger(
-								{
-									toolCallId: call.id,
-									toolName: call.name,
-									args: call.arguments,
-								},
-								ensureLedger(),
-							);
+				return ledger;
+			};
+
+			for (const value of entries) {
+				const entry = objectRecord(value);
+				if (entry.type === "message") {
+					const message = objectRecord(entry.message);
+					if (message.role === "user") {
+						if (ledger?.phase === "working" && ledger.entries.length > 0) {
+							this.finalizeLedger(ledger, {
+								messages: [],
+								willContinue: false,
+							});
 						}
+						ledger = this.#createLedger("omp-compact-replay-");
+						continue;
+					}
+					if (message.role === "assistant") {
+						const contents = message.content;
+						if (Array.isArray(contents)) {
+							for (const content of contents) {
+								const call = objectRecord(content);
+								// F01: identity and payload bounds run before any
+								// state allocation; oversized entries stay native.
+								if (
+									call.type !== "toolCall" ||
+									!isBoundedString(call.id, MAX_TOOL_CALL_ID_LENGTH) ||
+									!isBoundedString(call.name, MAX_TOOL_NAME_LENGTH) ||
+									!isPayloadWithinBudget(call.arguments)
+								) {
+									continue;
+								}
+								this.stateForLedger(
+									{
+										toolCallId: call.id,
+										toolName: call.name,
+										args: call.arguments,
+									},
+									ensureLedger(),
+								);
+							}
+						}
+						if (
+							ledger &&
+							classifyAgentEnd({
+								messages: [message],
+								willContinue: false,
+							}) === "filtered"
+						) {
+							this.finalizeLedger(ledger, {
+								messages: [message],
+								willContinue: false,
+							});
+						}
+						continue;
 					}
 					if (
-						ledger &&
-						classifyAgentEnd({ messages: [message], willContinue: false }) ===
-							"filtered"
+						message.role === "toolResult" &&
+						isBoundedString(message.toolCallId, MAX_TOOL_CALL_ID_LENGTH)
 					) {
-						this.finalizeLedger(ledger, {
-							messages: [message],
-							willContinue: false,
-						});
+						const state = this.#states.get(message.toolCallId);
+						if (state) {
+							// F01: an oversized result payload is settled but never
+							// retained — the giant object stays in the parsed
+							// branch, not in ToolState.
+							if (isPayloadWithinBudget(message)) state.result = message;
+							state.isPartial = false;
+							this.#pendingStates.delete(state);
+							state.isError = message.isError === true;
+							state.entry.state = state.isError ? "error" : "success";
+							state.version++;
+						}
 					}
 					continue;
 				}
+
 				if (
-					message.role === "toolResult" &&
-					isBoundedString(message.toolCallId, MAX_TOOL_CALL_ID_LENGTH)
+					entry.type === "custom" &&
+					entry.customType === "tool_execution_start"
 				) {
-					const state = this.#states.get(message.toolCallId);
-					if (state) {
-						// F01: an oversized result payload is settled but never
-						// retained — the giant object stays in the parsed
-						// branch, not in ToolState.
-						if (isPayloadWithinBudget(message)) state.result = message;
-						state.isPartial = false;
-						this.#pendingStates.delete(state);
-						state.isError = message.isError === true;
-						state.entry.state = state.isError ? "error" : "success";
-						state.version++;
+					const data = objectRecord(entry.data);
+					// F01: identity and payload bounds run before any state
+					// allocation; oversized entries stay native.
+					if (
+						isBoundedString(data.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
+						isBoundedString(data.toolName, MAX_TOOL_NAME_LENGTH) &&
+						isPayloadWithinBudget(data.args)
+					) {
+						this.stateForLedger(
+							{
+								toolCallId: data.toolCallId,
+								toolName: data.toolName,
+								args: data.args,
+							},
+							ensureLedger(),
+						);
 					}
+					continue;
 				}
-				continue;
+
+				if (entry.type === "custom") {
+					this.#hydrateEvidence(entry.customType, entry.data, ledger);
+					continue;
+				}
+				if (entry.type === "custom_message") {
+					this.#hydrateEvidence(entry.customType, entry.details, ledger);
+				}
 			}
 
-			if (
-				entry.type === "custom" &&
-				entry.customType === "tool_execution_start"
-			) {
-				const data = objectRecord(entry.data);
-				// F01: identity and payload bounds run before any state
-				// allocation; oversized entries stay native.
-				if (
-					isBoundedString(data.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
-					isBoundedString(data.toolName, MAX_TOOL_NAME_LENGTH) &&
-					isPayloadWithinBudget(data.args)
-				) {
-					this.stateForLedger(
-						{
-							toolCallId: data.toolCallId,
-							toolName: data.toolName,
-							args: data.args,
-						},
-						ensureLedger(),
-					);
-				}
-				continue;
-			}
-
-			if (entry.type === "custom") {
-				this.#hydrateEvidence(entry.customType, entry.data, ledger);
-				continue;
-			}
-			if (entry.type === "custom_message") {
-				this.#hydrateEvidence(entry.customType, entry.details, ledger);
-			}
+			if (ledger?.phase === "working")
+				this.finalizeLedger(ledger, { messages: [], willContinue: false });
+			this.#ledger = ledger;
+			this.#queueReadSegments();
+			this.#pendingStates.clear();
+			this.binding.bindHydrated(
+				true,
+				this.#modePolicy?.restoreOverride !== undefined,
+			);
+			this.#insertHydratedStatsCarriers();
+			return true;
+		} finally {
+			this.#replayingBranch = false;
 		}
-
-		if (ledger?.phase === "working")
-			this.finalizeLedger(ledger, { messages: [], willContinue: false });
-		this.#ledger = ledger;
-		this.#queueReadSegments();
-		this.#pendingStates.clear();
-		this.binding.bindHydrated(
-			true,
-			this.#modePolicy?.restoreOverride !== undefined,
-		);
-		this.#insertHydratedStatsCarriers();
-		return true;
 	}
 
 	/**
@@ -558,166 +581,176 @@ export class RuntimeSessionState {
 		// The active run's frozen display paths survive the rebuild; only a
 		// pure replay (no active ledger) re-snapshots.
 		if (!activeLedger) this.#displayPaths = this.#displayPathsSource?.();
-		let walkLedger: TurnLedger | undefined;
-		const ensureLedger = (): TurnLedger => {
-			if (walkLedger?.phase !== "working") {
-				walkLedger = this.#createLedger("omp-compact-replay-");
-			}
-			return walkLedger;
-		};
-
-		for (const value of options.branchEntries) {
-			const entry = objectRecord(value);
-			if (entry.type === "message") {
-				const message = objectRecord(entry.message);
-				if (message.role === "user") {
-					if (
-						walkLedger?.phase === "working" &&
-						walkLedger.entries.length > 0
-					) {
-						this.finalizeLedger(walkLedger, {
-							messages: [],
-							willContinue: false,
-						});
-					}
+		this.#replayingBranch = true;
+		try {
+			let walkLedger: TurnLedger | undefined;
+			const ensureLedger = (): TurnLedger => {
+				if (walkLedger?.phase !== "working") {
 					walkLedger = this.#createLedger("omp-compact-replay-");
-					continue;
 				}
-				if (message.role === "assistant") {
-					const contents = message.content;
-					if (Array.isArray(contents)) {
-						for (const content of contents) {
-							const call = objectRecord(content);
-							// F01: identity and payload bounds run before any
-							// state allocation; oversized entries stay native.
-							if (
-								call.type !== "toolCall" ||
-								!isBoundedString(call.id, MAX_TOOL_CALL_ID_LENGTH) ||
-								!isBoundedString(call.name, MAX_TOOL_NAME_LENGTH) ||
-								!isPayloadWithinBudget(call.arguments)
-							) {
-								continue;
+				return walkLedger;
+			};
+
+			for (const value of options.branchEntries) {
+				const entry = objectRecord(value);
+				if (entry.type === "message") {
+					const message = objectRecord(entry.message);
+					if (message.role === "user") {
+						if (
+							walkLedger?.phase === "working" &&
+							walkLedger.entries.length > 0
+						) {
+							this.finalizeLedger(walkLedger, {
+								messages: [],
+								willContinue: false,
+							});
+						}
+						walkLedger = this.#createLedger("omp-compact-replay-");
+						continue;
+					}
+					if (message.role === "assistant") {
+						const contents = message.content;
+						if (Array.isArray(contents)) {
+							for (const content of contents) {
+								const call = objectRecord(content);
+								// F01: identity and payload bounds run before any
+								// state allocation; oversized entries stay native.
+								if (
+									call.type !== "toolCall" ||
+									!isBoundedString(call.id, MAX_TOOL_CALL_ID_LENGTH) ||
+									!isBoundedString(call.name, MAX_TOOL_NAME_LENGTH) ||
+									!isPayloadWithinBudget(call.arguments)
+								) {
+									continue;
+								}
+								this.stateForLedger(
+									{
+										toolCallId: call.id,
+										toolName: call.name,
+										args: call.arguments,
+									},
+									ensureLedger(),
+								);
 							}
-							this.stateForLedger(
-								{
-									toolCallId: call.id,
-									toolName: call.name,
-									args: call.arguments,
-								},
-								ensureLedger(),
-							);
+						}
+						if (
+							walkLedger &&
+							classifyAgentEnd({
+								messages: [message],
+								willContinue: false,
+							}) === "filtered"
+						) {
+							this.finalizeLedger(walkLedger, {
+								messages: [message],
+								willContinue: false,
+							});
+						}
+						continue;
+					}
+					if (
+						message.role === "toolResult" &&
+						isBoundedString(message.toolCallId, MAX_TOOL_CALL_ID_LENGTH)
+					) {
+						const state = this.#states.get(message.toolCallId);
+						// Active ownership wins: the live event stream settles the
+						// preserved run's states; branch results must never
+						// replace pending/partial evidence.
+						if (state && state.ledger !== activeLedger) {
+							// F01: an oversized result payload is settled but never
+							// retained — the giant object stays in the parsed
+							// branch, not in ToolState.
+							if (isPayloadWithinBudget(message)) state.result = message;
+							state.isPartial = false;
+							this.#pendingStates.delete(state);
+							state.isError = message.isError === true;
+							state.entry.state = state.isError ? "error" : "success";
+							state.version++;
 						}
 					}
+					continue;
+				}
+
+				if (
+					entry.type === "custom" &&
+					entry.customType === "tool_execution_start"
+				) {
+					const data = objectRecord(entry.data);
+					// F01: identity and payload bounds run before any state
+					// allocation; oversized entries stay native.
 					if (
-						walkLedger &&
-						classifyAgentEnd({ messages: [message], willContinue: false }) ===
-							"filtered"
+						isBoundedString(data.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
+						isBoundedString(data.toolName, MAX_TOOL_NAME_LENGTH) &&
+						isPayloadWithinBudget(data.args)
 					) {
-						this.finalizeLedger(walkLedger, {
-							messages: [message],
-							willContinue: false,
-						});
+						this.stateForLedger(
+							{
+								toolCallId: data.toolCallId,
+								toolName: data.toolName,
+								args: data.args,
+							},
+							ensureLedger(),
+						);
 					}
 					continue;
 				}
-				if (
-					message.role === "toolResult" &&
-					isBoundedString(message.toolCallId, MAX_TOOL_CALL_ID_LENGTH)
-				) {
-					const state = this.#states.get(message.toolCallId);
-					// Active ownership wins: the live event stream settles the
-					// preserved run's states; branch results must never
-					// replace pending/partial evidence.
-					if (state && state.ledger !== activeLedger) {
-						// F01: an oversized result payload is settled but never
-						// retained — the giant object stays in the parsed
-						// branch, not in ToolState.
-						if (isPayloadWithinBudget(message)) state.result = message;
-						state.isPartial = false;
-						this.#pendingStates.delete(state);
-						state.isError = message.isError === true;
-						state.entry.state = state.isError ? "error" : "success";
-						state.version++;
-					}
+
+				if (entry.type === "custom") {
+					this.#hydrateEvidence(
+						entry.customType,
+						entry.data,
+						walkLedger,
+						activeLedger,
+					);
+					continue;
 				}
-				continue;
+				if (entry.type === "custom_message") {
+					this.#hydrateEvidence(
+						entry.customType,
+						entry.details,
+						walkLedger,
+						activeLedger,
+					);
+				}
 			}
 
 			if (
-				entry.type === "custom" &&
-				entry.customType === "tool_execution_start"
+				walkLedger &&
+				walkLedger !== activeLedger &&
+				walkLedger.phase === "working"
 			) {
-				const data = objectRecord(entry.data);
-				// F01: identity and payload bounds run before any state
-				// allocation; oversized entries stay native.
-				if (
-					isBoundedString(data.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
-					isBoundedString(data.toolName, MAX_TOOL_NAME_LENGTH) &&
-					isPayloadWithinBudget(data.args)
-				) {
-					this.stateForLedger(
-						{
-							toolCallId: data.toolCallId,
-							toolName: data.toolName,
-							args: data.args,
-						},
-						ensureLedger(),
-					);
-				}
-				continue;
+				this.finalizeLedger(walkLedger, {
+					messages: [],
+					willContinue: false,
+				});
 			}
-
-			if (entry.type === "custom") {
-				this.#hydrateEvidence(
-					entry.customType,
-					entry.data,
-					walkLedger,
-					activeLedger,
-				);
-				continue;
+			this.#ledger = activeLedger ?? walkLedger;
+			this.#queueReadSegments();
+			// Active pending states stay pending (spinner semantics); walk
+			// states of finalized historical segments are drained.
+			for (const state of [...this.#pendingStates]) {
+				if (state.ledger !== activeLedger) this.#pendingStates.delete(state);
 			}
-			if (entry.type === "custom_message") {
-				this.#hydrateEvidence(
-					entry.customType,
-					entry.details,
-					walkLedger,
-					activeLedger,
-				);
-			}
+			// Order-based fallbacks bind only when no active working ownership
+			// is mixed into the rehydrated presentation (the two orderings
+			// diverge); with preserved active states only exact toolCallId
+			// evidence binds and ambiguous surfaces stay native.
+			const mapped = this.binding.bindHydrated(
+				snapshot.activeStates.length === 0,
+				// Suffix alignment is a restored-history contract: it pairs the
+				// visible tail only when the restore override is armed. A
+				// live-session rebuild (no arm — e.g. a finished run re-rendered
+				// after a later clear) must never guess positions.
+				this.#modePolicy?.restoreOverride !== undefined,
+			);
+			// Settlement closes the identity window: the synchronous repopulation
+			// is over, so preserved active ownership must not bind components of
+			// any later generation or logical run.
+			this.binding.clearPreserved();
+			this.#insertHydratedStatsCarriers();
+			return { generation: this.#generation, mapped };
+		} finally {
+			this.#replayingBranch = false;
 		}
-
-		if (
-			walkLedger &&
-			walkLedger !== activeLedger &&
-			walkLedger.phase === "working"
-		) {
-			this.finalizeLedger(walkLedger, { messages: [], willContinue: false });
-		}
-		this.#ledger = activeLedger ?? walkLedger;
-		this.#queueReadSegments();
-		// Active pending states stay pending (spinner semantics); walk
-		// states of finalized historical segments are drained.
-		for (const state of [...this.#pendingStates]) {
-			if (state.ledger !== activeLedger) this.#pendingStates.delete(state);
-		}
-		// Order-based fallbacks bind only when no active working ownership
-		// is mixed into the rehydrated presentation (the two orderings
-		// diverge); with preserved active states only exact toolCallId
-		// evidence binds and ambiguous surfaces stay native.
-		const mapped = this.binding.bindHydrated(
-			snapshot.activeStates.length === 0,
-			// Suffix alignment is a restored-history contract: it pairs the
-			// visible tail only when the restore override is armed. A
-			// live-session rebuild (no arm — e.g. a finished run re-rendered
-			// after a later clear) must never guess positions.
-			this.#modePolicy?.restoreOverride !== undefined,
-		);
-		// Settlement closes the identity window: the synchronous repopulation
-		// is over, so preserved active ownership must not bind components of
-		// any later generation or logical run.
-		this.binding.clearPreserved();
-		this.#insertHydratedStatsCarriers();
-		return { generation: this.#generation, mapped };
 	}
 
 	/**
@@ -753,15 +786,18 @@ export class RuntimeSessionState {
 	}
 
 	/**
-	 * Rebuild lifecycle: abort. Never throws. The C rebuild phase owns the
-	 * rollback (its dispose path restores stock presentation); this method
-	 * clears the in-progress marker so a later rebuild can start, and closes
-	 * the preserved identity window — the exact component ↔ state map is
-	 * only valid until the rebuild is cancelled or settled, so it must never
-	 * outlive an aborted generation. The unresolved backlog stays: states
-	 * that lost their host callback remain exact evidence and must keep
-	 * excluding themselves from new-tool fallbacks until the logical-run
-	 * boundary (dispose clears it anyway).
+	 * Rebuild lifecycle: abort helper for tests and future soft-recovery.
+	 * Production RuntimeAdapter never calls this — a settlement failure takes
+	 * the hard `#rollback`/`dispose` path (session-wide disable), not a
+	 * generation abort that restores presentation. Never throws. When the
+	 * snapshot generation still matches, clears the in-progress marker so a
+	 * later rebuild can start, and closes the preserved identity window —
+	 * the exact component ↔ state map is only valid until the rebuild is
+	 * cancelled or settled. The unresolved backlog stays: states that lost
+	 * their host callback remain exact evidence and must keep excluding
+	 * themselves from new-tool fallbacks until the logical-run boundary
+	 * (dispose clears it anyway). Does not restore historical states or
+	 * transcript children discarded by `beginRebuild`.
 	 */
 	abortRebuild(snapshot: RebuildSnapshot): void {
 		try {
@@ -849,8 +885,24 @@ export class RuntimeSessionState {
 		return state;
 	}
 
-	/** tool_execution_start: create/absorb and mark in-flight. */
-	startState(input: ToolStartInput): ToolState {
+	/**
+	 * tool_execution_start: create/absorb and mark in-flight.
+	 *
+	 * Live identity bounds match hydration (F01): a missing/non-string or
+	 * oversized `toolCallId`/`toolName` never allocates a compact state, so
+	 * the call stays native and cannot win a single-pair `tryBindByOrder`
+	 * compact binding. Empty-string provisional ids remain valid (stock
+	 * event-controller streams `""` then migrates through `updateArgs`);
+	 * exact-ID precedence for in-budget ids is unchanged. Hydration already
+	 * filters before `stateForLedger`; this is the live entry counterpart.
+	 */
+	startState(input: ToolStartInput): ToolState | undefined {
+		if (
+			!isBoundedString(input.toolCallId, MAX_TOOL_CALL_ID_LENGTH) ||
+			!isBoundedString(input.toolName, MAX_TOOL_NAME_LENGTH)
+		) {
+			return undefined;
+		}
 		const state = this.stateForLedger(input, this.ensureLedger());
 		state.args = input.args;
 		state.isPartial = true;
@@ -863,17 +915,36 @@ export class RuntimeSessionState {
 	 * A tool event may mutate a state only while its ledger is still the
 	 * mutable working run. Once a ledger finalizes (`filtered`/`full`) — or
 	 * a terminal `agent_end` parks it in the deferred-terminal map while the
-	 * audit drain runs — its states are frozen: a late
-	 * `tool_execution_update`/`end` delivery must not rewrite the settled
-	 * run's state, resurrect a spinner row in `#pendingStates`, or bump the
-	 * presentation version of an already-committed view. Continuation runs
+	 * audit drain runs — its states are frozen against late
+	 * `tool_execution_update`/`end` deliveries: those must not rewrite the
+	 * settled run's result/pending/version. Continuation runs
 	 * (`willContinue`) are never captured as deferred and stay working, so
 	 * their legitimate events pass unchanged.
+	 *
+	 * Audit evidence setters (`setMutations`/`setGit`) use a narrower gate
+	 * (`#evidenceMutable`): they stay legal while the ledger is still
+	 * `working`, including the deferred-terminal window, because
+	 * `agent_end` parks the claim before the serialized audit drain
+	 * publishes verified mutation/Git rows. After `endRun`/`release`
+	 * finalizes the ledger, those setters become silent no-ops too.
 	 */
 	#stateMutable(state: ToolState): boolean {
 		if (state.ledger.phase !== "working") return false;
 		if (this.#deferredTerminalLedgers.has(state.ledger.runId)) return false;
 		return true;
+	}
+
+	/**
+	 * Mutation/Git evidence mutability:
+	 * - live / deferred-terminal: legal while the ledger is still `working`
+	 *   (agent_end parks the claim before the audit drain publishes rows);
+	 * - hydrate/rebuild walks: legal even on finalized historical ledgers so
+	 *   branch carriers can reattach evidence after the walk finalizes;
+	 * - after filtered/full outside a replay walk: silent no-op.
+	 */
+	#evidenceMutable(state: ToolState): boolean {
+		if (this.#replayingBranch) return true;
+		return state.ledger.phase === "working";
 	}
 
 	/** tool_execution_update: partial result. */
@@ -910,7 +981,9 @@ export class RuntimeSessionState {
 		entries: (MutationMessageDetails | LegacyMutationMessageDetails)[],
 	): RenderableBlock | undefined {
 		const state = this.#states.get(toolCallId);
-		if (!state) return undefined;
+		// Finalized ledgers freeze evidence; deferred-terminal (still working)
+		// stays open so the agent_end audit drain can publish verified rows.
+		if (!state || !this.#evidenceMutable(state)) return undefined;
 		// Keep any real mutation: non-zero exact counts, and deletes whose
 		// path is evidence even when the count is unknown.
 		const kept = entries.filter(
@@ -953,7 +1026,9 @@ export class RuntimeSessionState {
 		git: GitMessageDetails | undefined,
 	): RenderableBlock | undefined {
 		const state = this.#states.get(toolCallId);
-		if (!state || !git) return undefined;
+		// Finalized ledgers freeze evidence; deferred-terminal (still working)
+		// stays open so the agent_end audit drain can publish verified rows.
+		if (!state || !git || !this.#evidenceMutable(state)) return undefined;
 		state.git = git;
 		state.entry.retention = "git";
 		state.entry.git = { text: git.text, isError: git.isError };
@@ -1018,6 +1093,12 @@ export class RuntimeSessionState {
 	 * RunStats terminal row: record + place a plugin-owned carrier directly
 	 * above the run's answer. Exactly once per ledger; fail-open so a stats
 	 * failure never disturbs the terminal projection.
+	 *
+	 * Invariant: persisted stats evidence (staged at agent_end into the
+	 * branch) may exist without a carrier in the current transcript frame —
+	 * e.g. failed/skipped drain drops the pending line, or placement cannot
+	 * find an anchor after rebuild. Resume hydrate may still reinsert from
+	 * evidence; this method never invents a row from stale placement state.
 	 */
 	showStats(runId: string, line: string): boolean {
 		if (this.#disposed || typeof line !== "string" || line.length === 0)

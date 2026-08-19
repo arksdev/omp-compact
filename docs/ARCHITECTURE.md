@@ -74,7 +74,7 @@ Session-scoped state manager. Owns:
 - `endRun(AgentEndEvent)` — finalizes ledger, retires pending states
 - `beginRebuild()` — bumps generation, snapshots active working ownership
 - `commitRebuild()` — validates & binds rehydrated branch
-- `abortRebuild()` — discards rebuild, restores snapshot
+- `abortRebuild()` — test/soft-abort helper: clears rebuild marker + preserved identity window for the matching generation; production adapter uses hard rollback/dispose instead
 - `dispose()` — clears all maps
 
 **Tool state management:**

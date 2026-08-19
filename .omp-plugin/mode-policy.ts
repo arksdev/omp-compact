@@ -32,11 +32,16 @@ export function runModeFromSettings(
  * Settings → runtime-mode policy. One immutable snapshot per logical run,
  * captured at `prepareRun` (agent_start) and never mutated mid-run, so
  * toolUse/willContinue continuations keep the mode that started the run.
- * Settings changes (dialog saves, JSON edits, env overrides) apply at the
- * next run boundary; global disable/re-enable is transactional at that
- * boundary (adapter dispose/reinstall) while the settings command stays
- * registered. Fail-open: before the first settings resolution the runtime is
- * enabled with `live` defaults, matching stock behavior.
+ * Dialog saves and env overrides reach `#current` through the store
+ * subscription and apply at the next run boundary (`prepareRun` freezes
+ * them). External JSON file edits that bypass the store's subscribe/update
+ * path are not re-`load()`'d at `prepareRun` while `#current` is already
+ * set — only the next session boundary (`dispose` clears state, then
+ * prime/ready/prepareRun re-resolve) picks those up. Global disable/
+ * re-enable is transactional at the run boundary (adapter dispose/
+ * reinstall) while the settings command stays registered. Fail-open:
+ * before the first settings resolution the runtime is enabled with `live`
+ * defaults, matching stock behavior.
  */
 export class ModePolicy {
 	readonly #store: CompactSettingsStore;

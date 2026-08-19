@@ -20,7 +20,10 @@ import {
 	type MutationMessageDetails,
 } from "../../.omp-plugin/messages";
 import { MAX_STATS_ACTIONS } from "../../.omp-plugin/run-stats";
-import { RuntimeSessionState } from "../../.omp-plugin/runtime-session-state";
+import {
+	RuntimeSessionState,
+	type ToolState,
+} from "../../.omp-plugin/runtime-session-state";
 import { insertTranscriptChildAt } from "../../.omp-plugin/host-adapter";
 import type {
 	RenderableBlock,
@@ -82,6 +85,21 @@ function makeStatsSession(): RuntimeSessionState {
 		statsRenderer: () => "usage row",
 		placeStatsCarrier: insertTranscriptChildAt,
 	});
+}
+
+/** Live start that must allocate (in-budget id/name). Refusal tests call startState directly. */
+function mustStart(
+	session: RuntimeSessionState,
+	input: {
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+	},
+): ToolState {
+	const state = session.startState(input);
+	if (!state)
+		throw new Error(`startState refused ${JSON.stringify(input.toolCallId)}`);
+	return state;
 }
 
 function assistant(text: string, stopReason = "stop"): Record<string, unknown> {
@@ -152,7 +170,7 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		const session = makeSession();
 		session.beginRun();
 		const first = session.activeLedger;
-		session.startState({ toolCallId: "c1", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "bash", args: {} });
 		session.beginRun();
 		expect(first?.phase).toBe("full");
 		expect(session.activeLedger).not.toBe(first);
@@ -162,7 +180,7 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		const session = makeSession();
 		session.beginRun();
 		const first = session.activeLedger;
-		session.startState({
+		mustStart(session, {
 			toolCallId: "first-call",
 			toolName: "bash",
 			args: {},
@@ -189,7 +207,7 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		session.beginRun();
 		const first = session.activeLedger;
 		expect(first).toBeDefined();
-		session.startState({
+		mustStart(session, {
 			toolCallId: "stale-call",
 			toolName: "bash",
 			args: {},
@@ -225,7 +243,7 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		session.beginRun();
 		const first = session.activeLedger;
 		expect(first).toBeDefined();
-		session.startState({ toolCallId: "done-call", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "done-call", toolName: "bash", args: {} });
 		const firstRunId = session.captureTerminalRunId();
 		expect(
 			session.endRun({ messages: [assistant("first done")] }, firstRunId),
@@ -265,7 +283,7 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		expect(session.endRun({ messages: [assistant("done")] })).toBe("filtered");
 
 		session.beginRun();
-		const next = session.startState({
+		const next = mustStart(session, {
 			toolCallId: "next-run",
 			toolName: "bash",
 			args: { command: "printf next" },
@@ -282,7 +300,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("startState creates a state, entry and pending marker", () => {
 		const session = makeSession();
 		session.beginRun();
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: { command: "ls" },
@@ -300,12 +318,12 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("the same toolCallId absorbs instead of duplicating", () => {
 		const session = makeSession();
 		session.beginRun();
-		const first = session.startState({
+		const first = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: {},
 		});
-		const second = session.startState({
+		const second = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: { command: "updated" },
@@ -317,7 +335,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("updateTool/finishTool track partial results and errors", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "c1", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "bash", args: {} });
 		const partial = session.updateTool({
 			toolCallId: "c1",
 			toolName: "bash",
@@ -344,7 +362,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("setMutations assigns exact retention only for non-zero diffs", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "c1", toolName: "write", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "write", args: {} });
 		session.setMutations("c1", [
 			mutationDetails("c1", 0, 0),
 			mutationDetails("c1", 3, 1),
@@ -362,7 +380,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("live setMutations caps the batch and demotes exactness over the truncated set", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "c1", toolName: "write", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "write", args: {} });
 		const excess = Array.from({ length: MAX_MUTATION_ENTRIES + 5 }, () =>
 			mutationDetails("c1", 1, 0),
 		);
@@ -393,7 +411,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("setMutations keeps count-less delete entries and demotes aggregate exactness", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "c1", toolName: "edit", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "edit", args: {} });
 		session.setMutations("c1", [
 			{
 				toolCallId: "c1",
@@ -418,7 +436,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("setMutations mixes exact and count-less delete entries honestly", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "c1", toolName: "edit", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "edit", args: {} });
 		session.setMutations("c1", [
 			mutationDetails("c1", 3, 1),
 			{
@@ -441,7 +459,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("setGit assigns the git retention class", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "c1", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "bash", args: {} });
 		session.setGit("c1", gitDetails("c1", "git commit abcd1234 Fix"));
 		const state = session.state("c1");
 		expect(state?.entry.retention).toBe("git");
@@ -454,7 +472,7 @@ describe("RuntimeSessionState: tool state records", () => {
 	test("endRun drains pending states of the finalized ledger", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "c1", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "bash", args: {} });
 		expect(session.endRun({ messages: [assistant("done")] })).toBe("filtered");
 		expect(session.pending()).toEqual([]);
 	});
@@ -464,7 +482,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 	test("updateTool/finishTool are no-ops after a filtered finalization", () => {
 		const session = makeSession();
 		session.beginRun();
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: {},
@@ -505,7 +523,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 	test("updateTool/finishTool are no-ops after a full (abort) finalization", () => {
 		const session = makeSession();
 		session.beginRun();
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: {},
@@ -542,7 +560,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		const session = makeSession();
 		session.beginRun();
 		const first = session.activeLedger;
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: {},
@@ -594,7 +612,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 	test("working-phase events still process (legitimate events are not blocked)", () => {
 		const session = makeSession();
 		session.beginRun();
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: {},
@@ -627,7 +645,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		);
 		session.beginRun();
 		expect(session.activeLedger).toBe(first);
-		session.startState({ toolCallId: "c2", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "c2", toolName: "bash", args: {} });
 		session.updateTool({
 			toolCallId: "c2",
 			toolName: "bash",
@@ -638,6 +656,228 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(session.state("c2")?.isPartial).toBe(true);
 		expect(session.pending().length).toBe(1);
 	});
+
+	test("live startState refuses oversized ids the way hydration does (no ordinal compact bind)", () => {
+		const session = makeSession();
+		session.beginRun();
+		const overId = "c".repeat(MAX_TOOL_CALL_ID_LENGTH + 1);
+		const component = new FakeToolComponent();
+		session.binding.registerUnboundComponent(component);
+		expect(
+			session.startState({
+				toolCallId: overId,
+				toolName: "bash",
+				args: {},
+			}),
+		).toBeUndefined();
+		expect(session.state(overId)).toBeUndefined();
+		// Without a compact state the single-pair order fallback must not
+		// bind the unbound host component to a ghost call.
+		expect(session.binding.tryBindByOrder(session.activeLedger)).toBe(
+			"unmapped",
+		);
+		expect(session.binding.unboundComponents()).toEqual([component]);
+
+		// Empty provisional id still allocates (stock event-controller path).
+		const provisional = mustStart(session, {
+			toolCallId: "",
+			toolName: "bash",
+			args: { command: "echo" },
+		});
+		expect(provisional).toBeDefined();
+		expect(session.state("")).toBe(provisional);
+		expect(session.binding.tryBindByOrder(session.activeLedger)).toBe("bound");
+		expect(provisional?.component).toBe(component);
+	});
+
+	test("live startState refuses oversized tool names; exact in-budget ids still absorb", () => {
+		const session = makeSession();
+		session.beginRun();
+		const overName = "t".repeat(MAX_TOOL_NAME_LENGTH + 1);
+		expect(
+			session.startState({
+				toolCallId: "ok-id",
+				toolName: overName,
+				args: {},
+			}),
+		).toBeUndefined();
+		expect(session.state("ok-id")).toBeUndefined();
+
+		const first = mustStart(session, {
+			toolCallId: "ok-id",
+			toolName: "bash",
+			args: { command: "one" },
+		});
+		const second = mustStart(session, {
+			toolCallId: "ok-id",
+			toolName: "bash",
+			args: { command: "two" },
+		});
+		expect(second).toBe(first);
+		expect(first?.args).toEqual({ command: "two" });
+	});
+
+	test("setMutations/setGit are no-ops after a filtered finalization", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = mustStart(session, {
+			toolCallId: "c1",
+			toolName: "write",
+			args: {},
+		});
+		expect(session.endRun({ messages: [assistant("done")] })).toBe("filtered");
+		const version = state.version;
+		const retention = state.entry.retention;
+
+		expect(
+			session.setMutations("c1", [mutationDetails("c1", 3, 1)]),
+		).toBeUndefined();
+		expect(state.mutations).toEqual([]);
+		expect(state.entry.mutation).toBeUndefined();
+		expect(state.entry.retention).toBe(retention);
+		expect(state.version).toBe(version);
+
+		expect(
+			session.setGit("c1", gitDetails("c1", "git commit abcd1234 Late")),
+		).toBeUndefined();
+		expect(state.git).toBeUndefined();
+		expect(state.entry.git).toBeUndefined();
+		expect(state.entry.retention).toBe(retention);
+		expect(state.version).toBe(version);
+	});
+
+	test("setMutations/setGit are no-ops after a full (abort) finalization", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = mustStart(session, {
+			toolCallId: "c1",
+			toolName: "write",
+			args: {},
+		});
+		session.finishFull();
+		expect(session.activeLedger?.phase).toBe("full");
+		const version = state.version;
+		const retention = state.entry.retention;
+
+		expect(
+			session.setMutations("c1", [mutationDetails("c1", 2, 0)]),
+		).toBeUndefined();
+		expect(state.mutations).toEqual([]);
+		expect(state.entry.retention).toBe(retention);
+		expect(state.version).toBe(version);
+
+		expect(
+			session.setGit("c1", gitDetails("c1", "git commit deadbeef Abort")),
+		).toBeUndefined();
+		expect(state.git).toBeUndefined();
+		expect(state.entry.retention).toBe(retention);
+		expect(state.version).toBe(version);
+	});
+
+	test("setMutations/setGit stay open during deferred drain; freeze after finalization", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		const state = mustStart(session, {
+			toolCallId: "c1",
+			toolName: "write",
+			args: {},
+		});
+		const runId = session.captureTerminalRunId();
+		expect(runId).toBe(first?.runId);
+		// Still working while parked: the agent_end audit drain publishes
+		// verified mutation/Git rows in this window (before endRun).
+		expect(first?.phase).toBe("working");
+
+		expect(session.setMutations("c1", [mutationDetails("c1", 4, 2)])).toBe(
+			undefined,
+		);
+		// No component bound — returns undefined but evidence still applies.
+		expect(state.mutations).toHaveLength(1);
+		expect(state.entry.retention).toBe("mutation");
+		expect(
+			session.setGit("c1", gitDetails("c1", "git commit cafe0001 Drain")),
+		).toBeUndefined();
+		expect(state.git?.text).toBe("git commit cafe0001 Drain");
+		expect(state.entry.retention).toBe("git");
+
+		// Tool stream events remain frozen for the deferred ledger even
+		// after evidence landed (mutation sets success retention above).
+		const version = state.version;
+		const entryState = state.entry.state;
+		expect(
+			session.finishTool({
+				toolCallId: "c1",
+				toolName: "write",
+				result: { ok: true },
+				isError: false,
+			}),
+		).toBeUndefined();
+		expect(state.entry.state).toBe(entryState);
+		expect(state.version).toBe(version);
+
+		session.releaseTerminalRun(runId);
+		expect(first?.phase).toBe("full");
+		const postRelease = state.version;
+		const mutations = [...state.mutations];
+		expect(
+			session.setMutations("c1", [mutationDetails("c1", 1, 0)]),
+		).toBeUndefined();
+		expect(state.mutations).toEqual(mutations);
+		expect(state.version).toBe(postRelease);
+	});
+
+	test("working-phase setMutations/setGit still process (live evidence is not blocked)", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = mustStart(session, {
+			toolCallId: "c1",
+			toolName: "write",
+			args: {},
+		});
+		const component = new FakeToolComponent();
+		session.binding.bind(component, state);
+
+		expect(session.setMutations("c1", [mutationDetails("c1", 2, 1)])).toBe(
+			component,
+		);
+		expect(state.mutations).toHaveLength(1);
+		expect(state.entry.retention).toBe("mutation");
+		expect(state.entry.mutation).toEqual({
+			added: 2,
+			removed: 1,
+			exact: true,
+		});
+		const afterMutation = state.version;
+
+		expect(
+			session.setGit("c1", gitDetails("c1", "git commit beef0001 Live")),
+		).toBe(component);
+		expect(state.git?.text).toBe("git commit beef0001 Live");
+		expect(state.entry.retention).toBe("git");
+		expect(state.version).toBeGreaterThan(afterMutation);
+	});
+
+	test("continuation setMutations/setGit are not blocked (willContinue keeps the ledger working)", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = session.activeLedger;
+		expect(session.endRun({ messages: [], willContinue: true })).toBe(
+			"working",
+		);
+		session.beginRun();
+		expect(session.activeLedger).toBe(first);
+		const state = mustStart(session, {
+			toolCallId: "c2",
+			toolName: "write",
+			args: {},
+		});
+		session.setMutations("c2", [mutationDetails("c2", 1, 0)]);
+		session.setGit("c2", gitDetails("c2", "git commit cont0001 Cont"));
+		expect(state.mutations).toHaveLength(1);
+		expect(state.git?.text).toBe("git commit cont0001 Cont");
+		expect(state.entry.retention).toBe("git");
+	});
 });
 
 describe("RuntimeSessionState: terminal projections", () => {
@@ -647,9 +887,9 @@ describe("RuntimeSessionState: terminal projections", () => {
 		const ledger = session.activeLedger as NonNullable<
 			RuntimeSessionState["activeLedger"]
 		>;
-		session.startState({ toolCallId: "c1", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "c1", toolName: "bash", args: {} });
 		session.setGit("c1", gitDetails("c1", "git commit aaaa1111 First"));
-		session.startState({ toolCallId: "c2", toolName: "write", args: {} });
+		mustStart(session, { toolCallId: "c2", toolName: "write", args: {} });
 		session.setGit("c2", gitDetails("c2", "git commit bbbb2222 Second"));
 		session.setMutations("c2", [mutationDetails("c2", 2, 0)]);
 		session.endRun({ messages: [assistant("done")] });
@@ -669,7 +909,7 @@ describe("RuntimeSessionState: stats placement", () => {
 		session.beginRun();
 		const runId = session.activeLedger?.runId as string;
 		const component = new FakeToolComponent();
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: {},
@@ -775,7 +1015,7 @@ describe("RuntimeSessionState: hydrateBranch", () => {
 	test("hydrateBranch is a no-op once live states exist", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "live-1", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "live-1", toolName: "bash", args: {} });
 		session.hydrateBranch([
 			{
 				type: "message",
@@ -799,7 +1039,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		const first = session.activeLedger as NonNullable<
 			RuntimeSessionState["activeLedger"]
 		>;
-		session.startState({
+		mustStart(session, {
 			toolCallId: "hist-1",
 			toolName: "read",
 			args: {},
@@ -810,7 +1050,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 			RuntimeSessionState["activeLedger"]
 		>;
 		const component = new FakeToolComponent();
-		const activeState = session.startState({
+		const activeState = mustStart(session, {
 			toolCallId: "live-1",
 			toolName: "bash",
 			args: {},
@@ -868,7 +1108,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		const session = makeSession();
 		session.beginRun();
 		const component = new FakeToolComponent();
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "live-1",
 			toolName: "bash",
 			args: {},
@@ -890,7 +1130,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		const active = session.activeLedger as NonNullable<
 			RuntimeSessionState["activeLedger"]
 		>;
-		session.startState({ toolCallId: "live-1", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "live-1", toolName: "bash", args: {} });
 		const snapshot = session.beginRebuild();
 		const outcome = session.commitRebuild(snapshot, {
 			branchEntries: [
@@ -931,7 +1171,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 	test("commitRebuild keeps active ownership: branch never replaces live evidence", () => {
 		const session = makeSession();
 		session.beginRun();
-		const activeState = session.startState({
+		const activeState = mustStart(session, {
 			toolCallId: "live-1",
 			toolName: "bash",
 			args: { command: "live" },
@@ -990,7 +1230,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 	test("commitRebuild reports mapped=false when bindings stay ambiguous", () => {
 		const session = makeSession();
 		session.beginRun();
-		session.startState({ toolCallId: "active", toolName: "bash", args: {} });
+		mustStart(session, { toolCallId: "active", toolName: "bash", args: {} });
 		const snapshot = session.beginRebuild();
 		const component = new FakeToolComponent();
 		session.binding.registerUnboundComponent(component);
@@ -1005,7 +1245,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		const ledger = session.activeLedger as NonNullable<
 			RuntimeSessionState["activeLedger"]
 		>;
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "retire-1",
 			toolName: "write",
 			args: { path: "/tmp/retire.ts", content: "x".repeat(4_096) },
@@ -1077,7 +1317,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 	test("dispose releases every reference and rebuild marker", () => {
 		const session = makeSession();
 		session.beginRun();
-		const state = session.startState({
+		const state = mustStart(session, {
 			toolCallId: "c1",
 			toolName: "bash",
 			args: {},

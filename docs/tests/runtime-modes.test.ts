@@ -13,6 +13,7 @@ interface AdapterModule {
 		options: unknown,
 	) => {
 		install(): boolean;
+		readonly installed: boolean;
 		beginRun(): void;
 		hydrateBranch(entries: readonly unknown[]): void;
 		startTool(input: {
@@ -1000,6 +1001,34 @@ describe("restore override (upgrade2 item 3)", () => {
 		expect(rows).toContain("bash: printf replay");
 		// live filters the routine rows of the new run
 		expect(rows).not.toContain("printf next");
+	});
+});
+
+describe("runtime adapter: install without transcript", () => {
+	test("install succeeds fail-open while installed stays false until a transcript appears", () => {
+		const root: { children: unknown[]; addChild(child: unknown): void } = {
+			children: [],
+			addChild() {},
+		};
+		const adapter = new adapterModule.RuntimeAdapter({
+			root,
+			ui: {
+				theme: fakeTheme(),
+				setWidget() {},
+				requestRender() {},
+				requestComponentRender() {},
+				getToolsExpanded: () => false,
+			},
+			timers: {
+				setInterval: () => 1,
+				clearTimer: () => {},
+			},
+		});
+		// Zero candidates: discovery is armed, but the fold is not live yet.
+		// Index audit/stats gates use `installed`, not the install() boolean.
+		expect(adapter.install()).toBe(true);
+		expect(adapter.installed).toBe(false);
+		expect(() => adapter.dispose()).not.toThrow();
 	});
 });
 

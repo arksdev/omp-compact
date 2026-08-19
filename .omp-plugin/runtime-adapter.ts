@@ -176,10 +176,24 @@ export class RuntimeAdapter {
 		});
 	}
 
+	/**
+	 * Whether the fold is live on a discovered transcript. Distinct from a
+	 * successful `install()`: zero candidates still return true from
+	 * `install()` (discovery observe + spinner, fail-open) while this stays
+	 * false until `#installTranscript` creates the fold. Index audit routing
+	 * and stats placement gate on this flag so a pre-transcript adapter never
+	 * pretends UI is ready.
+	 */
 	get installed(): boolean {
 		return this.#fold !== undefined;
 	}
 
+	/**
+	 * Probe host + arm discovery. Returns false only on hard failure
+	 * (rollback). Zero transcript candidates is success: the tree is watched
+	 * and a later addChild installs the fold; `installed` remains false until
+	 * then.
+	 */
 	install(): boolean {
 		if (this.#disposed) return false;
 		try {
@@ -327,6 +341,9 @@ export class RuntimeAdapter {
 	startTool(input: ToolStartInput): void {
 		if (this.#disposed) return;
 		const state = this.#session.startState(input);
+		// Oversized/missing ids refuse allocation (live ≡ hydration bounds);
+		// empty provisional ids still allocate and bind below.
+		if (!state) return;
 		// Stock hosts create the read group and call updateArgs BEFORE this
 		// extension event arrives: bind any group that already observed this
 		// id, completing the mapping that updateArgs could not resolve yet.
