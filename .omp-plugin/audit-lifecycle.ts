@@ -437,7 +437,7 @@ export class AuditLifecycle {
 		// Map swap is last-candidate-wins for the shared toolCallId: only the
 		// new record is addressable. The previous entry was already abandoned
 		// above, so any in-flight completion it still holds settles without
-		// publishing (exactly-once — never a double-publish of mutation evidence).
+		// publishing alongside this successor (the supersede-overlap case).
 		this.#records.set(toolCallId, record);
 		this.#pending.set(toolCallId, record);
 	}
