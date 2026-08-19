@@ -114,27 +114,108 @@ export function hasAssistantUsage(message: unknown): boolean {
 }
 
 /**
- * Stable identity for one finalized assistant completion. Streaming hosts
- * redeliver the same completion as fresh objects, so object identity is
- * unusable; `timestamp` uniquely identifies a provider completion in stock
- * OMP. A content/usage fingerprint backs up hosts that omit it.
+ * Identity key for one finalized assistant completion observed on
+ * `message_end`. Streaming hosts redeliver the same completion as a fresh
+ * object, so object identity is unusable and the key must be derived from
+ * message fields only — never a counter, sequence, or wall-clock nonce.
+ *
+ * Tiers, highest priority first:
+ * 1. Non-empty `responseId` (provider-side completion id when present) +
+ *    usage totals. Stable across redelivery; distinguishes concurrent
+ *    completions even when timestamps collide.
+ * 2. Finite numeric `timestamp` + `stopReason` + usage. Stock OMP always
+ *    stamps `timestamp` on assistant messages, so this is the production path.
+ * 3. Fallback: `stopReason` + usage + a bounded FNV-1a content digest over
+ *    block shape (`type`, id/name) and per-block text/thinking slices
+ *    (4096 chars each, 16 KiB overall). Same bytes ⇒ same key (redelivery
+ *    dedups); ordinary different text/tool shape ⇒ different key.
+ *
+ * Residual limitation: two byte-identical completions with identical usage
+ * and neither `responseId` nor `timestamp` are genuinely indistinguishable
+ * at this seam and will dedup as one. That is inherent, not a bug.
  */
 function messageKey(message: unknown): string {
 	const record = objectRecord(message);
 	const usage = usageOf(message);
 	const totals = `${usage.sent}:${usage.received}:${usage.cacheRead}:${usage.cacheWrite}`;
+	const responseId = record.responseId;
+	if (typeof responseId === "string" && responseId.length > 0)
+		return `i:${responseId}:${totals}`;
 	const timestamp = record.timestamp;
+	const stopReason = String(record.stopReason ?? "");
 	if (typeof timestamp === "number" && Number.isFinite(timestamp))
-		return `t:${timestamp}:${String(record.stopReason ?? "")}:${totals}`;
-	let textLength = 0;
-	const content = record.content;
-	if (Array.isArray(content)) {
-		for (const block of content) {
-			const text = objectRecord(block).text;
-			if (typeof text === "string") textLength += Math.min(text.length, 4_096);
+		return `t:${timestamp}:${stopReason}:${totals}`;
+	return `c:${stopReason}:${contentDigest(record.content)}:${totals}`;
+}
+
+/** Per-block text/thinking cap retained from the length-only fingerprint. */
+const DIGEST_BLOCK_CHAR_CAP = 4_096;
+/** Overall character budget across all digested slices of one message. */
+const DIGEST_TOTAL_CHAR_CAP = 16_384;
+/** Cap on characters folded from block id/name shape fields. */
+const DIGEST_META_CHAR_CAP = 64;
+
+/**
+ * Bounded FNV-1a 32-bit digest over assistant `content`. Hashes incrementally
+ * — never concatenates block text into one string — and stops once the total
+ * char budget is exhausted so a pathological message cannot make this
+ * superlinear. Non-cryptographic: collision resistance means "not trivially
+ * collidable by ordinary different text", not cryptographic strength.
+ */
+function contentDigest(content: unknown): string {
+	let hash = 0x811c9dc5;
+	let remaining = DIGEST_TOTAL_CHAR_CAP;
+
+	const mixChar = (code: number): void => {
+		hash ^= code & 0xff;
+		// FNV prime 16777619, keep within uint32 via >>> 0.
+		hash = Math.imul(hash, 0x01000193) >>> 0;
+	};
+
+	const mixString = (value: string, cap: number): void => {
+		const limit = Math.min(value.length, cap, remaining);
+		for (let i = 0; i < limit; i++) {
+			const code = value.charCodeAt(i);
+			// UTF-16 code units: mix both bytes so non-ASCII is not folded away.
+			mixChar(code);
+			mixChar(code >>> 8);
 		}
+		remaining -= limit;
+	};
+
+	const mixSep = (code: number): void => {
+		// Separators are structural and do not consume the text budget.
+		mixChar(code);
+	};
+
+	if (!Array.isArray(content)) {
+		mixSep(0);
+		return (hash >>> 0).toString(16).padStart(8, "0");
 	}
-	return `c:${Array.isArray(content) ? content.length : 0}:${textLength}:${totals}`;
+
+	mixSep(content.length & 0xff);
+	for (const block of content) {
+		if (remaining <= 0) break;
+		const record = objectRecord(block);
+		const type = record.type;
+		mixSep(1);
+		if (typeof type === "string") mixString(type, DIGEST_META_CHAR_CAP);
+		mixSep(2);
+		const id = record.id;
+		if (typeof id === "string") mixString(id, DIGEST_META_CHAR_CAP);
+		mixSep(3);
+		const name = record.name;
+		if (typeof name === "string") mixString(name, DIGEST_META_CHAR_CAP);
+		mixSep(4);
+		const text = record.text;
+		if (typeof text === "string") mixString(text, DIGEST_BLOCK_CHAR_CAP);
+		mixSep(5);
+		const thinking = record.thinking;
+		if (typeof thinking === "string")
+			mixString(thinking, DIGEST_BLOCK_CHAR_CAP);
+	}
+
+	return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 export function hitRateOf(sent: number, cacheRead: number): number {

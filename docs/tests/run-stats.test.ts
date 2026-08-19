@@ -242,6 +242,162 @@ describe("aggregation: unique finalized assistant messages", () => {
 		expect(result?.messages).toBe(1);
 		expect(result?.sent).toBe(100);
 	});
+
+	test("equal-length no-timestamp completions with different text are both counted", () => {
+		// Defect: the fallback key used only block count + summed text length +
+		// usage, so "abc" and "xyz" (same length, same usage, no timestamp)
+		// collided and the second completion was silently dropped.
+		const stats = new module.RunStats();
+		stats.start();
+		const usage = { input: 10, output: 5, cacheRead: 20, cacheWrite: 3 };
+		stats.observeAssistantMessage(
+			assistant({
+				timestamp: undefined,
+				stopReason: "stop",
+				content: [{ type: "text", text: "abc" }],
+				usage,
+			}),
+		);
+		stats.observeAssistantMessage(
+			assistant({
+				timestamp: undefined,
+				stopReason: "stop",
+				content: [{ type: "text", text: "xyz" }],
+				usage,
+			}),
+		);
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(2);
+		expect(result?.sent).toBe(20);
+		expect(result?.received).toBe(10);
+		expect(result?.cacheRead).toBe(40);
+		expect(result?.cacheWrite).toBe(6);
+	});
+
+	test("redelivery of the same no-timestamp completion still counts once", () => {
+		const stats = new module.RunStats();
+		stats.start();
+		const message = assistant({
+			timestamp: undefined,
+			stopReason: "stop",
+			content: [{ type: "text", text: "same body" }],
+			usage: { input: 10, output: 5, cacheRead: 20, cacheWrite: 3 },
+		});
+		stats.observeAssistantMessage(message);
+		// Fresh object, identical fields — streaming hosts redeliver this way.
+		stats.observeAssistantMessage({
+			...message,
+			content: [...(message.content as unknown[])],
+		});
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(1);
+		expect(result?.sent).toBe(10);
+		expect(result?.received).toBe(5);
+	});
+
+	test("no-timestamp completions that differ only by stopReason are both counted", () => {
+		const stats = new module.RunStats();
+		stats.start();
+		const base = {
+			timestamp: undefined as undefined,
+			content: [{ type: "text", text: "done" }],
+			usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+		};
+		stats.observeAssistantMessage(assistant({ ...base, stopReason: "stop" }));
+		stats.observeAssistantMessage(assistant({ ...base, stopReason: "length" }));
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(2);
+		expect(result?.sent).toBe(20);
+	});
+
+	test("no-timestamp completions that differ only by tool-call shape are both counted", () => {
+		const stats = new module.RunStats();
+		stats.start();
+		const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 };
+		const prose = { type: "text", text: "calling tools" };
+		stats.observeAssistantMessage(
+			assistant({
+				timestamp: undefined,
+				stopReason: "toolUse",
+				content: [prose, { type: "toolCall", id: "t1", name: "bash" }],
+				usage,
+			}),
+		);
+		stats.observeAssistantMessage(
+			assistant({
+				timestamp: undefined,
+				stopReason: "toolUse",
+				content: [prose, { type: "toolCall", id: "t2", name: "read" }],
+				usage,
+			}),
+		);
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(2);
+		expect(result?.sent).toBe(20);
+	});
+
+	test("responseId takes priority over equal timestamps and still dedups redelivery", () => {
+		const stats = new module.RunStats();
+		stats.start();
+		const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 };
+		stats.observeAssistantMessage(
+			assistant({
+				responseId: "resp_a",
+				timestamp: 99,
+				content: [{ type: "text", text: "first" }],
+				usage,
+			}),
+		);
+		stats.observeAssistantMessage(
+			assistant({
+				responseId: "resp_b",
+				timestamp: 99,
+				content: [{ type: "text", text: "second" }],
+				usage,
+			}),
+		);
+		// Redelivery of resp_a as a fresh object must not double-count.
+		stats.observeAssistantMessage(
+			assistant({
+				responseId: "resp_a",
+				timestamp: 99,
+				content: [{ type: "text", text: "first" }],
+				usage,
+			}),
+		);
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(2);
+		expect(result?.sent).toBe(20);
+	});
+
+	test("missing responseId falls back cleanly when timestamps differ", () => {
+		const stats = new module.RunStats();
+		stats.start();
+		stats.observeAssistantMessage(
+			assistant({
+				responseId: undefined,
+				timestamp: 1,
+				usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+			}),
+		);
+		stats.observeAssistantMessage(
+			assistant({
+				responseId: undefined,
+				timestamp: 2,
+				usage: { input: 90, output: 45, cacheRead: 0, cacheWrite: 0 },
+			}),
+		);
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(2);
+		expect(result?.sent).toBe(100);
+		expect(result?.received).toBe(50);
+	});
 });
 
 describe("hasAssistantUsage structural guard", () => {
