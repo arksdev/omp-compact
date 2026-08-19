@@ -66,7 +66,15 @@ const EMPTY_LINES: readonly string[] = Object.freeze([]);
 export interface AdapterUI {
 	theme?: Theme;
 	setWidget?(key: string, content: unknown): void;
+	/**
+	 * Host TUI paint request. Typed `void` on purpose: every adapter caller
+	 * fires-and-forgets (no status is consumed). Stock today returns nothing
+	 * meaningful; if a future host surfaces a code, wire it at the
+	 * `requestMethod` binding in index.ts — do not start reading it here
+	 * without a caller that needs it.
+	 */
 	requestRender?(): void;
+	/** Same discard contract as `requestRender` for a single component. */
 	requestComponentRender?(component: unknown): void;
 	// Live tool-output expansion state. Stock pre-sets `setExpanded(...)` on
 	// components before the adapter can wrap them, so the initial expanded
