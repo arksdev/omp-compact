@@ -144,7 +144,8 @@ Host orchestrator. Installs and manages patches.
 
 **Protection:**
 - Generation token guards settlement callbacks after rebuild
-- `#rollback()` on any error → full dispose, warn once
+- Ambiguous toolCallId binding → per-component native quarantine (`#quarantineComponent` / `releaseToNative`); session stays compacting
+- `#rollback()` on host-invariant failure → full dispose, warn once
 - Disposed adapter no-ops on all events
 
 **Spinner:**
@@ -469,7 +470,16 @@ Very long multi-day sessions with thousands of calls remain a capacity-planning 
 
 ### Fail-Open Design
 
-Any error triggers complete rollback:
+Binding data conflicts quarantine one surface:
+
+```typescript
+#quarantineComponent(component: RenderableBlock): void {
+    this.#session.binding.releaseToNative(component);
+    // restore this component's host patch; leave the session installed
+}
+```
+
+Host-invariant failures still trigger complete rollback:
 
 ```typescript
 #rollback(message: string): void {
@@ -481,13 +491,16 @@ Any error triggers complete rollback:
 }
 ```
 
-**Error sources:**
-- Incompatible TUI shape
-- Unexpected host behavior
-- Malformed tool result
-- Race condition
+**Error sources (session-wide `#rollback`):**
+- Incompatible TUI shape / unpatchable core surface
+- Multiple transcript containers
+- Unexpected host exception during discovery/patch
 
-**Outcome:** OMP continues with native renderer. Session never crashes.
+**Error sources (per-component quarantine):**
+- Ambiguous provisional→real toolCallId migration
+- Dual-group / cross-surface id ownership conflict
+
+**Outcome:** OMP continues with native renderer on the affected surface (or fully native after rollback). Session never crashes.
 
 ### Capability Checks
 

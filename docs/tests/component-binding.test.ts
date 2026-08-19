@@ -260,6 +260,60 @@ describe("ComponentBinding: provisional → real ID migration", () => {
 		expect(states.get("")).toBe(provisional);
 		expect(states.get("real-1")).toBe(real);
 	});
+
+	test("releaseToNative drops reverse maps but keeps state claims", () => {
+		const { binding, states } = makeBinding();
+		const otherComponent = new FakeToolComponent();
+		const real = makeState({ id: "real-1", toolName: "bash" });
+		states.set("real-1", real);
+		binding.bind(otherComponent, real);
+		const provisional = makeState({ id: "", toolName: "bash" });
+		states.set("", provisional);
+		const component = new FakeToolComponent();
+		binding.bind(component, provisional);
+		expect(
+			binding.observeToolMethod(component, "updateArgs", [{}, "real-1"]),
+		).toBe("ambiguous");
+		// Caller quarantine: reverse map gone, claim retained so order
+		// binding cannot steal the provisional state onto another surface.
+		binding.releaseToNative(component);
+		expect(binding.componentState(component)).toBeUndefined();
+		expect(binding.componentState(otherComponent)).toBe(real);
+		expect(provisional.component).toBe(component);
+		expect(real.component).toBe(otherComponent);
+		// The other surface is untouched and still exact-bound.
+		expect(states.get("real-1")).toBe(real);
+		expect(states.get("")).toBe(provisional);
+	});
+
+	test("releaseToNative retires a read group without freeing claimed states", () => {
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		const read = makeState({ id: "read-1", toolName: "read" });
+		states.set("read-1", read);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/a" },
+			"read-1",
+		]);
+		expect(read.component).toBe(groupComponent);
+		expect(binding.groupState(groupComponent)).toBe(group);
+		binding.releaseToNative(groupComponent);
+		expect(binding.groupState(groupComponent)).toBeUndefined();
+		expect([...binding.groups()]).toEqual([]);
+		// Claim retained: a later group cannot adopt this state mid-run.
+		expect(read.component).toBe(groupComponent);
+		const later = new FakeReadGroup();
+		const laterGroup = binding.createGroup(later, false);
+		expect(
+			binding.observeReadMethod(laterGroup, later, "updateArgs", [
+				{ path: "/a" },
+				"read-1",
+			]),
+		).toBe("bound");
+		expect(read.component).toBe(groupComponent);
+		expect(laterGroup.ledger).toBeUndefined();
+	});
 });
 
 describe("ComponentBinding: read-group observed-id ownership", () => {

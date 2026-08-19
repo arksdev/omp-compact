@@ -1468,12 +1468,14 @@ export class RuntimeAdapter {
 					name,
 					args,
 				);
-				// Ambiguous provisional→real-id migration fails open to
-				// native through the same rollback policy the historical
-				// throw used: the whole session retires rather than risking
-				// a misrendered row.
+				// Ambiguous provisional→real-id migration is a per-component
+				// data conflict, not a broken host. Quarantine only this
+				// surface to native and leave the rest of the session
+				// compacting. Session-wide `#rollback` stays reserved for
+				// host-invariant failures (unpatchable core, multiple
+				// transcripts, capability skew).
 				if (status === "ambiguous") {
-					this.#rollback("omp-compact disabled: ambiguous toolCallId binding");
+					this.#quarantineComponent(component);
 					return;
 				}
 			} catch (error) {
@@ -1504,10 +1506,10 @@ export class RuntimeAdapter {
 						name,
 						args,
 					);
+					// Same containment as tool components: ambiguous id
+					// ownership quarantines this group only.
 					if (status === "ambiguous") {
-						this.#rollback(
-							"omp-compact disabled: ambiguous toolCallId binding",
-						);
+						this.#quarantineComponent(component);
 						return;
 					}
 				} catch (error) {
@@ -1522,6 +1524,27 @@ export class RuntimeAdapter {
 		}
 		this.#patchedComponents.set(component, patch);
 		return true;
+	}
+
+	/**
+	 * Per-component native fail-open for an unresolvable binding conflict.
+	 * Restores the host method patch (stop observing), drops this instance
+	 * from the patched set, and releases the binding reverse-map so
+	 * `#renderBlock` falls through to native — without disposing the
+	 * session. A later rebuild re-observes from scratch.
+	 */
+	#quarantineComponent(component: RenderableBlock): void {
+		this.#session.binding.releaseToNative(component);
+		const patch = this.#patchedComponents.get(component);
+		if (patch) {
+			try {
+				patch.restore();
+			} catch {
+				// Restoration must not escalate a data ambiguity into a
+				// session-wide rollback.
+			}
+			this.#patchedComponents.delete(component);
+		}
 	}
 
 	#rollback(message: string): void {

@@ -18,9 +18,10 @@
  *
  * Every operation reports an explicit status: `bound`, `ambiguous`,
  * `incompatible` or `unmapped`. Unknown/mixed/ambiguous/incompatible
- * mappings stay native — the module never throws for a conflict; the host
- * caller owns the rollback policy (the adapter treats ambiguous migration
- * as the rollback trigger it historically was).
+ * mappings stay native — the module never throws for a conflict. The
+ * adapter quarantines the observing component on `ambiguous` (per-surface
+ * native fail-open) and reserves session-wide rollback for host-invariant
+ * failures.
  *
  * The module contains no colors, no rows, no theme and no UI: presentation
  * never enters this layer.
@@ -264,6 +265,29 @@ export class ComponentBinding {
 		const index = this.#unboundComponents.indexOf(component);
 		if (index >= 0) this.#unboundComponents.splice(index, 1);
 		return "bound";
+	}
+
+	/**
+	 * Quarantine one component to native presentation after an unresolvable
+	 * binding conflict. Drops the reverse maps `#renderBlock` consults
+	 * (`componentState` / `groupState`) so the surface renders native, but
+	 * keeps each state's `component` claim so the state cannot be stolen by
+	 * order-binding or another group. Does not touch other components.
+	 * Rebuild retirement (`reset` / `preserveActive`) clears claims as
+	 * usual; re-observation after rebuild is a fresh attempt.
+	 */
+	releaseToNative(component: RenderableBlock): void {
+		if (this.#componentStates.has(component))
+			this.#componentStates.delete(component);
+		const unboundIdx = this.#unboundComponents.indexOf(component);
+		if (unboundIdx >= 0) this.#unboundComponents.splice(unboundIdx, 1);
+		const group = this.#groupStates.get(component);
+		if (!group) return;
+		// Drop group registry only — states that pointed at this component
+		// keep their claim so a later group cannot adopt them mid-run.
+		group.ledger = undefined;
+		this.#groupStates.delete(component);
+		this.#groups.delete(group);
 	}
 
 	/**
@@ -566,7 +590,8 @@ export class ComponentBinding {
 	 * Tool component method observation (runs before the native method).
 	 * Exact-ID binding through `updateArgs`, provisional-ID migration, and
 	 * result/partial/expanded state tracking. Returns the significant
-	 * status; the caller maps `ambiguous` to its rollback policy.
+	 * status; the caller maps `ambiguous` to per-component native
+	 * quarantine (not session-wide rollback).
 	 */
 	observeToolMethod(
 		component: RenderableBlock,
@@ -686,7 +711,7 @@ export class ComponentBinding {
 				// Streamed-ID migration: re-key (or merge with an existing
 				// real-id state) onto the final id — one ledger entry, one
 				// surviving row. An existing state bound elsewhere is
-				// ambiguous and the caller's rollback policy fails open.
+				// ambiguous; the caller quarantines this group to native.
 				const status = this.#migrateToRealId(state, newId, state.args);
 				if (status !== "bound") return status;
 				group.ledger = state.ledger;
@@ -842,8 +867,8 @@ export class ComponentBinding {
 	 * entry — onto the real ID so later start/end, mutation, and Git evidence
 	 * update the same row. If a real-ID state already exists, absorb its
 	 * evidence and drop the duplicate; ambiguity (the real ID bound to a
-	 * different component) returns `ambiguous` so the caller's rollback
-	 * policy fails open, exactly as the historical throw did.
+	 * different component) returns `ambiguous` so the caller can quarantine
+	 * the observing surface to native without retiring the session.
 	 */
 	#migrateToRealId(
 		state: ToolState,

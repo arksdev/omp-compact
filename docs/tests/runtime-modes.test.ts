@@ -1149,3 +1149,124 @@ describe("runtime adapter: unpatchable read-group capability skew", () => {
 		expect(() => booted.transcript.render(120)).not.toThrow();
 	});
 });
+
+describe("runtime adapter: ambiguous binding containment", () => {
+	// An ambiguous provisional→real-id migration is a data conflict on one
+	// component, not a broken host. The affected surface must fail open to
+	// native while every other component keeps compacting. Session-wide
+	// `#rollback` is reserved for host-invariant failures (unpatchable core
+	// surface, multiple transcripts, capability skew).
+	test("ambiguous toolCallId binding quarantines only the conflicting component", async () => {
+		const booted = await boot({ mode: "compact" });
+		await beginRun(booted);
+
+		// Healthy compact row that must survive the later ambiguity.
+		addTool(booted, "bash", "healthy-1", { command: "printf healthy" });
+		settle(booted, "healthy-1", "bash", {
+			content: [{ type: "text", text: "ok" }],
+		});
+		expect(visibleRows(booted).join("\n")).toContain("bash: printf healthy");
+		expect(booted.adapter.installed).toBe(true);
+
+		// Real-id state already claimed by another component.
+		booted.adapter.startTool({
+			toolCallId: "real-1",
+			toolName: "bash",
+			args: { command: "printf claimed" },
+		});
+		const claimed = fakeToolComponent("bash");
+		booted.transcript.addChild(claimed);
+		claimed.updateArgs({ command: "printf claimed" }, "real-1");
+
+		// Provisional component that will collide when stock migrates it.
+		booted.adapter.startTool({
+			toolCallId: "",
+			toolName: "bash",
+			args: { command: "printf provisional" },
+		});
+		const provisional = fakeToolComponent("bash");
+		booted.transcript.addChild(provisional);
+		provisional.updateArgs({ command: "printf provisional" }, "");
+
+		// Ambiguous migration: real-1 is already bound elsewhere.
+		expect(() =>
+			provisional.updateArgs({ command: "printf provisional" }, "real-1"),
+		).not.toThrow();
+
+		// Session stays live — no session-wide kill switch.
+		expect(booted.adapter.installed).toBe(true);
+		expect(
+			booted.warned.some((message) => message.includes("omp-compact disabled")),
+		).toBe(false);
+
+		// Conflicting provisional surface fails open to native; healthy stays compact.
+		const afterAmbiguity = visibleRows(booted).join("\n");
+		expect(afterAmbiguity).toContain("native-bash");
+		expect(afterAmbiguity).toContain("bash: printf healthy");
+
+		// A later unrelated tool still binds and compacts.
+		addTool(booted, "bash", "later-1", { command: "printf later" });
+		settle(booted, "later-1", "bash", {
+			content: [{ type: "text", text: "ok" }],
+		});
+		const finalRows = visibleRows(booted).join("\n");
+		expect(finalRows).toContain("bash: printf later");
+		expect(finalRows).toContain("bash: printf healthy");
+		expect(finalRows).toContain("native-bash");
+		expect(booted.adapter.installed).toBe(true);
+	});
+
+	test("ambiguous read-group rename quarantines only that group", async () => {
+		const booted = await boot({ mode: "compact" });
+		await beginRun(booted);
+
+		addTool(booted, "bash", "healthy-read", {
+			command: "printf healthy-read",
+		});
+		settle(booted, "healthy-read", "bash", {
+			content: [{ type: "text", text: "ok" }],
+		});
+
+		// Real-id read already claimed by a tool component (cross-surface).
+		booted.adapter.startTool({
+			toolCallId: "read-real",
+			toolName: "read",
+			args: { path: "claimed.ts" },
+		});
+		const claimedTool = fakeToolComponent("read");
+		booted.transcript.addChild(claimedTool);
+		claimedTool.updateArgs({ path: "claimed.ts" }, "read-real");
+
+		// Read group streams under provisional id, then renames onto the
+		// already-claimed real id → ambiguous.
+		booted.adapter.startTool({
+			toolCallId: "",
+			toolName: "read",
+			args: { path: "prov.ts" },
+		});
+		const group = fakeReadGroup();
+		booted.transcript.addChild(group);
+		group.updateArgs({ path: "prov.ts" }, "");
+		expect(() => group.renameEntry("", "read-real")).not.toThrow();
+
+		expect(booted.adapter.installed).toBe(true);
+		expect(
+			booted.warned.some((message) => message.includes("omp-compact disabled")),
+		).toBe(false);
+
+		const rows = visibleRows(booted).join("\n");
+		expect(rows).toContain("bash: printf healthy-read");
+		// Unmapped/quarantined group keeps the raw native renderer.
+		expect(rows).toContain("native-read-group");
+
+		addTool(booted, "bash", "after-read", { command: "printf after-read" });
+		settle(booted, "after-read", "bash", {
+			content: [{ type: "text", text: "ok" }],
+		});
+		const finalRows = visibleRows(booted).join("\n");
+		expect(finalRows).toContain("bash: printf after-read");
+		expect(finalRows).toContain("bash: printf healthy-read");
+		expect(finalRows).toContain("native-read-group");
+		expect(booted.adapter.installed).toBe(true);
+	});
+});
