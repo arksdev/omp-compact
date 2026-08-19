@@ -328,6 +328,21 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	}
 
+	// Shared bring-up failure exit: probe-widget rollback, session disable,
+	// one warning. Used by both install() === false and thrown construct.
+	// Never throws into the host event stream.
+	function failAdapterBringUp(
+		context: ExtensionContext,
+		ui: AdapterUI,
+		candidate: RuntimeAdapter | undefined,
+		reason: unknown,
+	): undefined {
+		rollbackAdapterFailure(ui, candidate);
+		adapterDisabled = true;
+		warnAdapterFailure(context, reason);
+		return undefined;
+	}
+
 	function ensureAdapter(
 		context: ExtensionContext,
 	): RuntimeAdapter | undefined {
@@ -456,9 +471,16 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						return undefined;
 					}
 				},
+				// Share the once-per-episode flag with warnAdapterFailure so an
+				// install()-time #rollback warn and the bring-up failure path
+				// never double-notify.
 				warn:
 					typeof notify === "function"
-						? (message) => notify.call(context.ui, message, "warning")
+						? (message) => {
+								if (adapterFailureWarned) return;
+								adapterFailureWarned = true;
+								notify.call(context.ui, message, "warning");
+							}
 						: undefined,
 				// Host-invariant mid-session rollback: drop the live handle and
 				// stay native until a session boundary. Reinstall is deliberately
@@ -471,14 +493,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				},
 			});
 			if (!candidate.install()) {
-				adapterDisabled = true;
-				return undefined;
+				// install() already rolled the candidate back (and may have
+				// warned through adapter.warn). Share the bring-up failure path
+				// so the probe widget is re-cleared and a synthetic reason still
+				// warns when the adapter had no warn sink. String reason — no
+				// fake Error stack.
+				return failAdapterBringUp(context, ui, candidate, "install failed");
 			}
 		} catch (error) {
-			rollbackAdapterFailure(ui, candidate);
-			adapterDisabled = true;
-			warnAdapterFailure(context, error);
-			return undefined;
+			return failAdapterBringUp(context, ui, candidate, error);
 		}
 		adapter = candidate;
 		return adapter;

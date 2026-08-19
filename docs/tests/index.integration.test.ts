@@ -6347,26 +6347,34 @@ stockTest(
 	"install() false and constructor throw share one bring-up failure path",
 	async () => {
 		// install() === false (multiple transcripts) and a throwing construct
-		// must produce the same observables: one warning, probe widget gone,
-		// adapter disabled for the session, no throw into the event stream.
-		// captureHostRoot usually already cleared the probe; the shared path
-		// still re-attempts removal so a hostile host cannot leave it behind.
+		// must produce the same observables: one warning, probe widget gone
+		// (shared path re-attempts removal even when captureHostRoot already
+		// cleared it), adapter disabled for the session, no throw.
 		async function bringUpWith(
 			label: string,
 			prepare: (
 				booted: BootedPlugin & { transcript: TranscriptInstance },
 				widgets: Set<string>,
+				removals: { count: number },
 			) => void,
 		): Promise<void> {
 			const booted = await bootWithTranscript();
 			const widgets = new Set<string>();
+			const removals = { count: 0 };
 			const workingSetWidget = booted.context.ui.setWidget;
-			prepare(booted, widgets);
+			prepare(booted, widgets, removals);
 			await dispatch(booted, { type: "session_before_switch" });
 			await dispatch(booted, { type: "session_start" });
 			expect(booted.notifications, label).toHaveLength(1);
 			expect(booted.notifications[0], label).toContain("omp-compact disabled");
 			expect(widgets.size, label).toBe(0);
+			// Shared path always re-attempts probe removal. install-false runs
+			// captureHostRoot's clear then rollbackAdapterFailure (>=2);
+			// construct-throw aborts mid-registration so only the rollback
+			// removal runs (>=1). Either way the probe is gone.
+			expect(removals.count, label).toBeGreaterThanOrEqual(
+				label === "install-false" ? 2 : 1,
+			);
 			expect(Object.hasOwn(booted.transcript, "addChild"), label).toBe(false);
 			expect(booted.intervalCallbacks, label).toHaveLength(0);
 			// disabled for the rest of the session: no retry, no second warning
@@ -6379,29 +6387,34 @@ stockTest(
 			});
 			expect(booted.notifications, label).toHaveLength(1);
 			expect(Object.hasOwn(booted.transcript, "addChild"), label).toBe(false);
-			// restore a working setWidget so shutdown cannot trip on the stub
 			booted.context.ui.setWidget = workingSetWidget;
 			await shutdown(booted);
 		}
 
-		await bringUpWith("install-false", (booted, widgets) => {
-			// Sibling second transcript: install() hard-fails after rollback.
+		await bringUpWith("install-false", (booted, widgets, removals) => {
 			const second = new booted.host.TranscriptContainer();
 			booted.root.addChild(second);
 			booted.context.ui.setWidget = trackingSetWidget(
 				booted,
 				widgets,
-				() => {},
+				(_key, content) => {
+					if (content === undefined) removals.count++;
+				},
 			);
 		});
 
-		await bringUpWith("construct-throw", (booted, widgets) => {
+		await bringUpWith("construct-throw", (booted, widgets, removals) => {
 			booted.context.ui.setWidget = trackingSetWidget(
 				booted,
 				widgets,
 				(_key, content) => {
-					if (typeof content !== "function") return;
-					throw new Error("setWidget registration failed");
+					if (content === undefined) {
+						removals.count++;
+						return;
+					}
+					if (typeof content === "function") {
+						throw new Error("setWidget registration failed");
+					}
 				},
 			);
 		});
