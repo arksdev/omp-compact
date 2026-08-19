@@ -302,20 +302,24 @@ export class ComponentBinding {
 	 * component).
 	 */
 	tryBindByOrder(ledger: TurnLedger | undefined): BindingStatus {
-		const unboundStates = [...this.#states.values()].filter(
-			(state) => !state.component && state.ledger === ledger,
-		);
-		// Read states bind to a group only through a matching
-		// `updateArgs`/`updateResult` ID; they never use the order fallback.
-		const toolStates = unboundStates.filter(
-			(state) => state.toolName !== "read" && !this.#rebuildBacklog.has(state),
-		);
-		if (toolStates.length !== 1 || this.#unboundComponents.length !== 1)
-			return "unmapped";
+		// Exactly one unbound non-read, non-backlog state on this ledger and
+		// exactly one unbound component. Count in place — no array spreads.
+		if (this.#unboundComponents.length !== 1) return "unmapped";
+		let only: ToolState | undefined;
+		for (const state of this.#states.values()) {
+			if (state.component || state.ledger !== ledger) continue;
+			// Read states bind to a group only through a matching
+			// `updateArgs`/`updateResult` ID; they never use the order fallback.
+			// Rebuild-backlog states are unresolved evidence, not fresh starts.
+			if (state.toolName === "read" || this.#rebuildBacklog.has(state))
+				continue;
+			if (only) return "unmapped";
+			only = state;
+		}
+		if (!only) return "unmapped";
 		const component = this.#unboundComponents[0];
-		const state = toolStates[0];
-		if (component && state) return this.bind(component, state);
-		return "unmapped";
+		if (!component) return "unmapped";
+		return this.bind(component, only);
 	}
 
 	/**

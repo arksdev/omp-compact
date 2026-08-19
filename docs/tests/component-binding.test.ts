@@ -820,6 +820,51 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(read.component).toBeUndefined();
 	});
 
+	test("tryBindByOrder candidate filter matches the full predicate set", () => {
+		// Same ledger holds noise the counting loop must skip with the
+		// identical predicate the old dual-filter used: already-bound tools,
+		// reads, rebuild-backlog states, and other-ledger unbound tools.
+		// preserveActive resets every component claim, so the already-bound
+		// tool is established after the backlog is opened.
+		const { binding, states } = makeBinding();
+		const ledger = new TurnLedger("run-1");
+		const otherLedger = new TurnLedger("run-2");
+
+		const staleComponent = new FakeToolComponent();
+		const stale = makeState({ id: "stale-1", toolName: "bash", ledger });
+		states.set("stale-1", stale);
+		binding.bind(staleComponent, stale);
+		binding.preserveActive([stale]);
+		binding.clearPreserved(); // backlog poison; must not count
+
+		const boundComponent = new FakeToolComponent();
+		const bound = makeState({ id: "bound-1", toolName: "bash", ledger });
+		states.set("bound-1", bound);
+		binding.bind(boundComponent, bound);
+
+		const read = makeState({ id: "read-1", toolName: "read", ledger });
+		states.set("read-1", read);
+
+		const other = makeState({
+			id: "other-1",
+			toolName: "bash",
+			ledger: otherLedger,
+		});
+		states.set("other-1", other);
+
+		const freshComponent = new FakeToolComponent();
+		const fresh = makeState({ id: "fresh-1", toolName: "glob", ledger });
+		states.set("fresh-1", fresh);
+		binding.registerUnboundComponent(freshComponent);
+
+		expect(binding.tryBindByOrder(ledger)).toBe("bound");
+		expect(fresh.component).toBe(freshComponent);
+		expect(bound.component).toBe(boundComponent);
+		expect(read.component).toBeUndefined();
+		expect(stale.component).toBeUndefined();
+		expect(other.component).toBeUndefined();
+	});
+
 	test("bindHydrated pairs on proven full cardinality", () => {
 		const { binding, states } = makeBinding();
 		const first = new FakeToolComponent();
