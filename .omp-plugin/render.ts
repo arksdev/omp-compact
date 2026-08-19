@@ -755,9 +755,12 @@ export function mutationLine(
 	entry: MutationMessageDetails | LegacyMutationMessageDetails,
 	theme: Theme,
 	displayPaths?: DisplayPathOptions,
+	width?: number,
 ): string {
 	const path = displayPathValue(entry.path, displayPaths);
-	const sanitizedPath = theme.fg("muted", sanitizeOneLine(path, 180));
+	// Cap the path before width-fitting so an absurd path cannot dominate the
+	// row; the width pass below may shorten it further to protect the stats.
+	const pathText = sanitizeOneLine(path, 180);
 	if (entry.toolName === "delete") {
 		// Delete rows are distinct: red "delete" title, gray path, and the
 		// removed stat only when an exact count is known. An unknown count
@@ -770,7 +773,15 @@ export function mutationLine(
 			entry.exact && typeof entry.removed === "number"
 				? ` ${mutationStat(entry.removed, "-", REMOVED_STAT_COLOR, theme)}`
 				: "";
-		return `${theme.fg("dim", "•")} ${title}: ${sanitizedPath}${removedStat}`;
+		const head = `${theme.fg("dim", "•")} ${title}: `;
+		const fittedPath = fitMutationPath(
+			pathText,
+			head,
+			removedStat,
+			theme,
+			width,
+		);
+		return `${head}${fittedPath}${removedStat}`;
 	}
 	const added = entry.added ?? 0;
 	const removed = entry.removed ?? 0;
@@ -780,7 +791,34 @@ export function mutationLine(
 	const stats = entry.exact
 		? `${addedStr}${sep}${removedStr}`
 		: theme.fg("dim", `${entry.lineCount ?? 0} lines`);
-	return `${theme.fg("dim", "•")} ${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: ${sanitizedPath} ${stats}`;
+	const head = `${theme.fg("dim", "•")} ${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: `;
+	const tail = ` ${stats}`;
+	const fittedPath = fitMutationPath(pathText, head, tail, theme, width);
+	return `${head}${fittedPath}${tail}`;
+}
+
+/**
+ * Shorten only the path portion of a mutation row so the trailing stats
+ * (`+N|M`, `-N`, or `N lines`) always remain fully visible. A plain
+ * `fitTransparentLine` / `truncateToWidth` would clip the tail — worse than
+ * wrapping, because the counts are the evidence the row exists to convey.
+ */
+function fitMutationPath(
+	pathText: string,
+	head: string,
+	tail: string,
+	theme: Theme,
+	width: number | undefined,
+): string {
+	const muted = (text: string) => theme.fg("muted", text);
+	if (width === undefined) return muted(pathText);
+	const safeWidth = Math.max(1, width);
+	const fixed = visibleWidth(head) + visibleWidth(tail);
+	const pathBudget = Math.max(1, safeWidth - fixed);
+	if (visibleWidth(muted(pathText)) <= pathBudget) return muted(pathText);
+	// truncateToWidth counts visible columns of the styled string; feed it the
+	// muted path so the budget matches what the row will actually paint.
+	return `${truncateToWidth(muted(pathText), pathBudget)}\u001b[39m`;
 }
 
 export function gitLine(
@@ -926,7 +964,7 @@ export function renderCompactToolRows(
 		!view.isPartial
 	) {
 		return view.mutationEntries.map((entry) =>
-			mutationLine(entry, theme, displayPaths),
+			mutationLine(entry, theme, displayPaths, width),
 		);
 	}
 	if (view.git && !view.isPartial) {

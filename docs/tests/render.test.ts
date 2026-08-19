@@ -465,6 +465,67 @@ describe("mutation and Git rows stay transparent", () => {
 		expect(lines[0]).not.toContain("\x1b[48;");
 	});
 
+	test("mutation rows fit to width without wrapping", () => {
+		const longPath = `/tmp/${"dir/".repeat(40)}file.ts`;
+		const lines = renderCompactToolRows(
+			{
+				toolName: "write",
+				args: { path: longPath },
+				isError: false,
+				isPartial: false,
+				mutationEntries: [
+					{
+						version: 1,
+						toolCallId: "t1",
+						toolName: "write",
+						path: longPath,
+						added: 12,
+						removed: 4,
+						exact: true,
+					},
+				],
+			},
+			fakeTheme(),
+			40,
+		);
+		expect(lines).toHaveLength(1);
+		const text = stripAnsi(lines[0] ?? "");
+		// One-row contract: the fitted line must not exceed the terminal width.
+		expect(text.length).toBeLessThanOrEqual(40);
+		// Counts are the evidence the row exists to convey — never clip them.
+		expect(text.endsWith("+12|4") || text.includes("+12|4")).toBe(true);
+		expect(text).toMatch(/\+12\|4\s*$/);
+	});
+
+	test("delete mutation rows keep the removed count when fitted", () => {
+		const longPath = `/tmp/${"x".repeat(200)}.ts`;
+		const lines = renderCompactToolRows(
+			{
+				toolName: "delete",
+				args: { path: longPath },
+				isError: false,
+				isPartial: false,
+				mutationEntries: [
+					{
+						version: 1,
+						toolCallId: "t1",
+						toolName: "delete",
+						path: longPath,
+						added: 0,
+						removed: 7,
+						exact: true,
+					},
+				],
+			},
+			fakeTheme(),
+			36,
+		);
+		expect(lines).toHaveLength(1);
+		const text = stripAnsi(lines[0] ?? "");
+		expect(text.length).toBeLessThanOrEqual(36);
+		expect(text).toMatch(/-7\s*$/);
+	});
+
 	test("standalone gitLine keeps its markers and stays surface-free for reuse", () => {
 		const ok = gitLine(
 			{
