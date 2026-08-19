@@ -46,6 +46,7 @@ import {
 	type RunModeSnapshot,
 	runModeFromSettings,
 } from "./mode-policy";
+import { objectRecord } from "./object-record";
 import { gitCommitHashes } from "./render";
 import {
 	createStatsCarrier,
@@ -187,14 +188,6 @@ export interface RebuildOutcome {
 interface DeferredTerminalLedger {
 	readonly ledger: TurnLedger;
 	readonly answerAnchor: unknown;
-}
-
-// Intentional per-module copy of objectRecord for tree-shakeability;
-// identical logic in 7 files across the plugin.
-function objectRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
 }
 
 /**
