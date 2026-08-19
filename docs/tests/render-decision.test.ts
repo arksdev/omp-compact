@@ -419,6 +419,26 @@ describe("decideReadGroupRender", () => {
 		).toEqual({ kind: "native" });
 	});
 
+	test("all-or-nothing: partial mapping never yields compact rows", () => {
+		// completelyMapped=false wins over every other compact-friendly input.
+		// A future "partial bind" change would break this and reintroduce
+		// misattribution of untracked native entries.
+		const partial = groupInput({
+			completelyMapped: false,
+			readCount: 2,
+			phase: "working",
+			mode: "live",
+			expanded: false,
+		});
+		expect(decideReadGroupRender(partial)).toEqual({ kind: "native" });
+		expect(
+			decideReadGroupRender({ ...partial, phase: "filtered", mode: "clear" }),
+		).toEqual({ kind: "native" });
+		expect(
+			decideReadGroupRender({ ...partial, phase: "full", mode: "compact" }),
+		).toEqual({ kind: "native" });
+	});
+
 	test("clear hides mapped read rows while working, keeps them on full", () => {
 		expect(decideReadGroupRender(groupInput({ mode: "clear" }))).toEqual({
 			kind: "empty",

@@ -390,6 +390,63 @@ describe("ComponentBinding: read-group observed-id ownership", () => {
 		expect(state.component).toBe(groupComponent);
 	});
 
+	test('renameEntry ""→realId race keeps the group native until the real id maps', () => {
+		// Host-first ordering: the group observes the empty provisional id
+		// before any ToolState exists. Until rename + start settle onto a
+		// mapped read state, completelyMapped stays false so compact cannot
+		// hide or misattribute the still-native entry.
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/pending.ts" },
+			"",
+		]);
+		expect(group.observedIds.has("")).toBe(true);
+		expect(binding.groupCompletelyMapped(group)).toBe(false);
+
+		// Mid-race: rename lands before tool_execution_start creates the state.
+		binding.observeReadMethod(group, groupComponent, "renameEntry", [
+			"",
+			"read-real",
+		]);
+		expect(group.observedIds.has("")).toBe(false);
+		expect(group.observedIds.has("read-real")).toBe(true);
+		expect(binding.groupCompletelyMapped(group)).toBe(false);
+
+		// Start finally creates the real-id state; bindByObservedId claims it
+		// and the gate opens.
+		const state = makeState({ id: "read-real", toolName: "read" });
+		states.set("read-real", state);
+		expect(binding.bindByObservedId("read-real", state)).toBe("bound");
+		expect(state.component).toBe(groupComponent);
+		expect(binding.groupCompletelyMapped(group)).toBe(true);
+	});
+
+	test("one untracked sibling keeps a partially observed group native", () => {
+		// All-or-nothing: a mapped read must not pull the group into compact
+		// while another observed id is still untracked.
+		const { binding, states } = makeBinding();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		const known = makeState({ id: "read-known", toolName: "read" });
+		states.set("read-known", known);
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/known.ts" },
+			"read-known",
+		]);
+		expect(binding.groupCompletelyMapped(group)).toBe(true);
+
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/ghost.ts" },
+			"read-ghost",
+		]);
+		expect(group.observedIds.has("read-ghost")).toBe(true);
+		expect(binding.groupCompletelyMapped(group)).toBe(false);
+		expect(binding.mappedReadStates(group)).toEqual([known]);
+	});
+
 	test("removeEntry drops the observed id and the component ref", () => {
 		const { binding, states } = makeBinding();
 		const groupComponent = new FakeReadGroup();

@@ -100,6 +100,24 @@ Bidirectional map between TUI components and plugin state records.
 2. **Group discovery** — read group with `observedIds`, tracked via `#groupStates`
 3. **Deferred binding** — hydrated branch, no toolCallId yet, bind by order via `tryBindByOrder()`
 
+**Read-group all-or-nothing invariant:**
+
+A stock read group is one native card. Compact rows are built only from
+plugin `ToolState`s that the group has claimed. `groupCompletelyMapped`
+(and the first rule of `decideReadGroupRender`) require **every** id the
+group observed through `updateArgs` / `updateResult` / `renameEntry` to
+resolve to a read state mapped to *this* group. One untracked observed id
+keeps the **entire** group on the raw native renderer in every phase
+(working, filtered, full) — permanently for that incomplete observation
+set.
+
+This is intentional. Partial compact binding would either hide an
+untracked native entry or misattribute another state's path/result.
+Native is always an acceptable fallback; wrong is not. The rule also
+covers the host `renameEntry ""→realId` race: until the real id resolves
+to a mapped read state, the group stays native rather than rendering a
+partial compact list. Do not relax this into per-entry compact rows.
+
 **Lifecycle:**
 - `bind(component, state)` — establish exact binding
 - `bindGroup(component, group)` — bind read group
@@ -110,11 +128,13 @@ Bidirectional map between TUI components and plugin state records.
 - `stateOf(component)` — lookup state for component
 - `groupOf(component)` — lookup group for component
 - `tryBindByOrder(component, ledger)` — deferred binding fallback
+- `groupCompletelyMapped(group)` — all-or-nothing compact gate
 
 **Generation guards:**
 - `generation` field tracks current rebuild cycle
 - `reset()` discards bindings from old generations
 - Working ownership snapshot preserved across rebuilds
+
 
 ---
 

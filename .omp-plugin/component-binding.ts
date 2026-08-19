@@ -763,10 +763,15 @@ export class ComponentBinding {
 	}
 
 	/**
+	 * All-or-nothing read-group mapping gate.
+	 *
 	 * Compact rows require every id the group observed through
-	 * updateArgs/updateResult to resolve to a read state mapped to this
-	 * group. A group with untracked entries (or none yet observed) keeps
-	 * the raw native renderer, so no native entry is ever silently dropped.
+	 * updateArgs/updateResult/renameEntry to resolve to a read state mapped
+	 * to this group. A group with untracked entries (or none yet observed)
+	 * keeps the raw native renderer via `decideReadGroupRender`, so no
+	 * native entry is ever silently dropped or misattributed. This is an
+	 * intentional permanent invariant — not a staging step toward partial
+	 * binding. See `ReadGroupRenderInput.completelyMapped`.
 	 */
 	groupCompletelyMapped(group: GroupState): boolean {
 		if (group.observedIds.size === 0) return false;

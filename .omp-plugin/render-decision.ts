@@ -82,8 +82,21 @@ export interface ReadGroupRenderInput {
 	/** Expanded state of the group (native inspection escape hatch). */
 	expanded: boolean;
 	/**
-	 * False when any observed id fails to resolve to a read state mapped to
-	 * this group — the raw native renderer must stay in every phase.
+	 * All-or-nothing mapping gate (intentional, not a partial-bind TODO).
+	 *
+	 * A stock read group is one native card whose entries the host may
+	 * stream under provisional ids (`""` → real via `renameEntry`) and may
+	 * interleave with untracked siblings. Compact rows are built only from
+	 * plugin `ToolState`s; any observed id that does not resolve to a read
+	 * state mapped to *this* group would either:
+	 * - hide that entry (compact list omits it while native would show it), or
+	 * - misattribute it (claiming another state's path/result).
+	 *
+	 * Native is always an acceptable fallback; wrong is not. Therefore one
+	 * untracked observed id keeps the *entire* group on the raw native
+	 * renderer in every phase — including terminal filtering — permanently
+	 * for that incomplete observation set. Do not "improve" this into
+	 * partial binding.
 	 */
 	completelyMapped: boolean;
 	/** Number of read states mapped to this group. */
@@ -208,19 +221,24 @@ export function decideToolRender(input: ToolRenderInput): ToolRenderDecision {
 	};
 }
 
-// Rules evaluated top-to-bottom; first match wins. Clear mode and
-// expanded checks precede the default filtered/working decisions.
+// Rules evaluated top-to-bottom; first match wins. The all-or-nothing
+// `completelyMapped` gate is first on purpose: partial compact binding is
+// forbidden (see ReadGroupRenderInput.completelyMapped). Clear mode and
+// expanded checks then precede the default filtered/working decisions.
 const READ_GROUP_RENDER_TABLE: readonly {
 	readonly when?: (input: ReadGroupRenderInput) => boolean;
 	readonly decide: () => ReadGroupRenderDecision;
 }[] = Object.freeze([
 	{
-		// Incompletely mapped groups (untracked observed ids, or none yet)
-		// keep the raw native renderer in every phase — even terminal
-		// filtering — so no native entry is silently dropped.
+		// INVARIANT: all-or-nothing. One untracked observed id → whole group
+		// native in every phase (working / filtered / full). Partial compact
+		// rows would hide or misattribute the untracked native entry; native
+		// fail-open is the only safe fallback. Protects the renameEntry
+		// `""→realId` race and any host-first observation of unknown ids.
 		when: (input) => !input.completelyMapped,
 		decide: (): ReadGroupRenderDecision => ({ kind: "native" }),
 	},
+
 	{
 		// `clear` hides mapped read rows while working and at the terminal
 		// answer; abort/full keeps diagnostics. Groups without a bound
