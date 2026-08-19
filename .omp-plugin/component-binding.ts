@@ -713,6 +713,14 @@ export class ComponentBinding {
 			// A read group may observe an id emitted by an incompatible host
 			// surface: only typed, unclaimed read states can be claimed,
 			// otherwise this group remains native.
+			//
+			// No ledger-conflict guard here (unlike bindByObservedId): an
+			// unclaimed read has no component and therefore no competing
+			// ledger binding yet, so adopting `state.ledger` is a first claim,
+			// not a re-point. The sites are asymmetric by design — first claim
+			// vs. moving an already-bound group — not by omission.
+			// observeToolMethod's updateResult bind excludes reads entirely
+			// (`toolName !== "read"`), so unclaimed reads never arrive there.
 			if (state?.toolName === "read" && !state.component) {
 				group.ledger = state.ledger;
 				state.component = component;
