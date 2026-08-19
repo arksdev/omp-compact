@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
 	HostAdapter1731,
 	insertTranscriptChildAt,
+	isBashExecutionComponent,
+	isEvalExecutionComponent,
 	isReadGroupComponent,
 	isTodoReminderComponent,
 	isToolComponent,
@@ -256,6 +258,101 @@ describe("host shape guards", () => {
 				setToolActivityVisible() {},
 			}),
 		).toBe(true);
+	});
+
+	test("isBashExecutionComponent and isEvalExecutionComponent are mutually exclusive", () => {
+		const bash = {
+			render() {
+				return [] as const;
+			},
+			appendOutput() {},
+			setComplete() {},
+			isTranscriptBlockFinalized() {
+				return true;
+			},
+			getOutput() {
+				return "";
+			},
+			setExpanded() {},
+			getCommand() {
+				return "ls";
+			},
+		};
+		const evalExec = {
+			render() {
+				return [] as const;
+			},
+			appendOutput() {},
+			setComplete() {},
+			isTranscriptBlockFinalized() {
+				return true;
+			},
+			getOutput() {
+				return "";
+			},
+			setExpanded() {},
+			getCode() {
+				return "print(1)";
+			},
+		};
+		expect(isBashExecutionComponent(bash)).toBe(true);
+		expect(isEvalExecutionComponent(bash)).toBe(false);
+		expect(isEvalExecutionComponent(evalExec)).toBe(true);
+		expect(isBashExecutionComponent(evalExec)).toBe(false);
+		// Both accessors together is not a stock surface.
+		expect(
+			isBashExecutionComponent({
+				...bash,
+				getCode() {
+					return "x";
+				},
+			}),
+		).toBe(false);
+		expect(
+			isEvalExecutionComponent({
+				...evalExec,
+				getCommand() {
+					return "ls";
+				},
+			}),
+		).toBe(false);
+
+		// Tool / TTSR / todo / read-group leaves never classify as user executions.
+		expect(isBashExecutionComponent(new ToolComponent())).toBe(false);
+		expect(isEvalExecutionComponent(new ToolComponent())).toBe(false);
+		expect(isBashExecutionComponent(new ReadGroup())).toBe(false);
+		expect(isEvalExecutionComponent(new ReadGroup())).toBe(false);
+		expect(
+			isBashExecutionComponent({
+				render() {
+					return [] as const;
+				},
+				addRules() {},
+				setExpanded() {},
+				setToolActivityVisible() {},
+			}),
+		).toBe(false);
+		expect(
+			isEvalExecutionComponent({
+				render() {
+					return [] as const;
+				},
+				setToolActivityVisible() {},
+			}),
+		).toBe(false);
+		expect(isBashExecutionComponent(null)).toBe(false);
+		expect(isEvalExecutionComponent({})).toBe(false);
+		// Missing shared execution methods fails closed.
+		expect(
+			isBashExecutionComponent({
+				render() {
+					return [] as const;
+				},
+				getCommand() {
+					return "ls";
+				},
+			}),
+		).toBe(false);
 	});
 });
 

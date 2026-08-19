@@ -3,6 +3,8 @@ import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import type { DisplayPathOptions } from "./display-path";
 import {
 	HostAdapter1731,
+	isBashExecutionComponent,
+	isEvalExecutionComponent,
 	isReadGroupComponent,
 	isTodoReminderComponent,
 	isToolComponent,
@@ -18,8 +20,12 @@ import {
 	renderCompactToolRows,
 	renderInjectRuleRows,
 	renderTodoReminderRow,
+	renderUserExecutionRow,
 	terminalGitSummaryLine,
 	todoReminderFromComponent,
+	type UserExecutionObservedState,
+	userBashExecutionFromComponent,
+	userEvalExecutionFromComponent,
 } from "./render";
 import { decideReadGroupRender, decideToolRender } from "./render-decision";
 import type { RunStatsEvidence } from "./run-stats";
@@ -147,6 +153,16 @@ export class RuntimeAdapter {
 	readonly #ttsrPatches = new Map<object, DescriptorPatch>();
 	/** Exact-instance todo-reminder render overrides (not fold-owned). */
 	readonly #todoReminderPatches = new Map<object, DescriptorPatch>();
+	/**
+	 * Exact-instance user bash/python execution overrides (not fold-owned).
+	 * Tracks observed setComplete/setExpanded state because exit codes live
+	 * in private fields on the stock components.
+	 */
+	readonly #userExecutionPatches = new Map<object, DescriptorPatch>();
+	readonly #userExecutionState = new WeakMap<
+		object,
+		UserExecutionObservedState
+	>();
 	readonly #discoveryPatches = new Map<object, DescriptorPatch>();
 	#transcript: TranscriptHost | undefined;
 	#fold: TranscriptFold | undefined;
@@ -472,6 +488,8 @@ export class RuntimeAdapter {
 		this.#ttsrPatches.clear();
 		for (const patch of this.#todoReminderPatches.values()) patch.restore();
 		this.#todoReminderPatches.clear();
+		for (const patch of this.#userExecutionPatches.values()) patch.restore();
+		this.#userExecutionPatches.clear();
 		for (const patch of this.#transcriptPatches) patch.restore();
 		this.#transcriptPatches.length = 0;
 		this.#removeDiscoveryPatches();
@@ -534,6 +552,8 @@ export class RuntimeAdapter {
 		this.#ttsrPatches.clear();
 		for (const patch of this.#todoReminderPatches.values()) patch.restore();
 		this.#todoReminderPatches.clear();
+		for (const patch of this.#userExecutionPatches.values()) patch.restore();
+		this.#userExecutionPatches.clear();
 	}
 
 	/** One generation-guarded settlement microtask per boundary. */
@@ -908,6 +928,14 @@ export class RuntimeAdapter {
 			this.#patchTodoReminder(child);
 			return;
 		}
+		if (isBashExecutionComponent(child)) {
+			this.#patchUserExecution(child, "bash");
+			return;
+		}
+		if (isEvalExecutionComponent(child)) {
+			this.#patchUserExecution(child, "python");
+			return;
+		}
 		if (isToolComponent(child)) {
 			this.#patchToolComponent(child);
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
@@ -1024,6 +1052,179 @@ export class RuntimeAdapter {
 			this.#todoReminderPatches.set(component, patch);
 		} catch {
 			// Capability skew fails open: leave the stock yellow card alone.
+		}
+	}
+
+	/**
+	 * Resolve a callable `render` through the prototype chain. Stock
+	 * `BashExecutionComponent` overrides `render` on its own class;
+	 * `EvalExecutionComponent` does not and inherits `Container.render`
+	 * several levels up. The existing TTSR/todo one-level lookup would miss
+	 * eval, so we walk until we find a function value (never patching a
+	 * shared prototype — only capturing the function to wrap as an own
+	 * instance property).
+	 */
+	#resolveInstanceMethod(
+		component: object,
+		name: string,
+	): ((...args: never[]) => unknown) | undefined {
+		let current: object | null = component;
+		while (current && current !== Object.prototype) {
+			const descriptor = Object.getOwnPropertyDescriptor(current, name);
+			if (typeof descriptor?.value === "function") {
+				return descriptor.value as (...args: never[]) => unknown;
+			}
+			current = Object.getPrototypeOf(current) as object | null;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Override stock user bash (`!`/`!!`) and python (`$`/`$$`) multi-line
+	 * execution frames with one compact tool-chrome row.
+	 *
+	 * Lifecycle: only `render` needs wrapping for presentation, but exit
+	 * codes/`#expanded` are private on the host classes. We also wrap
+	 * `setComplete` and `setExpanded` to record observed state for the next
+	 * render. Host still calls its own `invalidate` after those methods, so
+	 * the compact row updates without extra requestRender plumbing.
+	 *
+	 * Expanded contract: when the user expands the block (`setExpanded(true)`),
+	 * fall back to the native full frame so streaming/output is readable —
+	 * same fail-open idea as expanded read groups staying native. Collapsed
+	 * (default) stays one compact line.
+	 *
+	 * DescriptorPatch note: `install` always defines an *own* wrapper. For
+	 * eval (inherited render) capture is `undefined`, so `restore()` deletes
+	 * the own property and re-exposes the prototype method. For bash (own
+	 * class override found via the chain walk, still not an instance-own
+	 * property until first install) the same delete-on-restore applies when
+	 * the method lived on the class prototype rather than the instance.
+	 *
+	 * Install-time content probe refuses empty/unextractable source so a
+	 * colliding surface never receives a wrapper.
+	 */
+	#patchUserExecution(
+		component: RenderableBlock,
+		kind: "bash" | "python",
+	): void {
+		if (this.#userExecutionPatches.has(component)) return;
+		const extract =
+			kind === "bash"
+				? userBashExecutionFromComponent
+				: userEvalExecutionFromComponent;
+		// Probe before capture/install so empty/mismatch leaves stay native.
+		if (!extract(component, this.#userExecutionState.get(component))) return;
+
+		const originalRender = this.#resolveInstanceMethod(component, "render");
+		const originalSetComplete = this.#resolveInstanceMethod(
+			component,
+			"setComplete",
+		);
+		const originalSetExpanded = this.#resolveInstanceMethod(
+			component,
+			"setExpanded",
+		);
+		if (!originalRender || !originalSetComplete || !originalSetExpanded) return;
+
+		const adapter = this;
+		const state: UserExecutionObservedState =
+			this.#userExecutionState.get(component) ?? {};
+		this.#userExecutionState.set(component, state);
+
+		try {
+			const patch = new DescriptorPatch(component, [
+				"render",
+				"setComplete",
+				"setExpanded",
+			]);
+			patch.install({
+				render: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, width: number): readonly string[] {
+						if (adapter.#disposed)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						const theme = adapter.#ui.theme;
+						if (!theme)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						const observed = adapter.#userExecutionState.get(this);
+						const view = extract(this, observed);
+						if (!view)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						// Expanded → native multi-line frame (readable output).
+						if (view.expanded === true)
+							return (
+								originalRender as (
+									this: RenderableBlock,
+									width: number,
+								) => readonly string[]
+							).call(this, width);
+						return renderUserExecutionRow(view, theme, width);
+					},
+				},
+				setComplete: {
+					configurable: true,
+					writable: true,
+					value(
+						this: RenderableBlock,
+						exitCode: number | undefined,
+						cancelled: boolean,
+						options?: unknown,
+					): unknown {
+						const observed =
+							adapter.#userExecutionState.get(this) ??
+							({} as UserExecutionObservedState);
+						if (typeof exitCode === "number") observed.exitCode = exitCode;
+						else delete observed.exitCode;
+						observed.cancelled = cancelled === true;
+						adapter.#userExecutionState.set(this, observed);
+						return (
+							originalSetComplete as (
+								this: RenderableBlock,
+								exitCode: number | undefined,
+								cancelled: boolean,
+								options?: unknown,
+							) => unknown
+						).call(this, exitCode, cancelled, options);
+					},
+				},
+				setExpanded: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, expanded: boolean): unknown {
+						const observed =
+							adapter.#userExecutionState.get(this) ??
+							({} as UserExecutionObservedState);
+						observed.expanded = expanded === true;
+						adapter.#userExecutionState.set(this, observed);
+						return (
+							originalSetExpanded as (
+								this: RenderableBlock,
+								expanded: boolean,
+							) => unknown
+						).call(this, expanded);
+					},
+				},
+			});
+			this.#userExecutionPatches.set(component, patch);
+		} catch {
+			// Capability skew fails open: leave the stock execution frame alone.
 		}
 	}
 

@@ -44,6 +44,52 @@ interface RenderModule {
 		theme: Theme,
 		width?: number,
 	): readonly string[];
+	userBashExecutionFromComponent(
+		block: unknown,
+		observed?: {
+			exitCode?: number;
+			cancelled?: boolean;
+			expanded?: boolean;
+		},
+	):
+		| {
+				kind: "bash";
+				source: string;
+				running: boolean;
+				exitCode?: number;
+				cancelled?: boolean;
+				expanded?: boolean;
+		  }
+		| undefined;
+	userEvalExecutionFromComponent(
+		block: unknown,
+		observed?: {
+			exitCode?: number;
+			cancelled?: boolean;
+			expanded?: boolean;
+		},
+	):
+		| {
+				kind: "python";
+				source: string;
+				running: boolean;
+				exitCode?: number;
+				cancelled?: boolean;
+				expanded?: boolean;
+		  }
+		| undefined;
+	renderUserExecutionRow(
+		view: {
+			kind: "bash" | "python";
+			source: string;
+			running: boolean;
+			exitCode?: number;
+			cancelled?: boolean;
+			expanded?: boolean;
+		},
+		theme: Theme,
+		width?: number,
+	): readonly string[];
 	gitLine(entry: GitMessageDetails, theme: Theme): string;
 	gitMessageComponent(
 		details: GitMessageDetails | undefined,
@@ -1560,5 +1606,219 @@ describe("todo reminder row", () => {
 		expect(stripAnsi(line ?? "").length).toBeLessThanOrEqual(24);
 		expect(line ?? "").not.toContain("\x1b[48;");
 		expect(line ?? "").not.toContain("\x1b[7m");
+	});
+});
+
+describe("user bash/python execution rows", () => {
+	function bashBlock(options: {
+		command: string;
+		output?: string;
+		finalized?: boolean;
+		footer?: string;
+	}) {
+		const children: Array<{ getText(): string }> = [];
+		const footer = options.footer;
+		if (footer) children.push({ getText: () => footer });
+		return {
+			children,
+			getCommand: () => options.command,
+			getOutput: () => options.output ?? "",
+			isTranscriptBlockFinalized: () => options.finalized === true,
+			setExpanded() {},
+			appendOutput() {},
+			setComplete() {},
+			render() {
+				return ["NATIVE bash frame"] as const;
+			},
+		};
+	}
+
+	function evalBlock(options: {
+		code: string;
+		output?: string;
+		finalized?: boolean;
+		footer?: string;
+	}) {
+		const children: Array<{ getText(): string }> = [];
+		const footer = options.footer;
+		if (footer) children.push({ getText: () => footer });
+		return {
+			children,
+			getCode: () => options.code,
+			getOutput: () => options.output ?? "",
+			isTranscriptBlockFinalized: () => options.finalized === true,
+			setExpanded() {},
+			appendOutput() {},
+			setComplete() {},
+			render() {
+				return ["NATIVE eval frame"] as const;
+			},
+		};
+	}
+
+	test("extractors prefer public accessors and stay mutually exclusive", () => {
+		const bash = bashBlock({ command: "ls -la", finalized: true });
+		const py = evalBlock({ code: "print(1)", finalized: false });
+		expect(renderModule.userBashExecutionFromComponent(bash)).toEqual({
+			kind: "bash",
+			source: "ls -la",
+			running: false,
+		});
+		expect(renderModule.userEvalExecutionFromComponent(bash)).toBeUndefined();
+		expect(renderModule.userEvalExecutionFromComponent(py)).toEqual({
+			kind: "python",
+			source: "print(1)",
+			running: true,
+		});
+		expect(renderModule.userBashExecutionFromComponent(py)).toBeUndefined();
+	});
+
+	test("extractors accept observed setComplete/setExpanded state", () => {
+		const bash = bashBlock({ command: "false", finalized: true });
+		expect(
+			renderModule.userBashExecutionFromComponent(bash, {
+				exitCode: 1,
+				cancelled: false,
+				expanded: false,
+			}),
+		).toEqual({
+			kind: "bash",
+			source: "false",
+			running: false,
+			exitCode: 1,
+			cancelled: false,
+			expanded: false,
+		});
+	});
+
+	test("extractors scrape stock footer when setComplete was missed at attach", () => {
+		const bash = bashBlock({
+			command: "boom",
+			finalized: true,
+			footer: "(exit 2)",
+		});
+		expect(renderModule.userBashExecutionFromComponent(bash)).toEqual({
+			kind: "bash",
+			source: "boom",
+			running: false,
+			exitCode: 2,
+		});
+		const cancelled = evalBlock({
+			code: "1/0",
+			finalized: true,
+			footer: "(cancelled)",
+		});
+		expect(renderModule.userEvalExecutionFromComponent(cancelled)).toEqual({
+			kind: "python",
+			source: "1/0",
+			running: false,
+			cancelled: true,
+		});
+	});
+
+	test("extractors fail open on missing accessors or empty source", () => {
+		expect(renderModule.userBashExecutionFromComponent({})).toBeUndefined();
+		expect(
+			renderModule.userBashExecutionFromComponent(
+				bashBlock({ command: "   ", finalized: true }),
+			),
+		).toBeUndefined();
+		expect(
+			renderModule.userEvalExecutionFromComponent({
+				getCode: () => "x",
+				// missing isTranscriptBlockFinalized / getOutput
+			}),
+		).toBeUndefined();
+	});
+
+	test("compact bash row matches agent bash tool chrome", () => {
+		const theme = fakeTheme();
+		const [line] = renderModule.renderUserExecutionRow(
+			{
+				kind: "bash",
+				source: "bun test",
+				running: false,
+			},
+			theme,
+		);
+		expect(stripAnsi(line ?? "")).toBe("• bash: bun test");
+		expect(line ?? "").not.toContain("\x1b[48;");
+		expect(line ?? "").not.toContain("\x1b[7m");
+	});
+
+	test("compact python row uses python label for $ / $$ user cells", () => {
+		const [line] = renderModule.renderUserExecutionRow(
+			{
+				kind: "python",
+				source: "print(1)",
+				running: false,
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(line ?? "")).toBe("• python: print(1)");
+	});
+
+	test("running rows keep Working… identity chrome", () => {
+		const [line] = renderModule.renderUserExecutionRow(
+			{
+				kind: "bash",
+				source: "sleep 1",
+				running: true,
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(line ?? "")).toBe("⠦ Working… bash: sleep 1");
+	});
+
+	test("failed and cancelled rows show exit meta with error marker", () => {
+		const failed = renderModule.renderUserExecutionRow(
+			{
+				kind: "bash",
+				source: "false",
+				running: false,
+				exitCode: 2,
+			},
+			fakeTheme(),
+		)[0];
+		expect(stripAnsi(failed ?? "")).toBe("✗ bash: false · exit 2");
+		const cancelled = renderModule.renderUserExecutionRow(
+			{
+				kind: "python",
+				source: "raise SystemExit",
+				running: false,
+				cancelled: true,
+			},
+			fakeTheme(),
+		)[0];
+		expect(stripAnsi(cancelled ?? "")).toBe(
+			"✗ python: raise SystemExit · cancelled",
+		);
+	});
+
+	test("overflowing execution rows fit width without a background", () => {
+		const [line] = renderModule.renderUserExecutionRow(
+			{
+				kind: "bash",
+				source: "x".repeat(80),
+				running: false,
+			},
+			fakeTheme(),
+			20,
+		);
+		expect(stripAnsi(line ?? "").length).toBeLessThanOrEqual(20);
+		expect(line ?? "").not.toContain("\x1b[48;");
+	});
+
+	test("ANSI in command/code is stripped before rendering", () => {
+		const [line] = renderModule.renderUserExecutionRow(
+			{
+				kind: "bash",
+				source: "\x1b[31mred\x1b[0m",
+				running: false,
+			},
+			fakeTheme(),
+		);
+		expect(line ?? "").not.toContain("\x1b[31m");
+		expect(stripAnsi(line ?? "")).toBe("• bash: red");
 	});
 });

@@ -107,6 +107,29 @@ export interface TodoReminderView {
 	items: readonly string[];
 }
 
+/**
+ * Compact view of a user-initiated bash (`!`/`!!`) or python (`$`/`$$`)
+ * execution block. Labels follow the host triggers, not the agent `eval` tool:
+ * bash rows match agent `bash` chrome; python rows use `python` because the
+ * user path is `handlePythonCommand` / role `pythonExecution`.
+ */
+export interface UserExecutionView {
+	kind: "bash" | "python";
+	source: string;
+	running: boolean;
+	exitCode?: number;
+	cancelled?: boolean;
+	/** When true the adapter falls back to the native multi-line frame. */
+	expanded?: boolean;
+}
+
+/** Optional state observed by wrapping `setComplete` / `setExpanded`. */
+export interface UserExecutionObservedState {
+	exitCode?: number;
+	cancelled?: boolean;
+	expanded?: boolean;
+}
+
 export class CompactLines implements Component {
 	readonly #lines: readonly string[];
 
@@ -300,6 +323,196 @@ export function todoReminderFromComponent(
 		maxAttempts,
 		items: Object.freeze(items.slice()),
 	});
+}
+
+function readAccessorString(
+	candidate: Record<string, unknown>,
+	name: string,
+): string | undefined {
+	const fn = candidate[name];
+	if (typeof fn !== "function") return undefined;
+	try {
+		const value = (fn as () => unknown).call(candidate);
+		return typeof value === "string" ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function readAccessorBoolean(
+	candidate: Record<string, unknown>,
+	name: string,
+): boolean | undefined {
+	const fn = candidate[name];
+	if (typeof fn !== "function") return undefined;
+	try {
+		return (fn as () => unknown).call(candidate) === true;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Best-effort recovery of exit/cancel markers from the stock status footer
+ * when `setComplete` was not observed (e.g. hydrated history). Prefer
+ * observed `setComplete` args; this is only a fallback.
+ */
+function scrapeExecutionFooter(
+	block: unknown,
+): Pick<UserExecutionView, "exitCode" | "cancelled"> | undefined {
+	const texts: string[] = [];
+	collectComponentTexts(block, texts);
+	let exitCode: number | undefined;
+	let cancelled: boolean | undefined;
+	for (const raw of texts) {
+		const plain = stripControl(stripAnsi(raw)).replace(/\s+/g, " ").trim();
+		if (!plain) continue;
+		if (/\(cancelled\)/i.test(plain)) cancelled = true;
+		const exit = plain.match(/\(exit\s+(-?\d+)\)/i);
+		if (exit?.[1] !== undefined) {
+			const code = Number(exit[1]);
+			if (Number.isFinite(code)) exitCode = code;
+		}
+	}
+	if (cancelled === undefined && exitCode === undefined) return undefined;
+	const out: Pick<UserExecutionView, "exitCode" | "cancelled"> = {};
+	if (cancelled) out.cancelled = true;
+	if (exitCode !== undefined) out.exitCode = exitCode;
+	return out;
+}
+
+function userExecutionFromAccessors(
+	block: unknown,
+	kind: "bash" | "python",
+	sourceAccessor: "getCommand" | "getCode",
+	observed?: UserExecutionObservedState,
+): UserExecutionView | undefined {
+	if (!block || typeof block !== "object") return undefined;
+	const candidate = block as Record<string, unknown>;
+	// Require the full public accessor set; never invent a view from text alone.
+	if (typeof candidate[sourceAccessor] !== "function") return undefined;
+	if (typeof candidate.getOutput !== "function") return undefined;
+	if (typeof candidate.isTranscriptBlockFinalized !== "function")
+		return undefined;
+	// Mutual exclusion: bash has getCommand only; python has getCode only.
+	if (
+		sourceAccessor === "getCommand" &&
+		typeof candidate.getCode === "function"
+	)
+		return undefined;
+	if (
+		sourceAccessor === "getCode" &&
+		typeof candidate.getCommand === "function"
+	)
+		return undefined;
+
+	const sourceRaw = readAccessorString(candidate, sourceAccessor);
+	if (sourceRaw === undefined) return undefined;
+	const source = sanitizeOneLine(sourceRaw);
+	if (!source) return undefined;
+
+	// getOutput is required as a presence probe even when unused: a leaf
+	// missing it is not a stock execution component.
+	if (readAccessorString(candidate, "getOutput") === undefined)
+		return undefined;
+
+	const finalized = readAccessorBoolean(
+		candidate,
+		"isTranscriptBlockFinalized",
+	);
+	if (finalized === undefined) return undefined;
+	const running = !finalized;
+
+	const view: UserExecutionView = { kind, source, running };
+	if (observed?.expanded === true) view.expanded = true;
+	if (observed?.expanded === false) view.expanded = false;
+
+	if (!running) {
+		if (observed && "cancelled" in observed && observed.cancelled === true) {
+			view.cancelled = true;
+		} else if (
+			observed &&
+			"exitCode" in observed &&
+			typeof observed.exitCode === "number"
+		) {
+			view.exitCode = observed.exitCode;
+			if (observed.cancelled === false) view.cancelled = false;
+		} else if (observed && observed.cancelled === false) {
+			view.cancelled = false;
+			if (typeof observed.exitCode === "number")
+				view.exitCode = observed.exitCode;
+		} else {
+			const scraped = scrapeExecutionFooter(block);
+			if (scraped?.cancelled) view.cancelled = true;
+			if (typeof scraped?.exitCode === "number")
+				view.exitCode = scraped.exitCode;
+		}
+	}
+	return Object.freeze(view);
+}
+
+/**
+ * Recover a compact bash-execution view from a live stock
+ * `BashExecutionComponent` via public accessors. Returns `undefined` on any
+ * mismatch so callers fail open to native rendering.
+ */
+export function userBashExecutionFromComponent(
+	block: unknown,
+	observed?: UserExecutionObservedState,
+): UserExecutionView | undefined {
+	const view = userExecutionFromAccessors(
+		block,
+		"bash",
+		"getCommand",
+		observed,
+	);
+	return view?.kind === "bash" ? view : undefined;
+}
+
+/**
+ * Recover a compact python-execution view from a live stock
+ * `EvalExecutionComponent` (user `$`/`$$` path, role `pythonExecution`) via
+ * public accessors. Returns `undefined` on any mismatch.
+ */
+export function userEvalExecutionFromComponent(
+	block: unknown,
+	observed?: UserExecutionObservedState,
+): UserExecutionView | undefined {
+	const view = userExecutionFromAccessors(block, "python", "getCode", observed);
+	return view?.kind === "python" ? view : undefined;
+}
+
+/**
+ * One compact row for a user-initiated bash/python execution, matching the
+ * plugin's agent `bash` tool chrome (`• bash: …` / Working… / ✗ + exit meta).
+ * No background/inverse sequences — transparent terminal row only.
+ */
+export function renderUserExecutionRow(
+	view: UserExecutionView,
+	theme: Theme,
+	width?: number,
+): readonly string[] {
+	const title = theme.fg("dim", view.kind);
+	const description = sanitizeOneLine(view.source);
+	const suffix = description ? `: ${theme.fg("dim", description)}` : "";
+	if (view.running) {
+		const line = `${theme.fg("dim", pendingFrame(theme, 0))} ${theme.fg(
+			"dim",
+			"Working…",
+		)} ${title}${suffix}`;
+		return [fitTransparentLine(line, width)];
+	}
+	const isError =
+		view.cancelled === true ||
+		(typeof view.exitCode === "number" && view.exitCode !== 0);
+	const icon = isError ? theme.fg("error", "✗") : theme.fg("dim", "•");
+	const pieces = [`${icon} ${title}${suffix}`];
+	const meta: string[] = [];
+	if (view.cancelled === true) meta.push("cancelled");
+	else if (typeof view.exitCode === "number" && view.exitCode !== 0)
+		meta.push(`exit ${view.exitCode}`);
+	if (meta.length > 0) pieces.push(theme.fg("dim", ` · ${meta.join(" · ")}`));
+	return [fitTransparentLine(pieces.join(""), width)];
 }
 
 /**

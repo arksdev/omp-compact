@@ -306,6 +306,67 @@ export function isTodoReminderComponent(
 }
 
 /**
+ * Shared public surface of stock user-initiated bash/eval execution blocks
+ * (OMP 17.3.4 `BashExecutionComponent` / `EvalExecutionComponent`): streaming
+ * output + completion + transcript finalization + expand. Neither leaf exposes
+ * the tool/TTSR/todo activity surfaces; those rejects keep the fingerprints
+ * out of the tool/read-group/inject/reminder paths.
+ */
+function hasUserExecutionSurface(candidate: Record<string, unknown>): boolean {
+	if (typeof candidate.render !== "function") return false;
+	if (typeof candidate.appendOutput !== "function") return false;
+	if (typeof candidate.setComplete !== "function") return false;
+	if (typeof candidate.isTranscriptBlockFinalized !== "function") return false;
+	if (typeof candidate.getOutput !== "function") return false;
+	if (typeof candidate.setExpanded !== "function") return false;
+	// Tool / TTSR / todo activity controls never appear on user executions.
+	if (typeof candidate.updateArgs === "function") return false;
+	if (typeof candidate.updateResult === "function") return false;
+	if (typeof candidate.setArgsComplete === "function") return false;
+	if (typeof candidate.seal === "function") return false;
+	if (typeof candidate.addRules === "function") return false;
+	if (typeof candidate.setToolActivityVisible === "function") return false;
+	if (typeof candidate.renameEntry === "function") return false;
+	if (typeof candidate.removeEntry === "function") return false;
+	return true;
+}
+
+/**
+ * Stock user bash execution fingerprint (`!` / `!!` → `BashExecutionComponent`):
+ * shared execution surface + `getCommand`, without `getCode`. Host components
+ * under `src/modes/components/` were checked: only `bash-execution.ts` exposes
+ * `appendOutput`+`setComplete`+`getCommand`; no other leaf collides.
+ */
+export function isBashExecutionComponent(
+	value: unknown,
+): value is RenderableBlock {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Record<string, unknown>;
+	if (!hasUserExecutionSurface(candidate)) return false;
+	if (typeof candidate.getCommand !== "function") return false;
+	// Eval uses getCode; mutual exclusion keeps the two paths distinct.
+	if (typeof candidate.getCode === "function") return false;
+	return true;
+}
+
+/**
+ * Stock user eval/python execution fingerprint (`$` / `$$` →
+ * `EvalExecutionComponent`, transcript role `pythonExecution`): shared
+ * execution surface + `getCode`, without `getCommand`. Host scan: only
+ * `eval-execution.ts` exposes `appendOutput`+`setComplete`+`getCode`.
+ */
+export function isEvalExecutionComponent(
+	value: unknown,
+): value is RenderableBlock {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Record<string, unknown>;
+	if (!hasUserExecutionSurface(candidate)) return false;
+	if (typeof candidate.getCode !== "function") return false;
+	if (typeof candidate.getCommand === "function") return false;
+	return true;
+}
+
+/**
  * OMP 17.3.1 argument positions. `updateArgs` carries
  * `(payload, toolCallId)`; the read group's `updateResult` carries
  * `(result, isPartial, toolCallId)` while the tool component's

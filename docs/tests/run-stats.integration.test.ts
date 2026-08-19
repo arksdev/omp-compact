@@ -1021,3 +1021,293 @@ stockTest(
 		);
 	},
 );
+
+/**
+ * Stock user bash execution fingerprint: getCommand + shared execution surface.
+ * Own render override mirrors BashExecutionComponent.
+ */
+class FakeBashExecution {
+	#command: string;
+	#output = "";
+	#finalized = false;
+	#expanded = false;
+	#exitCode: number | undefined;
+	#cancelled = false;
+	nativeRenderCount = 0;
+
+	constructor(command: string) {
+		this.#command = command;
+	}
+
+	getCommand(): string {
+		return this.#command;
+	}
+
+	getOutput(): string {
+		return this.#output;
+	}
+
+	isTranscriptBlockFinalized(): boolean {
+		return this.#finalized;
+	}
+
+	setExpanded(expanded: boolean): void {
+		this.#expanded = expanded;
+	}
+
+	appendOutput(chunk: string): void {
+		this.#output += chunk;
+	}
+
+	setComplete(
+		exitCode: number | undefined,
+		cancelled: boolean,
+		options?: { output?: string },
+	): void {
+		this.#exitCode = exitCode;
+		this.#cancelled = cancelled;
+		this.#finalized = true;
+		if (options?.output !== undefined) this.#output = options.output;
+	}
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		const state = this.#expanded
+			? "EXPANDED"
+			: this.#finalized
+				? `DONE exit=${String(this.#exitCode)} cancelled=${String(this.#cancelled)}`
+				: "RUNNING";
+		return [
+			`\x1b[48;2;40;40;40mNATIVE bash frame ${this.#command} ${state}\x1b[49m`,
+		];
+	}
+}
+
+/**
+ * Stock user eval/python execution fingerprint: getCode + shared surface.
+ * No own render — inherits from a base class the way EvalExecutionComponent
+ * inherits Container.render. DescriptorPatch must still wrap/restore cleanly.
+ */
+class FakeExecutionBase {
+	nativeRenderCount = 0;
+	label = "base";
+
+	render(_width: number): readonly string[] {
+		this.nativeRenderCount++;
+		return [`\x1b[48;2;20;20;60mNATIVE eval frame ${this.label}\x1b[49m`];
+	}
+}
+
+class FakeEvalExecution extends FakeExecutionBase {
+	#code: string;
+	#output = "";
+	#finalized = false;
+	#expanded = false;
+	#exitCode: number | undefined;
+	#cancelled = false;
+
+	constructor(code: string) {
+		super();
+		this.#code = code;
+		this.label = code;
+	}
+
+	getCode(): string {
+		return this.#code;
+	}
+
+	getOutput(): string {
+		return this.#output;
+	}
+
+	isTranscriptBlockFinalized(): boolean {
+		return this.#finalized;
+	}
+
+	setExpanded(expanded: boolean): void {
+		this.#expanded = expanded;
+	}
+
+	appendOutput(chunk: string): void {
+		this.#output += chunk;
+	}
+
+	setComplete(
+		exitCode: number | undefined,
+		cancelled: boolean,
+		options?: { output?: string },
+	): void {
+		this.#exitCode = exitCode;
+		this.#cancelled = cancelled;
+		this.#finalized = true;
+		if (options?.output !== undefined) this.#output = options.output;
+		this.label = `${this.#code} exit=${String(this.#exitCode)} cancelled=${String(this.#cancelled)} expanded=${String(this.#expanded)}`;
+	}
+}
+
+class UnrecognizedExecutionLike {
+	// Shared streaming methods without getCommand/getCode — must stay native.
+	appendOutput(): void {}
+	setComplete(): void {}
+	isTranscriptBlockFinalized(): boolean {
+		return true;
+	}
+	getOutput(): string {
+		return "";
+	}
+	setExpanded(): void {}
+	render(_width: number): readonly string[] {
+		return ["\x1b[48;2;1;1;1mNATIVE mystery execution\x1b[49m"];
+	}
+}
+
+stockTest(
+	"User bash/python execution: pre/post install attach, lifecycle, expand, rebuild",
+	async () => {
+		const root = new host.ContainerBase();
+		const transcript = new host.TranscriptContainer();
+		const preBash = new FakeBashExecution("ls pre");
+		const preEval = new FakeEvalExecution("print('pre')");
+		transcript.addChild(preBash);
+		transcript.addChild(preEval);
+		root.addChild(transcript);
+
+		const adapter = new adapterModule.RuntimeAdapter({
+			root,
+			ui: {
+				theme: host.getTheme(),
+				setWidget(_key, content) {
+					if (typeof content === "function") {
+						(content as (tui: unknown) => Renderable)(root);
+					}
+				},
+				requestRender() {},
+				getToolsExpanded: () => false,
+			},
+		});
+		expect(adapter.install()).toBe(true);
+
+		// Running: compact Working… rows; inherited eval render is still wrapped.
+		// Spinner glyph comes from the host theme activity frames — match the
+		// stable payload rather than a pinned braille cell.
+		expect(stripAnsi(preBash.render(120)[0] ?? "")).toMatch(
+			/Working… bash: ls pre$/,
+		);
+		expect(stripAnsi(preEval.render(120)[0] ?? "")).toMatch(
+			/Working… python: print\('pre'\)$/,
+		);
+		expect(preBash.nativeRenderCount).toBe(0);
+		expect(preEval.nativeRenderCount).toBe(0);
+
+		preBash.appendOutput("a\n");
+		preBash.setComplete(0, false, { output: "a\n" });
+		preEval.appendOutput("1\n");
+		preEval.setComplete(0, false, { output: "1\n" });
+		expect(stripAnsi(preBash.render(120)[0] ?? "")).toBe("• bash: ls pre");
+		expect(stripAnsi(preEval.render(120)[0] ?? "")).toBe(
+			"• python: print('pre')",
+		);
+
+		// Expanded falls back to the native multi-line frame so output is readable.
+		preBash.setExpanded(true);
+		preEval.setExpanded(true);
+		expect(stripAnsi(preBash.render(120)[0] ?? "")).toContain(
+			"NATIVE bash frame",
+		);
+		expect(stripAnsi(preEval.render(120)[0] ?? "")).toContain(
+			"NATIVE eval frame",
+		);
+		expect(preBash.nativeRenderCount).toBe(1);
+		expect(preEval.nativeRenderCount).toBe(1);
+
+		// Collapse again: compact returns without stacking wrappers.
+		preBash.setExpanded(false);
+		preEval.setExpanded(false);
+		expect(stripAnsi(preBash.render(120)[0] ?? "")).toBe("• bash: ls pre");
+		expect(stripAnsi(preEval.render(120)[0] ?? "")).toBe(
+			"• python: print('pre')",
+		);
+
+		const postBash = new FakeBashExecution("false");
+		const postEval = new FakeEvalExecution("raise SystemExit(3)");
+		transcript.addChild(postBash);
+		transcript.addChild(postEval);
+		postBash.setComplete(2, false);
+		postEval.setComplete(undefined, true);
+		expect(stripAnsi(postBash.render(120)[0] ?? "")).toBe(
+			"✗ bash: false · exit 2",
+		);
+		expect(stripAnsi(postEval.render(120)[0] ?? "")).toBe(
+			"✗ python: raise SystemExit(3) · cancelled",
+		);
+
+		// Unrecognized shared surface without getCommand/getCode stays native.
+		const mystery = new UnrecognizedExecutionLike();
+		transcript.addChild(mystery);
+		expect(stripAnsi(mystery.render(40)[0] ?? "")).toBe(
+			"NATIVE mystery execution",
+		);
+
+		// Clear detaches patches (native restored), then re-add re-attaches.
+		transcript.clear();
+		const nativeAfterDetach = preBash.render(120);
+		expect(nativeAfterDetach.join("\n")).toContain("\x1b[48;");
+		expect(stripAnsi(nativeAfterDetach[0] ?? "")).toContain(
+			"NATIVE bash frame",
+		);
+
+		// Inherited render restore must delete the own wrapper (no stray own prop).
+		expect(Object.getOwnPropertyDescriptor(preEval, "render")).toBeUndefined();
+		expect(stripAnsi(preEval.render(120)[0] ?? "")).toContain(
+			"NATIVE eval frame",
+		);
+
+		transcript.addChild(preBash);
+		transcript.addChild(preEval);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(stripAnsi(preBash.render(120)[0] ?? "")).toBe("• bash: ls pre");
+		expect(stripAnsi(preEval.render(120)[0] ?? "")).toBe(
+			"• python: print('pre')",
+		);
+
+		// Idempotent second observe must not stack wrappers.
+		transcript.addChild(preBash);
+		expect(stripAnsi(preBash.render(80)[0] ?? "")).toBe("• bash: ls pre");
+
+		await adapter.dispose();
+		expect(stripAnsi(preBash.render(40)[0] ?? "")).toContain(
+			"NATIVE bash frame",
+		);
+		expect(Object.getOwnPropertyDescriptor(preEval, "render")).toBeUndefined();
+		expect(stripAnsi(preEval.render(40)[0] ?? "")).toContain(
+			"NATIVE eval frame",
+		);
+	},
+);
+
+stockTest(
+	"User bash/python execution: install-time probe refuses empty source",
+	async () => {
+		const booted = await bootAdapter();
+		const emptyBash = new FakeBashExecution("   ");
+		const emptyEval = new FakeEvalExecution("");
+		booted.transcript.addChild(emptyBash);
+		booted.transcript.addChild(emptyEval);
+		expect(stripAnsi(emptyBash.render(80)[0] ?? "")).toContain(
+			"NATIVE bash frame",
+		);
+		expect(stripAnsi(emptyEval.render(80)[0] ?? "")).toContain(
+			"NATIVE eval frame",
+		);
+		expect(emptyBash.nativeRenderCount).toBe(1);
+		expect(emptyEval.nativeRenderCount).toBe(1);
+
+		const good = new FakeBashExecution("echo ok");
+		booted.transcript.addChild(good);
+		good.setComplete(0, false);
+		expect(stripAnsi(good.render(80)[0] ?? "")).toBe("• bash: echo ok");
+
+		await booted.adapter.dispose();
+	},
+);
