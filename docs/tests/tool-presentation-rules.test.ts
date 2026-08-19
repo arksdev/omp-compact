@@ -175,6 +175,26 @@ describe("explicit unknown lookup", () => {
 		expect(describeTool("custom_tool", { value: "x" })).toBeUndefined();
 		expect(describeTool("nope", undefined)).toBeUndefined();
 	});
+
+	test("Object.prototype collision names never resolve and never throw", () => {
+		const collisions = [
+			"constructor",
+			"toString",
+			"__proto__",
+			"hasOwnProperty",
+			"valueOf",
+			"isPrototypeOf",
+			"propertyIsEnumerable",
+			"toLocaleString",
+		] as const;
+		for (const name of collisions) {
+			const normalized = normalizeToolName(name);
+			expect(typeof normalized, name).toBe("string");
+			expect(normalized, name).toBe(name.replaceAll("-", "_"));
+			expect(resolveToolRule(name), name).toBeUndefined();
+			expect(describeTool(name, {}), name).toBeUndefined();
+		}
+	});
 });
 
 describe("bounded generic helper", () => {

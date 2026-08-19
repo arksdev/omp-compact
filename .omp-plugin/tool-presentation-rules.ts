@@ -625,7 +625,11 @@ export const TOOL_RULES: Readonly<
  */
 export function normalizeToolName(name: string): string {
 	const normalized = name.replaceAll("-", "_");
-	return TOOL_ALIASES[normalized] ?? normalized;
+	// Own-property only: `TOOL_ALIASES[normalized] ?? …` would return
+	// Object.prototype members (constructor/toString/…) for collision names.
+	return Object.hasOwn(TOOL_ALIASES, normalized)
+		? (TOOL_ALIASES[normalized] as string)
+		: normalized;
 }
 
 /**
@@ -636,7 +640,11 @@ export function normalizeToolName(name: string): string {
 export function resolveToolRule(
 	name: string,
 ): ToolPresentationRule | undefined {
-	return TOOL_RULES[normalizeToolName(name)] ?? undefined;
+	const key = normalizeToolName(name);
+	// Own-property only: bare index can inherit Object.prototype functions.
+	// The previous `?? undefined` only hid collisions because normalizeToolName
+	// itself returned a non-string key for those names.
+	return Object.hasOwn(TOOL_RULES, key) ? TOOL_RULES[key] : undefined;
 }
 
 /**
