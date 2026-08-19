@@ -871,7 +871,10 @@ export function gitCommitHashes(details: GitMessageDetails): string[] {
 	for (const record of records) {
 		if (record.subcommand !== "commit" || record.isError) continue;
 		const match = COMMIT_HASH_PREFIX.exec(record.text);
-		if (match) hashes.push(match[1]);
+		// Group 1 is required by COMMIT_HASH_PREFIX; a successful match
+		// always populates it.
+		const hash = match?.[1];
+		if (hash !== undefined) hashes.push(hash);
 	}
 	return hashes;
 }
@@ -891,7 +894,10 @@ export function terminalGitSummaryLine(
 ): string {
 	if (hashes.length === 0) return "";
 	const label = `${theme.fg("dim", "•")} ${theme.fg("dim", "git commit:")}`;
-	const last = fixedForeground(ADDED_STAT_COLOR, hashes[hashes.length - 1]);
+	const newest = hashes[hashes.length - 1];
+	// Guarded by hashes.length > 0 above.
+	if (newest === undefined) return "";
+	const last = fixedForeground(ADDED_STAT_COLOR, newest);
 	if (width === undefined) {
 		const earlier = hashes.slice(0, -1).map((hash) => theme.fg("dim", hash));
 		return [label, [...earlier, last].join(", ")].join(" ");
@@ -902,7 +908,9 @@ export function terminalGitSummaryLine(
 	let tail = last;
 	let kept = 1;
 	for (let index = hashes.length - 2; index >= 0; index--) {
-		const candidate = `${theme.fg("dim", hashes[index])}, ${tail}`;
+		const older = hashes[index];
+		if (older === undefined) continue;
+		const candidate = `${theme.fg("dim", older)}, ${tail}`;
 		if (visibleWidth(`${label} ${candidate}`) > safeWidth) break;
 		tail = candidate;
 		kept++;

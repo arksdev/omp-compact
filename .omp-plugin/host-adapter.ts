@@ -217,7 +217,8 @@ export function leafCapabilities(value: unknown): LeafCapabilities {
 		// Read groups expose the generic tool surface too; their rename/remove
 		// methods are the more specific discriminator and must win.
 		kind: readGroup ? "readGroup" : tool ? "tool" : "none",
-		render: methods.render,
+		// LEAF_METHODS always seeds methods.render via the loop above.
+		render: methods.render === true,
 		methods,
 	};
 }

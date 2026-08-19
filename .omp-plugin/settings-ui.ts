@@ -804,13 +804,18 @@ export class SettingsDialog implements ComponentLike {
 		};
 		if (lostAt >= 0) {
 			for (let index = lostAt - 1; index >= 0; index--) {
-				if (all[index].focusable) return adopt(all[index]);
+				const row = all[index];
+				if (row?.focusable) return adopt(row);
 			}
 			for (let index = lostAt + 1; index < all.length; index++) {
-				if (all[index].focusable) return adopt(all[index]);
+				const row = all[index];
+				if (row?.focusable) return adopt(row);
 			}
 		}
-		this.focusedId = focusable[0].id;
+		const first = focusable[0];
+		// focusable.length > 0 is guaranteed by the early return above.
+		if (first === undefined) return -1;
+		this.focusedId = first.id;
 		return 0;
 	}
 
@@ -825,7 +830,10 @@ export class SettingsDialog implements ComponentLike {
 		if (rows.length === 0) return;
 		const index = this.resolveFocusIndex(rows);
 		const next = (index + delta + rows.length) % rows.length;
-		this.focusedId = rows[next].id;
+		const row = rows[next];
+		// next is always in [0, rows.length) after the length guard above.
+		if (row === undefined) return;
+		this.focusedId = row.id;
 		this.error = "";
 	}
 

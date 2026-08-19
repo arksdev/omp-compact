@@ -413,7 +413,7 @@ export class ComponentBinding {
 			let aligned = true;
 			for (let index = 0; index < visibleGroups.length; index++) {
 				const group = visibleGroups[index];
-				if (group.ledger === undefined) continue;
+				if (group === undefined || group.ledger === undefined) continue;
 				if (
 					group.ledger !== this.#hydratedReadSegments[offset + index]?.ledger
 				) {
