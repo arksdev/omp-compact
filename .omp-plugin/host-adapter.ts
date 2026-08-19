@@ -214,29 +214,66 @@ export function isTranscriptHost(value: unknown): value is TranscriptHost {
 }
 
 /**
- * Version-pinned stats-carrier placement seam. Stats must be inserted before
- * the native terminal answer, so append-only `addChild` is insufficient.
- * Validate the exact mutable transcript array and bounded index; any changed
- * or read-only host shape leaves native rendering untouched.
+ * Version-pinned stats-carrier placement seam. Stats must sit before the
+ * native terminal answer (or immediately after a bound block), so append-only
+ * `addChild` is insufficient.
+ *
+ * Placement is identity-first when an anchor is supplied:
+ * - `before` / `after` is re-resolved with `indexOf` immediately before the
+ *   splice. A detached or cleared anchor is a hard miss — return false and
+ *   leave the transcript untouched. Never invent a fallback index on a miss
+ *   (appending at the end would put the row under the wrong answer or under
+ *   a later run's content after a rebuild/clear).
+ * - A bare numeric `index` remains for callers that already own a verified
+ *   position (tests, capability probes). Bounds and mutability are still
+ *   checked; any throw is swallowed so a host invariant never escalates into
+ *   a session-wide compact rollback.
  */
+export interface InsertTranscriptChildOptions {
+	/** Insert immediately before this transcript child (identity re-checked). */
+	readonly before?: unknown;
+	/** Insert immediately after this transcript child (identity re-checked). */
+	readonly after?: unknown;
+}
+
 export function insertTranscriptChildAt(
 	transcript: unknown,
 	index: number,
 	child: unknown,
+	options?: InsertTranscriptChildOptions,
 ): boolean {
 	try {
-		if (!isTranscriptHost(transcript) || !Number.isSafeInteger(index))
-			return false;
+		if (!isTranscriptHost(transcript)) return false;
 		const children = transcript.children;
 		if (
 			!Array.isArray(children) ||
-			index < 0 ||
-			index > children.length ||
 			!Object.isExtensible(children) ||
 			Object.isSealed(children)
 		)
 			return false;
-		children.splice(index, 0, child);
+
+		let at = index;
+		const before = options?.before;
+		const after = options?.after;
+		if (before !== undefined || after !== undefined) {
+			// Exactly one anchor mode. Conflicting hints are a caller bug; fail
+			// open rather than pick an arbitrary position.
+			if (before !== undefined && after !== undefined) return false;
+			if (before !== undefined) {
+				const resolved = children.indexOf(before);
+				if (resolved < 0) return false;
+				at = resolved;
+			} else {
+				const resolved = children.indexOf(after as unknown);
+				if (resolved < 0) return false;
+				at = resolved + 1;
+			}
+		} else if (!Number.isSafeInteger(at) || at < 0 || at > children.length) {
+			return false;
+		}
+
+		if (at < 0 || at > children.length) return false;
+		children.splice(at, 0, child);
 		return true;
 	} catch {
 		return false;
@@ -646,13 +683,16 @@ export class HostAdapter1731 {
 	 * Delegates to the module-level `insertTranscriptChildAt` function;
 	 * exposed as an instance method so callers can use the adapter as a
 	 * single dependency surface without importing the free function.
+	 * Prefer `before`/`after` identity anchors so a cleared transcript cannot
+	 * land the carrier on a stale numeric index.
 	 */
 	insertTranscriptChildAt(
 		transcript: unknown,
 		index: number,
 		child: unknown,
+		options?: InsertTranscriptChildOptions,
 	): boolean {
-		return insertTranscriptChildAt(transcript, index, child);
+		return insertTranscriptChildAt(transcript, index, child, options);
 	}
 
 	/**

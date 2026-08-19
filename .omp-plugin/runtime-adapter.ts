@@ -213,8 +213,9 @@ export class RuntimeAdapter {
 			modePolicy: options.modePolicy,
 			displayPaths: options.displayPaths,
 			statsRenderer: options.statsRenderer,
-			placeStatsCarrier: (transcript, index, carrier) =>
-				this.#host.insertTranscriptChildAt(transcript, index, carrier),
+			placeStatsCarrier: (transcript, index, carrier, options) =>
+				this.#host.insertTranscriptChildAt(transcript, index, carrier, options),
+
 			getToolsExpanded: options.ui.getToolsExpanded
 				? () => options.ui.getToolsExpanded?.() === true
 				: undefined,

@@ -36,8 +36,8 @@ import {
 	type GitMessageDetails,
 	isGitMessageDetails,
 	isMutationMessageDetails,
-	MUTATION_MESSAGE_TYPE,
 	type LegacyMutationMessageDetails,
+	MUTATION_MESSAGE_TYPE,
 	type MutationMessageDetails,
 } from "./messages";
 import {
@@ -143,13 +143,21 @@ export interface SessionStateOptions {
 	statsRenderer?: (evidence: RunStatsEvidence) => string | undefined;
 	/**
 	 * Version-pinned host seam for plugin-owned stats carrier insertion.
-	 * Returning false leaves the native transcript untouched.
+	 * Prefer identity anchors (`before`/`after`); returning false leaves the
+	 * native transcript untouched. The seam re-resolves anchors at splice
+	 * time — see `insertTranscriptChildAt` — so callers must not invent a
+	 * fallback index after an anchor miss.
 	 */
 	placeStatsCarrier?: (
 		transcript: TranscriptHost,
 		index: number,
 		carrier: unknown,
+		options?: {
+			readonly before?: unknown;
+			readonly after?: unknown;
+		},
 	) => boolean;
+
 	/**
 	 * Live tool-output expansion state. Stock pre-sets `setExpanded(...)` on
 	 * components before the adapter can wrap them, so the initial expanded
@@ -201,8 +209,17 @@ export class RuntimeSessionState {
 		| ((evidence: RunStatsEvidence) => string | undefined)
 		| undefined;
 	readonly #placeStatsCarrier:
-		| ((transcript: TranscriptHost, index: number, carrier: unknown) => boolean)
+		| ((
+				transcript: TranscriptHost,
+				index: number,
+				carrier: unknown,
+				options?: {
+					readonly before?: unknown;
+					readonly after?: unknown;
+				},
+		  ) => boolean)
 		| undefined;
+
 	readonly #getToolsExpanded: (() => boolean) | undefined;
 	/** Component ↔ state associations (see ComponentBinding). */
 	readonly binding: ComponentBinding;
@@ -279,11 +296,13 @@ export class RuntimeSessionState {
 	 * Claim the current working ledger for its delayed terminal audit drain.
 	 * Captures the current transcript tail as a best-effort stats answer
 	 * anchor. A later transcript `clear`/rebuild may drop that child; stats
-	 * placement then fails open (indexOf miss → bound-block / branch-tail
-	 * fallbacks, never invents a position). Anchors are intentionally not
-	 * cleared in `beginRebuild`: the deferred claim must outlive the rebuild
-	 * so a late drain still finalizes the exact ledger, and evidence stays
-	 * persisted for hydrate reinsert even when the live row is skipped.
+	 * placement then fails open by skipping the row (the placement seam
+	 * re-resolves the anchor identity at splice time and never invents a
+	 * position on a miss — see `insertTranscriptChildAt`). Anchors are
+	 * intentionally not cleared in `beginRebuild`: the deferred claim must
+	 * outlive the rebuild so a late drain still finalizes the exact ledger,
+	 * and evidence stays persisted for hydrate reinsert even when the live
+	 * row is skipped.
 	 */
 	captureTerminalRunId(): string | undefined {
 		if (this.#disposed || this.#ledger?.phase !== "working") return undefined;
@@ -1440,42 +1459,55 @@ export class RuntimeSessionState {
 	 * optional Git summary, immediately above the native answer. A no-tool
 	 * live run can instead use its exact pre-next-run terminal answer anchor;
 	 * replay remains restricted to the branch-final fallback.
+	 *
+	 * Position is handed to the placement seam as an identity anchor
+	 * (`before`/`after`), not a bare numeric index. The seam re-resolves the
+	 * anchor immediately before the splice; a detached/cleared anchor skips
+	 * the row rather than inventing a fallback position (appending would put
+	 * the stats under the wrong answer after a rebuild).
 	 */
 	#insertStatsCarrier(ledger: TurnLedger, line: string): boolean {
 		const transcript = this.#transcript;
 		if (!transcript || !Array.isArray(transcript.children)) return false;
 		const children = transcript.children;
-		let index = -1;
+		const place = this.#placeStatsCarrier;
+		if (!place) return false;
+		const carrier = createStatsCarrier(line);
+
+		// Prefer the last bound tool/read-group block of this ledger.
 		for (let i = children.length - 1; i >= 0; i--) {
 			const child = children[i];
 			if (!child || typeof child !== "object") continue;
 			const state = this.binding.componentState(child);
 			if (state && state.ledger === ledger) {
-				index = i + 1;
-				break;
+				return place(transcript, i + 1, carrier, { after: child }) === true;
 			}
 			const group = this.binding.groupState(child);
 			if (group?.ledger === ledger) {
-				index = i + 1;
-				break;
+				return place(transcript, i + 1, carrier, { after: child }) === true;
 			}
 		}
-		if (index < 0) {
-			const deferred = this.#deferredTerminalLedgers.get(ledger.runId);
-			const anchor =
-				deferred?.ledger === ledger ? deferred.answerAnchor : undefined;
-			if (anchor !== undefined) {
-				const anchorIndex = children.indexOf(anchor);
-				if (anchorIndex >= 0) index = anchorIndex;
-			}
+
+		// No-tool delayed drain: insert immediately before the captured answer.
+		const deferred = this.#deferredTerminalLedgers.get(ledger.runId);
+		const answerAnchor =
+			deferred?.ledger === ledger ? deferred.answerAnchor : undefined;
+		if (answerAnchor !== undefined) {
+			// Miss → skip. Never fall through to a guessed index.
+			return place(transcript, -1, carrier, { before: answerAnchor }) === true;
 		}
-		if (index < 0) {
-			if (ledger !== this.#ledger) return false;
-			index = Math.max(0, children.length - 1);
+
+		// Active-run, no-tool path with no deferred claim: place before the
+		// current transcript tail (the native answer). Historical ledgers
+		// without a bound block or answer anchor skip rather than guess.
+		if (ledger !== this.#ledger) return false;
+		if (children.length === 0) {
+			return place(transcript, 0, carrier) === true;
 		}
-		if (index > children.length) index = children.length;
-		const place = this.#placeStatsCarrier;
-		return place?.(transcript, index, createStatsCarrier(line)) === true;
+		const tail = children[children.length - 1];
+		return (
+			place(transcript, children.length - 1, carrier, { before: tail }) === true
+		);
 	}
 
 	#bumpLedger(ledger: TurnLedger): void {

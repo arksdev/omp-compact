@@ -516,6 +516,64 @@ describe("stats carrier placement", () => {
 		expect(insertTranscriptChildAt(transcript, 1, {})).toBe(false);
 		expect(transcript.children).toEqual([first, second]);
 	});
+
+	test("detached anchor is re-checked at splice time and never invents a position", () => {
+		const transcript = new FakeTranscript();
+		const early = { id: "early" };
+		const anchor = { id: "answer" };
+		const late = { id: "late" };
+		const stats = { id: "stats" };
+		transcript.children.push(early, anchor, late);
+
+		// Index computed while the anchor is still present (insert-before).
+		const index = transcript.children.indexOf(anchor);
+		expect(index).toBe(1);
+
+		// Anchor leaves the transcript before the splice runs.
+		transcript.children.splice(index, 1);
+		expect(transcript.children).toEqual([early, late]);
+
+		expect(() =>
+			insertTranscriptChildAt(transcript, index, stats, { before: anchor }),
+		).not.toThrow();
+		expect(
+			insertTranscriptChildAt(transcript, index, stats, { before: anchor }),
+		).toBe(false);
+		// Stale numeric index must not land the row between unrelated children.
+		expect(transcript.children).toEqual([early, late]);
+		expect(transcript.children).not.toContain(stats);
+	});
+
+	test("present before-anchor is re-resolved immediately before splice", () => {
+		const transcript = new FakeTranscript();
+		const first = { id: "first" };
+		const anchor = { id: "answer" };
+		const stats = { id: "stats" };
+		transcript.children.push(first, anchor);
+		// Stale index on purpose — identity wins over the numeric hint.
+		expect(
+			insertTranscriptChildAt(transcript, 0, stats, { before: anchor }),
+		).toBe(true);
+		expect(transcript.children).toEqual([first, stats, anchor]);
+	});
+
+	test("present after-anchor inserts immediately after the re-resolved identity", () => {
+		const transcript = new FakeTranscript();
+		const block = { id: "block" };
+		const answer = { id: "answer" };
+		const stats = { id: "stats" };
+		transcript.children.push(block, answer);
+		expect(
+			insertTranscriptChildAt(transcript, 99, stats, { after: block }),
+		).toBe(true);
+		expect(transcript.children).toEqual([block, stats, answer]);
+
+		transcript.children.splice(0, 1); // detach block
+		expect(
+			insertTranscriptChildAt(transcript, 0, { id: "x" }, { after: block }),
+		).toBe(false);
+		expect(transcript.children).toEqual([stats, answer]);
+	});
 });
 
 describe("capability fingerprints", () => {

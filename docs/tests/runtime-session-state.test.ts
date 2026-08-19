@@ -6,7 +6,10 @@ import {
 	type CompactSettingsStore,
 	DEFAULT_SETTINGS,
 } from "../../.omp-plugin/config";
+import { insertTranscriptChildAt } from "../../.omp-plugin/host-adapter";
 import {
+	isBoundedCount,
+	isPayloadWithinBudget,
 	MAX_EVIDENCE_PATH_LENGTH,
 	MAX_EVIDENCE_TEXT_LENGTH,
 	MAX_MUTATION_COUNT,
@@ -15,8 +18,6 @@ import {
 	MAX_PAYLOAD_STEPS,
 	MAX_TOOL_CALL_ID_LENGTH,
 	MAX_TOOL_NAME_LENGTH,
-	isBoundedCount,
-	isPayloadWithinBudget,
 } from "../../.omp-plugin/hydration-bounds";
 import {
 	type GitMessageDetails,
@@ -32,7 +33,6 @@ import {
 	RuntimeSessionState,
 	type ToolState,
 } from "../../.omp-plugin/runtime-session-state";
-import { insertTranscriptChildAt } from "../../.omp-plugin/host-adapter";
 import type {
 	RenderableBlock,
 	TranscriptHost,
@@ -1181,6 +1181,38 @@ describe("RuntimeSessionState: stats placement", () => {
 		session.attachTranscript(transcript);
 		expect(session.showStats(runId, "usage")).toBe(false);
 		expect(transcript.children).toEqual([answer]);
+	});
+
+	test("detached answer anchor skips placement instead of inventing a position", () => {
+		const session = makeSession();
+		const transcript = new FakeTranscript();
+		const early = new FakeToolComponent();
+		const answer = new FakeToolComponent();
+		transcript.children.push(early, answer);
+		session.attachTranscript(transcript);
+		session.beginRun();
+		// captureTerminalRunId anchors the current transcript tail (the answer).
+		const firstRunId = session.captureTerminalRunId();
+		// Next run starts and appends its own content after the prior answer.
+		session.beginRun();
+		const late = new FakeToolComponent();
+		transcript.children.push(late);
+		// Prior answer detaches between capture and placement (clear/rebuild).
+		const detachedAt = transcript.children.indexOf(answer);
+		expect(detachedAt).toBe(1);
+		transcript.children.splice(detachedAt, 1);
+		expect(transcript.children).toEqual([early, late]);
+
+		session.endRun({ messages: [assistant("first done")] }, firstRunId);
+		expect(session.showStats(firstRunId as string, "stats A")).toBe(false);
+		// No misordered insert between unrelated children; no throw.
+		expect(transcript.children).toEqual([early, late]);
+		expect(
+			transcript.children.some(
+				(child) => customTypeOf(child) === "omp-compact-stats",
+			),
+		).toBe(false);
+		session.releaseTerminalRun(firstRunId);
 	});
 });
 
