@@ -494,7 +494,19 @@ Session-wide growth is therefore linear in retained transcript history, not a de
 - `#terminalProjections`: O(finalized runs needed for immutable terminal rendering)
 - hydrated stats evidence: transient during reconstruction and cleared after placement
 
-Very long multi-day sessions with thousands of calls remain a capacity-planning case. Any future eviction policy must preserve Git summaries, resize rendering, `/tree`, and `/shake`; deleting projections during payload retirement would lose required terminal evidence.
+Measured on Bun 1.3.14 (darwin arm64) by driving the real `RuntimeSessionState` public API (`startState` / `finishTool` / `setMutations` / `setGit` / `endRun` / `finishFull` / `retireFilteredPayloads`) — not a model of `#states`. Primary metric: `live = heapUsed + external` after `Bun.gc(true)` (JSC parks large strings outside `heapUsed`, so heap alone under-reports retained payloads). Fresh-process RSS was a cross-check only. Payload mix approximated a coding-agent session (mostly small reads/bash, with a real tail of ~120 KiB reads, multi-line greps, writes/edits with mutation evidence, and git rows). Host UI component trees and the adapter's seven patch Maps were out of scope (those are O(installed components), not O(mapped calls)). The profile exercises plugin-internal state and does not depend on the stock host pin (measured under whatever `node_modules` was present; host was pinned to OMP 17.3.8 in-tree at the same time).
+
+| Mapped calls (N) | Retained (`full`, payloads kept) | Retired (`filtered` + retire) | Skeleton floor (tiny + retired) |
+|------------------|----------------------------------|-------------------------------|---------------------------------|
+| 1k | 22.2 MiB (~22 KiB/call) | 3.59 MiB (~3.5 KiB/call) | 3.20 MiB |
+| 10k | 325 MiB (~32 KiB/call) | 10.3 MiB (~1.0 KiB/call) | 9.27 MiB |
+| 100k | 3.33 GiB (~33 KiB/call) | 70.6 MiB (~690 B/call) | 62.9 MiB |
+
+At large N, retirement reclaims ~97% of the retained live set (about 47× at 100k). After retirement, ~89% of what remains is the skeleton floor: the residual is `ToolState` / ledger / Map overhead, not payload fat. A heavy interactive day (low thousands of calls, nearly all filtered) sits in the single-digit MiB range; 100k success-path calls are still ~70 MiB. The multi-gigabyte figure appears only if payloads stay retained (`full` / abort / never-filtered) at extreme N — not the production success path.
+
+Limits of the figure: synthetic mix rather than a captured production session; RSS is a noisier upper bound (allocator fragmentation after freeing large transient strings); trial medians, not a single sample. These numbers do not justify an eviction policy for ordinary single-tenant sessions.
+
+Any future eviction policy must still preserve Git summaries, resize rendering, `/tree`, and `/shake`; deleting projections during payload retirement would lose required terminal evidence.
 
 ---
 
