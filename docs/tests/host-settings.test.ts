@@ -30,6 +30,13 @@ class FakeHostSettingsApi implements HostSettingsApi {
 	flushErrors: Error[] = [];
 	/** Errors consumed in order by successive persistent() calls. */
 	persistentErrors: Error[] = [];
+	/**
+	 * Optional per-flush holds: when set, each flush() awaits the next
+	 * promise in order before completing (or throwing). Lets tests park an
+	 * in-flight apply so a second apply can enqueue while the first still
+	 * owns the bridge.
+	 */
+	flushHolds: Array<Promise<void>> = [];
 
 	get(path: HostSettingPath): unknown {
 		if (this.overrides.has(path)) return this.overrides.get(path);
@@ -66,6 +73,8 @@ class FakeHostSettingsApi implements HostSettingsApi {
 
 	async flush(): Promise<void> {
 		this.flushCalls += 1;
+		const hold = this.flushHolds.shift();
+		if (hold) await hold;
 		const error = this.flushErrors.shift();
 		if (error) throw error;
 	}
@@ -426,18 +435,132 @@ describe("applyHostSettings: save, flush, no reload", () => {
 		expect(result).not.toHaveProperty("reloaded");
 	});
 
-	test("concurrent applies coalesce to one save and one flush", async () => {
+	test("concurrent applies with distinct payloads both land in order", async () => {
+		// Coalescing returned the first promise to every concurrent caller, so
+		// a second distinct payload was silently dropped. Serialize instead:
+		// each apply waits its turn, captures its own pre-image, and persists
+		// its own host argument.
 		const { bridge, api } = makeHarness();
-		const [first, second] = await Promise.all([
-			bridge.apply({ recapEnabled: false, thinkingBlocksVisible: false }),
-			bridge.apply({ recapEnabled: false, thinkingBlocksVisible: false }),
-		]);
-		expect(first).toEqual(second);
+		let releaseFirst!: () => void;
+		const firstHold = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		api.flushHolds = [firstHold];
+
+		const firstPromise = bridge.apply({
+			recapEnabled: false,
+			thinkingBlocksVisible: true,
+		});
+		// Spin until the first apply owns flush (parked on the hold).
+		for (let i = 0; i < 32 && api.flushCalls < 1; i++) await Promise.resolve();
+		expect(api.flushCalls).toBe(1);
+		expect(api.persistentCalls).toBe(1);
+
+		const secondPromise = bridge.apply({
+			recapEnabled: true,
+			thinkingBlocksVisible: false,
+		});
+		// Still only the first apply's pre-image/flush — second is queued.
+		for (let i = 0; i < 8; i++) await Promise.resolve();
+		expect(api.persistentCalls).toBe(1);
+		expect(api.flushCalls).toBe(1);
+
+		releaseFirst();
+		const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+		expect(first.changed).toEqual(["recapEnabled"]);
+		expect(second.changed).toEqual(["recapEnabled", "thinkingBlocksVisible"]);
+		// First write, then second write — never a dropped second payload.
 		expect(api.setCalls).toEqual([
 			["recap.enabled", false],
+			["recap.enabled", true],
 			["hideThinkingBlock", true],
 		]);
-		expect(api.flushCalls).toBe(1);
+		expect(api.flushCalls).toBe(2);
+		expect(api.persistentCalls).toBe(2);
+		expect(bridge.read()).toEqual({
+			recapEnabled: true,
+			thinkingBlocksVisible: false,
+		});
+	});
+
+	test("a failing first apply does not block a queued second apply", async () => {
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": true, hideThinkingBlock: false },
+		});
+		let releaseFirst!: () => void;
+		const firstHold = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		api.flushHolds = [firstHold];
+		api.flushErrors = [flushError("first-flush")];
+
+		const firstPromise = bridge.apply({ recapEnabled: false });
+		// Attach rejection handling before the flush fails so the harness
+		// never sees an unhandled rejection from the parked apply.
+		const firstSettled = firstPromise.then(
+			(value) => ({ ok: true as const, value }),
+			(error) => ({ ok: false as const, error }),
+		);
+		for (let i = 0; i < 32 && api.flushCalls < 1; i++) await Promise.resolve();
+		const secondPromise = bridge.apply({ thinkingBlocksVisible: false });
+
+		releaseFirst();
+		const firstOutcome = await firstSettled;
+		expect(firstOutcome.ok).toBe(false);
+		if (firstOutcome.ok) throw new Error("expected first apply to fail");
+		expect(firstOutcome.error).toBeInstanceOf(HostSettingsApplyError);
+		const second = await secondPromise;
+
+		expect(second.changed).toEqual(["thinkingBlocksVisible"]);
+		// First forward + rollback, then the second apply's forward write.
+		expect(api.setCalls).toEqual([
+			["recap.enabled", false],
+			["recap.enabled", true],
+			["hideThinkingBlock", true],
+		]);
+		// first flush (fail) + rollback flush + second apply flush
+		expect(api.flushCalls).toBe(3);
+		expect(api.persistentCalls).toBe(2);
+		expect(bridge.read()).toEqual({
+			recapEnabled: true,
+			thinkingBlocksVisible: false,
+		});
+	});
+
+	test("queued apply captures its own pre-image for rollback", async () => {
+		const { bridge, api } = makeHarness({
+			persistent: { "recap.enabled": true },
+		});
+		let releaseFirst!: () => void;
+		const firstHold = new Promise<void>((resolve) => {
+			releaseFirst = resolve;
+		});
+		api.flushHolds = [firstHold];
+
+		const firstPromise = bridge.apply({ recapEnabled: false });
+		for (let i = 0; i < 32 && api.flushCalls < 1; i++) await Promise.resolve();
+		const secondPromise = bridge.apply({ thinkingBlocksVisible: false });
+		releaseFirst();
+		const [first, second] = await Promise.all([firstPromise, secondPromise]);
+
+		// Second apply's rollback must restore the state after the first apply
+		// (recap already false), not the original true pre-image of the first.
+		await second.rollback();
+		expect(api.persistentValues.get("recap.enabled")).toBe(false);
+		expect(api.persistentValues.has("hideThinkingBlock")).toBe(false);
+		expect(bridge.read()).toEqual({
+			recapEnabled: false,
+			thinkingBlocksVisible: true,
+		});
+
+		// First apply's rollback still restores its own earlier pre-image.
+		await first.rollback();
+		expect(api.persistentValues.get("recap.enabled")).toBe(true);
+		expect(bridge.read()).toEqual({
+			recapEnabled: true,
+			thinkingBlocksVisible: true,
+		});
 	});
 
 	test("session switch after apply never re-applies", async () => {

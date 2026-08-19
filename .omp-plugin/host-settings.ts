@@ -250,7 +250,11 @@ export function createHostSettingsBridge(
 	const api = deps.api;
 	const warn = deps.warn ?? defaultWarn;
 	const warned = new Set<string>();
-	let inFlight: Promise<HostApplyResult> | null = null;
+	// Serial apply queue (same shape as config.ts `withUpdateQueue`): each
+	// call waits for the previous tail, then runs its own payload. Failures
+	// must not poison the chain — later applies still run with a fresh
+	// pre-image captured at their turn.
+	let applyQueue: Promise<unknown> = Promise.resolve();
 
 	function warnOnce(key: string, message: string): void {
 		if (warned.has(key)) return;
@@ -442,19 +446,27 @@ export function createHostSettingsBridge(
 		read,
 		/**
 		 * Persist host-facing toggles; flush; roll back on flush failure.
-		 * Concurrent calls are coalesced: a second apply that arrives while
-		 * one is in flight receives the first call's result — its `host`
-		 * argument is ignored. Callers that need independent saves must
-		 * await the current apply before issuing the next one.
+		 * Concurrent calls are serialized (not coalesced): each apply waits
+		 * for the previous one, then captures its own persistent pre-image
+		 * and writes its own `host` payload. A failed prior apply does not
+		 * drop or block a queued successor.
 		 */
 		apply(host: CompactHostSettings): Promise<HostApplyResult> {
-			// Coalesce concurrent applies (double-save guard): the in-flight
-			// save owns the single set + single flush.
-			if (inFlight) return inFlight;
-			inFlight = runApply(host).finally(() => {
-				inFlight = null;
+			const previous = applyQueue;
+			let release!: () => void;
+			const gate = new Promise<void>((resolve) => {
+				release = resolve;
 			});
-			return inFlight;
+			// Next callers await this gate; failures must not poison the tail.
+			applyQueue = previous.catch(() => undefined).then(() => gate);
+			return (async () => {
+				await previous.catch(() => undefined);
+				try {
+					return await runApply(host);
+				} finally {
+					release();
+				}
+			})();
 		},
 		dispose(): void {
 			warned.clear();
