@@ -13,6 +13,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The Russian README is now the repository default (`README.md`); the English version moved to `README.en.md` and is linked from the language navigation.
 - README на русском теперь является основным в репозитории (`README.md`); английская версия переехала в `README.en.md` и доступна по ссылке в языковой навигации.
 
+- Moved the pinned development and release-gate host to stock OMP 17.3.8 while retaining the public `>=17.2.12` compatibility floor; the stock capability canary now asserts the pin only after constructing host components so a version mismatch cannot skip seam probes.
+- Закреплённый development/release host переведён на штатный OMP 17.3.8 при сохранении публичного порога совместимости `>=17.2.12`; stock capability canary теперь проверяет pin только после создания host-компонентов, чтобы несовпадение версии не пропускало проверки seam'ов.
+
 ## [1.0.4] - 2026-08-17
 
 ### Fixed

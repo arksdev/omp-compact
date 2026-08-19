@@ -230,7 +230,7 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 ## Compatibility and documentation
 
-The supported range is **OMP 17.2.12 and later**. The release gate is pinned to stock OMP 17.3.1; newer versions are treated as compatible unless they change the private TUI shape. If that happens, capability checks fail open to native rendering—please report the OMP version and reproduction in a GitHub issue.
+The supported range is **OMP 17.2.12 and later**. The release gate is pinned to stock OMP 17.3.8; newer versions are treated as compatible unless they change the private TUI shape. If that happens, capability checks fail open to native rendering—please report the OMP version and reproduction in a GitHub issue.
 
 - [Full documentation](docs/FULL-DOCUMENTATION.md)
 - [Configuration](docs/CONFIGURATION.md)
