@@ -24,7 +24,34 @@ export interface AuditLifecycleOptions {
 	now?: () => number;
 	/** Injectable sleep for deterministic tests. */
 	sleep?: (ms: number) => Promise<void>;
+	/**
+	 * Optional diagnostic sink for swallowed audit failures. Keyed warn-once
+	 * by failure class (never by error message) so a sticky NFS/EIO path
+	 * cannot spam the operator. Defaults to `console.warn`. A failing sink
+	 * is itself swallowed — diagnostics must never change control flow.
+	 */
+	warn?: (message: string) => void;
 }
+
+/**
+ * Closed set of silent-failure classes the lifecycle may surface once.
+ * Keys are stable tokens — never an error string that could embed a path
+ * or user content (which would both leak and defeat deduplication).
+ *
+ * - `capture-failed` — pre-image capture rejected (confinement I/O, etc.).
+ * - `completion-failed` — post-image complete/publish or sync work threw.
+ * - `barrier-drop` — end-run drain timed out; outstanding work abandoned.
+ * - `chain-failed` — serialized `agent_end` link threw (e.g. endRun boom).
+ *
+ * Intentionally absent: terminal purge of unended pending records. That
+ * path is documented fail-closed behavior (FULL-DOCUMENTATION.md) and must
+ * stay silent — it is not a bug signal.
+ */
+export type AuditFailureClass =
+	| "capture-failed"
+	| "completion-failed"
+	| "barrier-drop"
+	| "chain-failed";
 
 export interface WriteStartInput {
 	toolCallId: string;
@@ -88,11 +115,16 @@ interface ResolvedOptions {
 	barrierMs: number;
 	now: () => number;
 	sleep: (ms: number) => Promise<void>;
+	warn: (message: string) => void;
 }
 
 const DEFAULT_BARRIER_MS = 5_000;
 
 const defaultNow = (): number => Date.now();
+
+function defaultWarn(message: string): void {
+	console.warn(`[omp-compact] ${message}`);
+}
 
 /** Drop retained pre-image bytes once evidence is done or abandoned. */
 function releaseCandidatePreImage(
@@ -162,6 +194,8 @@ export class AuditLifecycle {
 	 */
 	#agentEndChain: Promise<boolean> = Promise.resolve(false);
 	#generation = 0;
+	/** One warn per failure class for the life of this instance. */
+	#warned = new Set<AuditFailureClass>();
 
 	constructor(options: AuditLifecycleOptions) {
 		this.#options = {
@@ -170,7 +204,18 @@ export class AuditLifecycle {
 			barrierMs: options.barrierMs ?? DEFAULT_BARRIER_MS,
 			now: options.now ?? defaultNow,
 			sleep: options.sleep ?? defaultSleep,
+			warn: options.warn ?? defaultWarn,
 		};
+	}
+
+	#warnOnce(key: AuditFailureClass, message: string): void {
+		if (this.#warned.has(key)) return;
+		this.#warned.add(key);
+		try {
+			this.#options.warn(message);
+		} catch {
+			// A failing warning sink must never break the audit path.
+		}
 	}
 
 	/**
@@ -180,7 +225,13 @@ export class AuditLifecycle {
 	 */
 	startWrite(input: WriteStartInput): void {
 		this.#register(input.toolCallId, {
-			capture: this.#options.capture(input).catch(() => undefined),
+			capture: this.#options.capture(input).catch(() => {
+				this.#warnOnce(
+					"capture-failed",
+					"omp-compact: write audit capture-failed (evidence dropped)",
+				);
+				return undefined;
+			}),
 			payload: undefined,
 		});
 	}
@@ -230,6 +281,10 @@ export class AuditLifecycle {
 		})().catch(() => {
 			// Fail closed: an audit error must not crash the fire-and-forget
 			// handler, reject an untracked promise, or double-publish.
+			this.#warnOnce(
+				"completion-failed",
+				"omp-compact: write audit completion-failed (evidence dropped)",
+			);
 		});
 		this.#trackCompletion(record, completion);
 	}
@@ -249,6 +304,10 @@ export class AuditLifecycle {
 			work(record.payload);
 		})().catch(() => {
 			// Fail closed: bookkeeping errors never crash the session.
+			this.#warnOnce(
+				"completion-failed",
+				"omp-compact: sync audit completion-failed (evidence dropped)",
+			);
 		});
 		this.#trackCompletion(record, completion);
 	}
@@ -379,6 +438,10 @@ export class AuditLifecycle {
 					}
 				}
 				this.#signalChange();
+				this.#warnOnce(
+					"barrier-drop",
+					"omp-compact: audit barrier-drop (drain timed out; evidence dropped)",
+				);
 				return { settled: false, evidenceReady: false };
 			}
 			await this.#waitForChangeOrTimeout(remaining);
@@ -431,7 +494,13 @@ export class AuditLifecycle {
 				work();
 				return outcome.evidenceReady;
 			})
-			.catch(() => false);
+			.catch(() => {
+				this.#warnOnce(
+					"chain-failed",
+					"omp-compact: audit chain-failed (agent_end link dropped)",
+				);
+				return false;
+			});
 		this.#agentEndChain = link;
 		return link;
 	}
@@ -450,6 +519,8 @@ export class AuditLifecycle {
 		this.#pending.clear();
 		this.#records.clear();
 		this.#signalChange();
+		// host-settings / post-turn-shake: session boundary may re-warn.
+		this.#warned.clear();
 	}
 
 	#register(

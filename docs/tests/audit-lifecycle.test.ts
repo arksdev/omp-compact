@@ -53,21 +53,34 @@ interface Harness {
 	published: MutationMessageDetails[][];
 	completedWith: Array<MutationCandidate | undefined>;
 	clock: ManualClock;
+	warns: string[];
 }
 
-function harness(): Harness {
+function harness(options?: {
+	/** When set, startWrite's capture rejects with this error. */
+	captureError?: Error;
+	/** When set, complete rejects with this error. */
+	completeError?: Error;
+}): Harness {
 	const clock = new ManualClock();
 	const captures: Array<Deferred<MutationCandidate | undefined>> = [];
 	const completes: Array<Deferred<MutationMessageDetails[]>> = [];
 	const published: MutationMessageDetails[][] = [];
 	const completedWith: Array<MutationCandidate | undefined> = [];
+	const warns: string[] = [];
 	const life = new AuditLifecycle({
 		capture: () => {
+			if (options?.captureError) {
+				return Promise.reject(options.captureError);
+			}
 			const pending = deferred<MutationCandidate | undefined>();
 			captures.push(pending);
 			return pending.promise;
 		},
 		complete: (candidate, _result, _isError) => {
+			if (options?.completeError) {
+				return Promise.reject(options.completeError);
+			}
 			completedWith.push(candidate);
 			// The real completeWriteCandidate returns no evidence without a
 			// captured candidate (no-op write, unsupported target, error).
@@ -79,8 +92,9 @@ function harness(): Harness {
 		barrierMs: 5_000,
 		now: clock.now,
 		sleep: clock.sleep,
+		warn: (message) => warns.push(message),
 	});
-	return { life, captures, completes, published, completedWith, clock };
+	return { life, captures, completes, published, completedWith, clock, warns };
 }
 
 function candidate(id: string): MutationCandidate {
@@ -731,5 +745,123 @@ describe("agent_end serial chain", () => {
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
 		await flush();
 		expect(h.published).toEqual([]);
+	});
+});
+
+describe("warn-once on silent audit failures", () => {
+	test("a failing capture warns exactly once across repeated failures", async () => {
+		const h = harness({ captureError: new Error("EIO nfs stale") });
+		h.life.startWrite(writeStart("w1"));
+		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
+		await flush();
+		h.life.startWrite(writeStart("w2"));
+		h.life.endWrite(writeEnd("w2"), (mutations) => h.published.push(mutations));
+		await flush();
+
+		// Fail-closed: nothing published, nothing thrown.
+		expect(h.published).toEqual([]);
+		expect(h.completes).toHaveLength(0);
+		// One warn per class for the life of the lifecycle — not per call.
+		expect(h.warns).toHaveLength(1);
+		expect(h.warns[0]).toContain("capture-failed");
+		// Message must not embed the raw error string (path/user content risk).
+		expect(h.warns[0]).not.toContain("EIO nfs stale");
+	});
+
+	test("control flow is unchanged: capture still resolves undefined and never throws", async () => {
+		const h = harness({ captureError: new Error("boom") });
+		expect(() => h.life.startWrite(writeStart("w1"))).not.toThrow();
+		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
+		await flush();
+		// Same fail-closed outcome as a quiet capture miss: no publish.
+		expect(h.published).toEqual([]);
+		expect(h.completedWith).toEqual([undefined]);
+	});
+
+	test("a different failure class warns separately", async () => {
+		const sharedWarns: string[] = [];
+		let mode: "capture-fail" | "complete-fail" = "capture-fail";
+		const shared = new AuditLifecycle({
+			capture: () => {
+				if (mode === "capture-fail") {
+					return Promise.reject(new Error("capture boom"));
+				}
+				return Promise.resolve(candidate("ok"));
+			},
+			complete: async () => {
+				if (mode === "complete-fail") throw new Error("complete boom");
+				return [];
+			},
+			barrierMs: 5_000,
+			now: () => 0,
+			sleep: async () => {},
+			warn: (message) => sharedWarns.push(message),
+		});
+		shared.startWrite(writeStart("c1"));
+		shared.endWrite(writeEnd("c1"), () => {});
+		await flush();
+		mode = "complete-fail";
+		shared.startWrite(writeStart("c2"));
+		shared.endWrite(writeEnd("c2"), () => {});
+		await flush();
+		expect(sharedWarns).toHaveLength(2);
+		expect(sharedWarns[0]).toContain("capture-failed");
+		expect(sharedWarns[1]).toContain("completion-failed");
+	});
+
+	test("a barrier timeout warns once as barrier-drop and still returns false", async () => {
+		const h = harness();
+		h.life.startWrite(writeStart("w1"));
+		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
+		const link = h.life.enqueueAgentEnd(h.life.snapshot(), true, () => {
+			// should not run — timeout abandons before work
+		});
+		await flush();
+		h.clock.advance(5_000);
+		await flush();
+		expect(await link).toBe(false);
+		expect(h.warns.filter((w) => w.includes("barrier-drop"))).toHaveLength(1);
+		// Same class again stays silent.
+		h.life.startWrite(writeStart("w2"));
+		h.life.endWrite(writeEnd("w2"), (mutations) => h.published.push(mutations));
+		const link2 = h.life.enqueueAgentEnd(h.life.snapshot(), true, () => {});
+		await flush();
+		h.clock.advance(5_000);
+		await flush();
+		expect(await link2).toBe(false);
+		expect(h.warns.filter((w) => w.includes("barrier-drop"))).toHaveLength(1);
+	});
+
+	test("documented terminal purge stays silent", async () => {
+		const h = harness();
+		h.life.startWrite(writeStart("w1")); // pending; end never arrives
+		const link = h.life.enqueueAgentEnd(h.life.snapshot(), true, () => {});
+		await flush();
+		expect(await link).toBe(false);
+		// Terminal purge is documented fail-closed behavior — no warn noise.
+		expect(h.warns).toEqual([]);
+	});
+
+	test("a throwing finalization warns as chain-failed once and keeps the chain moving", async () => {
+		const h = harness();
+		const order: string[] = [];
+		const first = h.life.enqueueAgentEnd(h.life.snapshot(), true, () => {
+			throw new Error("endRun boom");
+		});
+		const second = h.life.enqueueAgentEnd(h.life.snapshot(), true, () =>
+			order.push("after-boom"),
+		);
+		await flush();
+		expect(await first).toBe(false);
+		expect(await second).toBe(true);
+		expect(order).toEqual(["after-boom"]);
+		expect(h.warns.filter((w) => w.includes("chain-failed"))).toHaveLength(1);
+		// Second boom stays silent.
+		const third = h.life.enqueueAgentEnd(h.life.snapshot(), true, () => {
+			throw new Error("endRun boom again");
+		});
+		await flush();
+		expect(await third).toBe(false);
+		expect(h.warns.filter((w) => w.includes("chain-failed"))).toHaveLength(1);
 	});
 });

@@ -298,6 +298,51 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// mode governs: settings changes (including global disable) apply only at
 	// the next idle boundary, never mid-run.
 	let runActive = false;
+	/**
+	 * Decorative UI failures (stats row, scrollback replay, payload retire,
+	 * post-shake dispatch): warn once per class for the plugin instance.
+	 * Never shares {@link adapterFailureWarned} — that flag is session-
+	 * terminal disable signaling, not decorative noise control.
+	 * Cleared on session dispose so a later session may re-signal.
+	 */
+	const decorativeWarned = new Set<
+		| "decorative-stats-failed"
+		| "decorative-scrollback-failed"
+		| "decorative-retire-failed"
+		| "decorative-shake-failed"
+	>();
+	function warnDecorativeOnce(
+		key:
+			| "decorative-stats-failed"
+			| "decorative-scrollback-failed"
+			| "decorative-retire-failed"
+			| "decorative-shake-failed",
+		message: string,
+		context?: ExtensionContext,
+	): void {
+		if (decorativeWarned.has(key)) return;
+		decorativeWarned.add(key);
+		try {
+			const notify = (
+				context?.ui as
+					| (ExtensionContext["ui"] & {
+							notify?: (message: string, level: "warning") => void;
+					  })
+					| undefined
+			)?.notify;
+			if (typeof notify === "function" && context) {
+				notify.call(context.ui, message, "warning");
+				return;
+			}
+			console.warn(`[omp-compact] ${message}`);
+		} catch {
+			// Best-effort: the warning itself must never throw.
+		}
+	}
+	// Audit lifecycle owns its own class-keyed warn-once (capture/completion/
+	// barrier/chain). Constructed without a live ExtensionContext, so the
+	// sink is console.warn — same default as host-settings/config. The
+	// adapter's `warn` callback is reserved for session-terminal disable.
 	const auditLifecycle = new AuditLifecycle({
 		capture: captureWriteCandidate,
 		complete: completeWriteCandidate,
@@ -311,7 +356,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	const pendingTerminalStats = new Map<string, PendingTerminalStats>();
 	// `agent_end` serialization lives inside the lifecycle's
 	// `enqueueAgentEnd` (generation-guarded chain; see audit-lifecycle.ts).
-
 	// AdapterFailOpenFix: warn once per failure episode through the available
 	// UI notification seam. A failing or absent notify (headless/RPC) must
 	// never throw into the event stream.
@@ -435,6 +479,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						} catch {
 							// A stats failure must not suppress the independent terminal
 							// scrollback replay or disturb the answer.
+							warnDecorativeOnce(
+								"decorative-stats-failed",
+								"omp-compact: decorative-stats-failed (usage row skipped)",
+								context,
+							);
 						}
 					}
 					try {
@@ -446,6 +495,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					} catch {
 						// Missing/incompatible capability, pending generation,
 						// disposal or an adapter exception fails open.
+						warnDecorativeOnce(
+							"decorative-scrollback-failed",
+							"omp-compact: decorative-scrollback-failed (native replay skipped)",
+							context,
+						);
 					}
 					try {
 						// C10: once the filtered projection (including optional
@@ -456,6 +510,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						candidate?.retireFilteredPayloads(runId);
 					} catch {
 						// Memory retirement is optional decoration; fail open.
+						warnDecorativeOnce(
+							"decorative-retire-failed",
+							"omp-compact: decorative-retire-failed (payload retention kept)",
+							context,
+						);
 					}
 				},
 				statsRenderer: (evidence) => {
@@ -544,6 +603,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			return true;
 		} catch {
 			pendingTerminalStats.delete(runId);
+			warnDecorativeOnce(
+				"decorative-stats-failed",
+				"omp-compact: decorative-stats-failed (usage row skipped)",
+				context,
+			);
 			return false;
 		}
 	}
@@ -884,7 +948,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				if (!drained) return undefined;
 				return postShake.onAgentEnd(event, context);
 			})
-			.catch(() => undefined);
+			.catch(() => {
+				// postShake is fail-open; this catch is defensive only.
+				warnDecorativeOnce(
+					"decorative-shake-failed",
+					"omp-compact: decorative-shake-failed (auto-shake skipped)",
+					context,
+				);
+				return undefined;
+			});
 		// Return the drain promise so an awaited dispatch (or the extension
 		// runner) observes the evidence before agent_end settles; stock's
 		// fire-and-forget emission ignores it.
@@ -917,6 +989,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		pendingTerminalStats.clear();
 		// PostTurnShake: abort any in-flight shake and disarm stale settings.
 		postShake.dispose();
+		// Decorative warn-once may re-signal after a session boundary.
+		decorativeWarned.clear();
 	}
 
 	pi.on("session_before_switch", async () => {
