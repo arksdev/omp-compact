@@ -18,6 +18,14 @@ interface RenderModule {
 		width?: number,
 		displayPaths?: DisplayPathOptions,
 	): readonly string[];
+	renderInjectRuleRows(
+		rules: readonly { name: string; body?: string }[],
+		theme: Theme,
+		width?: number,
+	): readonly string[];
+	injectRulesFromTtsrComponent(
+		block: unknown,
+	): readonly { name: string; body?: string }[] | undefined;
 	gitLine(entry: GitMessageDetails, theme: Theme): string;
 	gitMessageComponent(
 		details: GitMessageDetails | undefined,
@@ -1272,5 +1280,114 @@ describe("structured title colors", () => {
 		);
 		expect(line ?? "").not.toContain("\x1b[31m");
 		expect(stripAnsi(line ?? "")).toBe("• custom tool: value: red");
+	});
+});
+
+describe("inject rule rows", () => {
+	const INJECT_GREEN = Bun.color("#A4D734", "ansi-16m") ?? "";
+
+	function renderInject(
+		rules: readonly { name: string; body?: string }[],
+		width?: number,
+	): readonly string[] {
+		return renderModule.renderInjectRuleRows(rules, fakeTheme(), width);
+	}
+
+	test("marker inject is green and the rest stays dim ordinary tool chrome", () => {
+		const [line] = renderInject([
+			{ name: "no-secrets", body: "never log tokens" },
+		]);
+		expect(stripAnsi(line ?? "")).toBe("• inject: no-secrets");
+		expect(line ?? "").toContain(INJECT_GREEN);
+		// Only the literal marker carries the fixed green; the bullet and name stay dim.
+		const afterMarker = (line ?? "").split("inject").slice(1).join("inject");
+		expect(afterMarker).not.toContain(INJECT_GREEN);
+		expect(line ?? "").not.toContain("\x1b[48;");
+		expect(line ?? "").not.toContain("\x1b[49m");
+	});
+
+	test("body lines stay gray without a card background", () => {
+		const rows = renderInject([
+			{ name: "wrap", body: "first line\nsecond line" },
+		]);
+		expect(rows.map((row) => stripAnsi(row))).toEqual([
+			"• inject: wrap",
+			"first line",
+			"second line",
+		]);
+		for (const row of rows) {
+			expect(row).not.toContain("\x1b[48;");
+			expect(row).not.toContain("\x1b[49m");
+		}
+		expect(rows[1] ?? "").not.toContain(INJECT_GREEN);
+	});
+
+	test("ANSI and control characters in rule payload are stripped", () => {
+		const rows = renderInject([
+			{
+				name: "\x1b[31mred\x1b[0m",
+				body: "safe\x1b[48;2;255;0;0mcard\x1b[49m",
+			},
+		]);
+		expect(stripAnsi(rows[0] ?? "")).toBe("• inject: red");
+		expect(rows[0] ?? "").not.toContain("\x1b[31m");
+		expect(rows[1] ?? "").not.toContain("\x1b[48;");
+		expect(stripAnsi(rows[1] ?? "")).toBe("safecard");
+	});
+
+	test("overflowing inject rows fit width without padding a background", () => {
+		const [line] = renderInject(
+			[{ name: "x".repeat(80), body: "y".repeat(80) }],
+			20,
+		);
+		expect(stripAnsi(line ?? "").length).toBeLessThanOrEqual(20);
+		expect(line ?? "").not.toContain("\x1b[48;");
+	});
+
+	test("extractor recovers single-rule TTSR trees via public children/getText", () => {
+		const tree = {
+			children: [
+				{ getText: () => "⚠ Injecting rule: sticky-rule  ↺" },
+				{
+					children: [
+						{ getText: () => "Keep the why distilled." },
+						{ getText: () => " (ctrl+o to expand)" },
+					],
+				},
+			],
+			render() {
+				return [];
+			},
+		};
+		expect(renderModule.injectRulesFromTtsrComponent(tree)).toEqual([
+			{ name: "sticky-rule", body: "Keep the why distilled." },
+		]);
+	});
+
+	test("extractor recovers multi-rule TTSR trees and skips expand hints", () => {
+		const tree = {
+			children: [
+				{ getText: () => "⚠ Injecting 2 rules:  ↺" },
+				{ getText: () => "alpha: first body" },
+				{ getText: () => "beta: second body" },
+				{ getText: () => " (ctrl+o to expand)" },
+			],
+			render() {
+				return [];
+			},
+		};
+		expect(renderModule.injectRulesFromTtsrComponent(tree)).toEqual([
+			{ name: "alpha", body: "first body" },
+			{ name: "beta", body: "second body" },
+		]);
+	});
+
+	test("extractor fails open on unrecognized trees", () => {
+		expect(renderModule.injectRulesFromTtsrComponent({})).toBeUndefined();
+		expect(
+			renderModule.injectRulesFromTtsrComponent({
+				children: [{ getText: () => "not an inject header" }],
+			}),
+		).toBeUndefined();
 	});
 });

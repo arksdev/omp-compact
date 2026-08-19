@@ -19,6 +19,9 @@ import {
 
 const ADDED_STAT_COLOR = "#A4D734";
 const REMOVED_STAT_COLOR = "#A1471A";
+/** Green marker for the literal `inject` title — same ink as resolve/stats. */
+const INJECT_TITLE_COLOR = "#A4D734";
+
 /**
  * Strip ANSI CSI (ESC[) and OSC (ESC]) sequences. Simpler than git-records.ts
  * `oneLine` (which also handles partial escapes and skip logic); this variant
@@ -89,6 +92,13 @@ export interface CompactToolView {
 	git?: GitMessageDetails;
 }
 
+/** One injected rule as presented by the compact inject row. */
+export interface InjectRuleView {
+	name: string;
+	/** Optional rule description/content; may be multi-line. */
+	body?: string;
+}
+
 export class CompactLines implements Component {
 	readonly #lines: readonly string[];
 
@@ -157,6 +167,104 @@ function settledMeta(
 function fixedForeground(hex: string, text: string): string {
 	const ansi = Bun.color(hex, "ansi-16m");
 	return ansi ? `${ansi}${text}\u001b[39m` : text;
+}
+
+function collectComponentTexts(node: unknown, out: string[]): void {
+	if (!node || typeof node !== "object") return;
+	const candidate = node as {
+		getText?: () => unknown;
+		children?: unknown;
+	};
+	if (typeof candidate.getText === "function") {
+		const text = candidate.getText();
+		if (typeof text === "string" && text.length > 0) out.push(text);
+	}
+	if (Array.isArray(candidate.children)) {
+		for (const child of candidate.children) collectComponentTexts(child, out);
+	}
+}
+
+/**
+ * Recover the injected rule name(s) and body text from a live stock TTSR
+ * notification component. Walks public `children` / `getText()` only — never
+ * touches private fields. Returns `undefined` when the tree is not the
+ * expected inject card so callers can fail open to native rendering.
+ */
+export function injectRulesFromTtsrComponent(
+	block: unknown,
+): readonly InjectRuleView[] | undefined {
+	const texts: string[] = [];
+	collectComponentTexts(block, texts);
+	if (texts.length === 0) return undefined;
+	// Keep the raw header long enough to split name from the trailing rewind
+	// icon (stock uses two spaces); only then collapse residual whitespace.
+	const rawHeader = stripControl(stripAnsi(texts[0] ?? "")).trim();
+	const single = rawHeader.match(/Injecting rule:\s*(.+)$/i);
+	if (single?.[1] !== undefined) {
+		const name = sanitizeOneLine(single[1].split(/\s{2,}/)[0] ?? single[1], 80);
+		if (!name) return undefined;
+		const body = texts
+			.slice(1)
+			.map((line) => stripControl(stripAnsi(line)))
+			.join("\n")
+			.replace(/\s*\(ctrl\+o to expand\)\s*/gi, "\n")
+			.trim();
+		return Object.freeze([{ name, body: body || undefined }]);
+	}
+	const header = rawHeader.replace(/\s+/g, " ");
+	if (!/Injecting\s+\d+\s+rules:/i.test(header)) return undefined;
+	const rules: InjectRuleView[] = [];
+	for (const raw of texts.slice(1)) {
+		const plain = stripControl(stripAnsi(raw)).replace(/\s+/g, " ").trim();
+		if (!plain) continue;
+		if (/\(ctrl\+o to expand\)/i.test(plain)) continue;
+		if (
+			/^…\s*\+\d+\s+more/i.test(plain) ||
+			/^\.\.\.\s*\+\d+\s+more/i.test(plain)
+		)
+			continue;
+		const split = plain.indexOf(": ");
+		if (split === -1) {
+			const name = sanitizeOneLine(plain, 80);
+			if (name) rules.push({ name });
+			continue;
+		}
+		const name = sanitizeOneLine(plain.slice(0, split), 80);
+		if (!name) continue;
+		const body = sanitizeOneLine(plain.slice(split + 2), MAX_DESCRIPTION);
+		rules.push(body ? { name, body } : { name });
+	}
+	return rules.length > 0 ? Object.freeze(rules.slice()) : undefined;
+}
+
+/**
+ * Compact inject rows: ordinary gray tool chrome (`•` + dim payload) with only
+ * the literal marker `inject` in green. No background/card sequences.
+ */
+export function renderInjectRuleRows(
+	rules: readonly InjectRuleView[],
+	theme: Theme,
+	width?: number,
+): readonly string[] {
+	if (rules.length === 0) return [];
+	const rows: string[] = [];
+	const bullet = theme.fg("dim", "•");
+	const title = fixedForeground(INJECT_TITLE_COLOR, "inject");
+	for (const rule of rules) {
+		const name = sanitizeOneLine(rule.name, 80);
+		const suffix = name ? theme.fg("dim", `: ${name}`) : "";
+		rows.push(fitTransparentLine(`${bullet} ${title}${suffix}`, width));
+		const body = typeof rule.body === "string" ? rule.body : "";
+		if (!body) continue;
+		// Preserve author line breaks; strip host ANSI/control per line so a
+		// hostile rule body cannot reintroduce a card background or spoof ink.
+		for (const segment of body.split(/\r\n|\n|\r/)) {
+			const line = sanitizeOneLine(segment, MAX_DESCRIPTION);
+			if (!line) continue;
+			rows.push(fitTransparentLine(theme.fg("dim", line), width));
+		}
+	}
+	return rows;
 }
 
 function mutationStat(

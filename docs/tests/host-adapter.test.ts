@@ -6,6 +6,7 @@ import {
 	isReadGroupComponent,
 	isToolComponent,
 	isTranscriptHost,
+	isTtsrNotificationComponent,
 	leafCapabilities,
 	removeEntryToolCallId,
 	renameEntryIds,
@@ -163,6 +164,35 @@ describe("host shape guards", () => {
 			seal() {},
 		};
 		expect(isToolComponent(partialTool)).toBe(false);
+	});
+
+	test("isTtsrNotificationComponent matches TTSR surface and rejects tools/todos", () => {
+		const ttsr = {
+			render() {
+				return [] as const;
+			},
+			addRules() {},
+			setExpanded() {},
+			setToolActivityVisible() {},
+		};
+		expect(isTtsrNotificationComponent(ttsr)).toBe(true);
+		expect(isToolComponent(ttsr)).toBe(false);
+		expect(isReadGroupComponent(ttsr)).toBe(false);
+
+		// Todo reminder: activity control only, no addRules.
+		expect(
+			isTtsrNotificationComponent({
+				render() {
+					return [] as const;
+				},
+				setToolActivityVisible() {},
+			}),
+		).toBe(false);
+
+		// Full tool leaf must never classify as TTSR.
+		expect(isTtsrNotificationComponent(new ToolComponent())).toBe(false);
+		expect(isTtsrNotificationComponent(null)).toBe(false);
+		expect(isTtsrNotificationComponent({})).toBe(false);
 	});
 });
 

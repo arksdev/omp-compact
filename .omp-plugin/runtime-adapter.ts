@@ -6,12 +6,18 @@ import {
 	isReadGroupComponent,
 	isToolComponent,
 	isTranscriptHost,
+	isTtsrNotificationComponent,
 	transcriptCapabilities,
 } from "./host-adapter";
 import type { GitMessageDetails, MutationMessageDetails } from "./messages";
 import { DEFAULT_RUN_MODE, type ModePolicy } from "./mode-policy";
-import type { DescriptorPatch } from "./patch-kit";
-import { renderCompactToolRows, terminalGitSummaryLine } from "./render";
+import { DescriptorPatch } from "./patch-kit";
+import {
+	injectRulesFromTtsrComponent,
+	renderCompactToolRows,
+	renderInjectRuleRows,
+	terminalGitSummaryLine,
+} from "./render";
 import { decideReadGroupRender, decideToolRender } from "./render-decision";
 import type { RunStatsEvidence } from "./run-stats";
 import {
@@ -134,6 +140,8 @@ export class RuntimeAdapter {
 	readonly #warn: ((message: string) => void) | undefined;
 	readonly #session: RuntimeSessionState;
 	readonly #patchedComponents = new Map<object, DescriptorPatch>();
+	/** Exact-instance TTSR notification render overrides (not fold-owned). */
+	readonly #ttsrPatches = new Map<object, DescriptorPatch>();
 	readonly #discoveryPatches = new Map<object, DescriptorPatch>();
 	#transcript: TranscriptHost | undefined;
 	#fold: TranscriptFold | undefined;
@@ -455,6 +463,8 @@ export class RuntimeAdapter {
 		this.#fold = undefined;
 		for (const patch of this.#patchedComponents.values()) patch.restore();
 		this.#patchedComponents.clear();
+		for (const patch of this.#ttsrPatches.values()) patch.restore();
+		this.#ttsrPatches.clear();
 		for (const patch of this.#transcriptPatches) patch.restore();
 		this.#transcriptPatches.length = 0;
 		this.#removeDiscoveryPatches();
@@ -513,6 +523,8 @@ export class RuntimeAdapter {
 		}
 		for (const patch of this.#patchedComponents.values()) patch.restore();
 		this.#patchedComponents.clear();
+		for (const patch of this.#ttsrPatches.values()) patch.restore();
+		this.#ttsrPatches.clear();
 	}
 
 	/** One generation-guarded settlement microtask per boundary. */
@@ -867,9 +879,62 @@ export class RuntimeAdapter {
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
 			return;
 		}
+		if (isTtsrNotificationComponent(child)) {
+			this.#patchTtsrNotification(child);
+			return;
+		}
 		if (isToolComponent(child)) {
 			this.#patchToolComponent(child);
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
+		}
+	}
+
+	/**
+	 * Override stock TTSR card chrome with ordinary gray tool rows and a green
+	 * `inject` marker. Exact-instance render wrap only — never folded into a
+	 * tool run. Unrecognized trees fail open to the native renderer.
+	 */
+	#patchTtsrNotification(component: RenderableBlock): void {
+		if (this.#ttsrPatches.has(component)) return;
+		const own = Object.getOwnPropertyDescriptor(component, "render");
+		const proto = Object.getPrototypeOf(component) as object | null;
+		const inherited =
+			proto && proto !== Object.prototype
+				? Object.getOwnPropertyDescriptor(proto, "render")
+				: undefined;
+		const original =
+			typeof own?.value === "function"
+				? (own.value as (
+						this: RenderableBlock,
+						width: number,
+					) => readonly string[])
+				: typeof inherited?.value === "function"
+					? (inherited.value as (
+							this: RenderableBlock,
+							width: number,
+						) => readonly string[])
+					: undefined;
+		if (!original) return;
+		const adapter = this;
+		try {
+			const patch = new DescriptorPatch(component, ["render"]);
+			patch.install({
+				render: {
+					configurable: true,
+					writable: true,
+					value(this: RenderableBlock, width: number): readonly string[] {
+						if (adapter.#disposed) return original.call(this, width);
+						const theme = adapter.#ui.theme;
+						if (!theme) return original.call(this, width);
+						const rules = injectRulesFromTtsrComponent(this);
+						if (!rules) return original.call(this, width);
+						return renderInjectRuleRows(rules, theme, width);
+					},
+				},
+			});
+			this.#ttsrPatches.set(component, patch);
+		} catch {
+			// Capability skew fails open: leave the stock yellow card alone.
 		}
 	}
 

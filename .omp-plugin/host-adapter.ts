@@ -256,6 +256,27 @@ export function isReadGroupComponent(value: unknown): value is RenderableBlock {
 }
 
 /**
+ * Stock TTSR notification fingerprint (OMP 17.3.1 `TtsrNotificationComponent`):
+ * `addRules` + expand/activity controls, without the tool execution surface.
+ * Todo reminders share `setToolActivityVisible` but never expose `addRules`.
+ */
+export function isTtsrNotificationComponent(
+	value: unknown,
+): value is RenderableBlock {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Record<string, unknown>;
+	if (typeof candidate.render !== "function") return false;
+	if (typeof candidate.addRules !== "function") return false;
+	if (typeof candidate.setExpanded !== "function") return false;
+	if (typeof candidate.setToolActivityVisible !== "function") return false;
+	// Tool leaves also expose setToolActivityVisible; the call surface is the
+	// discriminator so a future host method mix-in cannot misclassify a tool.
+	if (typeof candidate.updateArgs === "function") return false;
+	if (typeof candidate.updateResult === "function") return false;
+	return true;
+}
+
+/**
  * OMP 17.3.1 argument positions. `updateArgs` carries
  * `(payload, toolCallId)`; the read group's `updateResult` carries
  * `(result, isPartial, toolCallId)` while the tool component's
