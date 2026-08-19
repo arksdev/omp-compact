@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 export type CompactMode = "compact" | "live" | "clear";
 
@@ -119,19 +119,63 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
  * Resolve the plugin config file path. Precedence:
  * `OMP_COMPACT_CONFIG` > `PI_CODING_AGENT_DIR/omp-compact/config.json` >
  * `~/<PI_CONFIG_DIR|.omp>[/profiles/<PI_PROFILE>]/agent/omp-compact/config.json`.
+ *
+ * Env-derived segments are validated before use: `PI_PROFILE` must be a
+ * single path token (no separators, no `..`, non-empty), and both
+ * `OMP_COMPACT_CONFIG` and `PI_CONFIG_DIR` must resolve under the user's
+ * home. Rejected values fall through silently to the next precedence /
+ * default layout — same fail-open shape as every other unusable input in
+ * this module's load path (no throw, no warn at resolve time).
  */
 export function resolveConfigPath(env: EnvLike): string {
+	const home = env.HOME ?? env.USERPROFILE ?? homedir();
 	const explicit = env.OMP_COMPACT_CONFIG;
-	if (explicit) return explicit;
+	if (explicit && isPathInsideHome(explicit, home)) return explicit;
 	const agentDir = env.PI_CODING_AGENT_DIR;
 	if (agentDir) return join(agentDir, "omp-compact", "config.json");
-	const home = env.HOME ?? env.USERPROFILE ?? homedir();
-	const configRoot = env.PI_CONFIG_DIR || ".omp";
-	const profile = env.PI_PROFILE;
+	// Rejected PI_CONFIG_DIR falls back to the stock ".omp" root silently.
+	const configRoot =
+		env.PI_CONFIG_DIR && isPathInsideHome(env.PI_CONFIG_DIR, home)
+			? env.PI_CONFIG_DIR
+			: ".omp";
+	const profile = sanitizeProfileToken(env.PI_PROFILE);
 	const agentBase = profile
 		? join(home, configRoot, "profiles", profile, "agent")
 		: join(home, configRoot, "agent");
 	return join(agentBase, "omp-compact", "config.json");
+}
+
+/** Single path segment for PI_PROFILE: no separators, no `..`, non-empty. */
+const SAFE_PROFILE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function sanitizeProfileToken(profile: string | undefined): string | undefined {
+	if (profile === undefined || profile === "") return undefined;
+	if (profile.includes("..")) return undefined;
+	if (
+		profile.includes("/") ||
+		profile.includes("\\") ||
+		profile.includes(sep)
+	) {
+		return undefined;
+	}
+	if (!SAFE_PROFILE_TOKEN.test(profile)) return undefined;
+	return profile;
+}
+
+/**
+ * True when `candidate` resolves to a path at or under `home`. Relative
+ * candidates are resolved against `home` (so `PI_CONFIG_DIR=.omp` stays the
+ * historical `~/…` layout). Absolute candidates must still live under home.
+ */
+function isPathInsideHome(candidate: string, home: string): boolean {
+	if (candidate === "") return false;
+	const homeResolved = resolve(home);
+	const resolved = isAbsolute(candidate)
+		? resolve(candidate)
+		: resolve(homeResolved, candidate);
+	if (resolved === homeResolved) return true;
+	const prefix = homeResolved.endsWith(sep) ? homeResolved : homeResolved + sep;
+	return resolved.startsWith(prefix);
 }
 
 type BoundedParseResult =

@@ -13,8 +13,8 @@ import { join } from "node:path";
 
 import {
 	type CompactSettings,
-	createSettingsStore,
 	ConfigUpdateError,
+	createSettingsStore,
 	DEFAULT_SETTINGS,
 	MAX_CONFIG_BYTES,
 	MAX_THRESHOLD_TOKENS,
@@ -96,7 +96,7 @@ describe("defaults", () => {
 
 describe("resolveConfigPath", () => {
 	const env = {
-		OMP_COMPACT_CONFIG: "/tmp/override.json",
+		OMP_COMPACT_CONFIG: "/home/user/.omp/override.json",
 		PI_CODING_AGENT_DIR: "/tmp/agent-dir",
 		PI_CONFIG_DIR: ".omp",
 		PI_PROFILE: "work",
@@ -104,7 +104,7 @@ describe("resolveConfigPath", () => {
 	};
 
 	test("OMP_COMPACT_CONFIG wins over everything", () => {
-		expect(resolveConfigPath(env)).toBe("/tmp/override.json");
+		expect(resolveConfigPath(env)).toBe("/home/user/.omp/override.json");
 	});
 
 	test("agent dir env is used when no explicit config path", () => {
@@ -135,6 +135,88 @@ describe("resolveConfigPath", () => {
 		expect(resolveConfigPath({})).toBe(
 			`${process.env.HOME}/.omp/agent/omp-compact/config.json`,
 		);
+	});
+
+	test("rejects a profile token with a path separator and falls back", () => {
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				PI_PROFILE: "work/../evil",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				PI_PROFILE: "work\\evil",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+	});
+
+	test("rejects a profile token containing .. and falls back", () => {
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				PI_PROFILE: "..",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				PI_PROFILE: "work..prod",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+	});
+
+	test("rejects empty profile token and falls back", () => {
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				PI_PROFILE: "",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+	});
+
+	test("rejects PI_CONFIG_DIR that escapes home and falls back to .omp", () => {
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				PI_CONFIG_DIR: "../etc",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				PI_CONFIG_DIR: "/tmp/outside",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+	});
+
+	test("rejects OMP_COMPACT_CONFIG outside home and falls through", () => {
+		// Explicit path is highest precedence, but still must stay under home.
+		// Rejected values fall through to the next precedence silently — same
+		// fail-open shape as every other unusable env segment here.
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				OMP_COMPACT_CONFIG: "/tmp/evil-config.json",
+				PI_CODING_AGENT_DIR: "/tmp/agent-dir",
+			}),
+		).toBe("/tmp/agent-dir/omp-compact/config.json");
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				OMP_COMPACT_CONFIG: "/etc/omp-compact.json",
+			}),
+		).toBe("/home/user/.omp/agent/omp-compact/config.json");
+	});
+
+	test("accepts OMP_COMPACT_CONFIG under home", () => {
+		expect(
+			resolveConfigPath({
+				HOME: "/home/user",
+				OMP_COMPACT_CONFIG: "/home/user/.omp/custom-config.json",
+			}),
+		).toBe("/home/user/.omp/custom-config.json");
 	});
 });
 
