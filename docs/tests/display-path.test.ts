@@ -4,9 +4,11 @@ import {
 	type DisplayPathOptions,
 	displayPathValue,
 	relativizePath,
+	resolveSessionCwd,
 } from "../../.omp-plugin/display-path";
 
 const PROJECT = "/Volumes/Storage2T/Projects/orca-plugins";
+const MOVED = "/Volumes/Storage2T/Projects/moved-root";
 
 function options(
 	overrides: Partial<DisplayPathOptions> = {},
@@ -220,5 +222,91 @@ describe("displayPathValue", () => {
 		expect(
 			displayPathValue(`${PROJECT}/a.ts`, options({ cwd: `${PROJECT}/` })),
 		).toBe("a.ts");
+	});
+});
+
+describe("resolveSessionCwd", () => {
+	test("prefers sessionManager.getCwd over the snapshot context.cwd", () => {
+		// Mid-session /move updates SessionManager.#cwd without rebuilding
+		// ExtensionContext; the snapshot field stays at the old root.
+		const cwd = resolveSessionCwd({
+			cwd: PROJECT,
+			sessionManager: { getCwd: () => MOVED },
+		});
+		expect(cwd).toBe(MOVED);
+		// Behavior: paths under the live root compact; the stale snapshot does not.
+		expect(displayPathValue(`${MOVED}/src/a.ts`, { cwd, enabled: true })).toBe(
+			"src/a.ts",
+		);
+		expect(
+			displayPathValue(`${MOVED}/src/a.ts`, {
+				cwd: PROJECT,
+				enabled: true,
+			}),
+		).toBe(`${MOVED}/src/a.ts`);
+	});
+
+	test("falls back to context.cwd when sessionManager is missing", () => {
+		expect(resolveSessionCwd({ cwd: PROJECT })).toBe(PROJECT);
+		expect(resolveSessionCwd({ cwd: PROJECT, sessionManager: null })).toBe(
+			PROJECT,
+		);
+		expect(resolveSessionCwd({ cwd: PROJECT, sessionManager: 42 })).toBe(
+			PROJECT,
+		);
+	});
+
+	test("falls back to context.cwd when getCwd is missing", () => {
+		expect(resolveSessionCwd({ cwd: PROJECT, sessionManager: {} })).toBe(
+			PROJECT,
+		);
+		expect(
+			resolveSessionCwd({
+				cwd: PROJECT,
+				sessionManager: { getCwd: "not-a-function" },
+			}),
+		).toBe(PROJECT);
+	});
+
+	test("falls back to context.cwd when getCwd throws", () => {
+		expect(
+			resolveSessionCwd({
+				cwd: PROJECT,
+				sessionManager: {
+					getCwd: () => {
+						throw new Error("session disposed");
+					},
+				},
+			}),
+		).toBe(PROJECT);
+	});
+
+	test("falls back to context.cwd when getCwd returns a non-string", () => {
+		expect(
+			resolveSessionCwd({
+				cwd: PROJECT,
+				sessionManager: { getCwd: () => null },
+			}),
+		).toBe(PROJECT);
+		expect(
+			resolveSessionCwd({
+				cwd: PROJECT,
+				sessionManager: { getCwd: () => 12 },
+			}),
+		).toBe(PROJECT);
+		expect(
+			resolveSessionCwd({
+				cwd: PROJECT,
+				sessionManager: { getCwd: () => undefined },
+			}),
+		).toBe(PROJECT);
+	});
+
+	test("never throws for any defensive input shape", () => {
+		expect(() => resolveSessionCwd(undefined)).not.toThrow();
+		expect(() => resolveSessionCwd(null)).not.toThrow();
+		expect(() => resolveSessionCwd("x")).not.toThrow();
+		expect(resolveSessionCwd(undefined)).toBe("");
+		expect(resolveSessionCwd({ cwd: undefined })).toBe("");
 	});
 });

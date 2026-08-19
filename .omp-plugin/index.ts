@@ -12,6 +12,7 @@ import {
 } from "./audit";
 import { AuditLifecycle } from "./audit-lifecycle";
 import { createSettingsStore } from "./config";
+import { resolveSessionCwd } from "./display-path";
 import { formatGitRecords, recognizeGitCommands } from "./git-records";
 import {
 	createHostSettingsBridge,
@@ -385,12 +386,12 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				// RuntimeModes: the adapter snapshots mode per ledger at run
 				// boundaries; rendering consults the frozen snapshot only.
 				modePolicy,
-				// C03: identity-matched current-branch resolver of the live
-				// main session, taken from this event context's
-				// sessionManager — never a global settings/session lookup.
-				// The adapter consults it when a transcript rebuild begins
-				// so the authoritative branch rehydrates under the current
-				// persisted/effective settings.
+				// Construction-time sessionManager reference from this event's
+				// ExtensionContext — never a global settings/session lookup.
+				// Methods on that manager stay live (getBranch/getCwd mutate in
+				// place across /move and switchSession). context.cwd itself is
+				// a createContext string snapshot and must NOT be read for path
+				// display; displayPaths uses getCwd() instead.
 				getBranch: () => {
 					const manager = (
 						context as ExtensionContext & {
@@ -404,7 +405,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					return Array.isArray(branch) ? branch : undefined;
 				},
 				displayPaths: () => ({
-					cwd: context.cwd,
+					cwd: resolveSessionCwd(context),
 					enabled: settingsStore.snapshot().compactPaths,
 				}),
 				// RunStats: render the terminal usage row after the run's

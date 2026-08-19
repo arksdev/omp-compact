@@ -18,6 +18,46 @@ export interface DisplayPathOptions {
 }
 
 /**
+ * Live session cwd for display-path snapshots.
+ *
+ * Host `ExtensionContext.cwd` is a string snapshot taken when the event
+ * context object is built (`createContext` copies `runner.cwd` once). Mid-
+ * session `/move` and persistent user-bash `cd` update
+ * `SessionManager.#cwd` without rebuilding the adapter or disposing the
+ * construction-time context capture — so reading `context.cwd` forever
+ * shortens paths against the pre-move root.
+ *
+ * Resolve through the construction-time `sessionManager` reference
+ * (`getCwd()` is live). Fail open to the snapshot field (or `""`) when the
+ * manager/method is missing, throws, or returns a non-string — never throw
+ * into render or the event stream. Never consult process/globals.
+ */
+export function resolveSessionCwd(context: unknown): string {
+	let fallback = "";
+	if (context && typeof context === "object" && "cwd" in context) {
+		const snapshot = context.cwd;
+		if (typeof snapshot === "string") fallback = snapshot;
+	}
+	try {
+		if (
+			!context ||
+			typeof context !== "object" ||
+			!("sessionManager" in context)
+		)
+			return fallback;
+		const manager = context.sessionManager;
+		if (!manager || typeof manager !== "object" || !("getCwd" in manager))
+			return fallback;
+		const getCwd = manager.getCwd;
+		if (typeof getCwd !== "function") return fallback;
+		const live = getCwd.call(manager);
+		return typeof live === "string" ? live : fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+/**
  * Lexical relativization of one absolute value against a cwd. The cwd prefix
  * is anchored segment-exactly FIRST (trailing slashes trimmed, `/` cwd
  * special-cased); only the remainder is then split at the first `:` into
