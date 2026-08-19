@@ -23,8 +23,12 @@ export const KEY_SPACE = " ";
 export const KEY_BACKSPACE = "\u007f";
 export const KEY_CTRL_C = "\u0003";
 
-/** CSI/SS3 final byte → direction. */
-const ARROW_FINAL_BYTES: Record<string, ArrowDirection> = {
+/**
+ * CSI/SS3 final byte → direction. Partial: every other final byte belongs to
+ * some non-arrow key, so indexing must surface `undefined` on its own rather
+ * than relying on `noUncheckedIndexedAccess` staying enabled.
+ */
+const ARROW_FINAL_BYTES: Partial<Record<string, ArrowDirection>> = {
 	A: "up",
 	B: "down",
 	C: "right",
@@ -42,9 +46,10 @@ export type ArrowDirection = "up" | "down" | "left" | "right";
  * TTY is left in DECCKM application-cursor-keys mode), and the kitty
  * keyboard-protocol parameterized forms (`ESC [ 1;1 A`, `ESC [ 1;1:1 A`,
  * `ESC [ 1;3 B` …) that OMP requests with `CSI > 5 u` on kitty-capable
- * terminals. Stock TUI components decode all three, so a dialog that compares
- * raw bytes against {@link KEY_UP}/{@link KEY_DOWN} alone loses arrow
- * navigation on terminals OMP itself fully supports.
+ * terminals. Stock TUI components decode all three, so matching raw bytes
+ * against the plain-CSI constants alone ({@link KEY_UP}, {@link KEY_DOWN},
+ * {@link KEY_LEFT}, {@link KEY_RIGHT}) drops every arrow that arrives in one
+ * of the other two encodings, on terminals OMP itself fully supports.
  */
 export function normalizeArrowKey(data: string): ArrowDirection | undefined {
 	if (data.length < 3 || data[0] !== KEY_ESCAPE) return undefined;
