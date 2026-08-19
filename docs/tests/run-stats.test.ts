@@ -398,6 +398,70 @@ describe("aggregation: unique finalized assistant messages", () => {
 		expect(result?.sent).toBe(100);
 		expect(result?.received).toBe(50);
 	});
+
+	test("same-timestamp no-responseId completions that differ only by model are both counted", () => {
+		// Production path gap: tier 2 used timestamp+stopReason+usage only.
+		// Host identity (turn-persistence.ts sessionMessagePersistenceKey) also
+		// discriminates on provider+model — two parallel subagent finals in the
+		// same millisecond without responseId otherwise collide and under-count.
+		const stats = new module.RunStats();
+		stats.start();
+		const base = {
+			responseId: undefined as undefined,
+			timestamp: 1_700_000_000_000,
+			stopReason: "error",
+			provider: "anthropic",
+			content: [] as unknown[],
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		};
+		stats.observeAssistantMessage(assistant({ ...base, model: "claude-a" }));
+		stats.observeAssistantMessage(assistant({ ...base, model: "claude-b" }));
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(2);
+		expect(result?.sent).toBe(0);
+		expect(result?.received).toBe(0);
+	});
+
+	test("same-timestamp no-responseId completions that differ only by provider are both counted", () => {
+		const stats = new module.RunStats();
+		stats.start();
+		const base = {
+			responseId: undefined as undefined,
+			timestamp: 1_700_000_000_000,
+			stopReason: "error",
+			model: "shared-name",
+			content: [] as unknown[],
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		};
+		stats.observeAssistantMessage(assistant({ ...base, provider: "openai" }));
+		stats.observeAssistantMessage(
+			assistant({ ...base, provider: "anthropic" }),
+		);
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(2);
+		expect(result?.sent).toBe(0);
+	});
+
+	test("same-timestamp same model/provider redelivery without responseId still counts once", () => {
+		const stats = new module.RunStats();
+		stats.start();
+		const message = assistant({
+			responseId: undefined,
+			timestamp: 1_700_000_000_000,
+			stopReason: "error",
+			provider: "anthropic",
+			model: "claude-a",
+			content: [],
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		});
+		stats.observeAssistantMessage(message);
+		stats.observeAssistantMessage({ ...message });
+		stats.endRun(true);
+		const result = stats.finalize();
+		expect(result?.messages).toBe(1);
+	});
 });
 
 describe("hasAssistantUsage structural guard", () => {

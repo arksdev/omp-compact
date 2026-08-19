@@ -119,33 +119,57 @@ export function hasAssistantUsage(message: unknown): boolean {
  * object, so object identity is unusable and the key must be derived from
  * message fields only — never a counter, sequence, or wall-clock nonce.
  *
- * Tiers, highest priority first:
- * 1. Non-empty `responseId` (provider-side completion id when present) +
- *    usage totals. Stable across redelivery; distinguishes concurrent
- *    completions even when timestamps collide.
- * 2. Finite numeric `timestamp` + `stopReason` + usage. Stock OMP always
- *    stamps `timestamp` on assistant messages, so this is the production path.
- * 3. Fallback: `stopReason` + usage + a bounded FNV-1a content digest over
- *    block shape (`type`, id/name) and per-block text/thinking slices
- *    (4096 chars each, 16 KiB overall). Same bytes ⇒ same key (redelivery
- *    dedups); ordinary different text/tool shape ⇒ different key.
+ * Discriminators follow the host's assistant persistence identity in
+ * `@oh-my-pi/pi-coding-agent` `session/turn-persistence.ts`
+ * `sessionMessagePersistenceKey` (17.3.8; identical AssistantMessage shape
+ * back through vendored 17.3.1 / 17.2.12, so safe for `engines.omp >= 17.2.12`):
+ * timestamp + provider + model + responseId + stopReason. The host doc calls
+ * those "precisely the fields that uniquely identify a single logical message
+ * instance", with responseId canonical when present and the rest disambiguating
+ * when it is not (local/dev models, error finals, aborted turns).
  *
- * Residual limitation: two byte-identical completions with identical usage
- * and neither `responseId` nor `timestamp` are genuinely indistinguishable
- * at this seam and will dedup as one. That is inherent, not a bug.
+ * Tiers, highest priority first:
+ * 1. Non-empty `responseId` + `provider` + `model` + usage.
+ *    `responseId` is provider-scoped, not a global uuid — two gateways can in
+ *    principle mint overlapping id strings — so provider/model scope it. The
+ *    host always packs those fields beside the id rather than trusting the id
+ *    alone; we match that. In-provider retries clear `responseId` on the
+ *    in-flight object before the successful attempt repopulates it
+ *    (e.g. anthropic.ts / openai-responses.ts), so a delivered `message_end`
+ *    either carries the final id or none — a cleared id is not emitted as a
+ *    second distinct completion that could alias.
+ * 2. Finite numeric `timestamp` + `provider` + `model` + `stopReason` + usage.
+ *    Stock OMP always stamps `timestamp`; this is the production path when
+ *    `responseId` is absent (error messages from `createProviderErrorMessage`,
+ *    many aborted finals).
+ * 3. Fallback without timestamp: `provider` + `model` + `stopReason` + usage +
+ *    a bounded FNV-1a content digest over block shape (`type`, id/name) and
+ *    per-block text/thinking slices (4096 chars each, 16 KiB overall). Same
+ *    bytes ⇒ same key (redelivery dedups); ordinary different text/tool shape
+ *    ⇒ different key. Mirrors the host's rare structural content tiebreaker
+ *    after a persistence-key collision.
+ *
+ * Residual limitation (parity with the host): two completions in the same
+ * millisecond, same provider, same model, same stopReason, same usage, no
+ * responseId, and byte-identical content are genuinely indistinguishable at
+ * this seam and will dedup as one. The host cannot split that case on its
+ * persistence key either and falls back to a structural content compare —
+ * which the digest already approximates. That is inherent, not a bug.
  */
 function messageKey(message: unknown): string {
 	const record = objectRecord(message);
 	const usage = usageOf(message);
 	const totals = `${usage.sent}:${usage.received}:${usage.cacheRead}:${usage.cacheWrite}`;
+	const provider = String(record.provider ?? "");
+	const model = String(record.model ?? "");
+	const stopReason = String(record.stopReason ?? "");
 	const responseId = record.responseId;
 	if (typeof responseId === "string" && responseId.length > 0)
-		return `i:${responseId}:${totals}`;
+		return `i:${responseId}:${provider}:${model}:${totals}`;
 	const timestamp = record.timestamp;
-	const stopReason = String(record.stopReason ?? "");
 	if (typeof timestamp === "number" && Number.isFinite(timestamp))
-		return `t:${timestamp}:${stopReason}:${totals}`;
-	return `c:${stopReason}:${contentDigest(record.content)}:${totals}`;
+		return `t:${timestamp}:${provider}:${model}:${stopReason}:${totals}`;
+	return `c:${provider}:${model}:${stopReason}:${contentDigest(record.content)}:${totals}`;
 }
 
 /** Per-block text/thinking cap retained from the length-only fingerprint. */
