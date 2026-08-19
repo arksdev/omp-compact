@@ -1772,6 +1772,121 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		if (!newest) throw new Error("expected newest state after rebuild");
 		expect(session.modeFor(newest.ledger).mode).toBe("live");
 	});
+
+	test("post-shake rebuild keeps toolCall args; collapsed tail stays unbound without permit", () => {
+		// Host elide rewrites toolResult content only; assistant toolCall
+		// arguments stay on the branch. After rebuild, hydrated states must
+		// still carry those args. What fails open is binding: shake does not
+		// arm collapsedRebuildArmed, so a collapsed visible tail (fewer
+		// components than branch tool states) cannot suffix-pair and non-read
+		// cards stay native even though describe() could still print args.
+		const session = makeSession();
+		const branch: unknown[] = [
+			{ type: "message", message: { role: "user", content: [] } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "bash-old",
+							name: "bash",
+							arguments: { command: "echo old" },
+						},
+						{
+							type: "toolCall",
+							id: "glob-1",
+							name: "glob",
+							arguments: { path: [".omp-plugin/**"] },
+						},
+						{
+							type: "toolCall",
+							id: "grep-1",
+							name: "grep",
+							arguments: { pattern: "resolveToolRule" },
+						},
+						{
+							type: "toolCall",
+							id: "bash-1",
+							name: "bash",
+							arguments: { command: "wc -l *.ts" },
+						},
+						{
+							type: "toolCall",
+							id: "eval-1",
+							name: "eval",
+							arguments: { code: "1+1", language: "js" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			// Elided results — placeholder text only; args live on toolCall above.
+			...["bash-old", "glob-1", "grep-1", "bash-1", "eval-1"].map((id) => ({
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: id,
+					toolName: id.startsWith("bash")
+						? "bash"
+						: id.startsWith("glob")
+							? "glob"
+							: id.startsWith("grep")
+								? "grep"
+								: "eval",
+					content: [{ type: "text", text: "[shaken ~9 tokens]" }],
+					isError: false,
+					prunedAt: 1,
+				},
+			})),
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "done" }],
+					stopReason: "stop",
+				},
+			},
+		];
+
+		const snapshot = session.beginRebuild();
+		// Collapsed visible tail: four cards for five branch tool states.
+		const visible = [
+			new FakeToolComponent(),
+			new FakeToolComponent(),
+			new FakeToolComponent(),
+			new FakeToolComponent(),
+		];
+		for (const component of visible)
+			session.binding.registerUnboundComponent(component);
+
+		const outcome = session.commitRebuild(snapshot, { branchEntries: branch });
+		expect(outcome.mapped).toBe(false);
+
+		// Args survived elide + rebuild hydration.
+		expect(session.state("glob-1")?.args).toEqual({ path: [".omp-plugin/**"] });
+		expect(session.state("grep-1")?.args).toEqual({
+			pattern: "resolveToolRule",
+		});
+		expect(session.state("bash-1")?.args).toEqual({ command: "wc -l *.ts" });
+		expect(session.state("eval-1")?.args).toEqual({
+			code: "1+1",
+			language: "js",
+		});
+		// Elided results were hydrated onto states (placeholder), not dropped.
+		expect(session.state("bash-1")?.result).toMatchObject({
+			content: [{ type: "text", text: "[shaken ~9 tokens]" }],
+		});
+
+		// No component bound — fail-open native despite intact args.
+		for (const id of ["bash-old", "glob-1", "grep-1", "bash-1", "eval-1"]) {
+			expect(session.state(id)?.component).toBeUndefined();
+		}
+		for (const component of visible) {
+			expect(session.binding.componentState(component)).toBeUndefined();
+		}
+	});
 });
 
 describe("RuntimeSessionState: hydration bounds (F01)", () => {

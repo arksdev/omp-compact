@@ -162,6 +162,155 @@ describe("ComponentBinding: exact-ID binding", () => {
 		expect(binding.componentState(component)).toBeUndefined();
 	});
 
+	test("observeToolMethod updateResult never binds by toolCallId (host rebuild shape)", () => {
+		// Stock ToolExecutionComponent constructor takes `_toolCallId` but does
+		// not call updateArgs with it. rebuildChatFromMessages reconstructs a
+		// tool card then delivers only updateResult(result, false, toolCallId)
+		// (chat-transcript-builder.ts appendToolResult). Read groups bind
+		// through updateArgs(args, id) / updateResult(..., id); tool cards
+		// must not silently ignore that third-arg id or post-shake non-read
+		// rows stay native unless order pairing later rescues them.
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({
+			id: "bash-1",
+			toolName: "bash",
+			args: { command: "wc -l *.ts" },
+		});
+		states.set("bash-1", state);
+		binding.registerUnboundComponent(component);
+
+		expect(
+			binding.observeToolMethod(component, "updateResult", [
+				{
+					content: [{ type: "text", text: "[shaken ~12 tokens]" }],
+					isError: false,
+				},
+				false,
+				"bash-1",
+			]),
+		).toBe("unmapped");
+		expect(binding.componentState(component)).toBeUndefined();
+		expect(state.component).toBeUndefined();
+		expect(state.result).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([component]);
+	});
+
+	test("post-shake rebuild: read groups bind by observed id; non-reads stay native without order/suffix", () => {
+		// Models host shake("elide") → rebuildChatFromMessages (NOT
+		// session_compact, so collapsedRebuildArmed stays false):
+		// - toolCall args survive elide (only toolResult content is replaced)
+		// - read groups reconstruct with updateArgs(args, id) → exact bind
+		// - non-read ToolExecutionComponents reconstruct without an
+		//   updateArgs(id) delivery; updateResult's toolCallId is ignored
+		// - bindHydrated then needs full-cardinality order or an armed
+		//   suffix permit. A collapsed visible tail (display.collapseCompacted)
+		//   with an unarmed permit is exactly the post-auto-shake shape.
+		const { binding, states } = makeBinding();
+		const readLedger = new TurnLedger("shake-read-run");
+		const readA = makeState({
+			id: "read-a",
+			toolName: "read",
+			args: { path: "/repo/.omp-plugin/index.ts" },
+			ledger: readLedger,
+		});
+		const readB = makeState({
+			id: "read-b",
+			toolName: "read",
+			args: { path: "/repo/.omp-plugin/runtime-adapter.ts" },
+			ledger: readLedger,
+		});
+		const glob = makeState({
+			id: "glob-1",
+			toolName: "glob",
+			args: { path: "/repo/.omp-plugin/**" },
+		});
+		const grep = makeState({
+			id: "grep-1",
+			toolName: "grep",
+			args: { pattern: "resolveToolRule" },
+		});
+		const bash = makeState({
+			id: "bash-1",
+			toolName: "bash",
+			args: { command: "wc -l *.ts | sort -rn" },
+		});
+		const ev = makeState({
+			id: "eval-1",
+			toolName: "eval",
+			args: { code: "1+1", language: "js" },
+		});
+		// Hidden prefix states (collapsed compacted history still on getBranch).
+		const hiddenBash = makeState({
+			id: "bash-old",
+			toolName: "bash",
+			args: { command: "echo old" },
+		});
+		for (const state of [hiddenBash, readA, glob, grep, bash, ev, readB]) {
+			states.set(state.id, state);
+		}
+
+		const group = new FakeReadGroup();
+		const groupState = binding.createGroup(group, false);
+		expect(
+			binding.observeReadMethod(groupState, group, "updateArgs", [
+				readA.args,
+				"read-a",
+			]),
+		).toBe("bound");
+		expect(
+			binding.observeReadMethod(groupState, group, "updateArgs", [
+				readB.args,
+				"read-b",
+			]),
+		).toBe("bound");
+
+		const globC = new FakeToolComponent();
+		const grepC = new FakeToolComponent();
+		const bashC = new FakeToolComponent();
+		const evalC = new FakeToolComponent();
+		for (const component of [globC, grepC, bashC, evalC]) {
+			binding.registerUnboundComponent(component);
+		}
+		// Host rebuild delivers updateResult(result, false, id) only — no bind.
+		for (const [component, id] of [
+			[globC, "glob-1"],
+			[grepC, "grep-1"],
+			[bashC, "bash-1"],
+			[evalC, "eval-1"],
+		] as const) {
+			expect(
+				binding.observeToolMethod(component, "updateResult", [
+					{
+						content: [{ type: "text", text: "[shaken ~8 tokens]" }],
+						isError: false,
+					},
+					false,
+					id,
+				]),
+			).toBe("unmapped");
+		}
+
+		// Shake does not arm collapsedRebuildArmed / restoreOverride.
+		expect(binding.bindHydrated(true, false)).toBe(false);
+
+		// Reads survive via exact observed ids.
+		expect(readA.component).toBe(group);
+		expect(readB.component).toBe(group);
+		expect(binding.groupState(group)?.ledger).toBe(readA.ledger);
+
+		// Payload-bearing non-reads stay native — not because args/results
+		// were elided, but because nothing bound the reconstructed cards.
+		expect(glob.component).toBeUndefined();
+		expect(grep.component).toBeUndefined();
+		expect(bash.component).toBeUndefined();
+		expect(ev.component).toBeUndefined();
+		expect(binding.componentState(globC)).toBeUndefined();
+		expect(binding.componentState(grepC)).toBeUndefined();
+		expect(binding.componentState(bashC)).toBeUndefined();
+		expect(binding.componentState(evalC)).toBeUndefined();
+	});
+
 	test("observeToolMethod tracks result, partial and expanded state", () => {
 		const { binding, states, pending } = makeBinding();
 		const component = new FakeToolComponent();
