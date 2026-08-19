@@ -50,6 +50,7 @@
  */
 
 import { DescriptorPatch } from "./patch-kit";
+import { objectRecord } from "./object-record";
 import type { RenderableBlock, TranscriptHost } from "./transcript-fold";
 
 /**
@@ -139,12 +140,6 @@ export const TUI_OPTIONAL_METHODS = ["resetDisplay"] as const;
 
 const ADD_CHILD = "addChild" as const;
 const MAX_DISCOVERY_DEPTH = 12;
-
-function objectRecord(value: unknown): Record<string, unknown> {
-	return value && typeof value === "object"
-		? (value as Record<string, unknown>)
-		: {};
-}
 
 function resolveMethod(
 	value: object,
