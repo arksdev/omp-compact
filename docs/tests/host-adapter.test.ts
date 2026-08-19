@@ -725,12 +725,12 @@ describe("capability fingerprints", () => {
 		expect(leafCapabilities(undefined).render).toBe(false);
 	});
 
-	test("the host release pin targets OMP 17.3.1", () => {
-		expect(HostAdapter1731.hostVersion).toBe("17.3.1");
+	test("the host release pin targets OMP 17.3.8", () => {
+		expect(HostAdapter1731.hostVersion).toBe("17.3.8");
 	});
 });
 
-describe("OMP 17.3.1 argument positions", () => {
+describe("OMP 17.3.8 argument positions", () => {
 	test("updateArgs carries (payload, toolCallId)", () => {
 		expect(updateArgsToolCallId(["payload", "id-1"])).toBe("id-1");
 		expect(updateArgsToolCallId([42])).toBeUndefined();
@@ -1074,10 +1074,9 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	});
 });
 
-stockTest("stock 17.3.1 host capability canary", async () => {
+stockTest("stock 17.3.8 host capability canary", async () => {
 	const host = await loadStockHost();
 	const transcript = new host.TranscriptContainer();
-	expect(stockHostVersion()).toBe("17.3.1");
 	await host.initTheme();
 	const toolUi = {
 		requestRender() {},
@@ -1112,10 +1111,12 @@ stockTest("stock 17.3.1 host capability canary", async () => {
 	expect(isReadGroupComponent(readGroup)).toBe(true);
 	expect(leafCapabilities(tool).kind).toBe("tool");
 	expect(leafCapabilities(readGroup).kind).toBe("readGroup");
+	// Version last: a pin mismatch must not blind the seam probes above.
+	expect(stockHostVersion()).toBe("17.3.8");
 });
 
 stockTest(
-	"stock 17.3.1 transcript forwards activity visibility to new children",
+	"stock 17.3.8 transcript forwards activity visibility to new children",
 	async () => {
 		const host = await loadStockHost();
 		const transcript = new host.TranscriptContainer();
