@@ -704,6 +704,21 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		adapter?.noteTreeIntent(event);
 	});
 
+	pi.on("session_branch", async () => {
+		// Committed `/branch` (AgentSession.branch and equivalent callers):
+		// stock emits `session_branch` only AFTER the branched session file
+		// lands and BEFORE the caller's `renderInitialMessages` rebuild
+		// (disposeChildren + re-add in selector-controller /
+		// extension-ui-controller). Same restore-view contract as committed
+		// `/tree` and in-process `/resume`: arm the one-shot compact override
+		// so historical/collapsed tails bind compact under the live default
+		// mode. Cancelled session_before_branch never reaches this event.
+		// Rehydration still keys off the transcript clear that follows —
+		// this handler only arms; it does not begin a presentation generation.
+		await modePolicy.ready();
+		if (modePolicy.enabled) modePolicy.armRestoreOverride();
+	});
+
 	pi.on("agent_start", async (_event, context) => {
 		// RuntimeModes: a logical run starts here and spans toolUse/
 		// willContinue continuations. The mode snapshot is captured only at

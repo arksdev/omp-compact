@@ -7662,6 +7662,77 @@ stockTest(
 );
 
 stockTest(
+	"in-process /branch rebuild through disposeChildren keeps the branched history compact",
+	async () => {
+		// Stock `/branch` commits the new session file, emits `session_branch`,
+		// then callers (`selector-controller` / `extension-ui-controller`) run
+		// `renderInitialMessages` which swaps the transcript via disposeChildren
+		// (ui-helpers.ts) — same rebuild surface as `/tree` and in-process
+		// `/resume`, but WITHOUT session_before_switch/session_switch and WITHOUT
+		// session_tree. The default live mode plus display.collapseCompacted
+		// tail means the rebuild must arm the restore compact override (and
+		// suffix alignment) before clear, or the visible history falls through
+		// to native tool cards.
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		expect(booted.harness.resetCalls).toBe(0);
+		harness.branch.current = [
+			...committedSingleToolBranch("printf old", "bash-old", "old done"),
+			...committedSingleToolBranch("printf new", "bash-new", "new done"),
+		];
+		await dispatch(booted, {
+			type: "session_branch",
+			previousSessionFile: "/tmp/prior-session.jsonl",
+		});
+		const transcript = booted.transcript;
+		expect(typeof transcript.disposeChildren).toBe("function");
+		transcript.disposeChildren?.();
+		expect(booted.harness.clears).toBe(1);
+		// Collapsed visible tail only (newest tool); full branch still has
+		// bash-old + bash-new. Suffix alignment requires the restore arm.
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf new" },
+			"bash-new",
+		);
+		rebuilt.render = () => ["native-fallback"];
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-new",
+		);
+		addAnswer(booted, "new done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("bash: printf new");
+		expect(rows).toContain("new done");
+		expect(rows).not.toContain("native-fallback");
+		expect(booted.harness.resetCalls).toBe(1);
+		// Next live run clears the one-shot restore and keeps persisted live.
+		await beginRun(booted);
+		const next = await addTool(
+			booted,
+			"bash",
+			{ command: "printf next" },
+			"bash-live",
+		);
+		await finishTool(booted, next, {
+			toolCallId: "bash-live",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "next done");
+		await finishRun(booted, "next done");
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("bash: printf new");
+		expect(live).not.toContain("printf next");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"cold launch of a collapsed-history session binds the visible tool tail compact",
 	async () => {
 		// Real-world cold restart of a long-lived session: the branch
@@ -8643,6 +8714,55 @@ stockTest(
 			"bash: printf first",
 		);
 		// a committed navigation rebuilds and replays exactly once
+		booted.transcript.clear();
+		addToolComponent(booted, "bash", { command: "printf first" }, "bash-1");
+		addAnswer(booted, "first done");
+		await flushMicrotasks();
+		expect(booted.harness.resetCalls).toBe(1);
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"bash: printf first",
+		);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"session_branch alone never advances the presentation generation",
+	async () => {
+		// session_branch is a post-commit hook only — rehydration keys off the
+		// transcript clear that follows the caller's renderInitialMessages, not
+		// the event itself (mirrors session_tree intent).
+		const booted = await bootForRebuild("compact");
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf first" },
+			"bash-1",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "bash-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "first done");
+		await finishRun(booted, "first done");
+		booted.harness.branch.current = committedSingleToolBranch(
+			"printf first",
+			"bash-1",
+			"first done",
+		);
+		await dispatch(booted, {
+			type: "session_branch",
+			previousSessionFile: "/tmp/prior-session.jsonl",
+		});
+		expect(booted.harness.resetCalls).toBe(0);
+		expect(booted.harness.clears).toBe(0);
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"bash: printf first",
+		);
+		// a committed branch rebuilds and replays exactly once
 		booted.transcript.clear();
 		addToolComponent(booted, "bash", { command: "printf first" }, "bash-1");
 		addAnswer(booted, "first done");
