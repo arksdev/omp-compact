@@ -1490,7 +1490,7 @@ describe("todo reminder row", () => {
 		);
 		expect(rows).toHaveLength(1);
 		expect(stripAnsi(rows[0] ?? "")).toBe(
-			"1 incomplete todo - reminder 1/3 · finish the row",
+			"• 1 incomplete todo - reminder 1/3 · finish the row",
 		);
 		expect(rows[0] ?? "").toContain("\x1b[38;2;200;160;0m");
 		expect(rows[0] ?? "").not.toContain("\x1b[48;");
@@ -1512,7 +1512,7 @@ describe("todo reminder row", () => {
 			reminderTheme(),
 		);
 		expect(stripAnsi(line ?? "")).toBe(
-			"3 incomplete todos - reminder 2/3 · alpha · +2 more",
+			"• 3 incomplete todos - reminder 2/3 · alpha · +2 more",
 		);
 	});
 

@@ -303,9 +303,10 @@ export function todoReminderFromComponent(
 }
 
 /**
- * Compact todo-reminder row: one yellow warning line with the reminder
- * fraction and the first incomplete item. No background/inverse sequences —
- * only theme warning foreground on the transparent terminal background.
+ * Compact todo-reminder row: ordinary gray-tool bullet chrome with one yellow
+ * warning payload (reminder fraction + first incomplete item). No background/
+ * inverse sequences — only theme warning foreground on the transparent
+ * terminal background.
  */
 export function renderTodoReminderRow(
 	view: TodoReminderView,
@@ -318,7 +319,8 @@ export function renderTodoReminderRow(
 	const extra =
 		view.items.length > 1 ? ` · +${view.items.length - 1} more` : "";
 	const body = first ? ` · ${first}${extra}` : extra;
-	const line = theme.fg("warning", `${header}${body}`);
+	const bullet = theme.fg("dim", "•");
+	const line = `${bullet} ${theme.fg("warning", `${header}${body}`)}`;
 	return [fitTransparentLine(line, width)];
 }
 

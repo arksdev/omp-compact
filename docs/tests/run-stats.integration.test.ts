@@ -875,7 +875,7 @@ stockTest(
 		const preRows = pre.render(120);
 		expect(preRows).toHaveLength(1);
 		expect(stripAnsi(preRows[0] ?? "")).toBe(
-			"1 incomplete todo - reminder 1/3 · pre item",
+			"• 1 incomplete todo - reminder 1/3 · pre item",
 		);
 		expect(preRows.join("\n")).not.toContain("\x1b[48;");
 		expect(preRows.join("\n")).not.toContain("\x1b[7m");
@@ -887,7 +887,7 @@ stockTest(
 		const postRows = post.render(120);
 		expect(postRows).toHaveLength(1);
 		expect(stripAnsi(postRows[0] ?? "")).toBe(
-			"2 incomplete todos - reminder 2/3 · alpha · +1 more",
+			"• 2 incomplete todos - reminder 2/3 · alpha · +1 more",
 		);
 		expect(postRows.join("\n")).not.toContain("\x1b[48;");
 		expect(post.nativeRenderCount).toBe(0);
@@ -918,7 +918,7 @@ stockTest(
 		const live = reminder.render(120);
 		expect(live).toHaveLength(1);
 		expect(stripAnsi(live[0] ?? "")).toBe(
-			"1 incomplete todo - reminder 1/3 · rebuild item",
+			"• 1 incomplete todo - reminder 1/3 · rebuild item",
 		);
 		expect(live.join("\n")).not.toContain("\x1b[7m");
 		expect(reminder.nativeRenderCount).toBe(0);
@@ -938,7 +938,7 @@ stockTest(
 		const reattached = reminder.render(120);
 		expect(reattached).toHaveLength(1);
 		expect(stripAnsi(reattached[0] ?? "")).toBe(
-			"1 incomplete todo - reminder 1/3 · rebuild item",
+			"• 1 incomplete todo - reminder 1/3 · rebuild item",
 		);
 		expect(reattached.join("\n")).not.toContain("\x1b[7m");
 		expect(reminder.nativeRenderCount).toBe(1);
