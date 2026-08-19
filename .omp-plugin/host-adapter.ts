@@ -21,7 +21,7 @@
  * late diagnostics, user bash/eval). Neither string is a runtime gate:
  * every decision is a capability probe on the live instance.
  *
- * `marketplace.json` still advertises the public floor `OMP 17.2.12+`.
+ * `package.json` `engines.omp` retains the public floor `>=17.2.12`.
  * That floor is release metadata (oldest host whose *critical* private
  * signatures were believed to match when the floor was set). It is **not**
  * re-validated here and must not be silently raised from this file.
