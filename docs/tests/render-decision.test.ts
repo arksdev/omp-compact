@@ -14,6 +14,8 @@ function toolInput(overrides: Partial<ToolRenderInput> = {}): ToolRenderInput {
 		retainGitLive: false,
 		phase: "working",
 		expanded: false,
+		isPartial: false,
+		streamCollapse: false,
 		compactOnExpand: false,
 		hasMutations: false,
 		hasGit: false,
@@ -227,6 +229,35 @@ describe("decideToolRender: working live matrix", () => {
 		expect(decideToolRender(toolInput({ expanded: true }))).toEqual({
 			kind: "native",
 		});
+		// Ordinary tools keep the hatch even while partial (hub/bash inspect).
+		expect(
+			decideToolRender(toolInput({ expanded: true, isPartial: true })),
+		).toEqual({ kind: "native" });
+		// Write/edit stream-collapse keeps compact while partial + expanded.
+		expect(
+			decideToolRender(
+				toolInput({
+					expanded: true,
+					isPartial: true,
+					streamCollapse: true,
+				}),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: false,
+			summary: false,
+			includeGit: true,
+		});
+		// After settle, write/edit regain the native hatch unless compactOnExpand.
+		expect(
+			decideToolRender(
+				toolInput({
+					expanded: true,
+					isPartial: false,
+					streamCollapse: true,
+				}),
+			),
+		).toEqual({ kind: "native" });
 	});
 
 	test("routine compact rows render with Git evidence while working", () => {

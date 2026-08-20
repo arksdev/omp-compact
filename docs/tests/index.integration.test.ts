@@ -802,6 +802,123 @@ stockTest("ambiguous anonymous tool components remain native", async () => {
 });
 
 stockTest(
+	"streaming write/edit collapse to compact before tool_execution_start",
+	async () => {
+		// Stock paints ToolExecutionComponent cards from message_update while
+		// args stream, and only emits tool_execution_start once args are final.
+		// Mutation tools must collapse to the compact Working… row as soon as
+		// the stream exposes a path — not stay on the native framed card until
+		// the tool finishes.
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stream-write-1",
+						name: "write",
+						arguments: {
+							path: "src/stream-write.ts",
+							content: "export const n = 1;\n",
+						},
+					},
+				],
+			},
+		});
+		const writeCall = new booted.host.ToolExecutionComponent(
+			"write",
+			{ path: "src/stream-write.ts", content: "export const n = 1;\n" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("write"),
+			toolUi(),
+			booted.context.cwd,
+			"stream-write-1",
+		);
+		writeCall.render = () => [
+			"native-write src/stream-write.ts",
+			"export const n = 1;",
+		];
+		booted.transcript.addChild(writeCall);
+		writeCall.updateArgs(
+			{ path: "src/stream-write.ts", content: "export const n = 1;\n" },
+			"stream-write-1",
+		);
+
+		const writeLive = visibleRows(booted.transcript).join("\n");
+		expect(writeLive).toContain("write: src/stream-write.ts");
+		expect(writeLive).toContain("Working…");
+		expect(writeLive).not.toContain("native-write");
+		expect(writeLive).not.toContain("export const n = 1");
+
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stream-write-1",
+						name: "write",
+						arguments: {
+							path: "src/stream-write.ts",
+							content: "export const n = 1;\n",
+						},
+					},
+					{
+						type: "toolCall",
+						id: "stream-edit-1",
+						name: "edit",
+						arguments: {
+							path: "src/stream-edit.ts",
+							oldText: "a",
+							newText: "b",
+						},
+					},
+				],
+			},
+		});
+		const editCall = new booted.host.ToolExecutionComponent(
+			"edit",
+			{ path: "src/stream-edit.ts", oldText: "a", newText: "b" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("edit"),
+			toolUi(),
+			booted.context.cwd,
+			"stream-edit-1",
+		);
+		editCall.render = () => ["native-edit src/stream-edit.ts", "-a", "+b"];
+		booted.transcript.addChild(editCall);
+		editCall.updateArgs(
+			{ path: "src/stream-edit.ts", oldText: "a", newText: "b" },
+			"stream-edit-1",
+		);
+
+		const bothLive = visibleRows(booted.transcript).join("\n");
+		expect(bothLive).toContain("write: src/stream-write.ts");
+		expect(bothLive).toContain("edit: src/stream-edit.ts");
+		expect(bothLive).toContain("Working…");
+		expect(bothLive).not.toContain("native-write");
+		expect(bothLive).not.toContain("native-edit");
+
+		// Global tools-expanded (Ctrl+O) must not keep the streaming mutation
+		// card native either — the compact Working… identity is enough.
+		writeCall.setExpanded(true);
+		editCall.setExpanded(true);
+		const expandedLive = visibleRows(booted.transcript).join("\n");
+		expect(expandedLive).toContain("write: src/stream-write.ts");
+		expect(expandedLive).toContain("edit: src/stream-edit.ts");
+		expect(expandedLive).not.toContain("native-write");
+		expect(expandedLive).not.toContain("native-edit");
+
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"a late message_update of the previous run never pollutes the next run after agent_start",
 	async () => {
 		const booted = await bootWithTranscript();

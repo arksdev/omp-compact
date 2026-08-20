@@ -14,7 +14,12 @@ import {
 	isTtsrNotificationComponent,
 	transcriptCapabilities,
 } from "./host-adapter";
-import { isPayloadWithinBudget } from "./hydration-bounds";
+import {
+	isBoundedString,
+	isPayloadWithinBudget,
+	MAX_TOOL_CALL_ID_LENGTH,
+	MAX_TOOL_NAME_LENGTH,
+} from "./hydration-bounds";
 import type { GitMessageDetails, MutationMessageDetails } from "./messages";
 import { DEFAULT_RUN_MODE, type ModePolicy } from "./mode-policy";
 import { objectRecord } from "./object-record";
@@ -365,39 +370,73 @@ export class RuntimeAdapter {
 	observeAssistantMessage(message: unknown): void {
 		if (this.#disposed) return;
 		const ledger = this.#session.activeLedger;
-		// Strictly non-creating and non-allocating. A message_update belongs
-		// to the logical run that is actively streaming, but stock delivers
-		// extension events fire-and-forget (message_update events queue
-		// behind earlier stream deltas while agent_end/agent_start are
-		// delivered directly), so a delta emitted for a previous run can be
-		// handled after that run's terminal agent_end — or after the next
-		// run's agent_start. Only the active working ledger may be touched:
-		// never fabricate a ledger (ensureLedger) and never allocate a
-		// state for an unknown id — tool_execution_start is the sole state
-		// allocator. The observer only enriches an EXISTING state of the
-		// captured working ledger; a stale delta of a previous run would
-		// otherwise pollute the next run's ledger and block its first
-		// tool's order binding.
+		// A message_update belongs to the logical run that is actively
+		// streaming, but stock delivers extension events fire-and-forget
+		// (message_update events queue behind earlier stream deltas while
+		// agent_end/agent_start are delivered directly), so a delta emitted
+		// for a previous run can be handled after that run's terminal
+		// agent_end — or after the next run's agent_start. Only the active
+		// working ledger may be touched: never fabricate a ledger
+		// (ensureLedger via startState only when a ledger already exists).
+		//
+		// State allocation:
+		// - write/edit (and apply_patch → edit) allocate early so the
+		//   streaming ToolExecutionComponent can bind and collapse to the
+		//   compact Working… row while args still stream. Stock paints the
+		//   native framed card from message_update long before
+		//   tool_execution_start.
+		// - every other tool keeps waiting for tool_execution_start so a
+		//   stale message_update of a previous run cannot poison the next
+		//   run's single-pair order binding (late message_update tests).
 		if (ledger?.phase !== "working") return;
 		const contents = objectRecord(message).content;
 		if (!Array.isArray(contents)) return;
+		let touched = false;
 		for (const content of contents) {
 			const call = objectRecord(content);
+			if (call.type !== "toolCall") continue;
 			if (
-				call.type !== "toolCall" ||
-				typeof call.id !== "string" ||
-				typeof call.name !== "string"
-			)
+				!isBoundedString(call.id, MAX_TOOL_CALL_ID_LENGTH) ||
+				!isBoundedString(call.name, MAX_TOOL_NAME_LENGTH)
+			) {
 				continue;
-			const state = this.#session.state(call.id);
-			if (!state || state.ledger !== ledger) continue;
-			// Same retained-payload budget as startState/hydrate: over-budget
-			// stream deltas must not reintroduce a dropped args blob.
-			state.args = isPayloadWithinBudget(call.arguments)
-				? call.arguments
-				: undefined;
+			}
+			let state = this.#session.state(call.id);
+			if (!state) {
+				const audit = resolveToolRule(call.name)?.audit ?? "none";
+				if (audit !== "write" && audit !== "edit") continue;
+				state = this.#session.startState({
+					toolCallId: call.id,
+					toolName: call.name,
+					args: call.arguments,
+				});
+				if (!state) continue;
+				touched = true;
+			} else if (state.ledger !== ledger) {
+				continue;
+			} else {
+				// Same retained-payload budget as startState/hydrate: over-budget
+				// stream deltas must not reintroduce a dropped args blob.
+				state.args = isPayloadWithinBudget(call.arguments)
+					? call.arguments
+					: undefined;
+				state.version++;
+				touched = true;
+			}
 		}
 		this.#session.binding.tryBindByOrder(ledger);
+		if (touched) {
+			// Freshly allocated stream states may have just order-bound; tick
+			// their components so the compact Working… row replaces the native
+			// framed card without waiting for the next host updateArgs.
+			for (const content of contents) {
+				const call = objectRecord(content);
+				if (typeof call.id !== "string") continue;
+				const state = this.#session.state(call.id);
+				if (state?.component) this.#requestRender(state.component);
+			}
+			this.#ensureSpinner();
+		}
 	}
 
 	startTool(input: ToolStartInput): void {
@@ -706,6 +745,8 @@ export class RuntimeAdapter {
 				phase,
 				expanded: state.expanded,
 				compactOnExpand: rule?.compactOnExpand === true,
+				isPartial: state.isPartial,
+				streamCollapse: rule?.audit === "write" || rule?.audit === "edit",
 				hasMutations: state.mutations.length > 0,
 				hasGit: state.git !== undefined,
 				hashesLength: projection?.hashes.length ?? 0,

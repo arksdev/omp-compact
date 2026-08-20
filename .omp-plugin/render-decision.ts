@@ -42,6 +42,19 @@ export interface ToolRenderInput {
 	 * the native renderer (browser, computer, resolve, reject).
 	 */
 	compactOnExpand: boolean;
+	/**
+	 * True while the tool is still streaming args/result (`isPartial`).
+	 * Combined with `streamCollapse` (write/edit audit tools) to keep the
+	 * compact Working… row during the in-flight phase even when the host
+	 * marks the card expanded.
+	 */
+	isPartial: boolean;
+	/**
+	 * Prefer compact over the native expansion escape hatch while
+	 * `isPartial` is true. Set for write/edit mutation tools whose stock
+	 * framed cards stay on screen for the whole stream.
+	 */
+	streamCollapse: boolean;
 	/** True when the state carries retained mutation evidence. */
 	hasMutations: boolean;
 	/** True when the state carries Git evidence. */
@@ -173,10 +186,14 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	{
 		// Expanded mode uses the original native render as inspection escape
 		// hatch for ordinary compact tools. `compactOnExpand` tools (browser,
-		// computer, resolve, reject) deliberately stay compact when explicitly
-		// expanded.
+		// computer, resolve, reject) deliberately stay compact when expanded.
+		// Write/edit additionally stay compact while still streaming so the
+		// native framed card does not pin until tool_execution_end.
 		when: (input) =>
-			input.phase === "working" && input.expanded && !input.compactOnExpand,
+			input.phase === "working" &&
+			input.expanded &&
+			!input.compactOnExpand &&
+			!(input.streamCollapse && input.isPartial),
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{
