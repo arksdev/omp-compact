@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 17.3.8 as its development and release-gate host while publicly supporting OMP 17.2.12 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 17.4.0 as its development and release-gate host while publicly supporting OMP 17.2.12 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -39,7 +39,7 @@ OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test
 
 The latest standalone release gate was 1047 tests, 0 failures, and 5,202 assertions across 28 files. Treat the current command output as authoritative after further changes.
 
-There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 17.3.8. Bare `bun test …` without that env leaves every stock-host-dependent test (including the host-adapter canaries) reported as skipped.
+There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 17.4.0. Bare `bun test …` without that env leaves every stock-host-dependent test (including the host-adapter canaries) reported as skipped.
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -510,7 +510,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 17.3.8
+4. Manual smoke test on OMP 17.4.0
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`

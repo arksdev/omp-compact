@@ -13,7 +13,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `HostAdapter1731.hostVersion` (`"17.3.8"`) is the **verified contract**
+ * `HostAdapter1731.hostVersion` (`"17.4.0"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). The class name keeps the historical `1731` suffix from the
@@ -30,7 +30,7 @@
  * re-validated here and must not be silently raised from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
- * `17.3.1`, `17.3.4`, and `17.3.8` are present under the bun install cache
+ * `17.3.1`, `17.3.4`, `17.3.8`, and `17.4.0` are present under the bun install cache
  * (or the root pin). Activity-gated leaves (`setToolActivityVisible`) exist
  * on 17.3.1+ TTSR, todo-reminder, and late-diagnostics components, and are
  * **absent** on the same files in 17.2.12. Fingerprints that require that
@@ -43,7 +43,7 @@
  * Honest summary: critical tool/read-group/transcript compaction is
  * capability-probed and intended to work from the declared floor upward;
  * the optional inject/reminder/diagnostics compact chrome is **verified**
- * against 17.3.1+ (including the current pin 17.3.8) and **unverified**
+ * against 17.3.1+ (including the current pin 17.4.0) and **unverified**
  * (native via probe miss) below 17.3.1. Raising the marketplace floor is a
  * release decision, not an adapter edit.
  *
@@ -569,7 +569,7 @@ export class HostAdapter1731 {
 	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays
 	 * independent release metadata. See module header "Version story".
 	 */
-	static readonly hostVersion = "17.3.8";
+	static readonly hostVersion = "17.4.0";
 
 	readonly #root: unknown;
 
