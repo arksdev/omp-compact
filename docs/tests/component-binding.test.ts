@@ -798,7 +798,24 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(binding.unboundComponents()).toEqual([]);
 	});
 
-	test("tryBindByOrder refuses without proven single cardinality", () => {
+	test("tryBindByOrder pairs equal-cardinality concurrent starts in order", () => {
+		const { binding, states } = makeBinding();
+		const ledger = new TurnLedger("run-concurrent");
+		const first = new FakeToolComponent();
+		const second = new FakeToolComponent();
+		const stateA = makeState({ id: "call-a", toolName: "bash", ledger });
+		const stateB = makeState({ id: "call-b", toolName: "bash", ledger });
+		states.set("call-a", stateA);
+		states.set("call-b", stateB);
+		binding.registerUnboundComponent(first);
+		binding.registerUnboundComponent(second);
+		expect(binding.tryBindByOrder(ledger)).toBe("bound");
+		expect(stateA.component).toBe(first);
+		expect(stateB.component).toBe(second);
+		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("tryBindByOrder refuses without proven equal cardinality", () => {
 		const { binding, states } = makeBinding();
 		const first = new FakeToolComponent();
 		const second = new FakeToolComponent();

@@ -544,6 +544,88 @@ stockTest("expanded live tools delegate to the native renderer", async () => {
 });
 
 stockTest(
+	"concurrent bash tools compact instead of framed Output/Wall cards",
+	async () => {
+		// Stock awaits extension tool_execution_start then fans the UI
+		// subscriber without awaiting it, so concurrent bash starts often
+		// allocate several states before any ToolExecutionComponent is
+		// added. The live order fallback must pair equal-cardinality starts
+		// so the framed `$ …` / Output / ⟦Wall…⟧ chrome never pins.
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const cmdA =
+			'rm -f "glass.css" && git add glass.css && git commit -m "fix: transparent glass"';
+		const cmdB = "python3 - <<'PY'\nprint(1)\nPY";
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "bash-conc-a",
+			toolName: "bash",
+			args: { command: cmdA },
+		});
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "bash-conc-b",
+			toolName: "bash",
+			args: { command: cmdB },
+		});
+		// No updateArgs after addChild — same as the stock create-at-start path
+		// where setArgsComplete/setExpanded run before addChild and the id is
+		// never observed until updateResult.
+		const toolA = addToolComponent(
+			booted,
+			"bash",
+			{ command: cmdA },
+			"bash-conc-a",
+		);
+		const toolB = addToolComponent(
+			booted,
+			"bash",
+			{ command: cmdB },
+			"bash-conc-b",
+		);
+		const working = visibleRows(booted.transcript).join("\n");
+		expect(working).toContain("bash:");
+		expect(working).toContain("git commit");
+		expect(working).toContain("python3");
+		expect(working).not.toContain("╭");
+		expect(working).not.toContain("Output");
+		expect(working).not.toContain("Wall:");
+		await finishTool(booted, toolA, {
+			toolCallId: "bash-conc-a",
+			toolName: "bash",
+			result: {
+				content: [
+					{
+						type: "text",
+						text: "[main bb3cef1] fix: transparent glass\n",
+					},
+				],
+				details: { wallTimeMs: 230, timeoutSeconds: 300, exitCode: 0 },
+			},
+			isError: false,
+		});
+		await finishTool(booted, toolB, {
+			toolCallId: "bash-conc-b",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "1\n" }],
+				details: { wallTimeMs: 110, timeoutSeconds: 300, exitCode: 0 },
+			},
+			isError: false,
+		});
+		const done = visibleRows(booted.transcript).join("\n");
+		expect(done).toContain("• bash:");
+		expect(done).toContain("0.2s");
+		expect(done).toContain("0.1s");
+		expect(done).not.toContain("╭");
+		expect(done).not.toContain("├─── Output");
+		expect(done).not.toContain("⟦Wall:");
+		expect(done).not.toContain("Timeout:");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"pending spinner advances, idles when settled, and restarts on the next tool",
 	async () => {
 		const booted = await bootWithTranscript();

@@ -286,21 +286,23 @@ export class ComponentBinding {
 	}
 
 	/**
-	 * Single-pair order fallback: exactly one unbound tool state and exactly
-	 * one unbound tool component bind to each other. This is the only
-	 * positional guess allowed without full-cardinality proof. Candidates
-	 * are scoped to fresh starts: preserved active states that lost their
-	 * host callback across a rebuild (`#rebuildBacklog`) never join the
-	 * candidate set, so a genuinely new post-rebuild tool binds against its
-	 * own start instead of being poisoned by the unresolved backlog (and is
-	 * never positionally bound to a delayed/replacement historical
-	 * component).
+	 * Equal-cardinality order fallback for the live path. When the unbound
+	 * non-read, non-backlog states on `ledger` and the unbound tool components
+	 * have the same count (including the classic single-pair case), pair them
+	 * in insertion order. Stock delivers `tool_execution_start` extension
+	 * handlers before the UI subscriber and fans UI handlers out without
+	 * awaiting them, so concurrent tools often leave several starts allocated
+	 * before any `addChild` — the 1:1-only rule left those cards native for
+	 * the whole execution window (framed `$ …` / Output / Wall chrome).
+	 * Unequal counts stay unmapped (fail-open): exact-ID bind through
+	 * `updateArgs`/`updateResult` remains the recovery path. Candidates are
+	 * scoped to fresh starts: preserved active states that lost their host
+	 * callback across a rebuild (`#rebuildBacklog`) never join the set.
 	 */
 	tryBindByOrder(ledger: TurnLedger | undefined): BindingStatus {
-		// Exactly one unbound non-read, non-backlog state on this ledger and
-		// exactly one unbound component. Count in place — no array spreads.
-		if (this.#unboundComponents.length !== 1) return "unmapped";
-		let only: ToolState | undefined;
+		const components = this.#unboundComponents;
+		if (components.length === 0) return "unmapped";
+		const unboundStates: ToolState[] = [];
 		for (const state of this.#states.values()) {
 			if (state.component || state.ledger !== ledger) continue;
 			// Read states bind to a group only through a matching
@@ -308,13 +310,23 @@ export class ComponentBinding {
 			// Rebuild-backlog states are unresolved evidence, not fresh starts.
 			if (state.toolName === "read" || this.#rebuildBacklog.has(state))
 				continue;
-			if (only) return "unmapped";
-			only = state;
+			unboundStates.push(state);
 		}
-		if (!only) return "unmapped";
-		const component = this.#unboundComponents[0];
-		if (!component) return "unmapped";
-		return this.bind(component, only);
+		if (unboundStates.length === 0) return "unmapped";
+		// Proven equal cardinality only — unequal counts are ambiguous and
+		// must not guess (a lone component against two starts, or vice versa).
+		if (unboundStates.length !== components.length) return "unmapped";
+		// Snapshot the queue: bind() splices each success out of
+		// `#unboundComponents`, so walking the live array would skip entries.
+		const paired = components.slice() as RenderableBlock[];
+		let bound = false;
+		for (let index = 0; index < paired.length; index++) {
+			const component = paired[index];
+			const state = unboundStates[index];
+			if (!component || !state) continue;
+			if (this.bind(component, state) === "bound") bound = true;
+		}
+		return bound ? "bound" : "unmapped";
 	}
 
 	/**
