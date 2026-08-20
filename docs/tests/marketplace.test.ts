@@ -62,17 +62,17 @@ describe("marketplace catalog", () => {
 		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("17.3.8");
 		expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
 		expect(await Bun.file(join(repoRoot, "CHANGELOG.md")).text()).toContain(
-			`## [${pkg.version}]`,
+			`## ${pkg.version}`,
 		);
 	});
 
 	test("current minor release metadata is synchronized", async () => {
-		expect(pkg.version).toBe("1.1.0");
-		expect(catalog.plugins[0]?.version).toBe("1.1.0");
+		expect(pkg.version).toBe("1.1.1");
+		expect(catalog.plugins[0]?.version).toBe("1.1.1");
 		const changelog = await Bun.file(join(repoRoot, "CHANGELOG.md")).text();
-		expect(changelog).toContain("## [1.1.0] - 2026-08-19");
+		expect(changelog).toContain("## 1.1.1 — 20 августа 2026");
 		expect(changelog).toContain(
-			"[1.1.0]: https://github.com/arksdev/omp-compact/compare/v1.0.4...v1.1.0",
+			"[1.1.1 ← 1.1.0](https://github.com/arksdev/omp-compact/compare/v1.1.0...v1.1.1)",
 		);
 	});
 });
