@@ -31,6 +31,7 @@ import {
 	MAX_TOOL_CALL_ID_LENGTH,
 	MAX_TOOL_NAME_LENGTH,
 } from "./hydration-bounds";
+import { readArgsCollapseIntoGroup } from "./host-adapter";
 import {
 	GIT_MESSAGE_TYPE,
 	type GitMessageDetails,
@@ -786,7 +787,13 @@ export class RuntimeSessionState {
 			segmentIds = [];
 		};
 		for (const state of this.#states.values()) {
-			if (state.toolName === "read") {
+			// Only group-presentation reads join segments. Full-card internal
+			// URL reads seal the current segment (like a non-read) so they
+			// pair through the tool-component path instead.
+			if (
+				state.toolName === "read" &&
+				this.binding.isGroupPresentationRead(state.id)
+			) {
 				if (state.ledger !== previousReadLedger) {
 					flushSegment();
 					previousReadLedger = state.ledger;
@@ -891,6 +898,14 @@ export class RuntimeSessionState {
 			// active state. Only the owning ledger can refresh its args; live
 			// event state remains authoritative across that boundary.
 			if (existing.ledger === ledger) existing.args = retainedArgs;
+			// Re-evaluate group presentation when args arrive/change (a
+			// provisional start may lack a path; a later start carries one).
+			if (
+				existing.toolName === "read" &&
+				readArgsCollapseIntoGroup(existing.args ?? input.args)
+			) {
+				this.binding.markGroupPresentationRead(existing.id);
+			}
 			return existing;
 		}
 		const entry: LedgerEntry = {
@@ -917,6 +932,14 @@ export class RuntimeSessionState {
 		};
 		this.#states.set(state.id, state);
 		this.#pendingStates.add(state);
+		// Filesystem/`xd://` reads collapse into ReadToolGroup; internal-URL
+		// full cards (`skill://`, `agent://`, …) bind as ordinary tools.
+		if (
+			state.toolName === "read" &&
+			readArgsCollapseIntoGroup(retainedArgs ?? input.args)
+		) {
+			this.binding.markGroupPresentationRead(state.id);
+		}
 		return state;
 	}
 

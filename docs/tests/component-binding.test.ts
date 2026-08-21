@@ -385,7 +385,7 @@ describe("ComponentBinding: exact-ID binding", () => {
 		expect(state.result).toBeUndefined();
 	});
 
-	test("updateResult-id: read state on tool path is refused; group path unaffected", () => {
+	test("updateResult-id: group-presentation read on tool path is refused; group path unaffected", () => {
 		const { binding, states } = makeBinding();
 		const toolCard = new FakeToolComponent();
 		const group = new FakeReadGroup();
@@ -396,6 +396,7 @@ describe("ComponentBinding: exact-ID binding", () => {
 			args: { path: "/a" },
 		});
 		states.set("read-1", read);
+		binding.markGroupPresentationRead("read-1");
 		expect(
 			binding.observeToolMethod(toolCard, "updateResult", [
 				{ content: [] },
@@ -827,11 +828,12 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(state.component).toBeUndefined();
 	});
 
-	test("tryBindByOrder never binds read states positionally", () => {
+	test("tryBindByOrder never binds group-presentation reads positionally", () => {
 		const { binding, states } = makeBinding();
 		const component = new FakeToolComponent();
 		const read = makeState({ id: "read-1", toolName: "read" });
 		states.set("read-1", read);
+		binding.markGroupPresentationRead("read-1");
 		binding.registerUnboundComponent(component);
 		expect(binding.tryBindByOrder(read.ledger)).toBe("unmapped");
 		expect(read.component).toBeUndefined();
@@ -861,6 +863,7 @@ describe("ComponentBinding: order fallbacks", () => {
 
 		const read = makeState({ id: "read-1", toolName: "read", ledger });
 		states.set("read-1", read);
+		binding.markGroupPresentationRead("read-1");
 
 		const other = makeState({
 			id: "other-1",
@@ -908,6 +911,53 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(state.component).toBeUndefined();
 		// The queue drains; the component stays native rather than retried.
 		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("bindHydrated pairs full-card internal-URL reads as ordinary tools", () => {
+		// Stock renders skill:// / agent:// reads as ToolExecutionComponent,
+		// not ReadToolGroup. Those states must join tool order pairing —
+		// excluding every read (legacy) left an unbound skill card that
+		// inflated the component count and failed every other tool bind.
+		const { binding, states } = makeBinding();
+		const bashComponent = new FakeToolComponent();
+		const skillComponent = new FakeToolComponent();
+		const bash = makeState({ id: "bash-1", toolName: "bash" });
+		const skill = makeState({
+			id: "skill-1",
+			toolName: "read",
+			args: { path: "skill://writing-skills" },
+		});
+		states.set("bash-1", bash);
+		states.set("skill-1", skill);
+		// Only filesystem-style reads are group-presentation.
+		// skill is intentionally unmarked.
+		binding.registerUnboundComponent(bashComponent);
+		binding.registerUnboundComponent(skillComponent);
+		expect(binding.bindHydrated(true)).toBe(true);
+		expect(bash.component).toBe(bashComponent);
+		expect(skill.component).toBe(skillComponent);
+		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("bindHydrated keeps group-presentation reads off the tool order path", () => {
+		const { binding, states } = makeBinding();
+		const bashComponent = new FakeToolComponent();
+		const groupComponent = new FakeReadGroup();
+		const bash = makeState({ id: "bash-1", toolName: "bash" });
+		const fileRead = makeState({
+			id: "read-1",
+			toolName: "read",
+			args: { path: "src/a.ts" },
+		});
+		states.set("bash-1", bash);
+		states.set("read-1", fileRead);
+		binding.markGroupPresentationRead("read-1");
+		binding.createGroup(groupComponent, false);
+		binding.addHydratedReadSegment(fileRead.ledger, [fileRead.id]);
+		binding.registerUnboundComponent(bashComponent);
+		expect(binding.bindHydrated(true)).toBe(true);
+		expect(bash.component).toBe(bashComponent);
+		expect(fileRead.component).toBe(groupComponent);
 	});
 
 	test("bindHydrated pairs read groups with hydrated ledgers in order", () => {

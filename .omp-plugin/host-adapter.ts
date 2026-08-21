@@ -339,6 +339,47 @@ export function isReadGroupComponent(value: unknown): value is RenderableBlock {
 }
 
 /**
+ * Extract the read call's target path. `path` is canonical; `file_path` is
+ * the legacy alias still tolerated by the stock read tool schema. Mirrors
+ * stock `readArgsTarget` in `read-tool-group.ts`.
+ */
+export function readArgsTarget(args: unknown): string | undefined {
+	if (!args || typeof args !== "object" || Array.isArray(args))
+		return undefined;
+	const record = args as Record<string, unknown>;
+	return typeof record.path === "string"
+		? record.path
+		: typeof record.file_path === "string"
+			? record.file_path
+			: undefined;
+}
+
+/**
+ * Whether a read collapses into {@link ReadToolGroupComponent} rather than a
+ * full `ToolExecutionComponent`. Stock (`readArgsCollapseIntoGroup`, OMP
+ * 17.4.0): filesystem/external targets and `xd://` collapse; internal URLs
+ * the host router can resolve (`skill://`, `agent://`, `memory://`, …)
+ * render as full tool cards so resolved content stays visible.
+ *
+ * The plugin cannot call stock's `InternalUrlRouter` from the extension
+ * process, so the full-card schemes are listed explicitly. Unknown
+ * scheme-less / filesystem paths collapse (group presentation). Drift risk
+ * is limited to new internal schemes defaulting to group until listed —
+ * the inverse (treating a groupable path as a full card) is worse because
+ * a single full-card read state previously poisoned every tool's order
+ * pairing on restore.
+ */
+const FULL_CARD_READ_SCHEME =
+	/^(?:skill|agent|memory|vault|history|artifact|omp|mcp|issue|pr|local|ssh):\/\//i;
+
+export function readArgsCollapseIntoGroup(args: unknown): boolean {
+	const target = readArgsTarget(args);
+	if (target === undefined) return false;
+	if (target.startsWith("xd://")) return true;
+	return !FULL_CARD_READ_SCHEME.test(target);
+}
+
+/**
  * Stock TTSR notification fingerprint (OMP 17.3.1 `TtsrNotificationComponent`):
  * `addRules` + expand/activity controls, without the tool execution surface.
  * Todo reminders share `setToolActivityVisible` but never expose `addRules`.

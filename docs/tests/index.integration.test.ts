@@ -3166,6 +3166,108 @@ stockTest(
 );
 
 stockTest(
+	"cold restore keeps compact tools when skill:// reads render as full tool cards",
+	async () => {
+		// Stock 17.4.0: skill:// / agent:// reads are ToolExecutionComponent
+		// (not ReadToolGroup). A prior bindHydrated filter treated every read
+		// as group-only, so one skill card inflated unboundComponents and
+		// failed order pairing for the whole restored transcript — empty
+		// compact rebuild after omp -c.
+		const harness = rebuildHarness();
+		const branch = [
+			{
+				type: "message",
+				message: { role: "user", content: [{ type: "text", text: "work" }] },
+			},
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "bash-1",
+							name: "bash",
+							arguments: { command: "printf ready" },
+						},
+						{
+							type: "toolCall",
+							id: "skill-1",
+							name: "read",
+							arguments: { path: "skill://writing-skills" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "bash-1",
+					toolName: "bash",
+					content: [{ type: "text", text: "ready" }],
+					isError: false,
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "skill-1",
+					toolName: "read",
+					content: [{ type: "text", text: "skill body" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("done") },
+		];
+		harness.branch.current = branch;
+		const booted = await bootForRebuild("live", harness);
+		// Stock renderInitialMessages swap: clear + re-add reconstructed cards.
+		booted.transcript.clear();
+		const bash = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf ready" },
+			"bash-1",
+		);
+		bash.updateResult(
+			{ content: [{ type: "text", text: "ready" }], details: {} },
+			false,
+			"bash-1",
+		);
+		// Full-card internal-URL read (stock shape — not a ReadToolGroup).
+		const skill = addToolComponent(
+			booted,
+			"read",
+			{ path: "skill://writing-skills" },
+			"skill-1",
+		);
+		skill.updateResult(
+			{ content: [{ type: "text", text: "skill body" }], details: {} },
+			false,
+			"skill-1",
+		);
+		const ContainerBase = Object.getPrototypeOf(
+			booted.host.ReadToolGroupComponent.prototype,
+		).constructor as BootedPlugin["ContainerBase"];
+		const reply = new ContainerBase();
+		reply.addChild({ render: () => ["done"] });
+		booted.transcript.addChild(reply);
+		await Promise.resolve();
+		await Promise.resolve();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("bash: printf ready");
+		expect(rows).toContain("done");
+		// Skill card may compact as a read row or stay native full-card;
+		// the critical contract is sibling tools stay compact, not native boxes.
+		expect(rows).not.toMatch(/[╭╰]/);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"a provisional grouped read stays compact through a streamed-id rename",
 	async () => {
 		const booted = await bootWithTranscript();

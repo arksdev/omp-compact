@@ -127,6 +127,14 @@ export class ComponentBinding {
 	 * keep protecting later new tools until the run is over.
 	 */
 	#rebuildBacklog = new Set<ToolState>();
+	/**
+	 * Read states that bind exclusively through ReadToolGroup pairing
+	 * (filesystem/`xd://` targets). Stock renders other internal-URL reads
+	 * (`skill://`, `agent://`, …) as full ToolExecutionComponents — those
+	 * ids stay out of this set so order pairing and exact-ID tool binds
+	 * treat them like any other tool. Cleared with association reset.
+	 */
+	#groupPresentationReads = new Set<string>();
 
 	constructor(states: Map<string, ToolState>, delegates: BindingDelegates) {
 		this.#states = states;
@@ -177,6 +185,20 @@ export class ComponentBinding {
 	 */
 	addHydratedReadLedger(ledger: TurnLedger): void {
 		this.#hydratedReadSegments.push({ ledger, stateIds: undefined });
+	}
+
+	/**
+	 * Mark a read state as group-presentation only (collapses into
+	 * ReadToolGroup). Non-groupable internal-URL reads must never be marked
+	 * — they bind through the tool-component path.
+	 */
+	markGroupPresentationRead(toolCallId: string): void {
+		this.#groupPresentationReads.add(toolCallId);
+	}
+
+	/** Whether a read state pairs only with ReadToolGroup components. */
+	isGroupPresentationRead(toolCallId: string): boolean {
+		return this.#groupPresentationReads.has(toolCallId);
 	}
 
 	/**
@@ -305,10 +327,14 @@ export class ComponentBinding {
 		const unboundStates: ToolState[] = [];
 		for (const state of this.#states.values()) {
 			if (state.component || state.ledger !== ledger) continue;
-			// Read states bind to a group only through a matching
-			// `updateArgs`/`updateResult` ID; they never use the order fallback.
-			// Rebuild-backlog states are unresolved evidence, not fresh starts.
-			if (state.toolName === "read" || this.#rebuildBacklog.has(state))
+			// Group-presentation reads bind only through read-group pairing.
+			// Full-card internal-URL reads (`skill://`, `agent://`, …) stay
+			// eligible so they pair like ordinary tools.
+			if (
+				(state.toolName === "read" &&
+					this.#groupPresentationReads.has(state.id)) ||
+				this.#rebuildBacklog.has(state)
+			)
 				continue;
 			unboundStates.push(state);
 		}
@@ -349,7 +375,12 @@ export class ComponentBinding {
 	bindHydrated(allowOrder = true, restoredArmed = true): boolean {
 		if (this.#states.size === 0) return true;
 		const toolStates = [...this.#states.values()].filter(
-			(state) => state.toolName !== "read" && !state.component,
+			(state) =>
+				!state.component &&
+				!(
+					state.toolName === "read" &&
+					this.#groupPresentationReads.has(state.id)
+				),
 		);
 		const components = [...this.#unboundComponents];
 		if (allowOrder && toolStates.length === components.length) {
@@ -651,13 +682,19 @@ export class ComponentBinding {
 			// Host rebuild path: ToolExecutionComponent is constructed with a
 			// discarded `_toolCallId` and never gets updateArgs(args, id). Stock
 			// still delivers updateResult(result, isPartial, toolCallId). That
-			// third-arg id is exact ownership for an unbound non-read state —
-			// same conflict rules as updateArgs bind, never migration, never
-			// order. Reads stay on the group path exclusively.
+			// third-arg id is exact ownership for an unbound tool-card state
+			// (including full-card internal-URL reads). Group-presentation
+			// reads stay on the group path exclusively.
 			const id = updateResultToolCallId(args);
 			if (id) {
 				const candidate = this.#states.get(id);
-				if (candidate && candidate.toolName !== "read") {
+				if (
+					candidate &&
+					!(
+						candidate.toolName === "read" &&
+						this.#groupPresentationReads.has(candidate.id)
+					)
+				) {
 					const bindStatus = this.bind(component, candidate);
 					if (bindStatus !== "bound") return bindStatus;
 				}
@@ -912,6 +949,7 @@ export class ComponentBinding {
 		this.#groups.clear();
 		this.#unboundComponents.length = 0;
 		this.#hydratedReadSegments.length = 0;
+		this.#groupPresentationReads.clear();
 		for (const state of this.#states.values()) state.component = undefined;
 	}
 
@@ -954,6 +992,10 @@ export class ComponentBinding {
 			existing.ledger.removeEntry(existing.entry);
 		}
 		if (this.#states.get(state.id) === state) this.#states.delete(state.id);
+		if (this.#groupPresentationReads.has(state.id)) {
+			this.#groupPresentationReads.delete(state.id);
+			this.#groupPresentationReads.add(realId);
+		}
 		state.id = realId;
 		state.entry.id = realId;
 		state.entry.toolCallId = realId;
