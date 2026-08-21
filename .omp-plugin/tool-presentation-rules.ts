@@ -126,7 +126,41 @@ const GLOB_DETAILS = [
 	"truncated",
 	"cwd",
 ] as const;
-const HUB_ARGS = ["op", "to", "from", "message", "replyTo", "await"] as const;
+const HUB_ARGS = [
+	"op",
+	"to",
+	"from",
+	"message",
+	"replyTo",
+	"await",
+	// jobs / wait
+	"ids",
+	"timeoutMs",
+	"peek",
+	// launch (process supervision)
+	"name",
+	"application",
+	"args",
+	"env",
+	"cwd",
+	"pty",
+	"ready",
+	"restart",
+	"persist",
+	"detached",
+	"lines",
+	"head",
+	"grep",
+	"follow",
+	"cursor",
+	"for",
+	"pattern",
+	"text",
+	"enter",
+	"keys",
+	"signal",
+	"timeout",
+] as const;
 const HUB_DETAILS = [
 	"op",
 	"from",
@@ -135,6 +169,20 @@ const HUB_DETAILS = [
 	"waited",
 	"isError",
 	"error",
+	"inbox",
+	"peers",
+	"jobs",
+	"cancelled",
+	"agents",
+	// launch result details
+	"daemon",
+	"daemons",
+	"cursor",
+	"timedOut",
+	"state",
+	"terminalRows",
+	"matched",
+	"spec",
 ] as const;
 const TODO_ARGS = ["op", "title", "items"] as const;
 const TODO_DETAILS = ["op", "phases", "storage", "completedTasks"] as const;
@@ -446,6 +494,53 @@ function genericDescribe(name: string) {
 	return (args: unknown): ToolDescription => genericToolDescription(name, args);
 }
 
+/**
+ * Hub launch-style ops (stock `isLaunchStyleArgs`): explicit process ops, or
+ * `send`/`wait` targeting a process `name` without a peer `to`/`from`.
+ * Mirrors `node_modules/.../tools/hub/index.ts` so compact titles track the
+ * framed 🚀 Launch chrome users see natively.
+ */
+const HUB_LAUNCH_OPS: Readonly<Record<string, true>> = Object.freeze({
+	start: true,
+	ps: true,
+	logs: true,
+	stop: true,
+	restart: true,
+	describe: true,
+});
+
+function isHubLaunchStyleArgs(args: Record<string, unknown>): boolean {
+	const op = stringValue(args, "op");
+	if (!op) return false;
+	if (HUB_LAUNCH_OPS[op]) return true;
+	if (op !== "send" && op !== "wait") return false;
+	return (
+		stringValue(args, "name").length > 0 &&
+		stringValue(args, "to").length === 0 &&
+		stringValue(args, "from").length === 0
+	);
+}
+
+/** Launch ops → `launch: logs web` / `launch: start web bun`; else generic hub. */
+function describeHub(args: unknown): ToolDescription {
+	const value = record(args);
+	if (!isHubLaunchStyleArgs(value)) return genericToolDescription("hub", args);
+	const op = stringValue(value, "op");
+	const displayOp = op === "ps" ? "list" : op;
+	const name = stringValue(value, "name");
+	const application = stringValue(value, "application");
+	const parts: string[] = [];
+	if (displayOp) parts.push(displayOp);
+	if (name) parts.push(name);
+	else if (application) parts.push(application);
+	if (op === "start" && name && application) parts.push(application);
+	return {
+		title: "launch",
+		description: parts.join(" "),
+		meta: [],
+	};
+}
+
 function presentationRule(
 	route: ToolRoute,
 	audit: ToolAuditKind,
@@ -529,7 +624,7 @@ export const TOOL_RULES: Readonly<
 			"none",
 			HUB_ARGS,
 			HUB_DETAILS,
-			genericDescribe("hub"),
+			describeHub,
 		),
 		todo: presentationRule(
 			"compact",

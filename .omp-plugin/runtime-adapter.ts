@@ -385,9 +385,14 @@ export class RuntimeAdapter {
 		//   compact Working… row while args still stream. Stock paints the
 		//   native framed card from message_update long before
 		//   tool_execution_start.
-		// - every other tool keeps waiting for tool_execution_start so a
-		//   stale message_update of a previous run cannot poison the next
-		//   run's single-pair order binding (late message_update tests).
+		// - other compact-route tools (hub Launch, bash, …) early-allocate
+		//   only when an unbound tool surface already exists. Stock delivers
+		//   message_update to UI subscribers first (cards land via addChild),
+		//   then queues the extension handler — so real streams bind and
+		//   collapse framed Launch / $ chrome before tool_execution_start.
+		//   A stale late message_update with no card cannot poison the next
+		//   run's equal-cardinality order binding (late message_update tests).
+		// - read-group and native-live never early-allocate here.
 		if (ledger?.phase !== "working") return;
 		const contents = objectRecord(message).content;
 		if (!Array.isArray(contents)) return;
@@ -403,8 +408,21 @@ export class RuntimeAdapter {
 			}
 			let state = this.#session.state(call.id);
 			if (!state) {
-				const audit = resolveToolRule(call.name)?.audit ?? "none";
-				if (audit !== "write" && audit !== "edit") continue;
+				const rule = resolveToolRule(call.name);
+				if (
+					!rule ||
+					rule.route === "native-live" ||
+					rule.route === "read-group"
+				) {
+					continue;
+				}
+				const isMutation = rule.audit === "write" || rule.audit === "edit";
+				if (
+					!isMutation &&
+					this.#session.binding.unboundComponents().length === 0
+				) {
+					continue;
+				}
 				state = this.#session.startState({
 					toolCallId: call.id,
 					toolName: call.name,
@@ -412,11 +430,10 @@ export class RuntimeAdapter {
 				});
 				if (!state) continue;
 				touched = true;
-			} else if (state.ledger !== ledger) {
-				continue;
-			} else {
+			} else if (state.ledger === ledger) {
 				// Same retained-payload budget as startState/hydrate: over-budget
 				// stream deltas must not reintroduce a dropped args blob.
+				// Foreign-ledger ids (stale stream of another run) are ignored.
 				state.args = isPayloadWithinBudget(call.arguments)
 					? call.arguments
 					: undefined;

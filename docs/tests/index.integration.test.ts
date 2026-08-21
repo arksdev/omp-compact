@@ -1001,6 +1001,151 @@ stockTest(
 );
 
 stockTest(
+	"streaming hub Launch cards and concurrent tools compact before tool_execution_start",
+	async () => {
+		// Stock paints ToolExecutionComponent cards from message_update long
+		// before tool_execution_start. Hub launch-style ops use the framed
+		// 🚀 Launch chrome (logs = full Output block); concurrent bash in the
+		// same stream paints $ … / Output / Wall. UI subscribers create those
+		// cards synchronously, then the extension message_update is queued —
+		// compact must bind and collapse both surfaces on that extension
+		// delivery, not wait for tool_execution_start (which can be seconds
+		// later for ready-gated start / follow logs).
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+
+		const launchArgs = {
+			op: "logs",
+			name: "web",
+			follow: true,
+		};
+		const bashArgs = { command: "curl -s localhost:5173" };
+
+		// Production order: UI cards first, then extension message_update.
+		const hubCall = addToolComponent(
+			booted,
+			"hub",
+			launchArgs,
+			"stream-hub-launch-1",
+		);
+		const bashCall = addToolComponent(
+			booted,
+			"bash",
+			bashArgs,
+			"stream-bash-with-launch-1",
+		);
+
+		// Sanity: unbound stock surfaces still show native Launch / bash chrome.
+		const nativeBefore = visibleRows(booted.transcript).join("\n");
+		expect(nativeBefore).toContain("Launch");
+		expect(nativeBefore).toMatch(/╭|\$/);
+
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stream-hub-launch-1",
+						name: "hub",
+						arguments: launchArgs,
+					},
+					{
+						type: "toolCall",
+						id: "stream-bash-with-launch-1",
+						name: "bash",
+						arguments: bashArgs,
+					},
+				],
+			},
+		});
+
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("Working…");
+		// Launch-style hub describe: "launch: logs web" (not bare generic hub).
+		expect(live).toMatch(/launch:\s*logs\s+web/);
+		expect(live).toContain("bash:");
+		expect(live).toContain("curl -s localhost:5173");
+		expect(live).not.toContain("Launch");
+		expect(live).not.toContain("╭");
+		expect(live).not.toContain("Output");
+		expect(live).not.toContain("Wall");
+
+		// Settled Launch logs must stay one compact row, not the framed Output
+		// block stock uses for op==="logs".
+		await finishTool(booted, hubCall, {
+			toolCallId: "stream-hub-launch-1",
+			toolName: "hub",
+			result: {
+				content: [
+					{
+						type: "text",
+						text: "ready on :5173\nGET / 200\n[web: running; cursor=12]",
+					},
+				],
+				details: { op: "logs", state: "running", cursor: 12 },
+			},
+			isError: false,
+		});
+		await finishTool(booted, bashCall, {
+			toolCallId: "stream-bash-with-launch-1",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "ok\n" }],
+				details: { wallTimeMs: 40, timeoutSeconds: 300, exitCode: 0 },
+			},
+			isError: false,
+		});
+		const done = visibleRows(booted.transcript).join("\n");
+		expect(done).toMatch(/launch:\s*logs\s+web/);
+		expect(done).toContain("• bash:");
+		expect(done).not.toContain("Launch");
+		expect(done).not.toContain("╭");
+		expect(done).not.toContain("├─── Output");
+		expect(done).not.toContain("ready on :5173");
+
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"streaming hub Launch start alone compacts before tool_execution_start",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const launchArgs = {
+			op: "start",
+			name: "web",
+			application: "bun",
+			args: ["run", "dev"],
+			ready: { port: 5173 },
+		};
+		addToolComponent(booted, "hub", launchArgs, "stream-hub-start-1");
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stream-hub-start-1",
+						name: "hub",
+						arguments: launchArgs,
+					},
+				],
+			},
+		});
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("Working…");
+		expect(live).toMatch(/launch:\s*start\s+web/);
+		expect(live).not.toContain("Launch");
+		expect(live).not.toContain("╭");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"a late message_update of the previous run never pollutes the next run after agent_start",
 	async () => {
 		const booted = await bootWithTranscript();

@@ -455,6 +455,38 @@ describe("existing tool descriptions", () => {
 			description: "op: send to: Main",
 			meta: [],
 		});
+		expect(
+			describeTool("hub", { op: "logs", name: "web", follow: true }),
+		).toEqual({
+			title: "launch",
+			description: "logs web",
+			meta: [],
+		});
+		expect(
+			describeTool("hub", {
+				op: "start",
+				name: "web",
+				application: "bun",
+				args: ["run", "dev"],
+			}),
+		).toEqual({
+			title: "launch",
+			description: "start web bun",
+			meta: [],
+		});
+		expect(describeTool("hub", { op: "ps" })).toEqual({
+			title: "launch",
+			description: "list",
+			meta: [],
+		});
+		// Process-targeted send/wait are launch-style (no peer to/from).
+		expect(
+			describeTool("hub", { op: "send", name: "web", text: "hi" }),
+		).toEqual({
+			title: "launch",
+			description: "send web",
+			meta: [],
+		});
 		expect(describeTool("todo", { op: "init" })?.title).toBe("todo");
 		expect(describeTool("eval", { language: "py" })?.description).toBe(
 			"language: py",
