@@ -76,6 +76,7 @@ function makeState(
 		isError: false,
 		isPartial: true,
 		expanded: false,
+		executionStarted: true,
 		ledger,
 		entry,
 		mutations: [],
@@ -814,6 +815,54 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(stateA.component).toBe(first);
 		expect(stateB.component).toBe(second);
 		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("tryBindByOrder prefers execution-started over stream-only previews", () => {
+		// A stale late message_update can leave a stream-only preview on the
+		// next run's ledger. When the genuine tool_execution_start arrives,
+		// order binding must pair the started state — not fail equal-cardinality
+		// against the leftover preview.
+		const { binding, states } = makeBinding();
+		const ledger = new TurnLedger("run-prefer-started");
+		const component = new FakeToolComponent();
+		const stale = makeState({
+			id: "stale-stream",
+			toolName: "bash",
+			ledger,
+			executionStarted: false,
+		});
+		const started = makeState({
+			id: "real-start",
+			toolName: "bash",
+			ledger,
+			executionStarted: true,
+		});
+		states.set("stale-stream", stale);
+		states.set("real-start", started);
+		binding.registerUnboundComponent(component);
+		expect(binding.tryBindByOrder(ledger)).toBe("bound");
+		expect(started.component).toBe(component);
+		expect(stale.component).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([]);
+	});
+
+	test("tryBindByOrder ignores stream-only previews", () => {
+		// Stream previews bind through exact-ID updateArgs only; order pairing
+		// of unstarted previews would claim anonymous host cards.
+		const { binding, states } = makeBinding();
+		const ledger = new TurnLedger("run-stream-only");
+		const component = new FakeToolComponent();
+		const preview = makeState({
+			id: "stream-bash",
+			toolName: "bash",
+			ledger,
+			executionStarted: false,
+		});
+		states.set("stream-bash", preview);
+		binding.registerUnboundComponent(component);
+		expect(binding.tryBindByOrder(ledger)).toBe("unmapped");
+		expect(preview.component).toBeUndefined();
+		expect(binding.unboundComponents()).toEqual([component]);
 	});
 
 	test("tryBindByOrder refuses without proven equal cardinality", () => {

@@ -308,16 +308,18 @@ export class ComponentBinding {
 	}
 
 	/**
-	 * Equal-cardinality order fallback for the live path. When the unbound
-	 * non-read, non-backlog states on `ledger` and the unbound tool components
-	 * have the same count (including the classic single-pair case), pair them
-	 * in insertion order. Stock delivers `tool_execution_start` extension
-	 * handlers before the UI subscriber and fans UI handlers out without
-	 * awaiting them, so concurrent tools often leave several starts allocated
-	 * before any `addChild` — the 1:1-only rule left those cards native for
-	 * the whole execution window (framed `$ …` / Output / Wall chrome).
-	 * Unequal counts stay unmapped (fail-open): exact-ID bind through
-	 * `updateArgs`/`updateResult` remains the recovery path. Candidates are
+	 * Equal-cardinality order fallback for the live path. Only
+	 * `executionStarted` states (authoritative tool_execution_start) pair —
+	 * stream-only message_update previews bind exclusively through exact-ID
+	 * `updateArgs`/`updateResult`. When the unbound started states on
+	 * `ledger` and the unbound tool components have the same count (including
+	 * the classic single-pair case), pair them in insertion order. Stock
+	 * delivers `tool_execution_start` extension handlers before the UI
+	 * subscriber and fans UI handlers out without awaiting them, so concurrent
+	 * tools often leave several starts allocated before any `addChild` — the
+	 * 1:1-only rule left those cards native for the whole execution window
+	 * (framed `$ …` / Output / Wall chrome). Unequal counts stay unmapped
+	 * (fail-open): exact-ID bind remains the recovery path. Candidates are
 	 * scoped to fresh starts: preserved active states that lost their host
 	 * callback across a rebuild (`#rebuildBacklog`) never join the set.
 	 */
@@ -327,6 +329,11 @@ export class ComponentBinding {
 		const unboundStates: ToolState[] = [];
 		for (const state of this.#states.values()) {
 			if (state.component || state.ledger !== ledger) continue;
+			// Stream-only message_update previews bind via exact-ID
+			// updateArgs/updateResult only. Order pairing is reserved for
+			// tool_execution_start so anonymous cards and stale stream
+			// leftovers cannot claim a genuine start (or each other).
+			if (!state.executionStarted) continue;
 			// Group-presentation reads bind only through read-group pairing.
 			// Full-card internal-URL reads (`skill://`, `agent://`, …) stay
 			// eligible so they pair like ordinary tools.

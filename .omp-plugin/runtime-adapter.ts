@@ -378,20 +378,16 @@ export class RuntimeAdapter {
 		// agent_end — or after the next run's agent_start. Only the active
 		// working ledger may be touched: never fabricate a ledger
 		// (ensureLedger via startState only when a ledger already exists).
-		//
 		// State allocation:
-		// - write/edit (and apply_patch → edit) allocate early so the
-		//   streaming ToolExecutionComponent can bind and collapse to the
-		//   compact Working… row while args still stream. Stock paints the
-		//   native framed card from message_update long before
-		//   tool_execution_start.
-		// - other compact-route tools (hub Launch, bash, …) early-allocate
-		//   only when an unbound tool surface already exists. Stock delivers
-		//   message_update to UI subscribers first (cards land via addChild),
-		//   then queues the extension handler — so real streams bind and
-		//   collapse framed Launch / $ chrome before tool_execution_start.
-		//   A stale late message_update with no card cannot poison the next
-		//   run's equal-cardinality order binding (late message_update tests).
+		// - compact-route tools (write/edit, hub Launch, bash, …) early-allocate
+		//   on every streaming toolCall so the UI card can bind and collapse
+		//   framed chrome before tool_execution_start. Stock coalesces
+		//   message_update for the UI (~33ms) while the extension queue may
+		//   run with no unbound card yet — gating on unboundComponents left
+		//   long bash / Launch cards native for the whole run.
+		//   Stream previews set executionStarted=false; tryBindByOrder prefers
+		//   started states so a stale late message_update cannot poison the
+		//   next run's equal-cardinality order binding.
 		// - read-group and native-live never early-allocate here.
 		if (ledger?.phase !== "working") return;
 		const contents = objectRecord(message).content;
@@ -416,17 +412,11 @@ export class RuntimeAdapter {
 				) {
 					continue;
 				}
-				const isMutation = rule.audit === "write" || rule.audit === "edit";
-				if (
-					!isMutation &&
-					this.#session.binding.unboundComponents().length === 0
-				) {
-					continue;
-				}
 				state = this.#session.startState({
 					toolCallId: call.id,
 					toolName: call.name,
 					args: call.arguments,
+					fromStream: true,
 				});
 				if (!state) continue;
 				touched = true;

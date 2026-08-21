@@ -1018,3 +1018,60 @@ export function gitMessageComponent(
 ): Component | undefined {
 	return details ? new CompactLines(gitRecordRows(details, theme)) : undefined;
 }
+
+/**
+ * Compact one-line view of stock hub `launch-completion` notifications
+ * (📦 framed CustomMessageComponent). Prefer structured `details.daemons`;
+ * fall back to the first content line when details are missing/malformed.
+ */
+export function launchCompletionLine(
+	message: {
+		details?: unknown;
+		content?: unknown;
+	},
+	theme: Theme,
+): string {
+	const bullet = theme.fg("dim", "•");
+	const marker = theme.fg("toolTitle", "launch");
+	const details = record(message.details);
+	const daemons = Array.isArray(details.daemons) ? details.daemons : [];
+	const parts: string[] = [];
+	for (const entry of daemons) {
+		const daemon = record(entry);
+		const name = sanitizeOneLine(daemon.name, 40);
+		if (!name) continue;
+		const state =
+			typeof daemon.state === "string" ? sanitizeOneLine(daemon.state, 24) : "";
+		const exit =
+			typeof daemon.exitCode === "number" && Number.isFinite(daemon.exitCode)
+				? `exit ${Math.trunc(daemon.exitCode)}`
+				: "";
+		const meta = [state, exit].filter(Boolean).join(" ");
+		parts.push(meta ? `${name} ${meta}` : name);
+	}
+	if (parts.length === 0) {
+		const raw =
+			typeof message.content === "string"
+				? message.content
+				: Array.isArray(message.content)
+					? message.content
+							.map((item) => record(item).text)
+							.filter((text): text is string => typeof text === "string")
+							.join("\n")
+					: "";
+		const first = sanitizeOneLine(raw.split("\n")[0] ?? "", 120);
+		if (first) parts.push(first);
+	}
+	const body =
+		parts.length > 0
+			? theme.fg("dim", sanitizeOneLine(parts.join(" · "), 160))
+			: theme.fg("dim", "supervised process");
+	return `${bullet} ${marker}: ${body}`;
+}
+
+export function launchCompletionMessageComponent(
+	message: { details?: unknown; content?: unknown },
+	theme: Theme,
+): Component {
+	return new CompactLines([launchCompletionLine(message, theme)]);
+}

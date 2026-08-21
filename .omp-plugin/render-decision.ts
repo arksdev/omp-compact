@@ -44,9 +44,8 @@ export interface ToolRenderInput {
 	compactOnExpand: boolean;
 	/**
 	 * True while the tool is still streaming args/result (`isPartial`).
-	 * Combined with `streamCollapse` (write/edit audit tools) to keep the
-	 * compact Working… row during the in-flight phase even when the host
-	 * marks the card expanded.
+	 * Combined with `streamCollapse` to keep the compact Working… row during
+	 * the in-flight phase even when the host marks the card expanded.
 	 */
 	isPartial: boolean;
 	/**

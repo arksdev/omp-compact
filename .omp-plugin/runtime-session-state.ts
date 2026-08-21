@@ -68,6 +68,14 @@ export interface ToolStartInput {
 	toolCallId: string;
 	toolName: string;
 	args: unknown;
+	/**
+	 * True when allocated from a streaming `message_update` before
+	 * `tool_execution_start`. Stream-only previews let the UI card collapse
+	 * early; `tryBindByOrder` prefers execution-started states so a stale
+	 * late message_update cannot poison the next run's equal-cardinality
+	 * pairing (see late message_update tests).
+	 */
+	fromStream?: boolean;
 }
 
 export interface ToolResultInput {
@@ -95,6 +103,13 @@ export interface ToolState {
 	isError: boolean;
 	isPartial: boolean;
 	expanded: boolean;
+	/**
+	 * False while the state exists only from a streaming message_update
+	 * preview; flipped true on the authoritative tool_execution_start path.
+	 * Live order binding prefers started states so stream-only leftovers
+	 * cannot block a genuine start's single-pair fallback.
+	 */
+	executionStarted: boolean;
 	component?: RenderableBlock;
 	ledger: TurnLedger;
 	entry: LedgerEntry;
@@ -898,6 +913,9 @@ export class RuntimeSessionState {
 			// active state. Only the owning ledger can refresh its args; live
 			// event state remains authoritative across that boundary.
 			if (existing.ledger === ledger) existing.args = retainedArgs;
+			// Authoritative tool_execution_start promotes a stream preview so
+			// order binding prefers it over leftover stream-only ids.
+			if (input.fromStream !== true) existing.executionStarted = true;
 			// Re-evaluate group presentation when args arrive/change (a
 			// provisional start may lack a path; a later start carries one).
 			if (
@@ -925,6 +943,9 @@ export class RuntimeSessionState {
 			isError: false,
 			isPartial: true,
 			expanded: this.#getToolsExpanded?.() === true,
+			// Hydration / tool_execution_start default to started; only the
+			// streaming message_update path opts into a preview state.
+			executionStarted: input.fromStream !== true,
 			ledger,
 			entry,
 			mutations: [],

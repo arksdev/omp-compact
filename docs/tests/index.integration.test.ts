@@ -1060,6 +1060,10 @@ stockTest(
 				],
 			},
 		});
+		// Stock's coalesced UI flush calls updateArgs(id) on existing cards
+		// after the extension message_update early-allocates stream previews.
+		hubCall.updateArgs(launchArgs, "stream-hub-launch-1");
+		bashCall.updateArgs(bashArgs, "stream-bash-with-launch-1");
 
 		const live = visibleRows(booted.transcript).join("\n");
 		expect(live).toContain("Working…");
@@ -1121,7 +1125,12 @@ stockTest(
 			args: ["run", "dev"],
 			ready: { port: 5173 },
 		};
-		addToolComponent(booted, "hub", launchArgs, "stream-hub-start-1");
+		const hubCall = addToolComponent(
+			booted,
+			"hub",
+			launchArgs,
+			"stream-hub-start-1",
+		);
 		await dispatch(booted, {
 			type: "message_update",
 			message: {
@@ -1136,11 +1145,122 @@ stockTest(
 				],
 			},
 		});
+		hubCall.updateArgs(launchArgs, "stream-hub-start-1");
 		const live = visibleRows(booted.transcript).join("\n");
 		expect(live).toContain("Working…");
 		expect(live).toMatch(/launch:\s*start\s+web/);
 		expect(live).not.toContain("Launch");
 		expect(live).not.toContain("╭");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"streaming bash alone compacts when message_update arrives before the card",
+	async () => {
+		// Stock coalesces message_update for the UI (~33ms) while the extension
+		// queue may run first with no ToolExecutionComponent yet. Compact must
+		// still early-allocate a stream preview, bind when the card lands, and
+		// keep the settled row compact (no framed $ / Output / Wall chrome).
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const bashArgs = {
+			command: "cd /tmp/openbot && docker compose build 2>&1 | tail -40",
+		};
+
+		// Extension message_update first — no unbound card (real stock order).
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stream-bash-before-card",
+						name: "bash",
+						arguments: bashArgs,
+					},
+				],
+			},
+		});
+		// UI card lands after the extension delta (coalesced flush). Stock then
+		// delivers updateArgs(id) on later deltas / tool_execution_start.
+		const bashCall = addToolComponent(
+			booted,
+			"bash",
+			bashArgs,
+			"stream-bash-before-card",
+		);
+		bashCall.updateArgs(bashArgs, "stream-bash-before-card");
+		const live = visibleRows(booted.transcript).join("\n");
+		expect(live).toContain("Working…");
+		expect(live).toContain("bash:");
+		expect(live).toContain("docker compose build");
+		expect(live).not.toContain("╭");
+		expect(live).not.toContain("Output");
+		expect(live).not.toContain("Wall");
+
+		await finishTool(booted, bashCall, {
+			toolCallId: "stream-bash-before-card",
+			toolName: "bash",
+			result: {
+				content: [
+					{
+						type: "text",
+						text: "Image openbot-migrate Built\n",
+					},
+				],
+				details: {
+					wallTimeMs: 286_490,
+					timeoutSeconds: 600,
+					exitCode: 0,
+				},
+			},
+			isError: false,
+		});
+		const done = visibleRows(booted.transcript).join("\n");
+		expect(done).toContain("• bash:");
+		expect(done).toMatch(/\b286s\b/);
+		expect(done).not.toContain("╭");
+		expect(done).not.toContain("├─── Output");
+		expect(done).not.toContain("⟦Wall:");
+		expect(done).not.toContain("Image openbot-migrate Built");
+
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"launch-completion custom messages render one compact launch row",
+	async () => {
+		// Stock paints hub supervised-process exits as framed
+		// CustomMessageComponent (📦 launch-completion + body). The registered
+		// message renderer must replace that chrome with one tool-style row.
+		const booted = await bootWithTranscript();
+		const renderer = booted.renderers.get("launch-completion");
+		expect(renderer).toBeTypeOf("function");
+		const component = renderer?.(
+			{
+				details: {
+					daemons: [
+						{
+							name: "ck-login",
+							state: "exited",
+							exitCode: 0,
+						},
+					],
+				},
+			},
+			{ expanded: false },
+			booted.host.getTheme(),
+		);
+		const rows = component ? visibleRows(component).join("\n") : "";
+		expect(rows).toContain("launch:");
+		expect(rows).toContain("ck-login");
+		expect(rows).toContain("exit 0");
+		expect(rows).not.toContain("launch-completion");
+		expect(rows).not.toContain("📦");
+		expect(rows).not.toContain("╭");
 		await shutdown(booted);
 	},
 );
