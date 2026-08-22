@@ -263,6 +263,21 @@ const RESOLUTION_DETAILS = [
 	"sourceResultDetails",
 	"status",
 ] as const;
+// Vibe worker-session devices (`node_modules/.../src/tools/vibe.ts`): one
+// schema per tool, one shared `VibeToolDetails` payload for all five.
+const VIBE_SPAWN_ARGS = ["cli", "name", "prompt"] as const;
+const VIBE_SEND_ARGS = ["session", "message"] as const;
+const VIBE_WAIT_ARGS = ["sessions", "timeout"] as const;
+const VIBE_KILL_ARGS = ["session"] as const;
+const VIBE_LIST_ARGS: readonly string[] = [];
+const VIBE_DETAILS = [
+	"op",
+	"screens",
+	"spawned",
+	"send",
+	"wait",
+	"killed",
+] as const;
 
 // Null prototype: direct index of collision keys (constructor/toString/…) must
 // yield undefined even for callers that bypass normalizeToolName. Object.hasOwn
@@ -721,6 +736,47 @@ export const TOOL_RULES: Readonly<
 			true,
 		),
 		task: presentationRule("compact", "none", [], [], genericDescribe("task")),
+		// Vibe worker-session devices: compact route, and the rows come from
+		// the dedicated vibe builder in render.ts (not `describe`). The
+		// generic description stays as the bounded fallback for any caller
+		// that asks a vibe rule to describe itself. No `compactOnExpand`:
+		// explicit expansion keeps the stock framed TV-wall card as the
+		// inspection escape hatch, exactly like ordinary compact tools.
+		vibe_spawn: presentationRule(
+			"compact",
+			"none",
+			VIBE_SPAWN_ARGS,
+			VIBE_DETAILS,
+			genericDescribe("vibe_spawn"),
+		),
+		vibe_send: presentationRule(
+			"compact",
+			"none",
+			VIBE_SEND_ARGS,
+			VIBE_DETAILS,
+			genericDescribe("vibe_send"),
+		),
+		vibe_wait: presentationRule(
+			"compact",
+			"none",
+			VIBE_WAIT_ARGS,
+			VIBE_DETAILS,
+			genericDescribe("vibe_wait"),
+		),
+		vibe_kill: presentationRule(
+			"compact",
+			"none",
+			VIBE_KILL_ARGS,
+			VIBE_DETAILS,
+			genericDescribe("vibe_kill"),
+		),
+		vibe_list: presentationRule(
+			"compact",
+			"none",
+			VIBE_LIST_ARGS,
+			VIBE_DETAILS,
+			genericDescribe("vibe_list"),
+		),
 	}) as Partial<Record<string, ToolPresentationRule>>,
 );
 

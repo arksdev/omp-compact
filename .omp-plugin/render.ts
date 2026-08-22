@@ -15,9 +15,16 @@ import type {
 	MutationMessageDetails,
 } from "./messages";
 import {
+	normalizeToolName,
 	resolveToolRule,
 	type ToolPresentationRule,
 } from "./tool-presentation-rules";
+import {
+	type CompactVibeView,
+	renderCompactVibeRows,
+	unpackVibeToolDetails,
+	type VibeOp,
+} from "./vibe-cards";
 
 const ADDED_STAT_COLOR = "#A4D734";
 const REMOVED_STAT_COLOR = "#A1471A";
@@ -946,6 +953,23 @@ function pendingFrame(theme: Theme, tick: number): string {
 	return frame ?? "•";
 }
 
+/**
+ * Canonical vibe tool name → builder operation. Keys are the canonical
+ * underscore spellings of the five stock devices (`VIBE_TOOL_NAMES` in
+ * `node_modules/.../src/tools/vibe.ts`); lookups go through
+ * `normalizeToolName` like every other registry access. Null prototype: a
+ * prototype-collision name must index to `undefined`, never a function.
+ */
+const VIBE_OPS: Readonly<Partial<Record<string, VibeOp>>> = Object.freeze(
+	Object.assign(Object.create(null), {
+		vibe_spawn: "spawn",
+		vibe_send: "send",
+		vibe_wait: "wait",
+		vibe_kill: "kill",
+		vibe_list: "list",
+	}) as Partial<Record<string, VibeOp>>,
+);
+
 export function renderCompactToolRows(
 	view: CompactToolView,
 	theme: Theme,
@@ -965,6 +989,25 @@ export function renderCompactToolRows(
 		return gitRecordRows(view.git, theme).map((line) =>
 			fitTransparentLine(line, width),
 		);
+	}
+
+	// Vibe worker-session devices own their row grammar (TV-wall cards, not a
+	// `title: description` summary), so they resolve before the generic
+	// registry description path. An empty builder result is a legal outcome
+	// (`vibe_kill` prints nothing, a wait with no live worker prints nothing):
+	// the block then renders zero rows, exactly like the `empty` decision.
+	const vibeOp = VIBE_OPS[normalizeToolName(view.toolName)];
+	if (vibeOp !== undefined) {
+		const vibeView: CompactVibeView = {
+			op: vibeOp,
+			details: unpackVibeToolDetails(view.result),
+			args: view.args,
+			isPartial: view.isPartial,
+			tick: view.tick,
+			isError: view.isError,
+			result: view.result,
+		};
+		return renderCompactVibeRows(vibeView, theme, width);
 	}
 
 	// Explicit rule lookup only — render never invents a rule for unknown

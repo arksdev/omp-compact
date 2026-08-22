@@ -23,6 +23,7 @@ omp-compact/
 │   ├── turn-ledger.ts             # Per-run entry accumulation
 │   ├── render-decision.ts         # Compact vs native decision tables
 │   ├── render.ts                  # Row construction (mutations, git, stats)
+│   ├── vibe-cards.ts              # Worker-session compact rows
 │   └── …                          # Remaining production modules
 ├── docs/
 │   ├── tests/                     # Unit/integration tests and replay corpus

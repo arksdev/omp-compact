@@ -30,6 +30,11 @@ const CANONICAL_NAMES = [
 	"resolve",
 	"task",
 	"todo",
+	"vibe_kill",
+	"vibe_list",
+	"vibe_send",
+	"vibe_spawn",
+	"vibe_wait",
 	"web_search",
 	"write",
 	"yield",
@@ -738,6 +743,11 @@ describe("tool-specific settled result metadata", () => {
 			"ask",
 			"computer",
 			"task",
+			"vibe_spawn",
+			"vibe_send",
+			"vibe_wait",
+			"vibe_kill",
+			"vibe_list",
 		]) {
 			expect(TOOL_RULES[name]?.resultMeta, name).toBeUndefined();
 		}

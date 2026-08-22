@@ -37,7 +37,7 @@ bun run test
 OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test.ts
 ```
 
-The latest standalone release gate was 1194 tests, 0 failures across 28 files. Treat the current command output as authoritative after further changes.
+The latest standalone release gate was 1239 tests, 0 failures across 29 files. Treat the current command output as authoritative after further changes.
 
 There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 17.4.2. Bare `bun test …` without that env leaves every stock-host-dependent test (including the host-adapter canaries) reported as skipped.
 
@@ -161,6 +161,7 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/runtime-session-state.ts` — state management only
 - `.omp-plugin/render-decision.ts` — decision tables only
 - `.omp-plugin/render.ts` — row construction only
+- `.omp-plugin/vibe-cards.ts` — worker-session row grammar only
 
 **Avoid circular dependencies.** Import tree flows downward:
 ```
@@ -173,6 +174,7 @@ index.ts
       → render.ts
           → tool-presentation-rules.ts
           → display-path.ts
+          → vibe-cards.ts
 ```
 
 ---
@@ -364,7 +366,9 @@ describe("my_new_tool", () => {
 });
 ```
 
-3. No other changes needed. Decision tables use registry lookup.
+3. Add the name to `CANONICAL_NAMES` in `docs/tests/tool-presentation-rules.test.ts`. That list is the registry inventory, and the suite asserts the registry holds exactly it — a new rule fails the gate until the inventory grows with it. Widen the bounded coverage lists in the same file (for example the closed name list in "no other rule carries result metadata") when the new rule belongs in them.
+
+4. No other changes are needed for an ordinary compact row: decision tables use registry lookup. A tool that needs its own row grammar rather than a `title: description` summary also gets a branch in `render.ts` ahead of the generic rule lookup, the way the `vibe_*` worker-session tools resolve through `vibe-cards.ts`.
 
 ### Adding a New Display Mode
 

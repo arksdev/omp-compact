@@ -61,6 +61,14 @@ After a successful answer, the default `live` mode keeps only useful history:
 
 Delete rows render distinctly: a red `delete` title and a red exact removed stat (`-N`) when the pre-image count is known; when the count is unavailable the stat is omitted entirely.
 
+Parallel worker-session control is compact too: instead of a large framed "TV wall" per session, you get one or two lines carrying state, name, turns taken, how long the current turn has run, the model, and what the session is doing right now. A working session keeps a live line. Killed sessions and settled turns linger briefly and then disappear on their own; when there is nothing to show, there is no line at all.
+
+```text
+vibe sessions 2
+∷ ⟦g⟧ audit-worker 2t grok-4.5 Reported the registry diff
+∴ ⟦f⟧ wire-vibe 3t+1q 1m 12s edit: Wiring the vibe rows
+```
+
 ## Before and after
 
 The same kind of OMP session before and after enabling `omp-compact`:

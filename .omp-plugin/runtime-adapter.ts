@@ -465,6 +465,12 @@ export class RuntimeAdapter {
 	updateTool(input: ToolResultInput): void {
 		if (this.#disposed || !this.#session.state(input.toolCallId)) return;
 		this.#requestRender(this.#session.updateTool(input));
+		// A partial update re-pends the state (interruptible tools such as
+		// vibe_wait stream interim results on a timer, and stock delivers
+		// events fire-and-forget so one can land after the idle tick already
+		// stopped the spinner). Resume it, or the pending row freezes on a
+		// single animation frame.
+		this.#ensureSpinner();
 	}
 
 	finishTool(input: ToolResultInput): void {

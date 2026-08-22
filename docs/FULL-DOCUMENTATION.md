@@ -355,7 +355,7 @@ Compact output применяется только к явно зарегист�
 | Route | Tools |
 | --- | --- |
 | `read-group` | `read` |
-| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `browser`, `computer`, `resolve`, `reject`, `task` |
+| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `browser`, `computer`, `resolve`, `reject`, `task`, `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list` |
 | `native-live` | `ask` |
 
 Aliases нормализуются до routing и audit: `apply_patch` -> `edit`; hyphen spellings вроде `ast-grep`, `ast-edit` и `inspect-image` -> underscore form.
@@ -365,6 +365,16 @@ Read groups компактизируются только при полном и
 Unknown tool не получает generic compact row. Он остаётся native во всех phases, включая `clear`, чтобы новый или third-party tool нельзя было случайно скрыть.
 
 Registry использует только structured tool name, args/result и component state. Rendered/ANSI text не парсится для определения tool identity.
+
+### Параллельные рабочие сессии
+
+Пять инструментов управления worker sessions (`vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`) вместо stock framed «TV wall» получают собственную compact grammar: одна-две строки на сессию.
+
+Строка сессии собирается из известных полей snapshot: glyph состояния, badge вида worker (`⟦f⟧` / `⟦g⟧`), имя сессии, число ходов и глубина очереди (`3t+2q`), длительность текущего хода, короткое имя модели и текст последней активности либо текущего инструмента. Running-сессия анимируется тем же braille-кадром, что и обычная строка «ещё думаем…»; `vibe_wait` обновляет свои строки на каждом промежуточном результате, пока ожидание блокирует.
+
+`vibe_list` печатает заголовок `vibe sessions N` со числом скрытых сессий, если такие есть. `vibe_wait` печатает заголовок с числом сессий в работе и числом settled, а при истёкшем окне ожидания — пометку `timed out`; заголовок опускается, когда напечатана ровно одна карточка. Пустой набор строк — законный исход: `vibe_kill` не печатает ничего, а мёртвые сессии, снятые и упавшие ходы исчезают по короткому TTL после последней активности.
+
+Explicit expansion работает как обычный escape hatch: раскрытый вызов возвращает stock framed card. Ошибка вызова печатается одной строкой `✘` с целью вызова и текстом ошибки.
 
 ## Почему архитектура plugin-only
 
@@ -401,6 +411,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `transcript-fold.ts` | Deferred live region и terminal commit в native scrollback. |
 | `audit.ts`, `audit-diff.ts`, `audit-lifecycle.ts` | Bounded file-mutation evidence и async lifecycle. |
 | `git-records.ts` | Conservative Git command/result classification. |
+| `vibe-cards.ts` | Compact rows для параллельных worker sessions. |
 | `config.ts`, `mode-policy.ts`, `settings-ui.ts` | Persistent config, immutable run snapshot и TUI settings. |
 | `host-settings.ts` | Transactional bridge к двум initialized stock settings. |
 | `run-stats.ts` | Usage aggregation, persisted evidence и terminal stats row. |
