@@ -13,7 +13,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `HostAdapter1731.hostVersion` (`"17.4.2"`) is the **verified contract**
+ * `HostAdapter1731.hostVersion` (`"18.0.0"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). The class name keeps the historical `1731` suffix from the
@@ -24,12 +24,12 @@
  * Neither string is a runtime gate: every decision is a capability probe
  * on the live instance.
  *
- * `package.json` `engines.omp` sets the public floor to `>=17.4.2`,
+ * `package.json` `engines.omp` sets the public floor to `>=18.0.0`,
  * matching the verified contract; support for older hosts is discontinued.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
- * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, and `17.4.2` are present under the bun install cache
+ * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, and `18.0.0` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
@@ -40,7 +40,7 @@
  * content extraction fails.
  *
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 17.4.2 pin and resolved via live capability probes on the instance;
+ * the 18.0.0 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.
@@ -355,7 +355,7 @@ export function readArgsTarget(args: unknown): string | undefined {
 /**
  * Whether a read collapses into {@link ReadToolGroupComponent} rather than a
  * full `ToolExecutionComponent`. Stock (`readArgsCollapseIntoGroup`, OMP
- * 17.4.2): filesystem/external targets and `xd://` collapse; internal URLs
+ * 18.0.0): filesystem/external targets and `xd://` collapse; internal URLs
  * the host router can resolve (`skill://`, `agent://`, `memory://`, …)
  * render as full tool cards so resolved content stays visible.
  *
@@ -608,7 +608,7 @@ export class HostAdapter1731 {
 	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays
 	 * independent release metadata. See module header "Version story".
 	 */
-	static readonly hostVersion = "17.4.2";
+	static readonly hostVersion = "18.0.0";
 
 	readonly #root: unknown;
 

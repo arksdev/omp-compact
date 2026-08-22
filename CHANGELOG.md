@@ -26,7 +26,7 @@
 
 ### Проверено
 
-- Плагин рассчитан на актуальный OMP: закреплённый host — **17.4.2**, поддержка более старых версий прекращена, минимальная поддерживаемая версия — **17.4.2**.
+- Плагин рассчитан на актуальный OMP: закреплённый host — **18.0.0**, поддержка более старых версий прекращена, минимальная поддерживаемая версия — **18.0.0**.
 
 ---
 
@@ -245,7 +245,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 ### Verified
 
-- The plugin targets current OMP: pinned host is **17.4.2**, support for older versions is dropped, and the minimum supported version is **17.4.2**.
+- The plugin targets current OMP: pinned host is **18.0.0**, support for older versions is dropped, and the minimum supported version is **18.0.0**.
 
 ---
 
