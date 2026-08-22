@@ -11,7 +11,7 @@ import {
 	completeWriteCandidate,
 } from "./audit";
 import { AuditLifecycle } from "./audit-lifecycle";
-import { createSettingsStore } from "./config";
+import { createSettingsStore, readDisplayCycleKeySync } from "./config";
 import { resolveSessionCwd } from "./display-path";
 import { formatGitRecords, recognizeGitCommands } from "./git-records";
 import {
@@ -56,7 +56,9 @@ import {
 	RuntimeAdapter,
 } from "./runtime-adapter";
 import {
+	cycleDisplayState,
 	openSettingsDialog,
+	registerDisplayCycleShortcut,
 	registerSettingsCommand,
 	saveSettingsFlow,
 } from "./settings-ui";
@@ -238,6 +240,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					// nothing is notified again after the dialog closes.
 					await saveSettingsFlow(next, {
 						bridge: hostBridge,
+						previous: initial,
 						store: settingsStore,
 						notify: (level, message) => {
 							try {
@@ -258,6 +261,44 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			});
 		},
 	});
+
+	// DisplayCycle: one chord walks compact -> live -> clear -> off -> compact.
+	// Registered unconditionally, next to the settings command and for the same
+	// reason: the "off" step is part of the cycle, so a globally disabled
+	// runtime must still answer the key that re-enables it.
+	//
+	// The chord is read synchronously: the host collects extension shortcuts
+	// from whatever this factory declared by the time it returns and offers no
+	// way to unregister one afterwards (`ExtensionAPI` has `registerShortcut`
+	// and no counterpart), so a change only takes effect after restarting OMP —
+	// exactly what the settings dialog reports.
+	registerDisplayCycleShortcut<ExtensionContext>(
+		pi,
+		readDisplayCycleKeySync({ env: Bun.env }),
+		{
+			description: "Cycle omp-compact display: compact / live / clear / off",
+			handler: async (ctx) => {
+				const hostSettings = hostSettingsResolver(ctx);
+				await cycleDisplayState({
+					store: settingsStore,
+					bridge: hostSettings
+						? createHostSettingsBridge({
+								api: createSessionSettingsApi(hostSettings),
+							})
+						: undefined,
+					theme: ctx.ui.theme,
+					notify: (level, message) => {
+						try {
+							ctx.ui.notify(message, level);
+						} catch {
+							// Headless/RPC notify is a no-op; the settings are
+							// already persisted, so a silent sink is harmless.
+						}
+					},
+				});
+			},
+		},
+	);
 
 	// RuntimeModes (upgrade2 item 2): one settings snapshot per logical run,
 	// captured at agent_start; settings changes (incl. global disable) apply

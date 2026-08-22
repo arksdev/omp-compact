@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
+import { DEFAULT_DISPLAY_CYCLE_KEY, isDisplayCycleKey } from "./display-cycle";
 import { isPathInsideRoot } from "./path-inside-root";
 
 export type CompactMode = "compact" | "live" | "clear";
@@ -33,6 +35,13 @@ export interface CompactSettings {
 	retainGitLive: boolean;
 	compactPaths: boolean;
 	compactVibeRows: boolean;
+	/**
+	 * Chord that cycles the display state (compact -> live -> clear -> off).
+	 * Plain text in the JSON; validated by `display-cycle.ts`. A change only
+	 * takes effect after restarting OMP: the host has no way to unregister a
+	 * shortcut (`ExtensionAPI` exposes `registerShortcut` and nothing else).
+	 */
+	displayCycleKey: string;
 	stats: CompactStatsSettings;
 	autoShake: CompactAutoShakeSettings;
 	host: CompactHostSettings;
@@ -44,6 +53,7 @@ export interface CompactSettingsPatch {
 	retainGitLive?: boolean;
 	compactPaths?: boolean;
 	compactVibeRows?: boolean;
+	displayCycleKey?: string;
 	stats?: Partial<CompactStatsSettings>;
 	autoShake?: Partial<CompactAutoShakeSettings>;
 	host?: Partial<CompactHostSettings>;
@@ -81,6 +91,7 @@ export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
 	retainGitLive: true,
 	compactPaths: true,
 	compactVibeRows: true,
+	displayCycleKey: DEFAULT_DISPLAY_CYCLE_KEY,
 	stats: DEFAULT_STATS,
 	autoShake: DEFAULT_AUTO_SHAKE,
 	host: DEFAULT_HOST,
@@ -114,6 +125,7 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 		retainGitLive: settings.retainGitLive,
 		compactPaths: settings.compactPaths,
 		compactVibeRows: settings.compactVibeRows,
+		displayCycleKey: settings.displayCycleKey,
 		stats: Object.freeze({ ...settings.stats }),
 		autoShake: Object.freeze({ ...settings.autoShake }),
 		host: Object.freeze({ ...settings.host }),
@@ -375,6 +387,14 @@ function normalizeWithDiagnostics(
 		invalid.push(name);
 		return fallback;
 	};
+	// Resolved inline in the settings literal below so a rejected chord is
+	// named in field order, right after `compactVibeRows`, alongside its peers.
+	const chord = (value: unknown): string => {
+		if (value === undefined) return DEFAULT_SETTINGS.displayCycleKey;
+		if (isDisplayCycleKey(value)) return value;
+		invalid.push("displayCycleKey");
+		return DEFAULT_SETTINGS.displayCycleKey;
+	};
 	const mode =
 		raw.mode === undefined
 			? DEFAULT_SETTINGS.mode
@@ -404,6 +424,7 @@ function normalizeWithDiagnostics(
 			raw.compactVibeRows,
 			DEFAULT_SETTINGS.compactVibeRows,
 		),
+		displayCycleKey: chord(raw.displayCycleKey),
 		stats: { ...DEFAULT_SETTINGS.stats },
 		autoShake: { ...DEFAULT_SETTINGS.autoShake },
 		host: { ...DEFAULT_SETTINGS.host },
@@ -500,6 +521,7 @@ const TOP_LEVEL_FIELDS = [
 	"retainGitLive",
 	"compactPaths",
 	"compactVibeRows",
+	"displayCycleKey",
 ] as const;
 
 const STATS_FIELDS = [
@@ -554,7 +576,12 @@ interface SettingsLeafPatch {
 	top: Partial<
 		Pick<
 			CompactSettings,
-			"enabled" | "mode" | "retainGitLive" | "compactPaths" | "compactVibeRows"
+			| "enabled"
+			| "mode"
+			| "retainGitLive"
+			| "compactPaths"
+			| "compactVibeRows"
+			| "displayCycleKey"
 		>
 	>;
 	stats?: Partial<CompactStatsSettings>;
@@ -706,6 +733,34 @@ export interface StoreDeps {
 	 * to `readFile` from `node:fs/promises`.
 	 */
 	readFile?: (path: string, encoding: "utf8") => Promise<string>;
+}
+
+/**
+ * Read just the display-cycle chord, synchronously.
+ *
+ * The host registers extension shortcuts from whatever the factory declared by
+ * the time it returns, and there is no way to unregister or re-register one
+ * later (`ExtensionAPI` exposes `registerShortcut` and no counterpart), so the
+ * chord has to be known before the plugin's synchronous entry point ends —
+ * `load()` would resolve one microtask too late. Fail-open exactly like
+ * `load()`: any unreadable, malformed, over-bounds or invalid value yields the
+ * default chord, and every other setting still goes through the async store.
+ */
+export function readDisplayCycleKeySync(deps: StoreDeps = {}): string {
+	const env = deps.env ?? process.env;
+	const path = deps.path ?? resolveConfigPath(env);
+	let text: string;
+	try {
+		text = readFileSync(path, "utf8");
+	} catch {
+		return DEFAULT_SETTINGS.displayCycleKey;
+	}
+	const parsed = parseBoundedJson(text, () => {});
+	if (!parsed.ok || !isRecord(parsed.raw)) {
+		return DEFAULT_SETTINGS.displayCycleKey;
+	}
+	const chord = parsed.raw.displayCycleKey;
+	return isDisplayCycleKey(chord) ? chord : DEFAULT_SETTINGS.displayCycleKey;
 }
 
 export function createSettingsStore(

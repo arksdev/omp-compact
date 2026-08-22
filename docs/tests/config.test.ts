@@ -48,6 +48,7 @@ describe("defaults", () => {
 		expect(DEFAULT_SETTINGS.stats.enabled).toBe(true);
 		expect(DEFAULT_SETTINGS.autoShake.thresholdTokens).toBe(120_000);
 		expect(DEFAULT_SETTINGS.compactVibeRows).toBe(true);
+		expect(DEFAULT_SETTINGS.displayCycleKey).toBe("alt+c");
 	});
 
 	test("defaults are deeply frozen", () => {
@@ -119,6 +120,56 @@ describe("defaults", () => {
 		expect(warnings).toEqual([
 			"invalid config field(s): compactPaths, compactVibeRows; using defaults",
 		]);
+	});
+
+	test("a config file without displayCycleKey keeps the default chord", () => {
+		// Files written before the shortcut existed carry no key at all: the
+		// per-field fallback must yield the working default rather than an
+		// empty chord, which would register nothing at all.
+		const warnings: string[] = [];
+		const normalized = normalizeSettings({ version: 1, mode: "compact" }, (m) =>
+			warnings.push(m),
+		);
+		expect(normalized.displayCycleKey).toBe("alt+c");
+		expect(warnings).toEqual([]);
+	});
+
+	test("a garbage displayCycleKey defaults and is named in the diagnostic", () => {
+		const warnings: string[] = [];
+		const normalized = normalizeSettings(
+			{ version: 1, displayCycleKey: 17, compactPaths: 0 },
+			(m) => warnings.push(m),
+		);
+		expect(normalized.displayCycleKey).toBe("alt+c");
+		expect(normalized.compactPaths).toBe(true);
+		// Reported alongside its peers, in field order — one diagnostic line.
+		expect(warnings).toEqual([
+			"invalid config field(s): compactPaths, displayCycleKey; using defaults",
+		]);
+	});
+
+	test("a chord occupied by OMP is rejected like any other bad value", () => {
+		// A chord the host reserves would be dropped at registration with only
+		// a log line, so the file value is refused here and the default stands.
+		const warnings: string[] = [];
+		const normalized = normalizeSettings(
+			{ version: 1, displayCycleKey: "ctrl+c" },
+			(m) => warnings.push(m),
+		);
+		expect(normalized.displayCycleKey).toBe("alt+c");
+		expect(warnings).toEqual([
+			"invalid config field(s): displayCycleKey; using defaults",
+		]);
+	});
+
+	test("a free chord in the file survives normalization verbatim", () => {
+		const warnings: string[] = [];
+		const normalized = normalizeSettings(
+			{ version: 1, displayCycleKey: "alt+shift+d" },
+			(m) => warnings.push(m),
+		);
+		expect(normalized.displayCycleKey).toBe("alt+shift+d");
+		expect(warnings).toEqual([]);
 	});
 });
 

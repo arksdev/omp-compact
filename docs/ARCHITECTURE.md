@@ -24,6 +24,7 @@ omp-compact/
 │   ├── render-decision.ts         # Compact vs native decision tables
 │   ├── render.ts                  # Row construction (mutations, git, stats)
 │   ├── vibe-cards.ts              # Worker-session compact rows
+│   ├── display-cycle.ts           # Shortcut cycle, chord validation, status line
 │   └── …                          # Remaining production modules
 ├── docs/
 │   ├── tests/                     # Unit/integration tests and replay corpus
@@ -400,6 +401,29 @@ async function withUpdateQueue<T>(path: string, op: () => Promise<T>): Promise<T
 6. Final config has both changes
 
 **Key:** Leaf-level patch merge preserves concurrent in-process edits to different fields. The queue is in-process only (no lock file): writers in separate OS processes still race on the same JSON path, and the last successful atomic rename wins for any overlapping leaf.
+
+### Display-Cycle Shortcut (display-cycle.ts, settings-ui.ts)
+
+One chord (`alt+c` by default, stored as plain text in `displayCycleKey`) walks the persisted `enabled`/`mode` pair through four states:
+
+```text
+{enabled: true,  mode: compact}
+  → {enabled: true,  mode: live}
+  → {enabled: true,  mode: clear}
+  → {enabled: false, mode: clear}   // mode preserved
+  → {enabled: true,  mode: compact} // never resurrects the stored mode
+```
+
+`mode` moves only between the three enabled steps; `enabled` flips only into and out of the off step. Re-entering at `compact` rather than the stored mode keeps the cycle order independent of where the user joined it.
+
+**Persistence path:** the keypress handler (`cycleDisplayState`) goes through `saveSettingsFlow`, the same seam the dialog uses, so it inherits per-store serialization, host-bridge ordering, and env-mask reporting. It suppresses the flow's own success notification and emits exactly one status line instead. A hard `OMP_COMPACT_PLUGIN`/`OMP_COMPACT_MODE` override is reported as the effective state, never written over silently.
+
+**Two host constraints shape the design:**
+
+1. `ExtensionAPI` exposes `registerShortcut` with **no** counterpart for removal, so the chord cannot be rebound on a live session. A chord change is reported through the same `restartRequired` channel already used for thinking-block visibility. The chord is therefore read synchronously at registration (`readDisplayCycleKeySync`) — the async store would resolve after the host has already collected the extension's shortcuts.
+2. The runtime's reserved-chord list is a **private class field** and unreadable at runtime; a conflicting registration is dropped with only a log line. `RESERVED_SHORTCUTS` is a version-annotated copy, pinned by a test, and validation refuses an occupied chord rather than letting the key silently die. The public default keymap (`KEYBINDINGS`) is read live and never copied. See `context/display-cycle-reserved-copy.md`.
+
+The status line colors only the mode name (theme role `success`); `off` is intentionally left unstyled and worded differently (`from the next run` versus `takes effect next run`) so disabling the plugin does not read as another mode swap. `ui.notify` reaches `showStatus` → `Text` → `wrapTextWithAnsi`, which preserves ANSI, so in-string markup survives.
 
 ---
 

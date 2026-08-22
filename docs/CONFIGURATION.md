@@ -16,8 +16,42 @@ Complete reference for all omp-compact settings, config file format, and environ
 - Compact worker-session rows: on
 - Statistics: on (all fields)
 - Auto-shake: off; configured threshold: `120000` tokens
+- Display-cycle shortcut: `alt+c`
 
 **Open settings menu:** `/compact-settings` in any OMP session
+
+**Cycle the display:** press `alt+c` in any OMP session
+
+---
+
+## Display-Cycle Shortcut
+
+`alt+c` steps the display through four states, in this order:
+
+```
+compact → live → clear → off → compact
+```
+
+The mode changes only between the three enabled states; the plugin's master
+switch flips only on the step into `off` and the step out of it. Turning the
+plugin off keeps the last mode in the config file, so nothing is lost; turning
+it back on always lands on `compact`, so the cycle order stays the same no
+matter where you joined it.
+
+Each press prints one line naming what will apply, for example
+`Compact: live — takes effect next run` or `Compact: off — from the next run`.
+
+Two things are worth knowing:
+
+- **A press applies from the next logical run.** The runtime captures one
+  settings snapshot per run, so pressing the key mid-run never changes the
+  answer already being rendered.
+- **Changing the chord requires restarting OMP.** The extension interface can
+  register a shortcut but cannot unregister one, so a new chord binds only on
+  the next start. The settings dialog says so when you save.
+
+If `OMP_COMPACT_PLUGIN` or `OMP_COMPACT_MODE` pins a value, the press reports
+the pinned value instead of claiming a change the environment forbids.
 
 ---
 
@@ -33,6 +67,7 @@ Complete reference for all omp-compact settings, config file format, and environ
 | `Space` / `Enter` | Toggle boolean or start editing number |
 | `s` | Save changes to config file |
 | `Esc` / `c` | Close without saving |
+| `Enter` | On the cycle-shortcut row: start typing a new chord (`Enter` confirms, `Esc` cancels) |
 
 ### Complete Settings
 
@@ -43,6 +78,7 @@ Complete reference for all omp-compact settings, config file format, and environ
 | **compactPaths** | `true` | Show project-relative paths |
 | **retainGitLive** | `true` | Show Git operations and commit summary |
 | **compactVibeRows** | `true` | Compact rows for the worker-session tools (`vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`); `false` restores their stock cards in every mode, including `clear` |
+| **displayCycleKey** | `"alt+c"` | Chord that cycles the display: compact → live → clear → off → compact. Must be free; a chord OMP already uses is rejected. Changing it needs an OMP restart |
 | **autoShake.enabled** | `false` | Run stock `shake("elide")` after an eligible successful logical run |
 | **autoShake.thresholdTokens** | `120000` | Minimum context usage for auto-shake; `0` means every eligible run |
 | **stats.enabled** | `true` | Show one-line stats summary |
@@ -68,6 +104,7 @@ Complete reference for all omp-compact settings, config file format, and environ
   "retainGitLive": true,
   "compactPaths": true,
   "compactVibeRows": true,
+  "displayCycleKey": "alt+c",
   "stats": {
     "enabled": true,
     "actions": true,

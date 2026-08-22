@@ -16,8 +16,16 @@ import {
 	type HostSettingsApi,
 } from "../../.omp-plugin/host-settings";
 import {
+	DEFAULT_DISPLAY_CYCLE_KEY,
+	formatDisplayCycleStatus,
+	nextDisplayCycleState,
+	RESERVED_SHORTCUTS,
+	validateDisplayCycleKey,
+} from "../../.omp-plugin/display-cycle";
+import {
 	type CompactSettingsStore,
 	type ComponentLike,
+	cycleDisplayState,
 	chooseSettingsCommandName,
 	type HostBridgeLike,
 	humanizeThreshold,
@@ -28,6 +36,7 @@ import {
 	type KeybindingsLike,
 	normalizeArrowKey,
 	openSettingsDialog,
+	registerDisplayCycleShortcut,
 	registerSettingsCommand,
 	SettingsDialog,
 	saveSettingsFlow,
@@ -54,6 +63,7 @@ const FOCUSABLE_LABELS = [
 	"Compact paths",
 	"Retain Git rows",
 	"Worker sessions",
+	"Cycle shortcut",
 	"Auto-shake",
 	"Shake threshold",
 	"Run statistics",
@@ -237,9 +247,11 @@ describe("keyboard navigation", () => {
 		dialog.handleInput(KEY_J);
 		expect(focusedRow(dialog)).toContain("Worker sessions");
 		dialog.handleInput(KEY_DOWN);
+		expect(focusedRow(dialog)).toContain("Cycle shortcut");
+		dialog.handleInput(KEY_DOWN);
 		expect(focusedRow(dialog)).toContain("Auto-shake");
 		// wrap from the bottom back to the top
-		for (let i = 0; i < FOCUSABLE_LABELS.length - 5; i++) {
+		for (let i = 0; i < FOCUSABLE_LABELS.length - 6; i++) {
 			dialog.handleInput(KEY_DOWN);
 		}
 		expect(focusedRow(dialog)).toContain("Global compact");
@@ -1405,6 +1417,7 @@ describe("menu labels and layout", () => {
 			"Compact paths",
 			"Retain Git rows",
 			"Worker sessions",
+			"Cycle shortcut",
 			"Auto-shake",
 			"Shake threshold",
 			"Run statistics",
@@ -1426,9 +1439,9 @@ describe("menu labels and layout", () => {
 		const blanks = output
 			.map((line, index) => (line === "" ? index : -1))
 			.filter((index) => index >= 0);
-		// header, global (2 rows), display (3 rows), shake (2 rows),
+		// header, global (2 rows), display (4 rows), shake (2 rows),
 		// stats (6 rows), host (2 rows), help
-		expect(blanks).toEqual([3, 7, 10, 17]);
+		expect(blanks).toEqual([3, 8, 11, 18]);
 	});
 });
 
@@ -1516,7 +1529,7 @@ describe("short-terminal viewport", () => {
 		const full = lines(makeDialog().dialog);
 		const tall = lines(makeDialog(DEFAULT_SETTINGS, true, () => 40).dialog);
 		expect(tall).toEqual(full);
-		expect(full).toHaveLength(21);
+		expect(full).toHaveLength(22);
 		expect(full.join("\n")).not.toContain("…");
 	});
 });
@@ -1893,5 +1906,418 @@ describe("arrow key encodings", () => {
 		expect(focusedRow(dialog)).toContain("Global compact");
 		expect(dialog.isDirty).toBe(false);
 		expect(harness.doneResult).toBeUndefined();
+	});
+});
+
+describe("display cycle: state machine", () => {
+	test("one keypress walks compact -> live -> clear -> off -> compact", () => {
+		// The whole contract in one pass: mode only ever changes between the
+		// three enabled steps, enabled only ever flips into and out of off.
+		const start = { enabled: true, mode: "compact" } as const;
+		const live = nextDisplayCycleState(start);
+		expect(live).toEqual({ enabled: true, mode: "live" });
+		const clear = nextDisplayCycleState(live);
+		expect(clear).toEqual({ enabled: true, mode: "clear" });
+		const off = nextDisplayCycleState(clear);
+		expect(off).toEqual({ enabled: false, mode: "clear" });
+		expect(nextDisplayCycleState(off)).toEqual({
+			enabled: true,
+			mode: "compact",
+		});
+	});
+
+	test("turning off keeps the last mode on disk", () => {
+		// A stray keypress must not destroy the user's chosen mode: only
+		// `enabled` changes on the way out.
+		expect(nextDisplayCycleState({ enabled: true, mode: "clear" })).toEqual({
+			enabled: false,
+			mode: "clear",
+		});
+	});
+
+	test("re-enabling always lands on compact, whatever mode was stored", () => {
+		// The cycle order must not depend on where the user joined it, so the
+		// stored mode is deliberately not resurrected.
+		for (const mode of ["compact", "live", "clear"] as const) {
+			expect(nextDisplayCycleState({ enabled: false, mode })).toEqual({
+				enabled: true,
+				mode: "compact",
+			});
+		}
+	});
+});
+
+describe("display cycle: status line", () => {
+	const theme = fakeTheme();
+
+	test("each of the four states prints its exact line", () => {
+		expect(
+			stripAnsi(
+				formatDisplayCycleStatus({ enabled: true, mode: "compact" }, theme),
+			),
+		).toBe("Compact: compact — takes effect next run");
+		expect(
+			stripAnsi(
+				formatDisplayCycleStatus({ enabled: true, mode: "live" }, theme),
+			),
+		).toBe("Compact: live — takes effect next run");
+		expect(
+			stripAnsi(
+				formatDisplayCycleStatus({ enabled: true, mode: "clear" }, theme),
+			),
+		).toBe("Compact: clear — takes effect next run");
+		// Off is worded differently on purpose: switching the plugin off must
+		// not read as just another mode swap.
+		expect(
+			stripAnsi(
+				formatDisplayCycleStatus({ enabled: false, mode: "clear" }, theme),
+			),
+		).toBe("Compact: off — from the next run");
+	});
+
+	test("the mode name is colored and nothing else on the line is", () => {
+		const line = formatDisplayCycleStatus(
+			{ enabled: true, mode: "live" },
+			theme,
+		);
+		// fakeTheme() wraps whatever it colors in SGR 31/39.
+		expect(line).toContain("\u001b[31mlive\u001b[39m");
+		expect(line.startsWith("Compact: \u001b")).toBe(true);
+		expect(line.endsWith("— takes effect next run")).toBe(true);
+	});
+
+	test("off carries no color of its own", () => {
+		// It must inherit the surrounding status color, so the word `off`
+		// arrives without any escape sequence around it.
+		const line = formatDisplayCycleStatus(
+			{ enabled: false, mode: "compact" },
+			theme,
+		);
+		expect(line).toBe("Compact: off — from the next run");
+		expect(line).not.toContain("\u001b");
+	});
+});
+
+describe("display cycle: shortcut validation", () => {
+	test("the default chord is free and accepted", () => {
+		expect(DEFAULT_DISPLAY_CYCLE_KEY).toBe("alt+c");
+		expect(validateDisplayCycleKey("alt+c")).toBeUndefined();
+	});
+
+	test("a chord reserved by the extension runtime is refused by name", () => {
+		// Each of these would be dropped at registration with only a log line.
+		for (const chord of ["ctrl+c", "alt+m", "shift+tab", "alt+enter"]) {
+			expect(validateDisplayCycleKey(chord)).toBe(
+				`${chord} is already taken by OMP; pick another shortcut`,
+			);
+		}
+	});
+
+	test("a chord bound by the host's default keymap is refused too", () => {
+		// alt+p / alt+r come from the host keybinding table, read live rather
+		// than copied.
+		expect(validateDisplayCycleKey("alt+p")).toContain("already taken by OMP");
+		expect(validateDisplayCycleKey("alt+r")).toContain("already taken by OMP");
+	});
+
+	test("modifier order does not smuggle an occupied chord through", () => {
+		// The host canonicalizes chords, so ctrl+alt+x and alt+ctrl+x are one
+		// chord; validation must agree or a reordered spelling would slip past.
+		expect(validateDisplayCycleKey("shift+ctrl+p")).toContain(
+			"already taken by OMP",
+		);
+		expect(validateDisplayCycleKey("ctrl+shift+p")).toContain(
+			"already taken by OMP",
+		);
+	});
+
+	test("free chords are accepted", () => {
+		for (const chord of ["alt+c", "alt+shift+d", "ctrl+shift+y", "alt+f7"]) {
+			expect(validateDisplayCycleKey(chord)).toBeUndefined();
+		}
+	});
+
+	test("malformed chords are refused with a readable reason", () => {
+		expect(validateDisplayCycleKey("")).toBe("shortcut must not be empty");
+		// A bare letter would intercept that letter everywhere in the editor.
+		expect(validateDisplayCycleKey("c")).toBe(
+			"shortcut needs a modifier, e.g. alt+c",
+		);
+		expect(validateDisplayCycleKey("meta+c")).toBe(
+			'unknown modifier "meta"; use ctrl, shift, alt or super',
+		);
+		expect(validateDisplayCycleKey("alt+alt+c")).toBe(
+			'duplicate modifier "alt"',
+		);
+		expect(validateDisplayCycleKey("alt+nope")).toBe('unknown key "nope"');
+	});
+
+	test("the reserved copy matches the host list this pin ships", () => {
+		// The host field is private and unreadable at runtime, so this copy is
+		// the only thing standing between a user and a silently dead key. It
+		// must be re-checked whenever the agent pin moves.
+		expect([...RESERVED_SHORTCUTS]).toEqual([
+			"ctrl+c",
+			"ctrl+d",
+			"ctrl+z",
+			"ctrl+k",
+			"ctrl+p",
+			"ctrl+l",
+			"ctrl+o",
+			"ctrl+t",
+			"ctrl+g",
+			"alt+m",
+			"ctrl+q",
+			"shift+tab",
+			"shift+ctrl+p",
+			"alt+enter",
+			"escape",
+			"enter",
+		]);
+	});
+});
+
+describe("display cycle: shortcut registration", () => {
+	function shortcutApi() {
+		const registered: Array<{ chord: string; description?: string }> = [];
+		const pi = {
+			registerShortcut: (
+				chord: string,
+				options: { description?: string; handler: () => void },
+			) => {
+				registered.push({ chord, description: options.description });
+			},
+		};
+		return { pi, registered };
+	}
+
+	test("a free chord from the config file is registered verbatim", () => {
+		const { pi, registered } = shortcutApi();
+		const used = registerDisplayCycleShortcut(pi, "alt+shift+d", {
+			description: "cycle",
+			handler: () => {},
+		});
+		expect(used).toBe("alt+shift+d");
+		expect(registered).toEqual([
+			{ chord: "alt+shift+d", description: "cycle" },
+		]);
+	});
+
+	test("an occupied chord falls back to the default instead of dying silently", () => {
+		const { pi, registered } = shortcutApi();
+		const used = registerDisplayCycleShortcut(pi, "ctrl+c", {
+			description: "cycle",
+			handler: () => {},
+		});
+		expect(used).toBe("alt+c");
+		expect(registered[0]?.chord).toBe("alt+c");
+	});
+
+	test("a host without shortcut support does not take the plugin down", () => {
+		const pi = {
+			registerShortcut: () => {
+				throw new Error("not supported");
+			},
+		};
+		expect(
+			registerDisplayCycleShortcut(pi, "alt+c", {
+				description: "cycle",
+				handler: () => {},
+			}),
+		).toBeUndefined();
+	});
+});
+
+describe("display cycle: keypress handler", () => {
+	function cycleHarness(
+		settings: CompactSettings,
+		envOverrides?: EnvOverrides,
+	) {
+		const notifies: Array<[string, string]> = [];
+		const saved: CompactSettings[] = [];
+		const store = {
+			load: async () => settings,
+			update: async (next: CompactSettings) => {
+				saved.push(next);
+				// Models the store: a hard env override wins over the file.
+				if (envOverrides?.enabledBy.length) {
+					return { ...next, enabled: false };
+				}
+				if (envOverrides?.modeBy) return { ...next, mode: "clear" as const };
+				return next;
+			},
+			overrides: () => envOverrides ?? { enabledBy: [], modeBy: undefined },
+		} as unknown as CompactSettingsStore;
+		return {
+			notifies,
+			saved,
+			deps: {
+				store,
+				theme: fakeTheme(),
+				notify: (level: "info" | "warning", message: string) => {
+					notifies.push([level, message]);
+				},
+			},
+		};
+	}
+
+	test("a keypress persists the next state and reports it once", async () => {
+		const { deps, notifies, saved } = cycleHarness({
+			...DEFAULT_SETTINGS,
+			enabled: true,
+			mode: "compact",
+		});
+		await cycleDisplayState(deps);
+		expect(saved).toHaveLength(1);
+		expect(saved[0]?.enabled).toBe(true);
+		expect(saved[0]?.mode).toBe("live");
+		// Exactly one line, and not the dialog's generic "settings saved".
+		expect(notifies).toHaveLength(1);
+		expect(notifies[0]?.[0]).toBe("info");
+		expect(stripAnsi(notifies[0]?.[1] ?? "")).toBe(
+			"Compact: live — takes effect next run",
+		);
+	});
+
+	test("the step into off persists enabled=false and keeps the mode", async () => {
+		const { deps, notifies, saved } = cycleHarness({
+			...DEFAULT_SETTINGS,
+			enabled: true,
+			mode: "clear",
+		});
+		await cycleDisplayState(deps);
+		expect(saved[0]?.enabled).toBe(false);
+		expect(saved[0]?.mode).toBe("clear");
+		expect(stripAnsi(notifies[0]?.[1] ?? "")).toBe(
+			"Compact: off — from the next run",
+		);
+	});
+
+	test("a chord press never rewrites the chord itself", async () => {
+		const { deps, saved } = cycleHarness({
+			...DEFAULT_SETTINGS,
+			displayCycleKey: "alt+shift+d",
+		});
+		await cycleDisplayState(deps);
+		expect(saved[0]?.displayCycleKey).toBe("alt+shift+d");
+	});
+
+	test("an env-pinned enabled reports the pinned truth instead of a silent write", async () => {
+		const { deps, notifies } = cycleHarness(
+			{ ...DEFAULT_SETTINGS, enabled: false, mode: "clear" },
+			{ enabledBy: ["OMP_COMPACT_PLUGIN"] },
+		);
+		await cycleDisplayState(deps);
+		expect(notifies).toHaveLength(1);
+		expect(stripAnsi(notifies[0]?.[1] ?? "")).toBe(
+			"Compact: off — pinned by OMP_COMPACT_PLUGIN, unchanged",
+		);
+	});
+
+	test("an env-pinned mode names the variable and reports the effective mode", async () => {
+		const { deps, notifies } = cycleHarness(
+			{ ...DEFAULT_SETTINGS, enabled: true, mode: "compact" },
+			{ enabledBy: [], modeBy: "OMP_COMPACT_MODE" },
+		);
+		await cycleDisplayState(deps);
+		expect(stripAnsi(notifies[0]?.[1] ?? "")).toBe(
+			"Compact: clear — pinned by OMP_COMPACT_MODE, unchanged",
+		);
+	});
+
+	test("a failed save is reported and never claims a switch", async () => {
+		const notifies: Array<[string, string]> = [];
+		const store = {
+			load: async () => DEFAULT_SETTINGS,
+			update: async () => {
+				throw new Error("disk full");
+			},
+			overrides: () => ({ enabledBy: [], modeBy: undefined }),
+		} as unknown as CompactSettingsStore;
+		await cycleDisplayState({
+			store,
+			theme: fakeTheme(),
+			notify: (level, message) => notifies.push([level, message]),
+		});
+		expect(notifies).toHaveLength(1);
+		expect(notifies[0]?.[0]).toBe("warning");
+		expect(notifies[0]?.[1]).toBe(
+			"omp-compact could not switch the display: disk full",
+		);
+	});
+});
+
+describe("display cycle: dialog row", () => {
+	test("the row shows the current chord and edits as free text", () => {
+		const { dialog } = makeDialog();
+		expect(renderedValue(dialog, "Cycle shortcut")).toBe("alt+c");
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		// The chord editor announces what it accepts, in the same style as
+		// the digit editor.
+		expect(lines(dialog)[lines(dialog).length - 1]).toContain("chord edit");
+		for (const ch of "alt+shift+d") dialog.handleInput(ch);
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.displayCycleKey).toBe("alt+shift+d");
+		expect(dialog.isDirty).toBe(true);
+	});
+
+	test("an occupied chord is refused on the dialog's error line", () => {
+		const { dialog } = makeDialog();
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		for (const ch of "ctrl+c") dialog.handleInput(ch);
+		dialog.handleInput(KEY_ENTER);
+		// Rejected: the draft keeps the old chord and the editor stays open
+		// with the typed text so the user can correct it.
+		expect(dialog.current.displayCycleKey).toBe("alt+c");
+		expect(lines(dialog).join("\n")).toContain(
+			"ctrl+c is already taken by OMP; pick another shortcut",
+		);
+		expect(renderedValue(dialog, "Cycle shortcut")).toBe("ctrl+c");
+	});
+
+	test("escape abandons a chord edit without touching the draft", () => {
+		const { dialog } = makeDialog();
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		for (const ch of "alt+y") dialog.handleInput(ch);
+		dialog.handleInput(KEY_ESCAPE);
+		expect(dialog.current.displayCycleKey).toBe("alt+c");
+		expect(dialog.isDirty).toBe(false);
+	});
+
+	test("backspace edits the chord buffer", () => {
+		const { dialog } = makeDialog();
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		for (const ch of "alt+cx") dialog.handleInput(ch);
+		dialog.handleInput(KEY_BACKSPACE);
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.displayCycleKey).toBe("alt+c");
+	});
+
+	test("a saved chord change reports that it needs a restart", async () => {
+		// The host cannot unregister a shortcut, so the new chord only starts
+		// working after OMP restarts — the same honesty the thinking-visibility
+		// change already gets.
+		const notifies: Array<[string, string]> = [];
+		const store = {
+			update: async (next: CompactSettings) => next,
+			overrides: () => ({ enabledBy: [], modeBy: undefined }),
+		} as unknown as CompactSettingsStore;
+		const outcome = await saveSettingsFlow(
+			{ ...DEFAULT_SETTINGS, displayCycleKey: "alt+shift+d" },
+			{
+				store,
+				previous: DEFAULT_SETTINGS,
+				notify: (level, message) => notifies.push([level, message]),
+			},
+		);
+		expect(outcome.restartRequired).toBe(true);
+		expect(notifies).toEqual([
+			["info", "omp-compact settings saved"],
+			["info", "The cycle shortcut takes effect after restarting OMP"],
+		]);
 	});
 });

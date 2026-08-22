@@ -11,6 +11,10 @@
 - В диалоге настроек снова работают стрелки — в том числе в терминалах, которые присылают их не так, как большинство: раньше в таких терминалах курсор двигался только клавишами `j` и `k`. Спасибо [**@materemias**](https://github.com/materemias)
 - Сочетания со стрелками, где зажат модификатор (Shift, Alt, Ctrl), больше не двигают курсор и не переключают значения.
 
+### Добавлено
+
+- Появилась горячая клавиша `alt+c`, которая по кругу переключает вид вывода: компактный, живой, очищающий, выключенный плагин и снова компактный. Диалог настроек для этого открывать не нужно, а после нажатия печатается одна строка о том, что применится. Переключение вступает в силу с начала следующей работы агента, а при выключении последний выбранный вид сохраняется. Само сочетание можно сменить в настройках на любое незанятое — оно начнёт работать после перезапуска OMP.
+
 ### Изменено
 
 - Работа в режиме `/vibe` стала компактнее: вместо уже убитых или простаивающих сабагентов выводятся только активные. На каждую сессию приходится одна-две короткие строки — состояние, имя, сколько ходов сделано, сколько идёт текущий, какая модель и чем сессия занята прямо сейчас.
@@ -223,6 +227,10 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 - Arrow keys work in the settings dialog again, including in terminals that send them differently from most: previously the cursor in such terminals moved only with `j` and `k`. Thanks to [**@materemias**](https://github.com/materemias)
 - Arrow combinations with a held modifier (Shift, Alt, Ctrl) no longer move the cursor or toggle values.
+
+### Added
+
+- A new `alt+c` shortcut cycles the display: compact, live, clear, plugin off, and back to compact. No need to open the settings dialog, and each press prints one line naming what will apply. A switch takes effect from the start of the agent's next piece of work, and turning the plugin off keeps the last chosen view. The chord itself can be changed in settings to any free combination; the new one starts working after restarting OMP.
 
 ### Changed
 

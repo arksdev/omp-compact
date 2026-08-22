@@ -148,6 +148,31 @@ JSON:
 { "compactVibeRows": true }
 ```
 
+### Quick display switch — `alt+c`
+
+`alt+c` works out of the box, with nothing to enable. Each press takes one step around the cycle:
+
+```text
+compact → live → clear → off → compact
+```
+
+The mode only ever changes between the three enabled states. The plugin switches off only on the step after `clear` and back on only on the step out of off, always into `compact`, so the order does not depend on where you joined the cycle. Switching off keeps the last mode, so a stray press loses nothing.
+
+Each press prints one line naming what will apply, for example `Compact: live — takes effect next run`, or `Compact: off — from the next run` when the plugin goes off.
+
+Two things worth knowing:
+
+- a press applies from the **next** logical run: the settings snapshot is taken once per run, so pressing mid-run never changes the answer already being rendered;
+- **changing the chord itself requires restarting OMP**: the agent can register a shortcut but cannot unregister one, so a new chord only starts working after a restart. The menu says so when you save.
+
+You can change the chord in `/compact-settings` on the `Cycle shortcut` row: `Enter` starts the edit, you type the chord as text (`alt+shift+d`, for example), `Enter` confirms and `Esc` cancels. A chord OMP already uses is rejected with a readable message.
+
+JSON:
+
+```json
+{ "displayCycleKey": "alt+c" }
+```
+
 ### Auto-shake
 
 Auto-shake automatically calls OMP's native `AgentSession.shake("elide")` after an eligible successful logical run. It replaces heavy old tool results and large blocks with short placeholders containing an `artifact://` recovery link. This frees model context without removing the plugin's visual history.

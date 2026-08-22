@@ -7,6 +7,14 @@ import {
 	type CompactStatsSettings,
 	MAX_THRESHOLD_TOKENS,
 } from "./config";
+import {
+	type CycleTheme,
+	DEFAULT_DISPLAY_CYCLE_KEY,
+	formatDisplayCycleStatus,
+	formatPinnedCycleStatus,
+	nextDisplayCycleState,
+	validateDisplayCycleKey,
+} from "./display-cycle";
 import { isRejectedControlCode } from "./display-control";
 
 // =============================================================================
@@ -124,6 +132,22 @@ export interface CommandApiLike<Ctx> {
 		options: {
 			description?: string;
 			handler: (args: string, ctx: Ctx) => Promise<void>;
+		},
+	): void;
+}
+
+/**
+ * Shortcut-registration slice of the host `ExtensionAPI`. Structural, like
+ * `CommandApiLike`: the plugin never depends on the host packages at runtime.
+ * There is deliberately no counterpart for removal — the host interface has
+ * none, which is why a chord change needs a restart.
+ */
+export interface ShortcutApiLike<Ctx> {
+	registerShortcut(
+		shortcut: string,
+		options: {
+			description?: string;
+			handler: (ctx: Ctx) => Promise<void> | void;
 		},
 	): void;
 }
@@ -248,6 +272,39 @@ export function registerSettingsCommand<Ctx>(
 	return name;
 }
 
+/**
+ * Register the display-cycle shortcut. Runs unconditionally, like the settings
+ * command: the key must keep working when the runtime is globally disabled —
+ * that state is one step of the cycle, and a user who turned the plugin off
+ * with the key has to be able to turn it back on with the same key.
+ *
+ * Returns the chord actually registered, or `undefined` when the persisted
+ * chord is unusable. An occupied chord is dropped by the host with only a log
+ * line, so it is refused here and the default is registered instead — a
+ * working default beats a silently dead key.
+ */
+export function registerDisplayCycleShortcut<Ctx>(
+	pi: ShortcutApiLike<Ctx>,
+	chord: string,
+	options: {
+		description: string;
+		handler: (ctx: Ctx) => Promise<void> | void;
+	},
+): string | undefined {
+	const key =
+		validateDisplayCycleKey(chord) === undefined
+			? chord
+			: DEFAULT_DISPLAY_CYCLE_KEY;
+	try {
+		pi.registerShortcut(key, options);
+	} catch {
+		// A host without shortcut support (older runtime, RPC shim) must not
+		// take the plugin down: every other feature keeps working.
+		return undefined;
+	}
+	return key;
+}
+
 // =============================================================================
 // Save flow: host bridge apply -> JSON persist -> optional reload
 // =============================================================================
@@ -279,6 +336,13 @@ export interface SaveFlowDeps {
 	/** Optional host bridge; omitted when the host config surface is absent. */
 	bridge?: HostBridgeLike;
 	store: CompactSettingsStore;
+	/**
+	 * Settings as they were before this save, when the caller knows them. Used
+	 * only to notice a changed display-cycle chord: the host cannot unregister
+	 * a shortcut, so a new chord starts working only after a restart, and the
+	 * user has to be told. Omitted by callers that change no chord.
+	 */
+	previous?: CompactSettings;
 	notify?(level: "info" | "warning", message: string): void;
 }
 
@@ -422,10 +486,28 @@ async function runSaveSettingsFlow(
 		"info",
 		masked ? maskedSaveMessage(masks) : "omp-compact settings saved",
 	);
+	// The chord changed: the host offers no way to unregister the old shortcut,
+	// so the new one only binds on the next start. Reuses the same honest
+	// restart channel as thinking visibility rather than a second mechanism.
+	const chordChanged =
+		deps.previous !== undefined &&
+		deps.previous.displayCycleKey !== next.displayCycleKey;
 	if (restartRequired) {
 		deps.notify?.("info", "Thinking blocks take effect after restarting OMP");
 	}
-	return { persisted: next, effective, restartRequired, masked, masks };
+	if (chordChanged) {
+		deps.notify?.(
+			"info",
+			"The cycle shortcut takes effect after restarting OMP",
+		);
+	}
+	return {
+		persisted: next,
+		effective,
+		restartRequired: restartRequired || chordChanged,
+		masked,
+		masks,
+	};
 }
 
 /**
@@ -514,6 +596,85 @@ function maskedSaveMessage(masks: readonly EnvMask[]): string {
 }
 
 // =============================================================================
+// Keypress handler
+// =============================================================================
+
+export interface DisplayCycleDeps {
+	/** Same store the settings dialog saves through. */
+	store: CompactSettingsStore;
+	/** Host bridge, when a live host settings instance exists. */
+	bridge?: HostBridgeLike;
+	theme: CycleTheme;
+	/** Ephemeral status sink (`ctx.ui.notify`). */
+	notify(level: "info" | "warning", message: string): void;
+}
+
+/**
+ * Handle one keypress: read the current settings, take one cycle step, and
+ * persist through the shared save flow — never a direct file write, so the
+ * keypress inherits the dialog's serialization, host-bridge ordering and
+ * env-mask reporting for free.
+ *
+ * The flow's own success notification is suppressed here: a keypress reports
+ * the one status line the user asked for, not the dialog's "settings saved".
+ * A masked save (a hard `OMP_COMPACT_PLUGIN` / `OMP_COMPACT_MODE` override) is
+ * reported as the effective state instead of the requested one, so the key
+ * never claims a change the environment forbids.
+ */
+export async function cycleDisplayState(deps: DisplayCycleDeps): Promise<void> {
+	const current = await deps.store.load();
+	const next = nextDisplayCycleState(current);
+	let outcome: SaveOutcome;
+	try {
+		outcome = await saveSettingsFlow(
+			{ ...current, enabled: next.enabled, mode: next.mode },
+			{
+				bridge: deps.bridge,
+				store: deps.store,
+				// The flow's success line would duplicate the status line below;
+				// only its failure warnings (a host rollback that could not be
+				// restored) are worth surfacing.
+				notify: (level, message) => {
+					if (level === "warning") deps.notify(level, message);
+				},
+			},
+		);
+	} catch (error) {
+		deps.notify(
+			"warning",
+			`omp-compact could not switch the display: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		return;
+	}
+	const pinned = pinnedVariables(outcome);
+	deps.notify(
+		"info",
+		pinned.length > 0
+			? formatPinnedCycleStatus(
+					{ enabled: outcome.effective.enabled, mode: outcome.effective.mode },
+					pinned,
+					deps.theme,
+				)
+			: formatDisplayCycleStatus(next, deps.theme),
+	);
+}
+
+/**
+ * Env variables that masked this save, in mask order and without duplicates:
+ * `OMP_COMPACT_MODE=off` masks `enabled` and `mode` at once, and naming it
+ * twice in one line reads like a bug.
+ */
+function pinnedVariables(outcome: SaveOutcome): string[] {
+	const names: string[] = [];
+	for (const mask of outcome.masks) {
+		for (const name of mask.by) {
+			if (!names.includes(name)) names.push(name);
+		}
+	}
+	return names;
+}
+
+// =============================================================================
 // Settings dialog
 // =============================================================================
 
@@ -549,6 +710,12 @@ export interface SettingsDialogDeps {
 
 const MODES: readonly CompactMode[] = ["compact", "live", "clear"];
 const MAX_EDIT_DIGITS = 10;
+/**
+ * Cap for the free-text chord editor: the longest legal chord is
+ * `ctrl+shift+alt+super+backspace` (30 characters), so 40 leaves room to
+ * mistype without letting a paste run away.
+ */
+const MAX_EDIT_CHARS = 40;
 
 // Row groups: one blank line separates the logical menu sections
 // (global, display, auto-shake, stats, host) — restrained separation only.
@@ -560,7 +727,7 @@ const GROUP_HOST = 4;
 
 interface Row {
 	id: string;
-	kind: "toggle" | "cycle" | "number";
+	kind: "toggle" | "cycle" | "number" | "text";
 	label: string;
 	/** Tree decoration for nested rows ("" for top-level rows). */
 	prefix: string;
@@ -583,6 +750,7 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	compactPaths: "Renders paths relative to the session cwd",
 	retainGitLive: "Keeps Git commit rows after the terminal answer",
 	compactVibeRows: "Compact rows for worker-session tools",
+	displayCycleKey: "Chord cycling compact / live / clear / off (needs restart)",
 	"autoShake.enabled": "Shakes the log after a successful answer",
 	"autoShake.thresholdTokens": "Shakes once the run passes this many tokens",
 	"stats.enabled": "Shows one usage row per completed run",
@@ -673,6 +841,7 @@ export class SettingsDialog implements ComponentLike {
 			draft.retainGitLive !== initial.retainGitLive ||
 			draft.compactPaths !== initial.compactPaths ||
 			draft.compactVibeRows !== initial.compactVibeRows ||
+			draft.displayCycleKey !== initial.displayCycleKey ||
 			draft.stats.enabled !== initial.stats.enabled ||
 			draft.stats.actions !== initial.stats.actions ||
 			draft.stats.sent !== initial.stats.sent ||
@@ -763,6 +932,19 @@ export class SettingsDialog implements ComponentLike {
 				},
 				GROUP_DISPLAY,
 			),
+			{
+				id: "displayCycleKey",
+				kind: "text",
+				label: "Cycle shortcut",
+				prefix: "",
+				group: GROUP_DISPLAY,
+				get: () => draft.displayCycleKey,
+				set: (value) => {
+					if (typeof value === "string") draft.displayCycleKey = value;
+				},
+				focusable: true,
+				unavailable: false,
+			},
 			toggle(
 				"autoShake.enabled",
 				"Auto-shake",
@@ -925,7 +1107,16 @@ export class SettingsDialog implements ComponentLike {
 			row.set(row.get() !== true);
 		} else if (row.kind === "cycle") {
 			this.cycle(1);
+		} else if (row.kind === "text") {
+			// The chord editor starts empty: a chord is typed whole, not
+			// composed digit by digit, so pre-filling would force the user to
+			// erase the old chord before typing the new one.
+			this.editing = true;
+			this.editBuffer = "";
+			this.error = "";
 		} else {
+			// The number editor keeps the current value so a small correction
+			// does not mean retyping the whole threshold.
 			this.editing = true;
 			this.editBuffer = String(row.get());
 			this.error = "";
@@ -933,18 +1124,6 @@ export class SettingsDialog implements ComponentLike {
 	}
 
 	private handleEditing(data: string): void {
-		// Whole-chunk classification: a paste must be entirely digits or it is
-		// ignored the same way a single non-digit keystroke is. A string-range
-		// check (`data >= "0" && data <= "9"`) lets mixed chunks like "1a"
-		// through because lexicographic order only looks at the first differing
-		// character, and parseInt would then silently keep the leading digits.
-		if (/^[0-9]+$/.test(data)) {
-			if (this.editBuffer.length < MAX_EDIT_DIGITS) {
-				const room = MAX_EDIT_DIGITS - this.editBuffer.length;
-				this.editBuffer += data.slice(0, room);
-			}
-			return;
-		}
 		if (data === KEY_BACKSPACE || data === "\b") {
 			this.editBuffer = this.editBuffer.slice(0, -1);
 			return;
@@ -957,10 +1136,38 @@ export class SettingsDialog implements ComponentLike {
 			this.editing = false;
 			this.editBuffer = "";
 			this.error = "";
+			return;
+		}
+		if (this.focusedRow()?.kind === "text") {
+			// Chord text: printable ASCII only, whole-chunk. Every legal chord
+			// spells out as `modifier+base` in that range, so anything else is
+			// either a control sequence or a paste that cannot be a chord.
+			if (!/^[\x20-\x7e]+$/.test(data)) return;
+			if (this.editBuffer.length < MAX_EDIT_CHARS) {
+				const room = MAX_EDIT_CHARS - this.editBuffer.length;
+				this.editBuffer += data.slice(0, room);
+			}
+			return;
+		}
+		// Whole-chunk classification: a paste must be entirely digits or it is
+		// ignored the same way a single non-digit keystroke is. A string-range
+		// check (`data >= "0" && data <= "9"`) lets mixed chunks like "1a"
+		// through because lexicographic order only looks at the first differing
+		// character, and parseInt would then silently keep the leading digits.
+		if (/^[0-9]+$/.test(data)) {
+			if (this.editBuffer.length < MAX_EDIT_DIGITS) {
+				const room = MAX_EDIT_DIGITS - this.editBuffer.length;
+				this.editBuffer += data.slice(0, room);
+			}
 		}
 	}
 
 	private commitEdit(): void {
+		const row = this.focusedRow();
+		if (row?.kind === "text") {
+			this.commitChordEdit(row);
+			return;
+		}
 		// Reject anything that is not a pure digit string. parseInt("1a", 10)
 		// is 1 and Number.isInteger(1) is true, so leaning on parseInt alone
 		// would silently persist a value the user never typed.
@@ -977,8 +1184,26 @@ export class SettingsDialog implements ComponentLike {
 			this.error = `threshold exceeds max ${MAX_THRESHOLD_TOKENS}`;
 			return;
 		}
-		const row = this.focusedRow();
 		row?.set(value);
+		this.editing = false;
+		this.editBuffer = "";
+		this.error = "";
+	}
+
+	/**
+	 * Commit the chord row. A chord occupied by OMP is refused here rather
+	 * than saved: the host drops a conflicting extension shortcut with only a
+	 * log line, so accepting one would hand the user a key that never fires.
+	 * The rejection keeps the editor open with the typed text intact.
+	 */
+	private commitChordEdit(row: Row): void {
+		const chord = this.editBuffer.trim();
+		const rejection = validateDisplayCycleKey(chord);
+		if (rejection !== undefined) {
+			this.error = rejection;
+			return;
+		}
+		row.set(chord);
 		this.editing = false;
 		this.editBuffer = "";
 		this.error = "";
@@ -1190,9 +1415,14 @@ export class SettingsDialog implements ComponentLike {
 			lines.push(theme.fg("error", this.error));
 		}
 		// One contextual dim help line for the focused setting — never a
-		// comment on every row. Editing shows its own key hints instead.
+		// comment on every row. Editing shows its own key hints instead, in the
+		// same telegraphic style, naming what this row accepts.
+		const editingChord =
+			this.editing && focusable[focusedIndex]?.kind === "text";
 		const help = this.editing
-			? "digits edit · enter ok · esc cancel"
+			? editingChord
+				? "chord edit · enter ok · esc cancel"
+				: "digits edit · enter ok · esc cancel"
 			: `${ROW_HELP[focusedId ?? ""] ?? ""} · ↑↓ move · s save · esc cancel${
 					this.isDirty ? " · unsaved" : ""
 				}`;

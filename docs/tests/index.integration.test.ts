@@ -7436,11 +7436,11 @@ stockTest(
 		await beginRun(booted);
 		// …a toolUse continuation keeps the run open…
 		await finishRun(booted, "working", "toolUse");
-		// …then the user turns auto-shake OFF mid-run (sixth focusable row:
+		// …then the user turns auto-shake OFF mid-run (seventh focusable row:
 		// Global compact, Mode, Compact paths, Retain Git rows, Worker
-		// sessions, Auto-shake).
+		// sessions, Cycle shortcut, Auto-shake).
 		await saveSettingsViaDialog(booted, (dialog) => {
-			for (let i = 0; i < 5; i++) dialog.handleInput(KEY_DOWN);
+			for (let i = 0; i < 6; i++) dialog.handleInput(KEY_DOWN);
 			dialog.handleInput(KEY_SPACE);
 		});
 		// The continuation boundary must not observe the mid-run change:

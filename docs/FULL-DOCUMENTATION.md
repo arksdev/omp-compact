@@ -191,8 +191,28 @@ Git распознаётся консервативно из уже выполн
 - `Space`/`Enter` — toggle или начало редактирования числа;
 - `s` — сохранить;
 - `Esc`, `c` или interrupt keybinding — закрыть без сохранения.
+- на строке `Cycle shortcut` — `Enter` начинает ввод сочетания текстом, `Enter` подтверждает, `Esc` отменяет.
 
 Открытие и отмена меню ничего не записывают. `enabled`, `mode`, `retainGitLive`, `compactPaths`, `compactVibeRows` и auto-shake gate фиксируются на границе logical run и не меняются в continuations. Stats toggles читаются при terminal finalization/replay, поэтому сохранение меню во время активного run может повлиять на его итоговую stats row.
+
+### Горячая клавиша переключения вида
+
+`alt+c` работает по умолчанию, включать её не нужно. Каждое нажатие делает один шаг по кругу:
+
+```text
+compact → live → clear → off → compact
+```
+
+Режим меняется только между тремя включёнными состояниями; признак включённости плагина переключается только на входе в `off` и на выходе из него. При выключении последний режим остаётся в config file, поэтому случайное нажатие ничего не теряет; при включении круг всегда начинается с `compact`, поэтому порядок не зависит от того, с какого места вы в него вошли.
+
+После нажатия печатается одна строка о том, что применится: `Compact: live — takes effect next run` для режимов и `Compact: off — from the next run` для выключения. Название режима подсвечивается зелёным.
+
+Два неочевидных момента:
+
+- **Нажатие применяется со следующего logical run.** Снимок настроек берётся один раз на прогон, поэтому нажатие посреди прогона не меняет уже отрисовываемый ответ.
+- **Смена сочетания требует restart OMP.** Интерфейс расширений умеет регистрировать сочетание, но не умеет снимать регистрацию, поэтому новое сочетание начинает работать только после перезапуска. Меню сообщает об этом при сохранении.
+
+Если значение закреплено `OMP_COMPACT_PLUGIN` или `OMP_COMPACT_MODE`, нажатие честно сообщает закреплённое значение, а не делает вид, что переключение состоялось.
 
 ### Параметры и defaults
 
@@ -203,6 +223,7 @@ Git распознаётся консервативно из уже выполн
 | `Compact paths` / `compactPaths` | `true` | Сокращает отображаемые absolute paths внутри session `cwd`. |
 | `Retain Git rows` / `retainGitLive` | `true` | Показывает Git rows и aggregate commit summary в `live`. |
 | `Worker sessions` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов worker sessions. При `false` они рисуются stock framed card в любом режиме. |
+| `Cycle shortcut` / `displayCycleKey` | `"alt+c"` | Сочетание, переключающее вид вывода по кругу. Занятое OMP сочетание отклоняется при вводе. Смена требует restart OMP. |
 | `Auto-shake` / `autoShake.enabled` | `false` | Запускает native `shake("elide")` после eligible run. |
 | `Shake threshold` / `autoShake.thresholdTokens` | `120000` | Минимальный current context usage; `0` означает каждый eligible run. |
 | `Run statistics` / `stats.enabled` | `true` | Включает terminal stats row. |
@@ -241,6 +262,7 @@ Default path:
   "retainGitLive": true,
   "compactPaths": true,
   "compactVibeRows": true,
+  "displayCycleKey": "alt+c",
   "stats": {
     "enabled": true,
     "actions": true,
