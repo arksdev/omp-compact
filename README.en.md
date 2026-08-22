@@ -61,7 +61,7 @@ After a successful answer, the default `live` mode keeps only useful history:
 
 Delete rows render distinctly: a red `delete` title and a red exact removed stat (`-N`) when the pre-image count is known; when the count is unavailable the stat is omitted entirely.
 
-Parallel worker-session control is compact too: instead of a large framed "TV wall" per session, you get one or two lines carrying state, name, turns taken, how long the current turn has run, the model, and what the session is doing right now. A working session keeps a live line. Killed sessions and settled turns linger briefly and then disappear on their own; when there is nothing to show, there is no line at all.
+Work in `/vibe` mode is compact now: instead of listing subagents that were already killed or are sitting idle, only the active ones are shown. Each session takes one or two short lines — state, name, turns taken, how long the current turn has run, the model, and what the session is doing right now. Killed sessions and settled turns linger for a few seconds and then disappear on their own; when there is nothing to show, there is no line at all.
 
 ```text
 vibe sessions 2
@@ -136,9 +136,9 @@ JSON:
 
 ### Parallel worker sessions — `Worker sessions`
 
-This option enables the short rows for the five parallel worker-session control tools. It is on by default.
+This option enables the short view of parallel worker sessions in `/vibe` mode. It is on by default.
 
-Turn it off and those tools render with OMP's own cards, exactly as if the plugin did not know them: the rows are neither hidden nor replaced by an ordinary short description. The value is frozen for the whole current logical run, so saving settings mid-run never changes the picture halfway through.
+Turn it off and those sessions render with OMP's own cards, exactly as if the plugin did not know them: the rows are neither hidden nor replaced by an ordinary short description. The value is frozen for the whole current logical run, so saving settings mid-run never changes the picture halfway through.
 
 JSON:
 
