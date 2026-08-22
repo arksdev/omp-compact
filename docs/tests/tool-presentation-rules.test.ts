@@ -4,6 +4,7 @@ import { genericToolDescription } from "../../.omp-plugin/compact";
 import {
 	describeTool,
 	normalizeToolName,
+	resolveToolAudit,
 	resolveToolRule,
 	TOOL_ALIASES,
 	TOOL_RULES,
@@ -136,6 +137,54 @@ describe("canonical routes and audit kinds", () => {
 				rule.knownDetails.every((key) => typeof key === "string"),
 				name,
 			).toBe(true);
+		}
+	});
+});
+
+describe("effective audit kind of one call", () => {
+	test("a file write audits as a write; a device write audits nothing", () => {
+		expect(resolveToolAudit("write", { path: "src/a.ts", content: "x" })).toBe(
+			"write",
+		);
+		expect(
+			resolveToolAudit("write", { path: "xd://github", content: "{}" }),
+		).toBe("none");
+		expect(
+			resolveToolAudit("write", { path: "xd://resolve", content: "why" }),
+		).toBe("none");
+		expect(resolveToolAudit("write", { file_path: "xd://github" })).toBe(
+			"none",
+		);
+	});
+
+	test("other registered kinds are unchanged; unknown names audit nothing", () => {
+		expect(resolveToolAudit("edit", { input: "[src/a.ts#A1B2]" })).toBe("edit");
+		expect(resolveToolAudit("apply_patch", { input: "" })).toBe("edit");
+		expect(resolveToolAudit("bash", { command: "git status" })).toBe(
+			"git-bash",
+		);
+		expect(resolveToolAudit("read", { path: "src/a.ts" })).toBe("none");
+		expect(resolveToolAudit("custom_tool", {})).toBe("none");
+		expect(resolveToolAudit("", undefined)).toBe("none");
+	});
+
+	test("unreadable args never throw and never disable a real file audit", () => {
+		const hostile: readonly unknown[] = [
+			undefined,
+			null,
+			"str",
+			42,
+			[],
+			{ path: 5 },
+			{ path: "" },
+			// bare device root and a path-bearing device URL are not device
+			// names: they keep the write kind, and the audit module's own
+			// URI-scheme guard refuses them before touching the filesystem.
+			{ path: "xd://" },
+			{ path: "xd://github/extra" },
+		];
+		for (const [index, args] of hostile.entries()) {
+			expect(resolveToolAudit("write", args), String(index)).toBe("write");
 		}
 	});
 });
@@ -316,6 +365,100 @@ describe("existing tool descriptions", () => {
 			description: "src/a.ts",
 			meta: [],
 		});
+	});
+
+	test("device write names the device and operation, not the transport path", () => {
+		expect(
+			describeTool("write", {
+				path: "xd://github",
+				content: JSON.stringify({ op: "pr_create", title: "x" }),
+			}),
+		).toEqual({ title: "github", description: "pr_create", meta: [] });
+		// both stock spellings of the operation key
+		expect(
+			describeTool("write", {
+				path: "xd://security_scan",
+				content: JSON.stringify({ action: "preflight" }),
+			}),
+		).toEqual({ title: "security_scan", description: "preflight", meta: [] });
+		// the device address is also accepted through file_path
+		expect(
+			describeTool("write", {
+				file_path: "xd://github",
+				content: '{"op":"repo_view"}',
+			})?.title,
+		).toBe("github");
+	});
+
+	test("a device carrying no operation prints the device name alone", () => {
+		expect(
+			describeTool("write", {
+				path: "xd://ast_grep",
+				content: JSON.stringify({ pat: "$A" }),
+			}),
+		).toEqual({ title: "ast_grep", description: "", meta: [] });
+		expect(describeTool("write", { path: "xd://github" })?.description).toBe(
+			"",
+		);
+	});
+
+	test("unparsable, oversized and array device content leave the name alone", () => {
+		for (const content of [
+			'{"op":',
+			"[1,2]",
+			JSON.stringify({ op: "pr_create", pad: "a".repeat(70_000) }),
+		]) {
+			expect(describeTool("write", { path: "xd://github", content })).toEqual({
+				title: "github",
+				description: "",
+				meta: [],
+			});
+		}
+	});
+
+	test("non-device write targets keep plain write presentation", () => {
+		expect(describeTool("write", { path: "src/a.ts", content: "x" })).toEqual({
+			title: "write",
+			description: "src/a.ts",
+			meta: [],
+		});
+		expect(describeTool("write", { path: "xd://" })).toEqual({
+			title: "write",
+			description: "xd://",
+			meta: [],
+		});
+		expect(describeTool("write", { path: "xd://github/extra" })?.title).toBe(
+			"write",
+		);
+	});
+
+	test("text devices present as resolutions with their own title and color", () => {
+		expect(
+			describeTool("write", {
+				path: "xd://resolve",
+				content: "applying staged edit",
+			}),
+		).toEqual({
+			title: "resolve",
+			description: "applying staged edit",
+			meta: [],
+			titleColor: "#A4D734",
+		});
+		expect(
+			describeTool("write", { path: "xd://reject", content: "discarding" }),
+		).toEqual({
+			title: "reject",
+			description: "discarding",
+			meta: [],
+			titleColor: "#A1471A",
+		});
+		expect(
+			describeTool("write", { path: "xd://report_issue", content: "bad row" })
+				?.title,
+		).toBe("report issue");
+		expect(
+			describeTool("write", { path: "xd://propose", content: "try this" }),
+		).toEqual({ title: "propose", description: "try this", meta: [] });
 	});
 
 	test("edit extracts bounded hashline targets from input", () => {
@@ -726,10 +869,76 @@ describe("tool-specific settled result metadata", () => {
 		expect(TOOL_RULES.resolve?.resultMeta?.({ details: {} })).toEqual([]);
 	});
 
+	test("device write confirms the operation from the dispatched args", () => {
+		const rule = TOOL_RULES.write;
+		const args = { path: "xd://github", content: "{}" };
+		expect(
+			rule?.resultMeta?.(
+				{ details: { xdev: { tool: "github", args: { op: "repo_view" } } } },
+				args,
+			),
+		).toEqual(["repo_view"]);
+		expect(
+			rule?.resultMeta?.(
+				{ details: { xdev: { args: { action: "preflight" } } } },
+				{ path: "xd://security_scan", content: "{}" },
+			),
+		).toEqual(["preflight"]);
+		// the call content already named it — never printed twice
+		expect(
+			rule?.resultMeta?.(
+				{ details: { xdev: { args: { op: "repo_view" } } } },
+				{ path: "xd://github", content: '{"op":"repo_view"}' },
+			),
+		).toEqual([]);
+		// missing details, broken details, help-mode dispatch without args
+		expect(rule?.resultMeta?.({ details: {} }, args)).toEqual([]);
+		expect(rule?.resultMeta?.({ details: { xdev: 5 } }, args)).toEqual([]);
+		expect(rule?.resultMeta?.({ details: { xdev: {} } }, args)).toEqual([]);
+		expect(rule?.resultMeta?.(undefined, args)).toEqual([]);
+		// an ordinary file write, and unreadable call args
+		expect(
+			rule?.resultMeta?.(
+				{ details: { xdev: { args: { op: "repo_view" } } } },
+				{ path: "src/a.ts" },
+			),
+		).toEqual([]);
+		expect(
+			rule?.resultMeta?.(
+				{ details: { xdev: { args: { op: "repo_view" } } } },
+				undefined,
+			),
+		).toEqual([]);
+	});
+
+	test("text device write reports the resolution action and its source", () => {
+		expect(
+			TOOL_RULES.write?.resultMeta?.(
+				{
+					details: {
+						xdev: {
+							tool: "resolve",
+							inner: { action: "apply", sourceToolName: "edit" },
+						},
+					},
+				},
+				{ path: "xd://resolve", content: "applying staged edit" },
+			),
+		).toEqual(["apply", "edit"]);
+		expect(
+			TOOL_RULES.write?.resultMeta?.(
+				{ details: {} },
+				{
+					path: "xd://reject",
+					content: "discarding",
+				},
+			),
+		).toEqual([]);
+	});
+
 	test("no other rule carries result metadata", () => {
 		for (const name of [
 			"read",
-			"write",
 			"edit",
 			"hub",
 			"todo",

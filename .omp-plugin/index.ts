@@ -60,7 +60,7 @@ import {
 	registerSettingsCommand,
 	saveSettingsFlow,
 } from "./settings-ui";
-import { resolveToolRule } from "./tool-presentation-rules";
+import { resolveToolAudit } from "./tool-presentation-rules";
 import { classifyAgentEnd } from "./turn-ledger";
 
 interface PendingGit {
@@ -780,10 +780,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		const current = ensureAdapter(context);
 		current?.startTool(event);
 		if (!current?.installed) return;
-		// Audit routing is selected by the presentation registry: the rule's
-		// audit kind picks the lifecycle path, and every unregistered or
-		// non-mutating tool resolves to "none" (no evidence, native renderer).
-		switch (resolveToolRule(event.toolName)?.audit ?? "none") {
+		// Audit routing is selected by the presentation registry: the effective
+		// audit kind picks the lifecycle path, and every unregistered tool,
+		// non-mutating tool, or `xd://` device dispatch riding the write
+		// transport resolves to "none" (no evidence, native renderer).
+		switch (resolveToolAudit(event.toolName, event.args)) {
 			case "write":
 				// Register the audit record synchronously, before the first
 				// filesystem await: stock invokes listeners fire-and-forget, so a
@@ -834,9 +835,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			return;
 		}
 		const installed = current;
-		// The same registry audit kind selects the end-path consumption;
-		// unknown/native-live/routine tools fall through with no audit work.
-		switch (resolveToolRule(event.toolName)?.audit ?? "none") {
+		// The same effective audit kind selects the end-path consumption;
+		// unknown/native-live/routine tools and device dispatches fall through
+		// with no audit work. `endWrite` is a no-op without a start record, so
+		// a mid-call settings change cannot strand one.
+		switch (resolveToolAudit(event.toolName, event.args)) {
 			case "write":
 				// Consume the record registered synchronously at start; capture,
 				// post-image audit, and publish run exactly once inside the

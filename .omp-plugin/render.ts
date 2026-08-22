@@ -219,7 +219,7 @@ function settledMeta(
 	// count, glob file count) comes from the registry rule. Generic
 	// error-result text handling stays here in the renderer.
 	if (rule?.resultMeta !== undefined)
-		meta.push(...rule.resultMeta(view.result));
+		meta.push(...rule.resultMeta(view.result, view.args));
 	if (view.isError) {
 		const text = resultText(view.result);
 		if (text) meta.push(text);

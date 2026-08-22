@@ -267,6 +267,17 @@ completion-time realpath'd `effectiveResult`); a concurrent swap-to-symlink
 drops evidence fail-closed rather than following outside the root. Nested
 symlink hops are rejected by `lstat` on the first destination.
 
+**Device dispatches are not file writes:** a `write` whose target is an
+`xd://<device>` URL executes a mounted tool, so `resolveToolAudit`
+(`tool-presentation-rules.ts`) downgrades its effective audit kind from
+`"write"` to `"none"` and the lifecycle never opens a write record for it —
+routing it into the write path would attribute a local file mutation to a
+device invocation. The device grammar comes from the stock parser
+(`parseXdUrl`), so a bare `xd://` root or a path-bearing device URL is not a
+device name and keeps the ordinary write kind; `audit.ts`'s own URI-scheme
+guard remains the second line of defence, refusing such a target before any
+filesystem access.
+
 
 ### Edit Verification (audit-diff.ts)
 

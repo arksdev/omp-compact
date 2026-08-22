@@ -16,6 +16,7 @@
 - Работа в режиме `/vibe` стала компактнее: вместо уже убитых или простаивающих сабагентов выводятся только активные. На каждую сессию приходится одна-две короткие строки — состояние, имя, сколько ходов сделано, сколько идёт текущий, какая модель и чем сессия занята прямо сейчас.
 - Короткий вид параллельных рабочих сессий в режиме `/vibe` стал отдельным переключателем. По умолчанию он включён; если выключить — эти сессии снова показываются штатными карточками OMP.
 - Сообщение о завершении запущенного процесса теперь показывает сам OMP — плагин больше не рисует эту строку сам.
+- Вызов внешнего устройства больше не выглядит как запись файла: в строке видно само устройство и его операцию, а такие вызовы больше не попадают в учёт изменений файлов.
 
 ### Проверено
 
@@ -228,6 +229,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 - `/vibe` mode is more compact: instead of already-killed or idle subagents, only active ones are shown. Each session takes one or two short rows — state, name, how many turns are done, how long the current one is running, which model, and what the session is doing right now.
 - The compact view of parallel worker sessions in `/vibe` mode became a separate toggle. It is on by default; turning it off brings those sessions back as stock OMP cards.
 - The process-completion message is now shown by OMP itself — the plugin no longer draws that row.
+- A call to an external device no longer looks like a file write: the row names the device itself and the operation it performs, and such calls are no longer counted as file changes.
 
 ### Verified
 

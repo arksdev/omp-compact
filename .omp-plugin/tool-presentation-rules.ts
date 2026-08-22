@@ -12,6 +12,10 @@
  * `undefined` explicitly (never a synthesized implicit compact rule) so
  * callers fail open to the native renderer.
  */
+// External dependency: parseXdUrl from @oh-my-pi/pi-coding-agent. The device-URL
+// grammar (trim, case-insensitive prefix, `/?#` rejection, bare-root form) must
+// not drift from the stock router that actually dispatches these calls.
+import { parseXdUrl } from "@oh-my-pi/pi-coding-agent/internal-urls/xd-protocol";
 import {
 	editPathsFromInput,
 	genericToolDescription,
@@ -48,8 +52,12 @@ export interface ToolPresentationRule {
 	compactOnExpand?: boolean;
 	/** Pure description from structured args; never touches the filesystem. */
 	describe(args: unknown, displayPaths?: DisplayPathOptions): ToolDescription;
-	/** Optional settled result metadata (e.g. bash exit code / wall time). */
-	resultMeta?(result: unknown): readonly string[];
+	/**
+	 * Optional settled result metadata (e.g. bash exit code / wall time). The
+	 * call args are passed alongside so a rule can stay silent when the row's
+	 * own description already names what the result would repeat.
+	 */
+	resultMeta?(result: unknown, args?: unknown): readonly string[];
 }
 
 const READ_ARGS = ["path", "file_path", "offset", "limit"] as const;
@@ -347,15 +355,141 @@ function resultMetaBash(result: unknown): readonly string[] {
 	return meta;
 }
 
+/**
+ * Stock text devices: their device content is a prose reason or title, never a
+ * JSON args object, so they present through the resolution description
+ * (`node_modules/.../tools/resolve.ts` `dispatchResolutionDevice`,
+ * `report-tool-issue.ts` `dispatchReportIssueDevice`).
+ *
+ * Deliberate dual addressing: `resolve`/`reject` are ALSO registry keys in
+ * TOOL_RULES, because historical transcripts still carry them as tool names —
+ * this agent never emits those names, it dispatches `write` to `xd://resolve`.
+ * The registry entries stay as the reserve for such transcripts; the device
+ * path below reuses their describer instead of growing a second one.
+ * Null prototype: an untrusted device name must not reach Object.prototype.
+ */
+interface TextDevicePresentation {
+	readonly title: string;
+	readonly titleColor?: string;
+}
+const TEXT_DEVICES: Readonly<Partial<Record<string, TextDevicePresentation>>> =
+	Object.freeze(
+		Object.assign(Object.create(null), {
+			resolve: { title: "resolve", titleColor: "#A4D734" },
+			reject: { title: "reject", titleColor: "#A1471A" },
+			propose: { title: "propose" },
+			report_issue: { title: "report issue" },
+		}) as Partial<Record<string, TextDevicePresentation>>,
+	);
+
+/** Longest device content this module will attempt to parse as JSON args. */
+const MAX_DEVICE_CONTENT = 65_536;
+
+/**
+ * Device name of an `xd://<device>` write, or `undefined` when the target is
+ * an ordinary path. `parseXdUrl` is the stock grammar: `null` for a non-device
+ * or malformed URL, `name: null` for the bare `xd://` root — both stay
+ * `undefined` here, so an unrecognized target keeps plain write presentation.
+ */
+function writeDeviceName(value: Record<string, unknown>): string | undefined {
+	const path = stringValue(value, "path") || stringValue(value, "file_path");
+	if (!path) return undefined;
+	return parseXdUrl(path)?.name ?? undefined;
+}
+
+/**
+ * Operation key of a device args object: stock schemas spell it `op` (`gh`)
+ * or `action` (`security_scan`, `debug`, `browser`), and some devices
+ * (`ast_grep`) carry none. Absent operation yields "" — never a placeholder.
+ */
+function deviceOperationOf(value: Record<string, unknown>): string {
+	return stringValue(value, "op") || stringValue(value, "action");
+}
+
+/**
+ * Operation of a JSON device call, read from the written content. Streaming
+ * fragments, non-JSON bodies, arrays and over-budget payloads yield "": the
+ * row then names the device alone until the settled result confirms more.
+ */
+function deviceOperationFromContent(content: string): string {
+	if (!content || content.length > MAX_DEVICE_CONTENT) return "";
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		return "";
+	}
+	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+	return deviceOperationOf(parsed as Record<string, unknown>);
+}
+
+/**
+ * Presentation of a text device, or `undefined` for a JSON-args device.
+ * Own-property only (belt-and-braces): see normalizeToolName.
+ */
+function textDevice(device: string): TextDevicePresentation | undefined {
+	return Object.hasOwn(TEXT_DEVICES, device) ? TEXT_DEVICES[device] : undefined;
+}
+
+/**
+ * Describer bound to one text device. Shared by the device path in
+ * `describeWrite` and by the historical `resolve`/`reject` registry keys, so
+ * each device's title and color live in TEXT_DEVICES and nowhere else.
+ */
+function describeTextDevice(device: string): ToolPresentationRule["describe"] {
+	const presentation = textDevice(device);
+	const title = presentation?.title ?? device;
+	const titleColor = presentation?.titleColor;
+	return (args: unknown) => describeResolution(title, titleColor, args);
+}
+
+/**
+ * A `write` is either a file write or an `xd://` device dispatch executing a
+ * mounted tool. The device form names the device and its operation; printing
+ * the transport path (`xd://github`) would read as a write to a fake file.
+ */
 function describeWrite(
 	args: unknown,
 	displayPaths?: DisplayPathOptions,
 ): ToolDescription {
+	const value = record(args);
+	const device = writeDeviceName(value);
+	if (device !== undefined) {
+		const text = textDevice(device);
+		if (text) return describeResolution(text.title, text.titleColor, value);
+		return {
+			// The device name as addressed: bounded, never re-spelled, so the
+			// row stays checkable against the `xd://<device>` the model wrote.
+			title: truncateCodePoints(device, 64),
+			description: deviceOperationFromContent(stringValue(value, "content")),
+			meta: [],
+		};
+	}
 	return {
 		title: "write",
-		description: pathValue(record(args), displayPaths),
+		description: pathValue(value, displayPaths),
 		meta: [],
 	};
+}
+
+/**
+ * Settled metadata of a device write. The operation is confirmed from the
+ * validated dispatch args (`details.xdev.args`) — the authoritative copy that
+ * actually executed — and printed only when the call content did not already
+ * name it. Text devices delegate to the resolution metadata. A file write, a
+ * help-mode dispatch (no args), and missing/broken details print nothing.
+ */
+function resultMetaWrite(result: unknown, args?: unknown): readonly string[] {
+	const value = record(args);
+	const device = writeDeviceName(value);
+	if (device === undefined) return [];
+	if (textDevice(device)) return resultMetaResolution(result);
+	const dispatch = record(record(record(result).details).xdev);
+	const operation = deviceOperationOf(record(dispatch.args));
+	if (!operation) return [];
+	return operation === deviceOperationFromContent(stringValue(value, "content"))
+		? []
+		: [operation];
 }
 
 function describeEdit(
@@ -469,14 +603,19 @@ function describeComputer(args: unknown): ToolDescription {
 }
 
 /**
- * Resolution devices (xd://resolve / xd://reject) carry the write call shape:
- * the device `path` plus the one-sentence `content` reason, and optionally a
- * direct `reason`/`status`/yield-style `result.error` field. Extract the best
- * short structured field, never parsed native/ANSI output.
+ * Resolution/text devices (xd://resolve, xd://reject, xd://propose,
+ * xd://report_issue) carry the write call shape: the device `path` plus the
+ * one-sentence `content` reason, and optionally a direct
+ * `reason`/`status`/yield-style `result.error` field. Extract the best short
+ * structured field, never parsed native/ANSI output.
+ *
+ * Reached two ways: through the `resolve`/`reject` registry keys (historical
+ * transcripts that carry those tool names) and through `describeWrite` when a
+ * `write` addresses one of these devices. One describer, both paths.
  */
 function describeResolution(
-	title: "resolve" | "reject",
-	titleColor: string,
+	title: string,
+	titleColor: string | undefined,
 	args: unknown,
 ): ToolDescription {
 	const value = record(args);
@@ -611,6 +750,7 @@ export const TOOL_RULES: Readonly<
 			WRITE_ARGS,
 			WRITE_DETAILS,
 			describeWrite,
+			resultMetaWrite,
 		),
 		edit: presentationRule(
 			"compact",
@@ -708,12 +848,16 @@ export const TOOL_RULES: Readonly<
 			ASK_DETAILS,
 			genericDescribe("ask"),
 		),
+		// Historical resolution transcripts: keyed by the `resolve`/`reject`
+		// tool names this agent no longer emits (it writes to xd://resolve).
+		// Kept as the reserve for those transcripts; `describeWrite` reaches
+		// the very same describer through the device path.
 		resolve: presentationRule(
 			"compact",
 			"none",
 			RESOLUTION_ARGS,
 			RESOLUTION_DETAILS,
-			(args) => describeResolution("resolve", "#A4D734", args),
+			describeTextDevice("resolve"),
 			resultMetaResolution,
 			true,
 		),
@@ -722,7 +866,7 @@ export const TOOL_RULES: Readonly<
 			"none",
 			RESOLUTION_ARGS,
 			RESOLUTION_DETAILS,
-			(args) => describeResolution("reject", "#A1471A", args),
+			describeTextDevice("reject"),
 			resultMetaResolution,
 			true,
 		),
@@ -807,6 +951,29 @@ export function resolveToolRule(
 	const key = normalizeToolName(name);
 	// Own-property only (belt-and-braces): see normalizeToolName.
 	return Object.hasOwn(TOOL_RULES, key) ? TOOL_RULES[key] : undefined;
+}
+
+/**
+ * Effective audit kind of one call: the registered rule's static kind, except
+ * that a `write` addressing an `xd://` device audits nothing. Such a call
+ * dispatches a mounted tool — the path is a transport address, not a file, so
+ * routing it into the write-audit path would attribute a local file mutation
+ * to a device invocation.
+ *
+ * The audit module's own URI-scheme guard stays where it is as the second
+ * line of defence: this decision keeps device calls out of the write branch
+ * altogether instead of relying on a later refusal.
+ *
+ * Structured args only, no rendered text. An unregistered tool, a malformed
+ * device URL, or unreadable args keep the static kind — unknown data must
+ * never silently disable a real file audit.
+ */
+export function resolveToolAudit(name: string, args: unknown): ToolAuditKind {
+	const rule = resolveToolRule(name);
+	if (rule === undefined) return "none";
+	if (rule.audit === "write" && writeDeviceName(record(args)) !== undefined)
+		return "none";
+	return rule.audit;
 }
 
 /**

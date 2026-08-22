@@ -61,6 +61,8 @@ After a successful answer, the default `live` mode keeps only useful history:
 
 Delete rows render distinctly: a red `delete` title and a red exact removed stat (`-N`) when the pre-image count is known; when the count is unavailable the stat is omitted entirely.
 
+Some OMP tools are invoked through the same transport as a file write. Such calls no longer look like writes: the row names the device itself and its operation — `github: pr_create` instead of `write: xd://github` — and they are not counted as file changes.
+
 Work in `/vibe` mode is compact now: instead of listing subagents that were already killed or are sitting idle, only the active ones are shown. Each session takes one or two short lines — state, name, turns taken, how long the current turn has run, the model, and what the session is doing right now. Killed sessions and settled turns linger for a few seconds and then disappear on their own; when there is nothing to show, there is no line at all.
 
 ```text
