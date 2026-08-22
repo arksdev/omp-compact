@@ -53,6 +53,7 @@ const FOCUSABLE_LABELS = [
 	"Mode",
 	"Compact paths",
 	"Retain Git rows",
+	"Worker sessions",
 	"Auto-shake",
 	"Shake threshold",
 	"Run statistics",
@@ -233,10 +234,12 @@ describe("keyboard navigation", () => {
 		expect(focusedRow(dialog)).toContain("Compact paths");
 		dialog.handleInput(KEY_J);
 		expect(focusedRow(dialog)).toContain("Retain Git rows");
+		dialog.handleInput(KEY_J);
+		expect(focusedRow(dialog)).toContain("Worker sessions");
 		dialog.handleInput(KEY_DOWN);
 		expect(focusedRow(dialog)).toContain("Auto-shake");
 		// wrap from the bottom back to the top
-		for (let i = 0; i < FOCUSABLE_LABELS.length - 4; i++) {
+		for (let i = 0; i < FOCUSABLE_LABELS.length - 5; i++) {
 			dialog.handleInput(KEY_DOWN);
 		}
 		expect(focusedRow(dialog)).toContain("Global compact");
@@ -300,6 +303,27 @@ describe("keyboard navigation", () => {
 		focus(dialog, "Sent tokens");
 		dialog.handleInput(KEY_SPACE);
 		expect(dialog.current.stats.sent).toBe(false);
+	});
+
+	test("the worker-sessions toggle flips the draft, goes dirty, and saves", async () => {
+		const harness = makeDialog();
+		const { dialog } = harness;
+		expect(renderedValue(dialog, "Worker sessions")).toBe("on");
+		focus(dialog, "Worker sessions");
+		expect(focusedRow(dialog)).toContain("Worker sessions");
+		// The help line under the rows describes the focused toggle.
+		expect(lines(dialog)[lines(dialog).length - 1]).toContain(
+			"Compact rows for worker-session tools",
+		);
+		dialog.handleInput(KEY_SPACE);
+		expect(dialog.current.compactVibeRows).toBe(false);
+		expect(renderedValue(dialog, "Worker sessions")).toBe("off");
+		expect(dialog.isDirty).toBe(true);
+		dialog.handleInput(KEY_S);
+		await dialog.settled();
+		expect(harness.saves).toHaveLength(1);
+		expect(harness.saves[0]?.compactVibeRows).toBe(false);
+		expect(harness.doneResult?.compactVibeRows).toBe(false);
 	});
 });
 
@@ -1380,6 +1404,7 @@ describe("menu labels and layout", () => {
 			"Mode",
 			"Compact paths",
 			"Retain Git rows",
+			"Worker sessions",
 			"Auto-shake",
 			"Shake threshold",
 			"Run statistics",
@@ -1401,9 +1426,9 @@ describe("menu labels and layout", () => {
 		const blanks = output
 			.map((line, index) => (line === "" ? index : -1))
 			.filter((index) => index >= 0);
-		// header, global (2 rows), display (2 rows), shake (2 rows),
+		// header, global (2 rows), display (3 rows), shake (2 rows),
 		// stats (6 rows), host (2 rows), help
-		expect(blanks).toEqual([3, 6, 9, 16]);
+		expect(blanks).toEqual([3, 7, 10, 17]);
 	});
 });
 
@@ -1491,7 +1516,7 @@ describe("short-terminal viewport", () => {
 		const full = lines(makeDialog().dialog);
 		const tall = lines(makeDialog(DEFAULT_SETTINGS, true, () => 40).dialog);
 		expect(tall).toEqual(full);
-		expect(full).toHaveLength(20);
+		expect(full).toHaveLength(21);
 		expect(full.join("\n")).not.toContain("…");
 	});
 });

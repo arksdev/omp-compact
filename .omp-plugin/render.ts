@@ -970,6 +970,16 @@ const VIBE_OPS: Readonly<Partial<Record<string, VibeOp>>> = Object.freeze(
 	}) as Partial<Record<string, VibeOp>>,
 );
 
+/**
+ * Whether a tool name is one of the five stock vibe worker-session devices.
+ * `VIBE_OPS` above stays the single source of truth for that set — the
+ * runtime adapter pairs this predicate with the run's frozen
+ * `compactVibeRows` snapshot to decide compact vs stock presentation.
+ */
+export function isVibeToolName(name: string): boolean {
+	return VIBE_OPS[normalizeToolName(name)] !== undefined;
+}
+
 export function renderCompactToolRows(
 	view: CompactToolView,
 	theme: Theme,

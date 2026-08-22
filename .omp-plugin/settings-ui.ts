@@ -582,6 +582,7 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	mode: "compact / live / clear runtime mode",
 	compactPaths: "Renders paths relative to the session cwd",
 	retainGitLive: "Keeps Git commit rows after the terminal answer",
+	compactVibeRows: "Compact rows for worker-session tools",
 	"autoShake.enabled": "Shakes the log after a successful answer",
 	"autoShake.thresholdTokens": "Shakes once the run passes this many tokens",
 	"stats.enabled": "Shows one usage row per completed run",
@@ -671,6 +672,7 @@ export class SettingsDialog implements ComponentLike {
 			draft.mode !== initial.mode ||
 			draft.retainGitLive !== initial.retainGitLive ||
 			draft.compactPaths !== initial.compactPaths ||
+			draft.compactVibeRows !== initial.compactVibeRows ||
 			draft.stats.enabled !== initial.stats.enabled ||
 			draft.stats.actions !== initial.stats.actions ||
 			draft.stats.sent !== initial.stats.sent ||
@@ -749,6 +751,15 @@ export class SettingsDialog implements ComponentLike {
 				() => draft.retainGitLive,
 				(v) => {
 					draft.retainGitLive = v;
+				},
+				GROUP_DISPLAY,
+			),
+			toggle(
+				"compactVibeRows",
+				"Worker sessions",
+				() => draft.compactVibeRows,
+				(v) => {
+					draft.compactVibeRows = v;
 				},
 				GROUP_DISPLAY,
 			),

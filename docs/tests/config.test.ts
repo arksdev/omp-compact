@@ -47,6 +47,7 @@ describe("defaults", () => {
 		expect(DEFAULT_SETTINGS.autoShake.enabled).toBe(false);
 		expect(DEFAULT_SETTINGS.stats.enabled).toBe(true);
 		expect(DEFAULT_SETTINGS.autoShake.thresholdTokens).toBe(120_000);
+		expect(DEFAULT_SETTINGS.compactVibeRows).toBe(true);
 	});
 
 	test("defaults are deeply frozen", () => {
@@ -83,6 +84,7 @@ describe("defaults", () => {
 		expect(normalized.mode).toBe("live");
 		expect(normalized.retainGitLive).toBe(true);
 		expect(normalized.compactPaths).toBe(true);
+		expect(normalized.compactVibeRows).toBe(true);
 		expect(normalized.stats).toEqual(DEFAULT_SETTINGS.stats);
 		expect(normalized.autoShake.enabled).toBe(false);
 		expect(normalized.autoShake.thresholdTokens).toBe(
@@ -91,6 +93,32 @@ describe("defaults", () => {
 		expect(normalized.host.recapEnabled).toBeUndefined();
 		expect(normalized.host.thinkingBlocksVisible).toBe(true);
 		expect(warnings.length).toBeGreaterThan(0);
+	});
+
+	test("a config file without compactVibeRows keeps the compact rows on", () => {
+		// Version-1 files written before the toggle existed carry no key at
+		// all: the per-field fallback must read as enabled, never as an
+		// opt-out, so upgrading never silently restores the stock cards.
+		const warnings: string[] = [];
+		const normalized = normalizeSettings({ version: 1, mode: "compact" }, (m) =>
+			warnings.push(m),
+		);
+		expect(normalized.compactVibeRows).toBe(true);
+		expect(warnings).toEqual([]);
+	});
+
+	test("a garbage compactVibeRows defaults on and is named in the diagnostic", () => {
+		const warnings: string[] = [];
+		const normalized = normalizeSettings(
+			{ version: 1, compactVibeRows: "nope", compactPaths: 0 },
+			(m) => warnings.push(m),
+		);
+		expect(normalized.compactVibeRows).toBe(true);
+		expect(normalized.compactPaths).toBe(true);
+		// The rejected field is reported alongside its peers, in field order.
+		expect(warnings).toEqual([
+			"invalid config field(s): compactPaths, compactVibeRows; using defaults",
+		]);
 	});
 });
 
@@ -1046,6 +1074,21 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		expect(raw.mode).toBe("clear");
 		expect(raw.stats.sent).toBe(false);
 		expect(raw.autoShake.enabled).toBe(true);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a compactVibeRows opt-out persists and composes with a stale peer edit", async () => {
+		const dir = await tempDir();
+		const { a, b } = await twoStores(dir);
+		const effective = await a.store.update({ compactVibeRows: false });
+		expect(effective.compactVibeRows).toBe(false);
+		// b's snapshot predates a's write and says compactVibeRows=true; its
+		// own disjoint edit must not re-assert the default over a's opt-out.
+		await b.store.update({ compactPaths: false });
+		const raw = await readStored(dir);
+		expect(raw.compactVibeRows).toBe(false);
+		expect(raw.compactPaths).toBe(false);
+		expect(raw.retainGitLive).toBe(DEFAULT_SETTINGS.retainGitLive);
 		await rm(dir, { recursive: true, force: true });
 	});
 

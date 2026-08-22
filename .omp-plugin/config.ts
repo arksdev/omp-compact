@@ -32,6 +32,7 @@ export interface CompactSettings {
 	mode: CompactMode;
 	retainGitLive: boolean;
 	compactPaths: boolean;
+	compactVibeRows: boolean;
 	stats: CompactStatsSettings;
 	autoShake: CompactAutoShakeSettings;
 	host: CompactHostSettings;
@@ -42,6 +43,7 @@ export interface CompactSettingsPatch {
 	mode?: CompactMode;
 	retainGitLive?: boolean;
 	compactPaths?: boolean;
+	compactVibeRows?: boolean;
 	stats?: Partial<CompactStatsSettings>;
 	autoShake?: Partial<CompactAutoShakeSettings>;
 	host?: Partial<CompactHostSettings>;
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
 	mode: "live",
 	retainGitLive: true,
 	compactPaths: true,
+	compactVibeRows: true,
 	stats: DEFAULT_STATS,
 	autoShake: DEFAULT_AUTO_SHAKE,
 	host: DEFAULT_HOST,
@@ -110,6 +113,7 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 		mode: settings.mode,
 		retainGitLive: settings.retainGitLive,
 		compactPaths: settings.compactPaths,
+		compactVibeRows: settings.compactVibeRows,
 		stats: Object.freeze({ ...settings.stats }),
 		autoShake: Object.freeze({ ...settings.autoShake }),
 		host: Object.freeze({ ...settings.host }),
@@ -395,6 +399,11 @@ function normalizeWithDiagnostics(
 			raw.compactPaths,
 			DEFAULT_SETTINGS.compactPaths,
 		),
+		compactVibeRows: field(
+			"compactVibeRows",
+			raw.compactVibeRows,
+			DEFAULT_SETTINGS.compactVibeRows,
+		),
 		stats: { ...DEFAULT_SETTINGS.stats },
 		autoShake: { ...DEFAULT_SETTINGS.autoShake },
 		host: { ...DEFAULT_SETTINGS.host },
@@ -490,6 +499,7 @@ const TOP_LEVEL_FIELDS = [
 	"mode",
 	"retainGitLive",
 	"compactPaths",
+	"compactVibeRows",
 ] as const;
 
 const STATS_FIELDS = [
@@ -542,7 +552,10 @@ async function withUpdateQueue<T>(
  */
 interface SettingsLeafPatch {
 	top: Partial<
-		Pick<CompactSettings, "enabled" | "mode" | "retainGitLive" | "compactPaths">
+		Pick<
+			CompactSettings,
+			"enabled" | "mode" | "retainGitLive" | "compactPaths" | "compactVibeRows"
+		>
 	>;
 	stats?: Partial<CompactStatsSettings>;
 	autoShake?: Partial<CompactAutoShakeSettings>;

@@ -12,6 +12,7 @@ function toolInput(overrides: Partial<ToolRenderInput> = {}): ToolRenderInput {
 		route: "compact",
 		mode: "live",
 		retainGitLive: false,
+		compactSuppressedBySettings: false,
 		phase: "working",
 		expanded: false,
 		isPartial: false,
@@ -74,6 +75,74 @@ describe("decideToolRender: registry routing and native fallback", () => {
 				).toEqual({ kind: "native" });
 			}
 		}
+	});
+});
+
+describe("decideToolRender: settings opt-out for a tool family", () => {
+	test("suppressed tools render natively in every mode and phase", () => {
+		// The user switched the family's compact rows off: the block must
+		// reach the stock renderer exactly like an unregistered tool, so no
+		// mode and no phase may divert it into rows or hide it.
+		for (const mode of ["live", "compact", "clear"] as const) {
+			for (const phase of ["working", "filtered", "full"] as const) {
+				expect(
+					decideToolRender(
+						toolInput({
+							route: "compact",
+							compactSuppressedBySettings: true,
+							mode,
+							phase,
+							hasMutations: true,
+							hasGit: true,
+							hashesLength: 2,
+							isAnchor: true,
+							retainGitLive: true,
+						}),
+					),
+				).toEqual({ kind: "native" });
+			}
+		}
+	});
+
+	test("the same input renders compact rows while the setting is on", () => {
+		expect(
+			decideToolRender(
+				toolInput({ route: "compact", compactSuppressedBySettings: false }),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: false,
+			summary: false,
+			includeGit: true,
+		});
+		expect(
+			decideToolRender(
+				toolInput({
+					route: "compact",
+					compactSuppressedBySettings: false,
+					phase: "filtered",
+					hasMutations: true,
+				}),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: true,
+			summary: false,
+			includeGit: false,
+		});
+	});
+
+	test("suppression never resurrects a native-live tool as rows", () => {
+		// Belt and braces on rule order: native-live already wins, and the
+		// opt-out agrees with it instead of reordering the head rules.
+		expect(
+			decideToolRender(
+				toolInput({
+					route: "native-live",
+					compactSuppressedBySettings: true,
+				}),
+			),
+		).toEqual({ kind: "native" });
 	});
 });
 test("task route uses compact rows instead of native rendering", () => {

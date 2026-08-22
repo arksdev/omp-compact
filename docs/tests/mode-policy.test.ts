@@ -341,6 +341,11 @@ describe("runModeFromSettings", () => {
 			runModeFromSettings(
 				settings({ enabled: false, mode: "clear", retainGitLive: false }),
 			),
-		).toEqual({ mode: "clear", enabled: false, retainGitLive: false });
+		).toEqual({
+			mode: "clear",
+			enabled: false,
+			retainGitLive: false,
+			compactVibeRows: true,
+		});
 	});
 });

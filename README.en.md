@@ -134,6 +134,18 @@ JSON:
 { "retainGitLive": true }
 ```
 
+### Parallel worker sessions — `Worker sessions`
+
+This option enables the short rows for the five parallel worker-session control tools. It is on by default.
+
+Turn it off and those tools render with OMP's own cards, exactly as if the plugin did not know them: the rows are neither hidden nor replaced by an ordinary short description. The value is frozen for the whole current logical run, so saving settings mid-run never changes the picture halfway through.
+
+JSON:
+
+```json
+{ "compactVibeRows": true }
+```
+
 ### Auto-shake
 
 Auto-shake automatically calls OMP's native `AgentSession.shake("elide")` after an eligible successful logical run. It replaces heavy old tool results and large blocks with short placeholders containing an `artifact://` recovery link. This frees model context without removing the plugin's visual history.

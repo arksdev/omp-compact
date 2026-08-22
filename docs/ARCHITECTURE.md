@@ -207,15 +207,16 @@ Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
 ```
 1. Unknown tool → native (fail-open)
 2. native-live → native (every mode × every phase; interactive stock chrome such as ask)
-3. clear + not-full → empty
-4. filtered + no mutations + no hashes → empty
-5. working + live + no retainGitLive + hasGit → empty
-6. working + expanded + !compactOnExpand → native (inspection escape hatch for ordinary compact tools)
-7. filtered → tool-rows (retention policy applied)
-8. Fallback → tool-rows (full log)
+3. compactSuppressedBySettings → native (the user switched this tool family's compact rows off)
+4. clear + not-full → empty
+5. filtered + no mutations + no hashes → empty
+6. working + live + no retainGitLive + hasGit → empty
+7. working + expanded + !compactOnExpand → native (inspection escape hatch for ordinary compact tools)
+8. filtered → tool-rows (retention policy applied)
+9. Fallback → tool-rows (full log)
 ```
 
-**Key insight:** First matching rule wins. Order is critical. `native-live` is phase- and mode-independent: a settled run never hides or collapses interactive stock chrome.
+**Key insight:** First matching rule wins. Order is critical. `native-live` is phase- and mode-independent: a settled run never hides or collapses interactive stock chrome. `compactSuppressedBySettings` is plain data derived by the caller — the module never learns tool names; `runtime-adapter.ts` pairs the tool name with the run's frozen `compactVibeRows` snapshot (`VIBE_OPS` in `render.ts` stays the single source of truth for the five worker-session names).
 
 ---
 

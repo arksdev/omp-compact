@@ -7436,10 +7436,11 @@ stockTest(
 		await beginRun(booted);
 		// …a toolUse continuation keeps the run open…
 		await finishRun(booted, "working", "toolUse");
-		// …then the user turns auto-shake OFF mid-run (fifth focusable row:
-		// Global compact, Mode, Compact paths, Retain Git rows, Auto-shake).
+		// …then the user turns auto-shake OFF mid-run (sixth focusable row:
+		// Global compact, Mode, Compact paths, Retain Git rows, Worker
+		// sessions, Auto-shake).
 		await saveSettingsViaDialog(booted, (dialog) => {
-			for (let i = 0; i < 4; i++) dialog.handleInput(KEY_DOWN);
+			for (let i = 0; i < 5; i++) dialog.handleInput(KEY_DOWN);
 			dialog.handleInput(KEY_SPACE);
 		});
 		// The continuation boundary must not observe the mid-run change:
@@ -9804,6 +9805,80 @@ stockTest(
 		expect(afterTick[2]).toContain(
 			"⟦f⟧ wire-vibe 3t edit: Wiring the vibe rows",
 		);
+		await shutdown(booted);
+	},
+);
+
+// ---------------------------------------------------------------------------
+// `compactVibeRows` settings toggle: the compact vibe rows are a preference,
+// so switching it off must hand the five devices back to the stock framed
+// card — not hide them, and not print a generic summary row. The flag is
+// frozen per run alongside the mode, so both halves below boot their own
+// plugin instance with the persisted value they exercise.
+// ---------------------------------------------------------------------------
+
+/** Settle one `vibe_list` card and return the transcript rows it produced. */
+async function vibeListRows(
+	booted: BootedPlugin & { transcript: TranscriptInstance },
+): Promise<string[]> {
+	await beginRun(booted);
+	const list = await addTool(booted, "vibe_list", {}, "vibe-toggle-list");
+	list.render = () => ["native-vibe-list-card"];
+	await finishTool(booted, list, {
+		toolCallId: "vibe-toggle-list",
+		toolName: "vibe_list",
+		result: {
+			content: [{ type: "text", text: "- `audit-worker` [good] idle" }],
+			details: {
+				op: "list",
+				screens: [
+					{
+						id: "audit-worker",
+						cli: "good",
+						state: "idle",
+						model: "AuraPass/grok-4.5:medium",
+						turns: 2,
+						queued: 0,
+						trace: [],
+						outputTail: [],
+						lastActivity: "Reported the registry diff",
+						lastActivityAt: 1_000,
+					},
+				],
+			},
+		},
+		isError: false,
+	});
+	return visibleRows(booted.transcript);
+}
+
+stockTest(
+	"compactVibeRows=false gives the worker-session tools back their stock card",
+	async () => {
+		const booted = await bootWithMode("live", { compactVibeRows: false });
+		const rows = await vibeListRows(booted);
+		// The stock card renders verbatim, exactly as for an unknown tool.
+		expect(rows).toEqual(["native-vibe-list-card"]);
+		const live = rows.join("\n");
+		// Neither the plugin's vibe grammar nor the generic registry summary
+		// replaces it, and the row is not hidden either.
+		expect(live).not.toContain("vibe sessions");
+		expect(live).not.toContain("audit-worker 2t");
+		expect(live).not.toContain("vibe list:");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"compactVibeRows=true keeps the compact worker-session rows",
+	async () => {
+		const booted = await bootWithMode("live", { compactVibeRows: true });
+		const rows = await vibeListRows(booted);
+		expect(rows).toEqual([
+			"vibe sessions 1",
+			"∷ ⟦g⟧ audit-worker 2t grok-4.5 Reported the registry diff",
+		]);
+		expect(rows.join("\n")).not.toContain("native-vibe-list-card");
 		await shutdown(booted);
 	},
 );

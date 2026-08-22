@@ -53,6 +53,7 @@ interface AdapterModule {
 			mode: string;
 			enabled: boolean;
 			retainGitLive: boolean;
+			compactVibeRows: boolean;
 		}>;
 		armRestoreOverride(): void;
 		armCollapsedRebuild(): void;
@@ -63,6 +64,7 @@ interface AdapterModule {
 			mode: string;
 			enabled: boolean;
 			retainGitLive: boolean;
+			compactVibeRows: boolean;
 		};
 	};
 }
@@ -967,6 +969,7 @@ describe("restore override (upgrade2 item 3)", () => {
 			mode: "compact",
 			enabled: true,
 			retainGitLive: true,
+			compactVibeRows: true,
 		});
 		// the persisted mode is never touched
 		expect((await store.load()).mode).toBe("live");

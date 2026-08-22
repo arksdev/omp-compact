@@ -32,6 +32,15 @@ export interface ToolRenderInput {
 	mode: CompactMode;
 	/** The run's frozen `retainGitLive` flag. */
 	retainGitLive: boolean;
+	/**
+	 * The run's frozen opt-out of compact rows for this tool, derived from
+	 * settings by the caller. True means the tool family the user switched
+	 * off owns this block, so it renders with the stock card exactly as if
+	 * the plugin did not know the tool. The flag stays plain data: this
+	 * module never learns tool names — the caller pairs the name with the
+	 * frozen settings snapshot and passes the result.
+	 */
+	compactSuppressedBySettings: boolean;
 	/** Ledger phase: working / filtered (terminal answer) / full (abort). */
 	phase: LedgerPhase;
 	/** Expanded state of the component (native inspection escape hatch). */
@@ -156,6 +165,15 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 		// terminal answer, and full abort/error alike. clear never hides it;
 		// filtered retention never drops it; full never forces tool-rows.
 		when: (input) => input.route === "native-live",
+		decide: (): ToolRenderDecision => ({ kind: "native" }),
+	},
+	{
+		// Settings opt-out: a tool family whose compact rows the user
+		// switched off renders with the stock card in every mode and phase,
+		// exactly like an unregistered tool. Sits with the head rules on
+		// purpose — the choice is the user's, so it outranks every mode and
+		// phase decision below.
+		when: (input) => input.compactSuppressedBySettings,
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{

@@ -191,7 +191,7 @@ Git распознаётся консервативно из уже выполн
 - `s` — сохранить;
 - `Esc`, `c` или interrupt keybinding — закрыть без сохранения.
 
-Открытие и отмена меню ничего не записывают. `enabled`, `mode`, `retainGitLive`, `compactPaths` и auto-shake gate фиксируются на границе logical run и не меняются в continuations. Stats toggles читаются при terminal finalization/replay, поэтому сохранение меню во время активного run может повлиять на его итоговую stats row.
+Открытие и отмена меню ничего не записывают. `enabled`, `mode`, `retainGitLive`, `compactPaths`, `compactVibeRows` и auto-shake gate фиксируются на границе logical run и не меняются в continuations. Stats toggles читаются при terminal finalization/replay, поэтому сохранение меню во время активного run может повлиять на его итоговую stats row.
 
 ### Параметры и defaults
 
@@ -201,6 +201,7 @@ Git распознаётся консервативно из уже выполн
 | `Mode` / `mode` | `"live"` | `compact`, `live` или `clear`. |
 | `Compact paths` / `compactPaths` | `true` | Сокращает отображаемые absolute paths внутри session `cwd`. |
 | `Retain Git rows` / `retainGitLive` | `true` | Показывает Git rows и aggregate commit summary в `live`. |
+| `Worker sessions` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов worker sessions. При `false` они рисуются stock framed card в любом режиме. |
 | `Auto-shake` / `autoShake.enabled` | `false` | Запускает native `shake("elide")` после eligible run. |
 | `Shake threshold` / `autoShake.thresholdTokens` | `120000` | Минимальный current context usage; `0` означает каждый eligible run. |
 | `Run statistics` / `stats.enabled` | `true` | Включает terminal stats row. |
@@ -238,6 +239,7 @@ Default path:
   "mode": "live",
   "retainGitLive": true,
   "compactPaths": true,
+  "compactVibeRows": true,
   "stats": {
     "enabled": true,
     "actions": true,
@@ -375,6 +377,8 @@ Registry использует только structured tool name, args/result и 
 `vibe_list` печатает заголовок `vibe sessions N` со числом скрытых сессий, если такие есть. `vibe_wait` печатает заголовок с числом сессий в работе и числом settled, а при истёкшем окне ожидания — пометку `timed out`; заголовок опускается, когда напечатана ровно одна карточка. Пустой набор строк — законный исход: `vibe_kill` не печатает ничего, а мёртвые сессии, снятые и упавшие ходы исчезают по короткому TTL после последней активности.
 
 Explicit expansion работает как обычный escape hatch: раскрытый вызов возвращает stock framed card. Ошибка вызова печатается одной строкой `✘` с целью вызова и текстом ошибки.
+
+Compact grammar управляется настройкой `Worker sessions` / `compactVibeRows` (по умолчанию включена). При `false` все пять инструментов рисуются stock framed card так, как если бы плагин их не знал: не пустой строкой и не generic compact row. Флаг фиксируется на границе logical run вместе с mode, поэтому сохранение меню посреди прогона не меняет картинку на полпути.
 
 ## Почему архитектура plugin-only
 

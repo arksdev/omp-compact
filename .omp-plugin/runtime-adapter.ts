@@ -27,6 +27,7 @@ import { DescriptorPatch } from "./patch-kit";
 import {
 	type ExpandObservedState,
 	injectRulesFromTtsrComponent,
+	isVibeToolName,
 	lateDiagnosticsFromComponent,
 	renderCompactToolRows,
 	renderInjectRuleRows,
@@ -755,6 +756,8 @@ export class RuntimeAdapter {
 				route: rule?.route,
 				mode: runMode.mode,
 				retainGitLive: runMode.retainGitLive,
+				compactSuppressedBySettings:
+					!runMode.compactVibeRows && isVibeToolName(state.toolName),
 				phase,
 				expanded: state.expanded,
 				compactOnExpand: rule?.compactOnExpand === true,

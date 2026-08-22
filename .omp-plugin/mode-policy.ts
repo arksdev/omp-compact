@@ -10,12 +10,14 @@ export interface RunModeSnapshot {
 	mode: CompactMode;
 	enabled: boolean;
 	retainGitLive: boolean;
+	compactVibeRows: boolean;
 }
 
 export const DEFAULT_RUN_MODE: Readonly<RunModeSnapshot> = Object.freeze({
 	mode: DEFAULT_SETTINGS.mode,
 	enabled: DEFAULT_SETTINGS.enabled,
 	retainGitLive: DEFAULT_SETTINGS.retainGitLive,
+	compactVibeRows: DEFAULT_SETTINGS.compactVibeRows,
 });
 
 export function runModeFromSettings(
@@ -25,6 +27,7 @@ export function runModeFromSettings(
 		mode: settings.mode,
 		enabled: settings.enabled,
 		retainGitLive: settings.retainGitLive,
+		compactVibeRows: settings.compactVibeRows,
 	};
 }
 
@@ -133,7 +136,8 @@ export class ModePolicy {
 	/**
 	 * Arm the one-shot restore override for the current restored session.
 	 * The snapshot forces `compact` presentation (keeping the persisted
-	 * `retainGitLive` preference); the persisted `mode` is never modified.
+	 * `retainGitLive` and `compactVibeRows` preferences); the persisted
+	 * `mode` is never modified.
 	 * Cleared at the next run boundary (`prepareRun`) so live runs keep the
 	 * normal policy, and by `dispose()` so a subsequent session never
 	 * inherits it. No-op while the runtime is disabled; call only after
@@ -146,6 +150,7 @@ export class ModePolicy {
 			mode: "compact",
 			enabled: true,
 			retainGitLive: base.retainGitLive,
+			compactVibeRows: base.compactVibeRows,
 		};
 	}
 
