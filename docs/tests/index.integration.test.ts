@@ -7290,15 +7290,36 @@ interface ShakeProbe {
 	calls: Array<{ mode: string; aborted: boolean }>;
 	sessionManager: { getBranch(): readonly unknown[] };
 	registry: unknown;
+	/**
+	 * Mutable persisted branch behind the probe's `sessionManager`. A real
+	 * `shake("elide")` rewrites the entries in place (`rewriteEntries`)
+	 * before the host rebuilds the transcript, so tests that exercise the
+	 * post-shake rebuild swap this to the elided branch from inside the
+	 * shake call.
+	 */
+	branch: { current: readonly unknown[] };
+	/** Invoked inside the native shake, before it resolves. */
+	onShake?: () => void;
 }
 
 function shakeProbe(): ShakeProbe {
-	const sessionManager = { getBranch: () => [] as readonly unknown[] };
+	const branch: { current: readonly unknown[] } = { current: [] };
+	const sessionManager = { getBranch: () => branch.current };
 	const calls: Array<{ mode: string; aborted: boolean }> = [];
+	const probe: ShakeProbe = {
+		calls,
+		sessionManager,
+		registry: undefined,
+		branch,
+	};
 	const session = {
 		sessionManager,
 		async shake(mode: string, opts?: { signal?: AbortSignal }) {
 			calls.push({ mode, aborted: opts?.signal?.aborted ?? false });
+			// The real elide pass rewrites the persisted entries and swaps
+			// the agent's messages before it resolves; the host transcript
+			// rebuild happens afterwards.
+			probe.onShake?.();
 			return {
 				mode,
 				toolResultsDropped: 1,
@@ -7315,7 +7336,8 @@ function shakeProbe(): ShakeProbe {
 					: undefined,
 		}),
 	};
-	return { calls, sessionManager, registry };
+	probe.registry = registry;
+	return probe;
 }
 
 /** Drain the fire-and-forget shake chain queued after an awaited agent_end. */
@@ -7651,6 +7673,284 @@ stockTest(
 		await drainShake();
 		expect(probe.calls).toEqual([]);
 		expect(booted.notifications).toEqual([]);
+		await shutdown(booted);
+	},
+);
+
+/**
+ * One finished read turn as `shake("elide")` leaves it in the branch: the
+ * assistant tool call survives, the result is replaced by the elide stub and
+ * the terminal text answer closes the turn. This is what the host re-reads
+ * when it rebuilds the transcript from the rewritten session file.
+ */
+function elidedReadTurn(
+	toolCallId: string,
+	path: string,
+	answer: string,
+	extraCall?: { id: string; name: string; args: unknown },
+): readonly unknown[] {
+	return [
+		{
+			type: "message",
+			message: { role: "user", content: [{ type: "text", text: "work" }] },
+		},
+		{
+			type: "message",
+			message: {
+				role: "assistant",
+				content: [
+					...(extraCall
+						? [
+								{
+									type: "toolCall",
+									id: extraCall.id,
+									name: extraCall.name,
+									arguments: extraCall.args,
+								},
+							]
+						: []),
+					{
+						type: "toolCall",
+						id: toolCallId,
+						name: "read",
+						arguments: { path },
+					},
+				],
+			},
+		},
+		...(extraCall
+			? [
+					{
+						type: "message",
+						message: {
+							role: "toolResult",
+							toolCallId: extraCall.id,
+							toolName: extraCall.name,
+							content: [{ type: "text", text: "[shaken ~40 tokens]" }],
+							isError: false,
+						},
+					},
+				]
+			: []),
+		{
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolCallId,
+				toolName: "read",
+				content: [{ type: "text", text: "[shaken ~90 tokens]" }],
+				isError: false,
+			},
+		},
+		{ type: "message", message: assistant(answer) },
+	];
+}
+
+stockTest(
+	"auto-shake: the rebuilt read tail stays hidden after the post-turn shake",
+	async () => {
+		// Owner-reported regression: a long-lived session finishes a turn
+		// with a normal text answer, auto-shake elides the turn's tool
+		// results and the host rebuilds the transcript from the rewritten
+		// branch. Stock collapses the older history
+		// (`display.collapseCompacted`) and reconstructs only the newest
+		// read group, so the visible groups are a suffix of the branch's
+		// read segments. The rebuild must suffix-align that tail to the
+		// trailing read ledger and keep it hidden behind the filtered
+		// terminal answer — never expand the completed reads back into
+		// stock read rows.
+		const probe = shakeProbe();
+		const booted = await bootWithShake(
+			{
+				...DEFAULT_SETTINGS,
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+				autoShake: { enabled: true, thresholdTokens: 0 },
+			},
+			probe,
+		);
+		// an older turn whose surfaces the rebuild collapses away (still
+		// present in the branch): one ordinary call plus its own read segment
+		await beginRun(booted);
+		const old = await addTool(
+			booted,
+			"bash",
+			{ command: "printf old" },
+			"bash-old",
+		);
+		await finishTool(booted, old, {
+			toolCallId: "bash-old",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		await groupedRead(booted, "src/old.ts", "read-old");
+		addAnswer(booted, "old done");
+		await finishRun(booted, "old done");
+		await drainShake();
+		// the turn the user actually watched: an ordinary tool card plus a
+		// completed read
+		await beginRun(booted);
+		const todo = await addTool(
+			booted,
+			"todo",
+			{ i: "Closing validation task", todos: [] },
+			"todo-1",
+		);
+		await finishTool(booted, todo, {
+			toolCallId: "todo-1",
+			toolName: "todo",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		await groupedRead(booted, "src/a.ts", "read-1");
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"• read src/a.ts",
+		);
+		addAnswer(booted, "shake done");
+		// The elide pass rewrites the persisted entries before the host
+		// rebuilds, so the rebuild hydrates from the elided branch.
+		probe.onShake = () => {
+			probe.branch.current = [
+				...elidedReadTurn("read-old", "src/old.ts", "old done", {
+					id: "bash-old",
+					name: "bash",
+					args: { command: "printf old" },
+				}),
+				...elidedReadTurn("read-1", "src/a.ts", "shake done", {
+					id: "todo-1",
+					name: "todo",
+					args: { i: "Closing validation task", todos: [] },
+				}),
+			];
+		};
+		await finishRun(booted, "shake done");
+		// filtered terminal answer: the read row is already gone
+		expect(visibleRows(booted.transcript).join("\n")).not.toContain(
+			"read src/a.ts",
+		);
+		await drainShake();
+		expect(probe.calls).toHaveLength(2);
+		expect(probe.calls[1]?.mode).toBe("elide");
+		// stock's post-shake rebuild: clear, then repopulate the collapsed
+		// tail. The staged rebuild constructs the read group without
+		// replaying `updateArgs`, so the group arrives with no observed ids
+		// and only ordinal pairing against the trailing read ledger can
+		// claim it. Its native renderer is marked so an unbound group is
+		// observable.
+		booted.transcript.clear();
+		const group = new booted.host.ReadToolGroupComponent();
+		group.render = () => ["native read rows"];
+		booted.transcript.addChild(group);
+		addAnswer(booted, "shake done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("shake done");
+		// the reconstructed group must be claimed by the trailing read
+		// ledger and stay hidden behind the filtered terminal answer —
+		// falling back to the stock renderer is the regression
+		expect(rows).not.toContain("native read rows");
+		expect(rows).not.toContain("read src/a.ts");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"auto-shake: the rebuilt ordinary tool card stays hidden after the post-turn shake",
+	async () => {
+		// Second owner-reported symptom of the same turn: a compact `todo`
+		// row stayed visible after the shake rebuild. Ordinary cards bind by
+		// exact toolCallId through the tool-result path, so this asserts the
+		// hydrated ledger phase (filtered for a text-answer turn) rather than
+		// suffix alignment.
+		const probe = shakeProbe();
+		const booted = await bootWithShake(
+			{
+				...DEFAULT_SETTINGS,
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+				autoShake: { enabled: true, thresholdTokens: 0 },
+			},
+			probe,
+		);
+		await beginRun(booted);
+		const todo = await addTool(
+			booted,
+			"todo",
+			{ i: "Closing validation task", todos: [] },
+			"todo-1",
+		);
+		await finishTool(booted, todo, {
+			toolCallId: "todo-1",
+			toolName: "todo",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"Closing validation task",
+		);
+		addAnswer(booted, "todo done");
+		probe.onShake = () => {
+			probe.branch.current = [
+				{
+					type: "message",
+					message: { role: "user", content: [{ type: "text", text: "work" }] },
+				},
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "todo-1",
+								name: "todo",
+								arguments: { i: "Closing validation task", todos: [] },
+							},
+						],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						toolCallId: "todo-1",
+						toolName: "todo",
+						content: [{ type: "text", text: "[shaken ~40 tokens]" }],
+						isError: false,
+					},
+				},
+				{ type: "message", message: assistant("todo done") },
+			];
+		};
+		await finishRun(booted, "todo done");
+		expect(visibleRows(booted.transcript).join("\n")).not.toContain(
+			"Closing validation task",
+		);
+		await drainShake();
+		expect(probe.calls).toHaveLength(1);
+		// stock's post-shake rebuild: the card is reconstructed with a
+		// discarded id and only `updateResult(result, isPartial, id)` carries
+		// the exact ownership.
+		booted.transcript.clear();
+		const rebuilt = addToolComponent(
+			booted,
+			"todo",
+			{ i: "Closing validation task", todos: [] },
+			"todo-1",
+		);
+		rebuilt.render = () => ["native todo card"];
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "[shaken ~40 tokens]" }] },
+			false,
+			"todo-1",
+		);
+		addAnswer(booted, "todo done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("todo done");
+		// the rebuilt card belongs to a finalized filtered turn: it must stay
+		// hidden, neither as a compact row nor as the stock card
+		expect(rows).not.toContain("Closing validation task");
+		expect(rows).not.toContain("native todo card");
 		await shutdown(booted);
 	},
 );

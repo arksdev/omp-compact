@@ -156,9 +156,10 @@ export class ModePolicy {
 
 	/**
 	 * Whether the one-shot collapsed-rebuild suffix permit is armed.
-	 * True only between a successful `session_compact` and the rebuild
-	 * settlement (or run/session boundary) that consumes it. Does not
-	 * change presentation mode.
+	 * True only between a rebuild-producing history rewrite — a successful
+	 * LLM compaction or our own automatic post-turn shake elide — and the
+	 * rebuild settlement (or run/session boundary) that consumes it. Does
+	 * not change presentation mode.
 	 */
 	get collapsedRebuildArmed(): boolean {
 		return this.#collapsedRebuildArmed;
@@ -167,9 +168,11 @@ export class ModePolicy {
 	/**
 	 * Arm the one-shot collapsed-rebuild suffix permit. Call from the
 	 * public `session_compact` extension event after a successful LLM
-	 * compaction entry lands and before the host transcript clear/rebuild.
-	 * Does not touch `restoreOverride` or the persisted/run mode. No-op
-	 * while the runtime is disabled.
+	 * compaction entry lands, and before the automatic post-turn shake
+	 * elide — both rewrite the persisted history and make the host clear
+	 * and rebuild the transcript from a collapsed tail. Does not touch
+	 * `restoreOverride` or the persisted/run mode. No-op while the runtime
+	 * is disabled.
 	 */
 	armCollapsedRebuild(): void {
 		const base = this.#current ?? DEFAULT_SETTINGS;

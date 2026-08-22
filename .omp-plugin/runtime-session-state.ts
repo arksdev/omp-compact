@@ -764,17 +764,19 @@ export class RuntimeSessionState {
 				snapshot.activeStates.length === 0,
 				// Suffix alignment pairs a collapsed visible tail with the
 				// trailing branch states when either the resume restore
-				// override is armed OR a one-shot post-LLM-compaction
-				// collapsed-rebuild permit is armed. Ordinary live-session
-				// clears (e.g. /shake) leave both unset and never guess.
+				// override is armed OR the one-shot collapsed-rebuild
+				// permit is armed (LLM compaction, or our own automatic
+				// post-turn shake elide). A live clear with neither armed —
+				// the user's own `/shake` command, a theme toggle — never
+				// guesses.
 				this.#suffixAlignmentArmed(),
 			);
 			// Settlement closes the identity window: the synchronous repopulation
 			// is over, so preserved active ownership must not bind components of
 			// any later generation or logical run.
 			this.binding.clearPreserved();
-			// One-shot: the post-compaction suffix permit is spent with this
-			// settlement so a later /shake or live clear cannot reuse it.
+			// One-shot: the suffix permit is spent with this settlement so a
+			// later user `/shake` or live clear cannot reuse it.
 			this.#modePolicy?.consumeCollapsedRebuild();
 			this.#insertHydratedStatsCarriers();
 			return { generation: this.#generation, mapped };
