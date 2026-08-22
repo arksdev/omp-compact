@@ -23,7 +23,6 @@ import {
 import {
 	GIT_MESSAGE_TYPE,
 	type GitMessageDetails,
-	LAUNCH_COMPLETION_MESSAGE_TYPE,
 	type LegacyMutationMessageDetails,
 	MUTATION_MESSAGE_TYPE,
 	type MutationMessageDetails,
@@ -37,11 +36,7 @@ import {
 	PostTurnShake,
 	resolveAutoShake,
 } from "./post-turn-shake";
-import {
-	gitMessageComponent,
-	launchCompletionMessageComponent,
-	mutationMessageComponent,
-} from "./render";
+import { gitMessageComponent, mutationMessageComponent } from "./render";
 // RunStats (upgrade2 item 4): configurable terminal usage row. The
 // aggregator and evidence stay in run-stats.ts; this file only wires events
 // and the two adapter seams (onRunFinalized / statsRenderer).
@@ -630,13 +625,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	pi.registerMessageRenderer<RunStatsEvidence>(
 		STATS_MESSAGE_TYPE,
 		(message, _context, theme) => statsMessageComponent(message.details, theme),
-	);
-	// Stock hub supervised-process exits paint a framed 📦 launch-completion
-	// CustomMessageComponent. Replace with one compact tool-chrome row.
-	pi.registerMessageRenderer(
-		LAUNCH_COMPLETION_MESSAGE_TYPE,
-		(message, _context, theme) =>
-			launchCompletionMessageComponent(message, theme),
 	);
 
 	pi.on("session_start", async (_event, context) => {

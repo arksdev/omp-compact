@@ -736,6 +736,97 @@ describe("runtime modes", () => {
 		expect(() => transcript.render(120)).not.toThrow();
 	});
 
+	test("spinner re-arms for subsequent work even if clearTimer throws", async () => {
+		const store = fakeStore(settings({}));
+		const policy = new modePolicyModule.ModePolicy(store);
+		policy.prime();
+		await policy.prepareRun();
+		const transcript = fakeTranscript();
+		const timerCallbacks: Array<() => void> = [];
+		let intervalCount = 0;
+		const adapter = new adapterModule.RuntimeAdapter({
+			root: transcript,
+			ui: {
+				theme: fakeTheme(),
+				setWidget() {},
+				requestRender() {},
+				requestComponentRender() {},
+				getToolsExpanded: () => false,
+			},
+			timers: {
+				setInterval: (cb: () => void) => {
+					intervalCount++;
+					timerCallbacks.push(cb);
+					return { id: intervalCount };
+				},
+				clearTimer: () => {
+					throw new Error("host clearTimer exploded");
+				},
+			},
+			modePolicy: policy,
+		});
+		expect(adapter.install()).toBe(true);
+		await beginRun({
+			adapter,
+			transcript,
+			policy,
+			store,
+			finalized: [],
+			renders: { render: 0, components: [] },
+			warned: [],
+		});
+		addTool(
+			{
+				adapter,
+				transcript,
+				policy,
+				store,
+				finalized: [],
+				renders: { render: 0, components: [] },
+				warned: [],
+			},
+			"bash",
+			"bash-1",
+			{ command: "printf tool1" },
+		);
+		expect(intervalCount).toBe(1);
+		expect(timerCallbacks).toHaveLength(1);
+
+		settle(
+			{
+				adapter,
+				transcript,
+				policy,
+				store,
+				finalized: [],
+				renders: { render: 0, components: [] },
+				warned: [],
+			},
+			"bash-1",
+			"bash",
+			{ content: [{ type: "text", text: "ok" }] },
+		);
+
+		expect(() => timerCallbacks[0]?.()).not.toThrow();
+
+		addTool(
+			{
+				adapter,
+				transcript,
+				policy,
+				store,
+				finalized: [],
+				renders: { render: 0, components: [] },
+				warned: [],
+			},
+			"bash",
+			"bash-2",
+			{ command: "printf tool2" },
+		);
+		expect(intervalCount).toBe(2);
+		expect(timerCallbacks).toHaveLength(2);
+	});
+
 	test("expanded browser/computer/resolve/reject stay compact while working", async () => {
 		const booted = await boot();
 		await beginRun(booted);

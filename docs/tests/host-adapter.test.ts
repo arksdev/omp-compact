@@ -13,6 +13,8 @@ import {
 	isTranscriptHost,
 	isTtsrNotificationComponent,
 	leafCapabilities,
+	readArgsCollapseIntoGroup,
+	readArgsTarget,
 	removeEntryToolCallId,
 	renameEntryIds,
 	setExpandedValue,
@@ -725,8 +727,8 @@ describe("capability fingerprints", () => {
 		expect(leafCapabilities(undefined).render).toBe(false);
 	});
 
-	test("the host release pin targets OMP 17.4.0", () => {
-		expect(HostAdapter1731.hostVersion).toBe("17.4.0");
+	test("the host release pin targets OMP 17.4.2", () => {
+		expect(HostAdapter1731.hostVersion).toBe("17.4.2");
 	});
 });
 
@@ -764,6 +766,53 @@ describe("OMP 17.4.0 argument positions", () => {
 		expect(removeEntryToolCallId([])).toBeUndefined();
 		expect(setExpandedValue([true])).toBe(true);
 		expect(setExpandedValue([false])).toBe(false);
+	});
+
+	test("readArgsCollapseIntoGroup distinguishes full-card internal schemes from collapsed paths", () => {
+		expect(readArgsTarget({ path: "src/foo.ts" })).toBe("src/foo.ts");
+		expect(readArgsTarget({ file_path: "package.json" })).toBe("package.json");
+		expect(readArgsTarget({})).toBeUndefined();
+		expect(readArgsTarget(null)).toBeUndefined();
+
+		expect(readArgsCollapseIntoGroup({ path: "xd://security_scan" })).toBe(
+			true,
+		);
+		expect(readArgsCollapseIntoGroup({ path: "xd://ast_grep" })).toBe(true);
+		expect(readArgsCollapseIntoGroup({ path: "src/foo.ts" })).toBe(true);
+		expect(readArgsCollapseIntoGroup({ file_path: "package.json" })).toBe(true);
+		expect(readArgsCollapseIntoGroup({})).toBe(false);
+
+		// Specific missing schemes:
+		expect(readArgsCollapseIntoGroup({ path: "rule://my-rule" })).toBe(false);
+		expect(readArgsCollapseIntoGroup({ path: "security://scans/123" })).toBe(
+			false,
+		);
+
+		// Every router scheme except xd must NOT collapse into group:
+		const routerSchemes = [
+			"omp",
+			"agent",
+			"artifact",
+			"memory",
+			"local",
+			"vault",
+			"skill",
+			"rule",
+			"security",
+			"mcp",
+			"issue",
+			"pr",
+			"history",
+			"ssh",
+		];
+		for (const scheme of routerSchemes) {
+			expect(readArgsCollapseIntoGroup({ path: `${scheme}://target` })).toBe(
+				false,
+			);
+			expect(
+				readArgsCollapseIntoGroup({ path: `${scheme.toUpperCase()}://target` }),
+			).toBe(false);
+		}
 	});
 });
 describe("HostAdapter1731 discovery", () => {
@@ -1074,7 +1123,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	});
 });
 
-stockTest("stock 17.4.0 host capability canary", async () => {
+stockTest("stock 17.4.2 host capability canary", async () => {
 	const host = await loadStockHost();
 	const transcript = new host.TranscriptContainer();
 	await host.initTheme();
@@ -1112,11 +1161,11 @@ stockTest("stock 17.4.0 host capability canary", async () => {
 	expect(leafCapabilities(tool).kind).toBe("tool");
 	expect(leafCapabilities(readGroup).kind).toBe("readGroup");
 	// Version last: a pin mismatch must not blind the seam probes above.
-	expect(stockHostVersion()).toBe("17.4.0");
+	expect(stockHostVersion()).toBe("17.4.2");
 });
 
 stockTest(
-	"stock 17.4.0 transcript forwards activity visibility to new children",
+	"stock 17.4.2 transcript forwards activity visibility to new children",
 	async () => {
 		const host = await loadStockHost();
 		const transcript = new host.TranscriptContainer();

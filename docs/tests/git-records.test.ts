@@ -186,6 +186,49 @@ describe("Git record formatting", () => {
 			}),
 		).toBe("git commit abcd hi there [31m🚀 bye");
 	});
+
+	test("appendDetail truncates at code points without splitting astral pairs", () => {
+		// "git checkout" is 12 code points; MAX_RECORD_LENGTH is 240.
+		// Available budget for detail is 240 - 12 - 1 = 227 code points.
+		// Placing an emoji at the 226th position in detail means:
+		// 225 ASCII + 1 emoji ("🚀") + trailing text.
+		// Truncating to available - 1 = 226 code points keeps the whole emoji + "…".
+		const longBranch = `${"a".repeat(225)}🚀tail`;
+		const record = formatGitRecord({
+			command: `git checkout ${longBranch}`,
+			resultText: "Switched to branch",
+			isError: false,
+		});
+		expect(record).toBe(`git checkout ${"a".repeat(225)}🚀…`);
+		expect([...(record ?? "")].length).toBe(240);
+		expect(
+			[...(record ?? "")].every((ch) => {
+				const cp = ch.codePointAt(0) ?? 0;
+				return cp < 0xd800 || cp > 0xdfff;
+			}),
+		).toBe(true);
+	});
+
+	test("appendDetail preserves exact ASCII truncation behavior", () => {
+		const longBranch = "a".repeat(300);
+		const record = formatGitRecord({
+			command: `git checkout ${longBranch}`,
+			resultText: "Switched to branch",
+			isError: false,
+		});
+		expect(record).toBe(`git checkout ${"a".repeat(226)}…`);
+		expect(record?.length).toBe(240);
+	});
+
+	test("renderInvocation collects subsequent tokens when earlier astral tokens inflate UTF-16 length", () => {
+		const emojiPattern = "🚀".repeat(120);
+		const record = formatGitRecord({
+			command: `git log -n 1 --grep ${emojiPattern} --oneline`,
+			resultText: "abc1234 feat",
+			isError: false,
+		});
+		expect(record).toBe(`git log -n 1 --grep ${emojiPattern} --oneline`);
+	});
 });
 
 describe("Multiple Git invocations in one Bash call", () => {

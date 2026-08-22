@@ -1,3 +1,4 @@
+import { codePointLength, truncateCodePoints } from "./compact";
 import { isRejectedControlCode } from "./display-control";
 
 export interface GitEvidence {
@@ -441,11 +442,18 @@ function oneLine(value: string, limit = MAX_RECORD_LENGTH): string {
 }
 
 function appendDetail(base: string, detail: string): string {
-	if (!detail || base.length >= MAX_RECORD_LENGTH) return base;
-	const available = MAX_RECORD_LENGTH - base.length - 1;
-	if (detail.length <= available) return `${base} ${detail}`;
+	if (!detail) return base;
+	if (base.length + 1 + detail.length <= MAX_RECORD_LENGTH) {
+		return `${base} ${detail}`;
+	}
+	// Budget counts code points to match oneLine and prevent surrogate splits.
+	const baseLength = codePointLength(base);
+	if (baseLength >= MAX_RECORD_LENGTH) return base;
+	const available = MAX_RECORD_LENGTH - baseLength - 1;
+	const detailLength = codePointLength(detail);
+	if (detailLength <= available) return `${base} ${detail}`;
 	if (available <= 1) return `${base}…`;
-	return `${base} ${detail.slice(0, available - 1)}…`;
+	return `${base} ${truncateCodePoints(detail, available - 1)}…`;
 }
 
 function renderInvocation(invocation: GitSegment): string {
@@ -459,8 +467,10 @@ function renderInvocation(invocation: GitSegment): string {
 		if (raw === undefined) continue;
 		const token = oneLine(raw);
 		if (!token) continue;
-		rendered = appendDetail(rendered, token);
-		if (rendered.length >= MAX_RECORD_LENGTH) break;
+		const next = appendDetail(rendered, token);
+		if (next === rendered) break;
+		rendered = next;
+		if (rendered.endsWith("…")) break;
 	}
 	return rendered;
 }

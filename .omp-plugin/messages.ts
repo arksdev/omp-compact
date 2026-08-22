@@ -20,8 +20,6 @@ import {
  */
 export const MUTATION_MESSAGE_TYPE = "omp-compact-write";
 export const GIT_MESSAGE_TYPE = "omp-compact-git";
-/** Stock hub supervised-process completion (`session/launch-completion.ts`). */
-export const LAUNCH_COMPLETION_MESSAGE_TYPE = "launch-completion";
 
 export interface MutationMessageDetails {
 	version: 1;
@@ -154,43 +152,4 @@ export function isGitMessageDetails(
 			isBoundedString(details.cwd, MAX_EVIDENCE_PATH_LENGTH)) &&
 		recordsValid
 	);
-}
-
-/** One daemon row inside stock launch-completion `details.daemons`. */
-export interface LaunchCompletionDaemon {
-	name: string;
-	state?: string;
-	exitCode?: number;
-}
-
-/** Stock `details` shape on customType launch-completion messages. */
-export interface LaunchCompletionDetails {
-	daemons: LaunchCompletionDaemon[];
-}
-
-export function isLaunchCompletionDetails(
-	value: unknown,
-): value is LaunchCompletionDetails {
-	if (!value || typeof value !== "object") return false;
-	const details = value as { daemons?: unknown };
-	if (!Array.isArray(details.daemons) || details.daemons.length === 0)
-		return false;
-	for (const entry of details.daemons) {
-		if (!entry || typeof entry !== "object") return false;
-		const daemon = entry as Partial<LaunchCompletionDaemon>;
-		if (!isBoundedString(daemon.name, MAX_TOOL_NAME_LENGTH)) return false;
-		if (
-			daemon.state !== undefined &&
-			!isBoundedString(daemon.state, MAX_TOOL_NAME_LENGTH)
-		) {
-			return false;
-		}
-		if (
-			daemon.exitCode !== undefined &&
-			(typeof daemon.exitCode !== "number" || !Number.isFinite(daemon.exitCode))
-		) {
-			return false;
-		}
-	}
-	return true;
 }

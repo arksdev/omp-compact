@@ -398,6 +398,32 @@ describe("existing tool descriptions", () => {
 		expect(describeTool("computer", {})?.meta).toEqual([]);
 	});
 
+	test("computer description truncates at code points without splitting astral pairs", () => {
+		const intent = `${"a".repeat(159)}👍tail`;
+		const withIntent = describeTool("computer", { i: intent });
+		const intentDesc = withIntent?.description ?? "";
+		expect(intentDesc).toBe(`${"a".repeat(159)}👍`);
+		expect([...intentDesc].length).toBe(160);
+		expect(
+			[...intentDesc].every((ch) => {
+				const cp = ch.codePointAt(0) ?? 0;
+				return cp < 0xd800 || cp > 0xdfff;
+			}),
+		).toBe(true);
+
+		const code = `\n\n${"b".repeat(159)}🚀tail\nsecond line`;
+		const withCode = describeTool("computer", { code });
+		const codeDesc = withCode?.description ?? "";
+		expect(codeDesc).toBe(`${"b".repeat(159)}🚀`);
+		expect([...codeDesc].length).toBe(160);
+		expect(
+			[...codeDesc].every((ch) => {
+				const cp = ch.codePointAt(0) ?? 0;
+				return cp < 0xd800 || cp > 0xdfff;
+			}),
+		).toBe(true);
+	});
+
 	test("resolve/reject extract structured reason/status/path with colored titles", () => {
 		// one-sentence reason content (write-device shape) wins
 		expect(

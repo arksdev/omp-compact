@@ -18,6 +18,7 @@ import {
 	listValue,
 	record,
 	stringValue,
+	truncateCodePoints,
 	type ToolDescription,
 } from "./compact";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
@@ -442,7 +443,7 @@ function describeComputer(args: unknown): ToolDescription {
 	const intent = stringValue(value, "i");
 	const code = stringValue(value, "code");
 	const firstLine = code.split("\n").find((line) => line.trim() !== "") ?? "";
-	const description = (intent || firstLine || "?").slice(0, 160);
+	const description = truncateCodePoints(intent || firstLine || "?", 160);
 	const meta = value.read_only === true ? ["read-only"] : [];
 	return {
 		title: "computer use",

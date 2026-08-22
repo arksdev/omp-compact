@@ -13,7 +13,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `HostAdapter1731.hostVersion` (`"17.4.0"`) is the **verified contract**
+ * `HostAdapter1731.hostVersion` (`"17.4.2"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). The class name keeps the historical `1731` suffix from the
@@ -24,28 +24,26 @@
  * Neither string is a runtime gate: every decision is a capability probe
  * on the live instance.
  *
- * `package.json` `engines.omp` retains the public floor `>=17.2.12`.
- * That floor is release metadata (oldest host whose *critical* private
- * signatures were believed to match when the floor was set). It is **not**
- * re-validated here and must not be silently raised from this file.
+ * `package.json` `engines.omp` sets the public floor to `>=17.4.2`,
+ * matching the verified contract; support for older hosts is discontinued.
+ * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
- * `17.3.1`, `17.3.4`, `17.3.8`, and `17.4.0` are present under the bun install cache
- * (or the root pin). Activity-gated leaves (`setToolActivityVisible`) exist
- * on 17.3.1+ TTSR, todo-reminder, and late-diagnostics components, and are
- * **absent** on the same files in 17.2.12. Fingerprints that require that
- * method therefore miss cleanly on 17.2.12 and leave the stock card native —
- * they do not misclassify into tool/read-group paths. User bash/eval and
- * skill-card fingerprints do not require the activity method and match
- * the 17.2.12 public surfaces when those components appear; their compact
- * rows still fail open to native when content extraction fails.
+ * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, and `17.4.2` are present under the bun install cache
+ * (or the root pin). Older copies are kept solely as reference sources for
+ * verifying comments on leaf fingerprints, not as supported runtime targets.
+ * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
+ * and late-diagnostics components. Fingerprints that require that method miss
+ * cleanly when absent and leave the stock card native — they do not misclassify
+ * into tool/read-group paths. User bash/eval and skill-card fingerprints do not
+ * require the activity method; their compact rows still fail open to native when
+ * content extraction fails.
  *
- * Honest summary: critical tool/read-group/transcript compaction is
- * capability-probed and intended to work from the declared floor upward;
- * the optional inject/reminder/diagnostics compact chrome is **verified**
- * against 17.3.1+ (including the current pin 17.4.0) and **unverified**
- * (native via probe miss) below 17.3.1. Raising the marketplace floor is a
- * release decision, not an adapter edit.
+ * Honest summary: critical tool/read-group/transcript compaction is verified on
+ * the 17.4.2 pin and resolved via live capability probes on the instance;
+ * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
+ * and 17.3.4, remains under capability probes, and upon shape changes degrades
+ * gracefully to stock native cards.
  *
  * Patching is exact-instance only: wrappers are installed on the specific
  * host objects of the current session through the transactional
@@ -357,7 +355,7 @@ export function readArgsTarget(args: unknown): string | undefined {
 /**
  * Whether a read collapses into {@link ReadToolGroupComponent} rather than a
  * full `ToolExecutionComponent`. Stock (`readArgsCollapseIntoGroup`, OMP
- * 17.4.0): filesystem/external targets and `xd://` collapse; internal URLs
+ * 17.4.2): filesystem/external targets and `xd://` collapse; internal URLs
  * the host router can resolve (`skill://`, `agent://`, `memory://`, …)
  * render as full tool cards so resolved content stays visible.
  *
@@ -370,7 +368,7 @@ export function readArgsTarget(args: unknown): string | undefined {
  * pairing on restore.
  */
 const FULL_CARD_READ_SCHEME =
-	/^(?:skill|agent|memory|vault|history|artifact|omp|mcp|issue|pr|local|ssh):\/\//i;
+	/^(?:skill|agent|memory|vault|history|artifact|omp|rule|security|mcp|issue|pr|local|ssh):\/\//i;
 
 export function readArgsCollapseIntoGroup(args: unknown): boolean {
 	const target = readArgsTarget(args);
@@ -610,7 +608,7 @@ export class HostAdapter1731 {
 	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays
 	 * independent release metadata. See module header "Version story".
 	 */
-	static readonly hostVersion = "17.4.0";
+	static readonly hostVersion = "17.4.2";
 
 	readonly #root: unknown;
 

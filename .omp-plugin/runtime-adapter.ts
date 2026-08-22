@@ -907,8 +907,13 @@ export class RuntimeAdapter {
 
 	#stopSpinner(): void {
 		if (this.#timer === undefined) return;
-		this.#timers?.clearTimer?.(this.#timer);
-		this.#timer = undefined;
+		try {
+			this.#timers?.clearTimer?.(this.#timer);
+		} catch {
+			// A failing host timer clear must never prevent resetting the spinner.
+		} finally {
+			this.#timer = undefined;
+		}
 	}
 
 	/** True when at least one pending state would animate on the next tick. */

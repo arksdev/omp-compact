@@ -2,13 +2,13 @@
 
 Это расширенное руководство по установке, режимам, настройкам, evidence model, replay и сопровождению `omp-compact`. Краткий обзор доступен на [English](../README.en.md) и [Русском](../README.md).
 
-`omp-compact` — presentation-плагин для OMP 17.2.12 и выше. Он показывает активность инструментов как компактный хронологический лог, а после завершения logical run оставляет только полезные для истории строки.
+`omp-compact` — presentation-плагин для OMP 17.4.2 и выше. Он показывает активность инструментов как компактный хронологический лог, а после завершения logical run оставляет только полезные для истории строки.
 
 Плагин не заменяет native tools и не меняет их выполнение. Schemas, approval, concurrency, progress, abort signals и tool results остаются под управлением stock OMP.
 
 ## Совместимость
 
-Поддерживаемый диапазон: **OMP 17.2.12 и выше**. Автоматический release gate и manual smoke закреплены на stock OMP 17.4.0; будущие версии считаются совместимыми, пока не меняют private TUI shape, от которого зависит presentation adapter.
+Поддерживаемый диапазон: **OMP 17.4.2 и выше**. Автоматический release gate и manual smoke закреплены на stock OMP 17.4.2; будущие версии считаются совместимыми, пока не меняют private TUI shape, от которого зависит presentation adapter.
 
 Перед установкой wrappers плагин проверяет capabilities живой сессии. Если новая версия OMP меняет shape несовместимым образом, установка wrappers откатывается целиком, OMP продолжает показывать штатный интерфейс, а плагин выводит одно предупреждение. Укажите exact OMP version и reproduction в GitHub issue, чтобы новый format можно было добавить в compatibility adapter.
 
@@ -25,7 +25,7 @@ omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Требуется OMP 17.2.12 или новее. Stock 17.4.0 остаётся pinned development/release host; newer hosts проходят runtime capability checks и fail-open при несовместимой private TUI shape.
+Требуется OMP 17.4.2 или новее. Stock 17.4.2 остаётся pinned development/release host; newer hosts проходят runtime capability checks и fail-open при несовместимой private TUI shape.
 
 ### Из Git checkout на один запуск
 
@@ -393,7 +393,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `index.ts` | Extension entrypoint, events, command и session wiring. |
 | `tool-presentation-rules.ts` | Typed routes, aliases, audit selectors и known structured shapes. |
 | `runtime-adapter.ts` | Public lifecycle façade, exact-instance wrappers and terminal replay seam. |
-| `host-adapter.ts` | Pinned 17.4.0 capability probes and transactional descriptor patches. |
+| `host-adapter.ts` | Pinned 17.4.2 capability probes and transactional descriptor patches. |
 | `component-binding.ts` | Exact-ID/proven-order component mapping and native fail-open statuses. |
 | `runtime-session-state.ts` | Ledgers, rebuild generations, terminal projections and bounded payload retirement. |
 | `render-decision.ts` | Pure mode/route projection decisions. |
@@ -415,7 +415,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 - Убедитесь, что загружен `index.ts`, а рядом находятся остальные `.ts` files плагина.
 - Проверьте alternative command names `/omp-compact-settings` и `/omp-compact-settings-N`.
 - Для project discovery запускайте OMP из того же directory, где находится `.omp`.
-- Проверьте, что runtime — OMP 17.2.12 или новее; для нового несовместимого shape приложите exact version и reproduction к GitHub issue.
+- Проверьте, что runtime — OMP 17.4.2 или новее; для нового несовместимого shape приложите exact version и reproduction к GitHub issue.
 
 ### Меню сообщает, что нужен interactive terminal
 

@@ -269,12 +269,14 @@ export class PostTurnShake {
 				drained = (await persistence) !== false;
 			} catch (error) {
 				this.#warnOnce(
+					"auto-shake-persistence",
 					`omp-compact: auto-shake skipped; evidence persistence failed: ${messageOf(error)}`,
 				);
 				return;
 			}
 			if (!drained) {
 				this.#warnOnce(
+					"auto-shake-persistence",
 					"omp-compact: auto-shake skipped; evidence persistence failed (drain did not complete)",
 				);
 				return;
@@ -287,6 +289,7 @@ export class PostTurnShake {
 		const session = this.#deps.resolveSession(ctx);
 		if (!session) {
 			this.#warnOnce(
+				"auto-shake-unavailable",
 				"omp-compact: auto-shake unavailable (main agent session not found)",
 			);
 			return;
@@ -336,7 +339,10 @@ export class PostTurnShake {
 				if (generation !== this.#generation) return;
 				this.#reportSuccess(ctx, result);
 			} catch (error) {
-				this.#warnOnce(`omp-compact: auto-shake failed: ${messageOf(error)}`);
+				this.#warnOnce(
+					"auto-shake-dispatch",
+					`omp-compact: auto-shake failed: ${messageOf(error)}`,
+				);
 			}
 		})();
 		this.#inFlight = run;
@@ -357,9 +363,9 @@ export class PostTurnShake {
 		}
 	}
 
-	#warnOnce(message: string): void {
-		if (this.#warned.has(message)) return;
-		this.#warned.add(message);
+	#warnOnce(key: string, message: string): void {
+		if (this.#warned.has(key)) return;
+		this.#warned.add(key);
 		try {
 			this.#warn(message);
 		} catch {

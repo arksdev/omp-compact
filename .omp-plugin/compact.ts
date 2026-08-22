@@ -21,10 +21,29 @@ const MAX_ARG_TEXT = 4_096;
  * corrupting the boundary with a lone surrogate. Returns the original string
  * when it already fits, so the common short path allocates nothing.
  */
-function truncateCodePoints(value: string, limit: number): string {
+export function truncateCodePoints(value: string, limit: number): string {
 	if (value.length <= limit) return value;
 	const chars = Array.from(value);
 	return chars.length <= limit ? value : chars.slice(0, limit).join("");
+}
+
+/**
+ * Count Unicode code points without intermediate allocations by walking
+ * UTF-16 code units and skipping low surrogates of valid surrogate pairs.
+ */
+export function codePointLength(value: string): number {
+	let length = 0;
+	for (let i = 0; i < value.length; i++) {
+		const code = value.charCodeAt(i);
+		if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length) {
+			const next = value.charCodeAt(i + 1);
+			if (next >= 0xdc00 && next <= 0xdfff) {
+				i++;
+			}
+		}
+		length++;
+	}
+	return length;
 }
 
 export { record };

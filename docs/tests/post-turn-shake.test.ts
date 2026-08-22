@@ -361,6 +361,27 @@ describe("PostTurnShake persistence ordering", () => {
 		expect(h.calls).toEqual([]);
 		expect(h.warns.filter((w) => w.includes("persistence"))).toHaveLength(1);
 	});
+
+	test("consecutive persistence failures with different error messages warn once", async () => {
+		const h = harness({ enabled: true, thresholdTokens: 0 });
+		const persistence1 = Promise.reject(new Error("disk error 1"));
+		await h.shake.onAgentEnd(
+			terminalEvent,
+			{ sessionManager: {} },
+			persistence1,
+		);
+		h.shake.beginRun({ enabled: true, thresholdTokens: 0 });
+		const persistence2 = Promise.reject(new Error("disk error 2"));
+		await h.shake.onAgentEnd(
+			terminalEvent,
+			{ sessionManager: {} },
+			persistence2,
+		);
+		expect(h.warns.filter((w) => w.includes("persistence"))).toHaveLength(1);
+		expect(h.warns[0]).toBe(
+			"omp-compact: auto-shake skipped; evidence persistence failed: disk error 1",
+		);
+	});
 });
 
 describe("PostTurnShake session lifecycle", () => {
@@ -432,6 +453,24 @@ describe("PostTurnShake failure and unavailable seam", () => {
 		h.shake.beginRun({ enabled: true, thresholdTokens: 0 });
 		await h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
 		expect(h.warns.filter((w) => w.includes("failed"))).toHaveLength(1);
+	});
+
+	test("consecutive native shake failures with different error messages warn once", async () => {
+		let attempt = 0;
+		const h = harness(
+			{ enabled: true, thresholdTokens: 0 },
+			{
+				shakeImpl: async () => {
+					attempt++;
+					throw new Error(`boom-${attempt}`);
+				},
+			},
+		);
+		await h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+		h.shake.beginRun({ enabled: true, thresholdTokens: 0 });
+		await h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+		expect(h.warns.filter((w) => w.includes("failed"))).toHaveLength(1);
+		expect(h.warns[0]).toBe("omp-compact: auto-shake failed: boom-1");
 	});
 
 	test("unavailable main session skips the shake and warns once", async () => {

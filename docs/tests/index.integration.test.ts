@@ -1231,41 +1231,6 @@ stockTest(
 );
 
 stockTest(
-	"launch-completion custom messages render one compact launch row",
-	async () => {
-		// Stock paints hub supervised-process exits as framed
-		// CustomMessageComponent (📦 launch-completion + body). The registered
-		// message renderer must replace that chrome with one tool-style row.
-		const booted = await bootWithTranscript();
-		const renderer = booted.renderers.get("launch-completion");
-		expect(renderer).toBeTypeOf("function");
-		const component = renderer?.(
-			{
-				details: {
-					daemons: [
-						{
-							name: "ck-login",
-							state: "exited",
-							exitCode: 0,
-						},
-					],
-				},
-			},
-			{ expanded: false },
-			booted.host.getTheme(),
-		);
-		const rows = component ? visibleRows(component).join("\n") : "";
-		expect(rows).toContain("launch:");
-		expect(rows).toContain("ck-login");
-		expect(rows).toContain("exit 0");
-		expect(rows).not.toContain("launch-completion");
-		expect(rows).not.toContain("📦");
-		expect(rows).not.toContain("╭");
-		await shutdown(booted);
-	},
-);
-
-stockTest(
 	"a late message_update of the previous run never pollutes the next run after agent_start",
 	async () => {
 		const booted = await bootWithTranscript();
