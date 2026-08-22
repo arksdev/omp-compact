@@ -222,7 +222,7 @@ compact → live → clear → off → compact
 | `Mode` / `mode` | `"live"` | `compact`, `live` или `clear`. |
 | `Compact paths` / `compactPaths` | `true` | Сокращает отображаемые absolute paths внутри session `cwd`. |
 | `Retain Git rows` / `retainGitLive` | `true` | Показывает Git rows и aggregate commit summary в `live`. |
-| `Worker sessions` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов worker sessions. При `false` они рисуются stock framed card в любом режиме. |
+| `vibe-compact` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов vibe. При `false` они рисуются stock framed card в любом режиме. |
 | `Cycle shortcut` / `displayCycleKey` | `"alt+c"` | Сочетание, переключающее вид вывода по кругу. Занятое OMP сочетание отклоняется при вводе. Смена требует restart OMP. |
 | `Auto-shake` / `autoShake.enabled` | `false` | Запускает native `shake("elide")` после eligible run. |
 | `Shake threshold` / `autoShake.thresholdTokens` | `120000` | Минимальный current context usage; `0` означает каждый eligible run. |
@@ -409,7 +409,7 @@ Registry использует только structured tool name, args/result и 
 
 Explicit expansion работает как обычный escape hatch: раскрытый вызов возвращает stock framed card. Ошибка вызова печатается одной строкой `✘` с целью вызова и текстом ошибки.
 
-Compact grammar управляется настройкой `Worker sessions` / `compactVibeRows` (по умолчанию включена). При `false` все пять инструментов рисуются stock framed card так, как если бы плагин их не знал: не пустой строкой и не generic compact row. Флаг фиксируется на границе logical run вместе с mode, поэтому сохранение меню посреди прогона не меняет картинку на полпути.
+Compact grammar управляется настройкой `vibe-compact` / `compactVibeRows` (по умолчанию включена). При `false` все пять инструментов рисуются stock framed card так, как если бы плагин их не знал: не пустой строкой и не generic compact row. Флаг фиксируется на границе logical run вместе с mode, поэтому сохранение меню посреди прогона не меняет картинку на полпути.
 
 ## Почему архитектура plugin-only
 

@@ -62,7 +62,7 @@ const FOCUSABLE_LABELS = [
 	"Mode",
 	"Compact paths",
 	"Retain Git rows",
-	"Worker sessions",
+	"vibe-compact",
 	"Cycle shortcut",
 	"Auto-shake",
 	"Shake threshold",
@@ -245,7 +245,7 @@ describe("keyboard navigation", () => {
 		dialog.handleInput(KEY_J);
 		expect(focusedRow(dialog)).toContain("Retain Git rows");
 		dialog.handleInput(KEY_J);
-		expect(focusedRow(dialog)).toContain("Worker sessions");
+		expect(focusedRow(dialog)).toContain("vibe-compact");
 		dialog.handleInput(KEY_DOWN);
 		expect(focusedRow(dialog)).toContain("Cycle shortcut");
 		dialog.handleInput(KEY_DOWN);
@@ -317,19 +317,19 @@ describe("keyboard navigation", () => {
 		expect(dialog.current.stats.sent).toBe(false);
 	});
 
-	test("the worker-sessions toggle flips the draft, goes dirty, and saves", async () => {
+	test("the vibe-compact toggle flips the draft, goes dirty, and saves", async () => {
 		const harness = makeDialog();
 		const { dialog } = harness;
-		expect(renderedValue(dialog, "Worker sessions")).toBe("on");
-		focus(dialog, "Worker sessions");
-		expect(focusedRow(dialog)).toContain("Worker sessions");
+		expect(renderedValue(dialog, "vibe-compact")).toBe("on");
+		focus(dialog, "vibe-compact");
+		expect(focusedRow(dialog)).toContain("vibe-compact");
 		// The help line under the rows describes the focused toggle.
 		expect(lines(dialog)[lines(dialog).length - 1]).toContain(
-			"Compact rows for worker-session tools",
+			"Compact rows for vibe tools",
 		);
 		dialog.handleInput(KEY_SPACE);
 		expect(dialog.current.compactVibeRows).toBe(false);
-		expect(renderedValue(dialog, "Worker sessions")).toBe("off");
+		expect(renderedValue(dialog, "vibe-compact")).toBe("off");
 		expect(dialog.isDirty).toBe(true);
 		dialog.handleInput(KEY_S);
 		await dialog.settled();
@@ -1416,7 +1416,7 @@ describe("menu labels and layout", () => {
 			"Mode",
 			"Compact paths",
 			"Retain Git rows",
-			"Worker sessions",
+			"vibe-compact",
 			"Cycle shortcut",
 			"Auto-shake",
 			"Shake threshold",

@@ -749,7 +749,7 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	mode: "compact / live / clear runtime mode",
 	compactPaths: "Renders paths relative to the session cwd",
 	retainGitLive: "Keeps Git commit rows after the terminal answer",
-	compactVibeRows: "Compact rows for worker-session tools",
+	compactVibeRows: "Compact rows for vibe tools",
 	displayCycleKey: "Chord cycling compact / live / clear / off (needs restart)",
 	"autoShake.enabled": "Shakes the log after a successful answer",
 	"autoShake.thresholdTokens": "Shakes once the run passes this many tokens",
@@ -925,7 +925,7 @@ export class SettingsDialog implements ComponentLike {
 			),
 			toggle(
 				"compactVibeRows",
-				"Worker sessions",
+				"vibe-compact",
 				() => draft.compactVibeRows,
 				(v) => {
 					draft.compactVibeRows = v;

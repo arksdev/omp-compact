@@ -13,7 +13,7 @@ Complete reference for all omp-compact settings, config file format, and environ
 - Mode: `live`
 - Project-relative paths: on
 - Git summary: on
-- Compact worker-session rows: on
+- vibe-compact rows: on
 - Statistics: on (all fields)
 - Auto-shake: off; configured threshold: `120000` tokens
 - Display-cycle shortcut: `alt+c`
@@ -77,7 +77,7 @@ the pinned value instead of claiming a change the environment forbids.
 | **mode** | `"live"` | `compact`, `live`, or `clear` |
 | **compactPaths** | `true` | Show project-relative paths |
 | **retainGitLive** | `true` | Show Git operations and commit summary |
-| **compactVibeRows** | `true` | Compact rows for the worker-session tools (`vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`); `false` restores their stock cards in every mode, including `clear` |
+| **compactVibeRows** | `true` | Compact rows for the vibe tools (`vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`); `false` restores their stock cards in every mode, including `clear` |
 | **displayCycleKey** | `"alt+c"` | Chord that cycles the display: compact → live → clear → off → compact. Must be free; a chord OMP already uses is rejected. Changing it needs an OMP restart |
 | **autoShake.enabled** | `false` | Run stock `shake("elide")` after an eligible successful logical run |
 | **autoShake.thresholdTokens** | `120000` | Minimum context usage for auto-shake; `0` means every eligible run |

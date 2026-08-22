@@ -136,7 +136,7 @@ JSON:
 { "retainGitLive": true }
 ```
 
-### Parallel worker sessions — `Worker sessions`
+### Parallel vibe sessions — `vibe-compact`
 
 This option enables the short view of parallel worker sessions in `/vibe` mode. It is on by default.
 
