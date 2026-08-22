@@ -8682,6 +8682,139 @@ stockTest(
 );
 
 stockTest(
+	"cold entry into an existing session presents the staged historical transcript compact",
+	async () => {
+		// Exact cold-entry sequence of `omp -c` / auto-resume: `session_start`
+		// arms the one-shot restore override and hydrates the non-empty
+		// branch, then stock's renderInitialMessages builds every historical
+		// block in a DETACHED staged container, clears the visible one (the
+		// plugin's rebuild boundary) and only then transfers the finished
+		// children into it. The plugin therefore first sees the blocks at
+		// transfer time — after the boundary already fired — so the deferred
+		// settlement must still bind them compact. Native renderers are
+		// marked so an unbound surface is observable.
+		const harness = rebuildHarness();
+		harness.branch.current = [
+			{
+				type: "message",
+				message: { role: "user", content: [{ type: "text", text: "work" }] },
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "read-a",
+					toolName: "read",
+					args: { path: "src/a.ts" },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "read-a",
+					toolName: "read",
+					content: [{ type: "text", text: "a" }],
+					isError: false,
+				},
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "read-b",
+					toolName: "read",
+					args: { path: "src/b.ts" },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "read-b",
+					toolName: "read",
+					content: [{ type: "text", text: "b" }],
+					isError: false,
+				},
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "bash-r",
+					toolName: "bash",
+					args: { command: "printf routine" },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "bash-r",
+					toolName: "bash",
+					content: [{ type: "text", text: "ok" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("restored done") },
+		];
+		// live persisted mode: only the armed restore override can make the
+		// historical rows compact
+		const booted = await bootForRebuild("live", harness);
+		// stock builds the historical blocks detached from the patched
+		// container, so they are constructed and populated first…
+		const group = new booted.host.ReadToolGroupComponent();
+		group.render = () => ["native read rows"];
+		group.updateArgs({ path: "src/a.ts" }, "read-a");
+		group.updateResult(
+			{ content: [{ type: "text", text: "a" }], details: {} },
+			false,
+			"read-a",
+		);
+		group.updateArgs({ path: "src/b.ts" }, "read-b");
+		group.updateResult(
+			{ content: [{ type: "text", text: "b" }], details: {} },
+			false,
+			"read-b",
+		);
+		const call = new booted.host.ToolExecutionComponent(
+			"bash",
+			{ command: "printf routine" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("bash"),
+			toolUi(),
+			booted.context.cwd,
+			"bash-r",
+		);
+		call.render = () => ["native bash card"];
+		call.updateResult(
+			{ content: [{ type: "text", text: "ok" }], details: {} },
+			false,
+			"bash-r",
+		);
+		const reply = new booted.ContainerBase();
+		reply.addChild({ render: () => ["restored done"] });
+		// …then the visible container is cleared and the finished children
+		// are transferred into it
+		booted.transcript.clear();
+		booted.transcript.addChild(group);
+		booted.transcript.addChild(call);
+		booted.transcript.addChild(reply);
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("restored done");
+		// the restored history is compact: read rows folded into the group's
+		// compact lines and the routine bash row present as a compact row
+		expect(rows).toContain("• read src/a.ts");
+		expect(rows).toContain("• read src/b.ts");
+		expect(rows).toContain("bash: printf routine");
+		expect(rows).not.toContain("native read rows");
+		expect(rows).not.toContain("native bash card");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"session_switch with reason new does not re-arm the restore view",
 	async () => {
 		const harness = rebuildHarness();
