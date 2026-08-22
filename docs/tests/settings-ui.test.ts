@@ -22,13 +22,9 @@ import {
 	type HostBridgeLike,
 	humanizeThreshold,
 	KEY_BACKSPACE,
-	KEY_DOWN,
 	KEY_ENTER,
 	KEY_ESCAPE,
-	KEY_LEFT,
-	KEY_RIGHT,
 	KEY_SPACE,
-	KEY_UP,
 	type KeybindingsLike,
 	normalizeArrowKey,
 	openSettingsDialog,
@@ -44,6 +40,12 @@ const KEY_J = "j";
 const KEY_K = "k";
 const KEY_S = "s";
 const KEY_C = "c";
+// Plain-CSI arrows, as a terminal delivers them to `handleInput`. The dialog
+// no longer exports these: `normalizeArrowKey` owns every arrow spelling.
+const KEY_UP = "\u001b[A";
+const KEY_DOWN = "\u001b[B";
+const KEY_RIGHT = "\u001b[C";
+const KEY_LEFT = "\u001b[D";
 
 /** Focusable row order when the stats row is enabled (the default). */
 const FOCUSABLE_LABELS = [
@@ -1741,21 +1743,39 @@ describe("headless and dialog opening", () => {
 });
 
 describe("arrow key encodings", () => {
-	test("normalizeArrowKey accepts plain CSI, SS3, and kitty forms", () => {
-		expect(normalizeArrowKey("\u001b[A")).toBe("up");
-		expect(normalizeArrowKey("\u001b[B")).toBe("down");
-		expect(normalizeArrowKey("\u001b[C")).toBe("right");
-		expect(normalizeArrowKey("\u001b[D")).toBe("left");
+	test("normalizeArrowKey accepts plain CSI, SS3, and unmodified kitty forms", () => {
+		expect(normalizeArrowKey(KEY_UP)).toBe("up");
+		expect(normalizeArrowKey(KEY_DOWN)).toBe("down");
+		expect(normalizeArrowKey(KEY_RIGHT)).toBe("right");
+		expect(normalizeArrowKey(KEY_LEFT)).toBe("left");
 		// SS3: sent while the TTY is in application-cursor-keys mode.
 		expect(normalizeArrowKey("\u001bOA")).toBe("up");
 		expect(normalizeArrowKey("\u001bOB")).toBe("down");
 		expect(normalizeArrowKey("\u001bOC")).toBe("right");
 		expect(normalizeArrowKey("\u001bOD")).toBe("left");
-		// kitty keyboard protocol: parameterized, with and without event type.
+		// kitty keyboard protocol: no modifiers, with and without the
+		// event-type sub-field. `:1` is a press, `:2` an auto-repeat.
 		expect(normalizeArrowKey("\u001b[1;1A")).toBe("up");
 		expect(normalizeArrowKey("\u001b[1;1B")).toBe("down");
 		expect(normalizeArrowKey("\u001b[1;1:1B")).toBe("down");
-		expect(normalizeArrowKey("\u001b[1;3D")).toBe("left");
+		expect(normalizeArrowKey("\u001b[1;1:2B")).toBe("down");
+		expect(normalizeArrowKey("\u001b[1;1:2D")).toBe("left");
+	});
+
+	test("normalizeArrowKey rejects modified arrows and release events", () => {
+		// A held modifier is a different key: shift+up, alt+down, ctrl+right.
+		expect(normalizeArrowKey("\u001b[1;2A")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;3B")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;5C")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;3D")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;2:1A")).toBeUndefined();
+		// Event type 3 is a key release — never a second press.
+		expect(normalizeArrowKey("\u001b[1;1:3A")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;1:3D")).toBeUndefined();
+		// Masks no terminal produces must not slip through either.
+		expect(normalizeArrowKey("\u001b[1;0A")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;11A")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[2;1A")).toBeUndefined();
 	});
 
 	test("normalizeArrowKey rejects everything that is not an arrow", () => {
@@ -1767,6 +1787,12 @@ describe("arrow key encodings", () => {
 		expect(normalizeArrowKey("\u001bOP")).toBeUndefined();
 		expect(normalizeArrowKey("\u001b[1;2H")).toBeUndefined();
 		expect(normalizeArrowKey("\u001b[200~")).toBeUndefined();
+		// Truncated and garbled input must not be guessed at.
+		expect(normalizeArrowKey("\u001b[")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[1;A")).toBeUndefined();
+		expect(normalizeArrowKey("\u001b[;1A")).toBeUndefined();
+		expect(normalizeArrowKey("\u001bO1;1A")).toBeUndefined();
+		expect(normalizeArrowKey("[1;1A")).toBeUndefined();
 	});
 
 	test("SS3 arrows move the focus like plain CSI arrows", () => {
@@ -1782,12 +1808,47 @@ describe("arrow key encodings", () => {
 
 	test("kitty parameterized arrows move the focus", () => {
 		const { dialog } = makeDialog();
+		// no sub-field, explicit press, and auto-repeat all count as presses
 		dialog.handleInput("\u001b[1;1B");
 		expect(focusedRow(dialog)).toContain("Mode");
 		dialog.handleInput("\u001b[1;1:1B");
 		expect(focusedRow(dialog)).toContain("Compact paths");
+		dialog.handleInput("\u001b[1;1:2B");
+		expect(focusedRow(dialog)).toContain("Retain Git rows");
+		dialog.handleInput("\u001b[1;1:2A");
+		expect(focusedRow(dialog)).toContain("Compact paths");
 		dialog.handleInput("\u001b[1;1A");
 		expect(focusedRow(dialog)).toContain("Mode");
+	});
+
+	test("modified arrows neither move the focus nor cycle a value", () => {
+		const { dialog } = makeDialog({ ...DEFAULT_SETTINGS, mode: "live" });
+		dialog.handleInput(KEY_DOWN); // Mode, a cycle row
+		expect(focusedRow(dialog)).toContain("Mode");
+		for (const modified of [
+			"\u001b[1;2A", // shift+up
+			"\u001b[1;2B", // shift+down
+			"\u001b[1;3A", // alt+up
+			"\u001b[1;3B", // alt+down
+			"\u001b[1;2C", // shift+right
+			"\u001b[1;3D", // alt+left
+			"\u001b[1;5C", // ctrl+right
+		]) {
+			dialog.handleInput(modified);
+		}
+		expect(focusedRow(dialog)).toContain("Mode");
+		expect(renderedValue(dialog, "Mode")).toBe("live");
+		expect(dialog.isDirty).toBe(false);
+	});
+
+	test("kitty release events are ignored by the dialog itself", () => {
+		const { dialog } = makeDialog({ ...DEFAULT_SETTINGS, mode: "live" });
+		dialog.handleInput("\u001b[1;1:3B");
+		expect(focusedRow(dialog)).toContain("Global compact");
+		dialog.handleInput(KEY_DOWN); // Mode
+		dialog.handleInput("\u001b[1;1:3C");
+		expect(renderedValue(dialog, "Mode")).toBe("live");
+		expect(dialog.isDirty).toBe(false);
 	});
 
 	test("SS3 left/right cycle the focused option row", () => {

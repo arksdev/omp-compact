@@ -4,7 +4,7 @@ import { mkdir, rm, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
-import { KEY_DOWN, KEY_ESCAPE, KEY_SPACE } from "../../.omp-plugin/settings-ui";
+import { KEY_ESCAPE, KEY_SPACE } from "../../.omp-plugin/settings-ui";
 import {
 	type HostModules,
 	loadHost,
@@ -18,6 +18,8 @@ import {
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;
 const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+/** Plain-CSI Down arrow, as a terminal delivers it to `handleInput`. */
+const KEY_DOWN = "\u001b[B";
 
 type Handler = (
 	event: Record<string, unknown>,
