@@ -11,6 +11,7 @@
 - В диалоге настроек снова работают стрелки — в том числе в терминалах, которые присылают их не так, как большинство: раньше в таких терминалах курсор двигался только клавишами `j` и `k`. Спасибо [**@materemias**](https://github.com/materemias)
 - Сочетания со стрелками, где зажат модификатор (Shift, Alt, Ctrl), больше не двигают курсор и не переключают значения.
 - После того как контекст автоматически встряхивался, завершённые чтения перестали скрываться и разворачивались обратно в полные карточки. Теперь после встряски вид законченного хода остаётся таким же, каким он был до неё.
+- При возвращении в сохранённую сессию история снова показывается компактно. Раньше восстановленные чтения разворачивались в полные карточки, если агент размышлял или отвечал между двумя чтениями одного хода, — а так бывает почти всегда.
 
 ### Добавлено
 
@@ -229,6 +230,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 - Arrow keys work in the settings dialog again, including in terminals that send them differently from most: previously the cursor in such terminals moved only with `j` and `k`. Thanks to [**@materemias**](https://github.com/materemias)
 - Arrow combinations with a held modifier (Shift, Alt, Ctrl) no longer move the cursor or toggle values.
 - After the context was shaken automatically, completed reads stopped hiding and expanded back into full cards. A finished turn now looks the same after a shake as it did before it.
+- Returning to a saved session shows its history compact again. Restored reads previously expanded into full cards whenever the agent thought or answered between two reads of the same turn — which is almost always.
 
 ### Added
 

@@ -22,6 +22,11 @@
  * stats-carrier placement only).
  */
 
+// Host helper: stock's read group closes at every assistant message with
+// visible content, and stock decides what counts as visible with this exact
+// canonicalization. A private copy would drift from it.
+import { canonicalizeMessage } from "@oh-my-pi/pi-coding-agent/utils/thinking-display";
+
 import { ComponentBinding } from "./component-binding";
 import type { DisplayPathOptions } from "./display-path";
 import {
@@ -411,6 +416,8 @@ export class RuntimeSessionState {
 				}
 				return ledger;
 			};
+			this.#readSegmentBreaks.clear();
+			this.#lastGroupedRead = undefined;
 
 			for (const value of entries) {
 				const entry = objectRecord(value);
@@ -428,6 +435,7 @@ export class RuntimeSessionState {
 					}
 					if (message.role === "assistant") {
 						const contents = message.content;
+						this.#breakReadSegmentOnVisibleContent(contents);
 						if (Array.isArray(contents)) {
 							for (const content of contents) {
 								const call = objectRecord(content);
@@ -449,6 +457,11 @@ export class RuntimeSessionState {
 									},
 									ensureLedger(),
 								);
+								if (
+									call.name === "read" &&
+									this.binding.isGroupPresentationRead(call.id)
+								)
+									this.#lastGroupedRead = call.id;
 							}
 						}
 						if (
@@ -616,6 +629,8 @@ export class RuntimeSessionState {
 				}
 				return walkLedger;
 			};
+			this.#readSegmentBreaks.clear();
+			this.#lastGroupedRead = undefined;
 
 			for (const value of options.branchEntries) {
 				const entry = objectRecord(value);
@@ -636,6 +651,7 @@ export class RuntimeSessionState {
 					}
 					if (message.role === "assistant") {
 						const contents = message.content;
+						this.#breakReadSegmentOnVisibleContent(contents);
 						if (Array.isArray(contents)) {
 							for (const content of contents) {
 								const call = objectRecord(content);
@@ -657,6 +673,11 @@ export class RuntimeSessionState {
 									},
 									ensureLedger(),
 								);
+								if (
+									call.name === "read" &&
+									this.binding.isGroupPresentationRead(call.id)
+								)
+									this.#lastGroupedRead = call.id;
 							}
 						}
 						if (
@@ -786,6 +807,47 @@ export class RuntimeSessionState {
 	}
 
 	/**
+	 * Read-segment boundaries discovered by the current branch walk: the
+	 * newest grouped-read state id of an assistant message whose usage row
+	 * cannot join the read group. Stock seals the group and starts a fresh
+	 * one at exactly those points (`flushPendingUsage` →
+	 * `groupedReadUsageCallIds`), so segments must split there too —
+	 * otherwise the visible group count exceeds the segment count and
+	 * `bindHydrated` pairs nothing, leaving every restored read native.
+	 */
+	#readSegmentBreaks = new Set<string>();
+	/** Newest grouped-read state id seen by the current branch walk. */
+	#lastGroupedRead: string | undefined;
+	/**
+	 * Stock closes the current read run at every assistant message that has
+	 * visible content — text, thinking or an image — regardless of where it
+	 * sits in the message (`ui-helpers` seals the group under
+	 * `assistantHasVisibleContent`; this mirrors that predicate, including
+	 * its canonicalization, so the counts cannot drift). Called BEFORE the
+	 * message's own tool states exist: the break closes the run accumulated
+	 * so far, and this message's reads open a fresh segment.
+	 */
+	#breakReadSegmentOnVisibleContent(contents: unknown): void {
+		if (this.#lastGroupedRead === undefined) return;
+		if (!Array.isArray(contents)) return;
+		for (const content of contents) {
+			const part = objectRecord(content);
+			if (
+				part.type === "image" ||
+				(part.type === "text" &&
+					typeof part.text === "string" &&
+					canonicalizeMessage(part.text) !== "") ||
+				(part.type === "thinking" &&
+					typeof part.thinking === "string" &&
+					canonicalizeMessage(part.thinking) !== "")
+			) {
+				this.#readSegmentBreaks.add(this.#lastGroupedRead);
+				return;
+			}
+		}
+	}
+
+	/**
 	 * Queue read-group pairing entries for the hydrated states: one entry
 	 * per maximal contiguous run of `read` states in chronological
 	 * (insertion) order — a non-read state or a different ledger starts a
@@ -816,6 +878,7 @@ export class RuntimeSessionState {
 					previousReadLedger = state.ledger;
 				}
 				segmentIds.push(state.id);
+				if (this.#readSegmentBreaks.has(state.id)) flushSegment();
 			} else {
 				flushSegment();
 			}

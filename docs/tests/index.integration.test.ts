@@ -8815,6 +8815,112 @@ stockTest(
 );
 
 stockTest(
+	"a restored read run split by visible thinking pairs both stock groups",
+	async () => {
+		// Stock seals its read group at EVERY assistant message with visible
+		// content — text, thinking or an image — and opens a fresh one for the
+		// next read. Two reads separated by a thinking-plus-toolCall message
+		// therefore rebuild as TWO groups while the turn itself keeps running
+		// (one ledger), so the hydrated read segments must split at the same
+		// point. One segment against two groups makes both pairing branches
+		// disagree, nothing binds, and every restored read falls back to its
+		// stock card.
+		const harness = rebuildHarness();
+		harness.branch.current = [
+			{
+				type: "message",
+				message: { role: "user", content: [{ type: "text", text: "work" }] },
+			},
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "checking the first file" },
+						{
+							type: "toolCall",
+							id: "read-a",
+							name: "read",
+							arguments: { path: "src/a.ts" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "read-a",
+					toolName: "read",
+					content: [{ type: "text", text: "a" }],
+					isError: false,
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "thinking", thinking: "now the second file" },
+						{
+							type: "toolCall",
+							id: "read-b",
+							name: "read",
+							arguments: { path: "src/b.ts" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "read-b",
+					toolName: "read",
+					content: [{ type: "text", text: "b" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("restored done") },
+		];
+		const booted = await bootForRebuild("live", harness);
+		// two stock groups: the thinking block between the reads closed the
+		// first run
+		const first = new booted.host.ReadToolGroupComponent();
+		first.render = () => ["native first read"];
+		first.updateArgs({ path: "src/a.ts" }, "read-a");
+		first.updateResult(
+			{ content: [{ type: "text", text: "a" }], details: {} },
+			false,
+			"read-a",
+		);
+		const second = new booted.host.ReadToolGroupComponent();
+		second.render = () => ["native second read"];
+		second.updateArgs({ path: "src/b.ts" }, "read-b");
+		second.updateResult(
+			{ content: [{ type: "text", text: "b" }], details: {} },
+			false,
+			"read-b",
+		);
+		const reply = new booted.ContainerBase();
+		reply.addChild({ render: () => ["restored done"] });
+		booted.transcript.clear();
+		booted.transcript.addChild(first);
+		booted.transcript.addChild(second);
+		booted.transcript.addChild(reply);
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("• read src/a.ts");
+		expect(rows).toContain("• read src/b.ts");
+		expect(rows).not.toContain("native first read");
+		expect(rows).not.toContain("native second read");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"session_switch with reason new does not re-arm the restore view",
 	async () => {
 		const harness = rebuildHarness();
