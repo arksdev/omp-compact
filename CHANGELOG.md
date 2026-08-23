@@ -32,8 +32,9 @@
 
 ### Проверено
 
-- Плагин рассчитан на актуальный OMP: закреплённый host — **18.0.1**, поддержка более старых версий прекращена, минимальная поддерживаемая версия — **18.0.1**.
+- Плагин рассчитан на актуальный OMP: закреплённый host — **18.0.3**, поддержка более старых версий прекращена, минимальная поддерживаемая версия — **18.0.1**.
 - Плагин переведён на новый OMP 18.0.1. В этой версии OMP переписал внутреннее устройство журнала: строки уходят в неизменяемую историю пачками, а у каждого блока появилось явное состояние. Плагин, собранный под 18.0.0, на 18.0.1 просто не узнаёт журнал и молча отдаёт весь вывод штатному интерфейсу — поэтому вместе с обновлением поднята и минимальная версия. После перевода компактный вид, тихий вид, восстановление истории и сообщения о фоновых заданиях снова работают на живом OMP 18.0.1.
+- Плагин проверен на OMP 18.0.3. Эта версия ничего не изменила в том, за что плагин держится: журнал остался прежним, а карточка инструмента лишь научилась не сжиматься там, где её содержимое и так короткое. Компактный вид, тихий вид, восстановление истории и живой ход проверены на живом OMP 18.0.3.
 
 ---
 
@@ -258,8 +259,9 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 ### Verified
 
-- The plugin targets current OMP: pinned host is **18.0.1**, support for older versions is dropped, and the minimum supported version is **18.0.1**.
+- The plugin targets current OMP: pinned host is **18.0.3**, support for older versions is dropped, and the minimum supported version is **18.0.1**.
 - The plugin moved to the new OMP 18.0.1. That release rewrote the transcript internals: rows retire into immutable history in batches, and every block now carries an explicit state. A build made for 18.0.0 simply does not recognize the transcript on 18.0.1 and silently hands the whole output to the native interface — which is why the minimum version moves with the pin. After the move, the compact view, the quiet view, restored history and background-job notices all work again on live OMP 18.0.1.
+- The plugin is verified on OMP 18.0.3. That release changed nothing the plugin holds on to: the transcript stayed as it was, and the tool card only learned not to squeeze itself where its content is already short. The compact view, the quiet view, restored history and a live turn were all checked on live OMP 18.0.3.
 
 ---
 

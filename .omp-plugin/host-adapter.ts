@@ -13,7 +13,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `HostAdapter1731.hostVersion` (`"18.0.1"`) is the **verified contract**
+ * `HostAdapter1731.hostVersion` (`"18.0.3"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). The class name keeps the historical `1731` suffix from the
@@ -25,20 +25,23 @@
  * on the live instance.
  *
  * `package.json` `engines.omp` sets the public floor to `>=18.0.1`,
- * matching the verified contract; support for older hosts is discontinued.
- * 18.0.1 rewrote the transcript container: the native-scrollback live
- * region became block lifecycle states (`active`/`settled`/`committed`)
+ * the release that rewrote the transcript container; support for older
+ * hosts is discontinued. That rewrite turned the native-scrollback live
+ * region into block lifecycle states (`active`/`settled`/`committed`)
  * plus acknowledged history batches, so `renderViewportTail`,
  * `isBlockUncommitted` and `isBlockInLiveRegion` no longer exist and the
  * per-block row accounting (`getTranscriptBlockVersion`,
  * `getTranscriptBlockSettledRows`, `setNativeScrollbackCommittedRows`)
  * has no consumer left. A plugin build for 18.0.0 finds no transcript
- * host on 18.0.1 and stays fully native, which is why the floor moves
- * with the pin.
+ * host from 18.0.1 on and stays fully native, which is why the floor
+ * moved with that rewrite. 18.0.2 and 18.0.3 left every critical
+ * fingerprint intact: the container only exported its own
+ * `trimBlankEdges`, and the inline tool card gained styling plus a
+ * trimmed-height check under a squeezed allocation.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
- * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, and `18.0.1` are present under the bun install cache
+ * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, and `18.0.3` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
@@ -49,7 +52,7 @@
  * content extraction fails.
  *
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.0.1 pin and resolved via live capability probes on the instance;
+ * the 18.0.3 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.
@@ -700,7 +703,7 @@ export class HostAdapter1731 {
 	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays
 	 * independent release metadata. See module header "Version story".
 	 */
-	static readonly hostVersion = "18.0.1";
+	static readonly hostVersion = "18.0.3";
 
 	readonly #root: unknown;
 

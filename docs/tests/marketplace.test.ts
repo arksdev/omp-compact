@@ -59,7 +59,7 @@ describe("marketplace catalog", () => {
 		expect(plugin.license).toBe(pkg.license);
 		expect(plugin.keywords).toEqual(pkg.keywords);
 		expect(pkg.engines.omp).toBe(">=18.0.1");
-		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("18.0.1");
+		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("18.0.3");
 		expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
 		expect(await Bun.file(join(repoRoot, "CHANGELOG.md")).text()).toContain(
 			`## ${pkg.version}`,

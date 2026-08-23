@@ -646,7 +646,7 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `HostAdapter1731.hostVersion` (`18.0.1`) records the
+  `HostAdapter1731.hostVersion` (`18.0.3`) records the
   **verified** critical private-surface contract the adapter was written
   against; the class name keeps the historical `1731` suffix. Comments that
   cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
@@ -654,11 +654,11 @@ The host-supplied agent directory and the live session `Settings` object sit
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.0.1.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.0.3.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.0.1 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.0.3 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -677,9 +677,13 @@ The host-supplied agent directory and the live session `Settings` object sit
   instead of two, a carrier's `seal` freezes its whole run (retirement is
   batched, not row-counted), and the committed-row gate for the scrollback
   replay reads `blockStates()` by child position. Because the critical
-  fingerprint moved, a build for 18.0.0 finds no transcript host on 18.0.1
-  and vice versa: the plugin stays fully native instead of guessing, which
-  is why the public floor tracks the pin exactly.
+  fingerprint moved, a build for 18.0.0 finds no transcript host from 18.0.1
+  on and vice versa: the plugin stays fully native instead of guessing, which
+  is why the public floor moved with that rewrite. 18.0.2 and 18.0.3 left the
+  whole critical surface untouched — the container only exported its own
+  `trimBlankEdges` helper, and the inline tool card gained styling plus a
+  trimmed-height check before degrading under a squeezed allocation — so the
+  floor stays at `>=18.0.1` while the gate pin follows the newest release.
 
 - **Rows retire, blocks fill the screen.** The container retires history by
   rows, but its pressure fallback keys on block count: past the transcript
