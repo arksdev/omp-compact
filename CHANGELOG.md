@@ -4,7 +4,7 @@
 
 ---
 
-## Не выпущено
+## 1.2.0 — 23 августа 2026
 
 ### Исправлено
 
@@ -16,7 +16,6 @@
 - Возобновление сессии больше не показывает рутину ходов, которые уже закончились ответом. Раньше восстановленная история всегда разворачивалась полным журналом, даже если выбран вид, где такая рутина убирается: на экране оставались чтения, поиски и команды из ходов, ответ на которые был получен давно. Теперь восстановленная история выглядит так же, как сразу после ответа в выбранном виде, а полный журнал остаётся у тех, кто его и выбрал.
 - Спокойный вид больше не оставляет на экране рутину прерванного или упавшего хода: чтения, поиски и команды такого хода теперь уходят так же, как после обычного ответа. Раньше стоило прервать агента или получить ошибку — и на экране оставался полный журнал хода, хотя выбран был именно тот вид, где рутины не должно быть. Разбирать незавершённую работу по-прежнему удобно в двух других видах, а строка с хешами созданных коммитов остаётся и на прерванном ходе.
 - В спокойном виде из восстановленной истории пропали и сообщения о завершении фоновых заданий. Раньше такая строка оставалась единственной посреди убранной истории, потому что не было понятно, какому ходу она принадлежит; теперь она подчиняется выбранному виду, как и всё остальное.
-- Из компактного лога исчезли большие пустые провалы. Они появлялись в длинной истории и в долгих ходах: экран умеет показывать по одной строке на каждый шаг, когда шагов больше, чем строк на экране, а у скрытых шагов строки нет — вместо них оставались пустые полосы на пол-экрана. Теперь скрытый шаг не занимает строку, на экране остаются последние настоящие строки, а разобранная история уходит наверх, пока шагов снова не станет меньше, чем строк.
 
 ### Добавлено
 
@@ -212,7 +211,8 @@ OMP по ходу задачи показывает много больших к
 
 ## Ссылки на сравнение версий
 
-- [Не выпущено ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...HEAD)
+- [Не выпущено ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...HEAD)
+- [1.2.0 ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...v1.2.0)
 - [1.1.3 ← 1.1.2](https://github.com/arksdev/omp-compact/compare/v1.1.2...v1.1.3)
 - [1.1.2 ← 1.1.1](https://github.com/arksdev/omp-compact/compare/v1.1.1...v1.1.2)
 - [1.1.1 ← 1.1.0](https://github.com/arksdev/omp-compact/compare/v1.1.0...v1.1.1)
@@ -231,7 +231,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 ---
 
-## Unreleased
+## 1.2.0 — 23 August 2026
 
 ### Fixed
 
@@ -243,7 +243,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 - Resuming a session no longer shows the routine of turns that already ended with an answer. Restored history used to expand into a complete log even when the chosen view removes such routine: reads, searches and commands from long-answered turns stayed on screen. Restored history now looks the way it does right after an answer in the chosen view, and the complete log stays for those who picked it.
 - The quiet view no longer leaves the routine of an interrupted or failed turn on screen: its reads, searches and commands now go the same way they go after an ordinary answer. Interrupting the agent, or hitting an error, used to keep the turn's complete log on screen even though the chosen view is precisely the one without routine. Reading unfinished work back is still comfortable in the other two views, and the line with hashes for created commits stays even for an interrupted turn.
 - Background-job completion notices are gone from restored history in the quiet view as well. Such a row used to be the only thing left in the middle of a removed history, because there was no telling which turn owned it; it now follows the chosen view like everything else.
-- Large blank gaps are gone from the compact log. They showed up in long history and in long turns: the screen can fall back to one row per step once there are more steps than rows, and a hidden step has no row — half-screen blank stripes stood in their place. A hidden step now takes no row, the screen keeps the last real rows, and reviewed history moves up until steps are fewer than rows again.
 
 ### Added
 
@@ -439,7 +438,8 @@ During a task OMP shows many large cards: reads, searches, commands, edits. Afte
 
 ## Version comparison links
 
-- [Unreleased ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...HEAD)
+- [Unreleased ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...HEAD)
+- [1.2.0 ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...v1.2.0)
 - [1.1.3 ← 1.1.2](https://github.com/arksdev/omp-compact/compare/v1.1.2...v1.1.3)
 - [1.1.2 ← 1.1.1](https://github.com/arksdev/omp-compact/compare/v1.1.1...v1.1.2)
 - [1.1.1 ← 1.1.0](https://github.com/arksdev/omp-compact/compare/v1.1.0...v1.1.1)
