@@ -920,6 +920,13 @@ export class RuntimeAdapter {
 		if (state) return state.version + (nativeVersion?.() ?? 0);
 		const group = this.#session.binding.groupState(block);
 		if (group) return group.version + (nativeVersion?.() ?? 0);
+		// A notice has no native version of its own, and the host may reuse a
+		// finalized block's rows without calling render again when its version
+		// did not move — the terminal filtering of the notice's run would then
+		// never reach the screen.
+		const notice = this.#session.backgroundCompletionLedger(block);
+		if (notice && notice.phase !== "working")
+			return 1 + (nativeVersion?.() ?? 0);
 		return nativeVersion?.() ?? 0;
 	}
 

@@ -3056,11 +3056,13 @@ const SUPERVISED_FAILURE =
 
 /**
  * Transcript-block surface the fold installs on every block it owns; the host
- * reads it back to decide what may commit to native scrollback.
+ * reads it back to decide what may commit to native scrollback and whether a
+ * block's rows may be reused without rendering it again.
  */
 interface FoldedBlockProbe {
 	isTranscriptBlockFinalized(): boolean;
 	getTranscriptBlockSettledRows(): number;
+	getTranscriptBlockVersion(): number;
 }
 
 /**
@@ -3201,6 +3203,34 @@ stockTest(
 		const rows = screenRows(booted.transcript);
 		expect(rows.some((row) => row.includes(SUPERVISED_FAILURE))).toBe(false);
 		expect(rows.some((row) => row.includes("printf before"))).toBe(false);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a run made of nothing but a notice still versions its fold boundary",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		// A process dies while the model is writing: the notice lands between
+		// two text blocks, so its run holds no tool card whose version could
+		// carry the switch from live rows to the filtered log.
+		addAnswer(booted, "writing the answer");
+		const notice = addBackgroundCompletion(booted, SUPERVISED_FAILURE);
+		addAnswer(booted, "answer continues");
+		expect(
+			screenRows(booted.transcript).some((row) =>
+				row.includes(SUPERVISED_FAILURE),
+			),
+		).toBe(true);
+		const live = notice.getTranscriptBlockVersion();
+		await finishRun(booted, "answer continues");
+		expect(notice.getTranscriptBlockVersion()).not.toBe(live);
+		expect(
+			screenRows(booted.transcript).some((row) =>
+				row.includes(SUPERVISED_FAILURE),
+			),
+		).toBe(false);
 		await shutdown(booted);
 	},
 );
