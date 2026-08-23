@@ -238,6 +238,13 @@ export class RuntimeSessionState {
 	/** Component ↔ state associations (see ComponentBinding). */
 	readonly binding: ComponentBinding;
 	readonly #ledgerModes = new WeakMap<TurnLedger, RunModeSnapshot>();
+	// Host background-completion notices carry no id and no state of their
+	// own, so the run that was live when one appeared is the only thing that
+	// can decide its presentation later.
+	readonly #backgroundCompletionLedgers = new WeakMap<
+		RenderableBlock,
+		TurnLedger
+	>();
 	readonly #states = new Map<string, ToolState>();
 	readonly #pendingStates = new Set<ToolState>();
 	readonly #terminalProjections = new Map<TurnLedger, TerminalProjection>();
@@ -1326,6 +1333,23 @@ export class RuntimeSessionState {
 	/** Frozen mode snapshot of a ledger (defaults to enabled `live`). */
 	modeFor(ledger: TurnLedger): RunModeSnapshot {
 		return this.#ledgerModes.get(ledger) ?? DEFAULT_RUN_MODE;
+	}
+
+	/**
+	 * Record which logical run produced a host background-completion notice.
+	 * Only a working run may own one: notices seen while installing on an
+	 * existing transcript or while rebuilding history arrive outside a working
+	 * run, and leaving those unowned keeps them visible next to the equally
+	 * visible rows of that restored history.
+	 */
+	rememberBackgroundCompletion(block: RenderableBlock): void {
+		if (this.#ledger?.phase !== "working") return;
+		this.#backgroundCompletionLedgers.set(block, this.#ledger);
+	}
+
+	/** The run a background-completion notice belongs to, if any. */
+	backgroundCompletionLedger(block: RenderableBlock): TurnLedger | undefined {
+		return this.#backgroundCompletionLedgers.get(block);
 	}
 
 	/** Finalize a ledger with its frozen mode; idempotent per ledger. */

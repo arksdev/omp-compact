@@ -3167,6 +3167,44 @@ stockTest(
 	},
 );
 
+stockTest(
+	"a folded background completion notice stays gone once the next run starts",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf before" },
+			"bash-notice-4",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "bash-notice-4",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "ok" }],
+				details: { exitCode: 0 },
+			},
+			isError: false,
+		});
+		addBackgroundCompletion(booted, SUPERVISED_FAILURE);
+		expect(
+			screenRows(booted.transcript).some((row) =>
+				row.includes(SUPERVISED_FAILURE),
+			),
+		).toBe(true);
+		addAnswer(booted, "the process reported");
+		await finishRun(booted, "the process reported");
+		// The next run must not resurrect what the previous one folded away:
+		// the notice keeps the verdict of its own run, exactly like a tool row.
+		await beginRun(booted);
+		const rows = screenRows(booted.transcript);
+		expect(rows.some((row) => row.includes(SUPERVISED_FAILURE))).toBe(false);
+		expect(rows.some((row) => row.includes("printf before"))).toBe(false);
+		await shutdown(booted);
+	},
+);
+
 stockTest("shutdown restores own descriptors exactly", async () => {
 	let transcript: TranscriptInstance | undefined;
 	const booted = await bootPlugin((root, host) => {

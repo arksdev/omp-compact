@@ -863,10 +863,11 @@ export class RuntimeAdapter {
 			return rows;
 		}
 		if (isBackgroundCompletionBlock(block)) {
-			// The notice is not bound to any state of its own: it reports host
-			// background activity, so the active run's frozen mode and phase
-			// decide whether the host's own line stays on screen.
-			const ledger = this.#session.activeLedger;
+			// The notice keeps the verdict of the run that produced it. Reading
+			// the active run instead would put an already folded line back on
+			// screen the moment the next run starts. A notice nobody owns comes
+			// from restored history and stays native.
+			const ledger = this.#session.backgroundCompletionLedger(block);
 			const decision = decideBackgroundCompletionRender({
 				mode: ledger
 					? this.#session.modeFor(ledger).mode
@@ -888,12 +889,10 @@ export class RuntimeAdapter {
 		const group = this.#session.binding.groupState(block);
 		if (group?.ledger) return group.ledger.phase !== "working";
 		// A notice the host already calls final commits its row to native
-		// scrollback while the run is still live; the terminal filtering that
-		// drops the row could then never take it off the screen again.
-		if (
-			this.#session.activeLedger?.phase === "working" &&
-			isBackgroundCompletionBlock(block)
-		)
+		// scrollback while its own run is still live; the terminal filtering
+		// that drops the row could then never take it off the screen again.
+		// An unowned notice is already history, so committing it is harmless.
+		if (this.#session.backgroundCompletionLedger(block)?.phase === "working")
 			return false;
 		return nativeFinalized?.() ?? true;
 	}
@@ -907,11 +906,8 @@ export class RuntimeAdapter {
 		const group = this.#session.binding.groupState(block);
 		if (group?.ledger?.phase === "working") return 0;
 		// Same reason as in `#isFinalized`: nothing of the notice may reach
-		// scrollback before its run settles.
-		if (
-			this.#session.activeLedger?.phase === "working" &&
-			isBackgroundCompletionBlock(block)
-		)
+		// scrollback before its own run settles.
+		if (this.#session.backgroundCompletionLedger(block)?.phase === "working")
 			return 0;
 		return nativeSettledRows?.() ?? 0;
 	}
@@ -1106,6 +1102,14 @@ export class RuntimeAdapter {
 		}
 		if (isLateDiagnosticsMessageComponent(child)) {
 			this.#patchLateDiagnostics(child);
+			return;
+		}
+		if (isBackgroundCompletionBlock(child)) {
+			// Nothing to patch — the fold keeps the host's own line. Only the
+			// owning run matters, and it can be captured nowhere else: the
+			// notice carries no id, and later phases cannot tell which run it
+			// reported for.
+			this.#session.rememberBackgroundCompletion(child);
 			return;
 		}
 		if (isBashExecutionComponent(child)) {
