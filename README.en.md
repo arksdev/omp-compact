@@ -97,7 +97,7 @@ Choose a mode in `/compact-settings`. The selected mode is fixed for the current
 | `live` — default | The same complete compact log | File changes, Git summary, and statistics remain; temporary actions are removed | Everyday use: you can watch the process while keeping the transcript clean |
 | `clear` | Ordinary tool lines are hidden | The answer, the line with hashes for created commits, and, if enabled, statistics remain | The quietest possible interface |
 
-Unknown, interactive, expanded, or incompatible tools remain in OMP's native interface. In every mode, an abort or error without a final answer preserves the diagnostic log.
+Unknown, interactive, expanded, or incompatible tools remain in OMP's native interface. In `compact` and `live`, an abort or error without a final answer preserves the diagnostic log. In `clear` it does not: the quiet view stays quiet through an interrupted turn, and unfinished work is easier to read back in `compact` or `live`. Restored history follows the same rule — in `clear` it is hidden entirely, background-job completion notices included.
 
 ## Additional options
 
@@ -128,7 +128,7 @@ The plugin recognizes Git activity from Bash commands that already ran and their
 - A failed commit or a commit without a hash is not included in the final line.
 - If you disable this option, `live` shows neither intermediate Git rows nor the terminal Git summary.
 - `compact` keeps the complete short Git log regardless of this option.
-- In `clear` the intermediate Git rows are hidden with the other ordinary rows, but the line with hashes for created commits stays after the answer: created commits are the one thing the quiet view does not hide. Disable the option and that line goes too.
+- In `clear` the intermediate Git rows are hidden with the other ordinary rows, but the line with hashes for created commits stays: created commits are the one thing the quiet view does not hide, an interrupted turn included. Disable the option and that line goes too.
 - The newest commit in a series is highlighted with color.
 
 JSON:

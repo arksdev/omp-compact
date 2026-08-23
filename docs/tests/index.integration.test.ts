@@ -6065,7 +6065,9 @@ stockTest("clear mode hides routine tools including task", async () => {
 	await shutdown(booted);
 });
 
-stockTest("clear mode abort keeps compact diagnostic rows", async () => {
+stockTest("clear mode abort hides diagnostic rows", async () => {
+	// The quiet view stays quiet through an interrupted turn: routine rows go
+	// even though the run ended without an answer.
 	const booted = await bootWithMode("clear");
 	await beginRun(booted);
 	const call = await addTool(
@@ -6081,7 +6083,7 @@ stockTest("clear mode abort keeps compact diagnostic rows", async () => {
 		isError: false,
 	});
 	await finishRun(booted, "", "aborted");
-	expect(visibleRows(booted.transcript).join("\n")).toContain(
+	expect(visibleRows(booted.transcript).join("\n")).not.toContain(
 		"bash: printf clear-diag",
 	);
 	await shutdown(booted);
@@ -6119,8 +6121,9 @@ stockTest(
 );
 
 stockTest(
-	"clear mode abort keeps the compact task diagnostic row",
+	"clear mode abort hides the task row without going native",
 	async () => {
+		// Neither the compact row nor the stock card may come back on abort.
 		const booted = await bootWithMode("clear");
 		await beginRun(booted);
 		const task = await addTool(
@@ -6138,7 +6141,7 @@ stockTest(
 		});
 		await finishRun(booted, "", "aborted");
 		const rows = visibleRows(booted.transcript).join("\n");
-		expect(rows).toContain("task: description: subagent diagnostics");
+		expect(rows).not.toContain("task: description: subagent diagnostics");
 		expect(rows).not.toContain("native-task-abort");
 		await shutdown(booted);
 	},

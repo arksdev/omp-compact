@@ -22,7 +22,7 @@ import {
 	MAX_TOOL_NAME_LENGTH,
 } from "./hydration-bounds";
 import type { GitMessageDetails, MutationMessageDetails } from "./messages";
-import { DEFAULT_RUN_MODE, type ModePolicy } from "./mode-policy";
+import type { ModePolicy } from "./mode-policy";
 import { objectRecord } from "./object-record";
 import { DescriptorPatch } from "./patch-kit";
 import {
@@ -829,10 +829,13 @@ export class RuntimeAdapter {
 		const group = this.#session.binding.groupState(block);
 		if (group) {
 			const readStates = this.#session.binding.mappedReadStates(group);
+			// A group nobody owns comes from restored history; it has no phase,
+			// and the decision matches it to how that history is presented, so
+			// the mode has to be the user's real one rather than a default.
 			const decision = decideReadGroupRender({
 				mode: group.ledger
 					? this.#session.modeFor(group.ledger).mode
-					: DEFAULT_RUN_MODE.mode,
+					: this.#session.unownedMode.mode,
 				phase: group.ledger?.phase,
 				expanded: group.expanded,
 				completelyMapped: this.#session.binding.groupCompletelyMapped(group),
@@ -866,12 +869,14 @@ export class RuntimeAdapter {
 			// The notice keeps the verdict of the run that produced it. Reading
 			// the active run instead would put an already folded line back on
 			// screen the moment the next run starts. A notice nobody owns comes
-			// from restored history and stays native.
+			// from restored history: it has no phase, and the decision matches
+			// it to how the surrounding history is presented, so the mode has
+			// to be the user's real one rather than the fail-open default.
 			const ledger = this.#session.backgroundCompletionLedger(block);
 			const decision = decideBackgroundCompletionRender({
 				mode: ledger
 					? this.#session.modeFor(ledger).mode
-					: DEFAULT_RUN_MODE.mode,
+					: this.#session.unownedMode.mode,
 				phase: ledger?.phase,
 			});
 			if (decision.kind === "empty") return EMPTY_LINES;

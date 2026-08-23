@@ -5,19 +5,7 @@
 		"│  ◉ Записать как предложено                                                                                           │",
 		"│  ○ Сначала изменить формулировки                                                                                     │",
 		"╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯",
-		"<answer 1>",
-		"• read host-source/packages/coding-agent/src/modes/components/read-tool-group.ts:1-220",
-		"• read host-source/packages/coding-agent/src/modes/components/read-tool-group.ts:320-860",
-		"• read host-source/packages/coding-agent/src/modes/components/tool-execution.ts:1-130; host-source/packages/coding-agen…",
-		"• read plugin/compact.test.ts:1-180",
-		"• read plugin/index.integration.test.ts:140-175; plugin/index.integration.test.ts:625-680",
-		"• read host-source/packages/coding-agent/src/modes/components/chat-transcript-builder.ts:350-475",
-		"• read host-source/packages/coding-agent/src/modes/controllers/event-controller.ts:1080-1220",
-		"• read host-source/packages/coding-agent/src/modes/controllers/event-controller.ts:1220-1410",
-		"• read host-source/packages/coding-agent/src/modes/theme/theme.ts:1-260",
-		"• git status --short",
-		"• grep: ? · in host-source/packages/coding-agent/src/modes · 31 matches",
-		"• grep: ? · in host-source/packages/coding-agent/src/modes/theme; host-source/packages/coding-agent/src · 38 matches"
+		"<answer 1>"
 	],
 	"carriers": [
 		{

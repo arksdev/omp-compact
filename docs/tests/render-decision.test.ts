@@ -186,15 +186,36 @@ describe("decideToolRender: clear mode matrix", () => {
 		).toEqual({ kind: "empty" });
 	});
 
-	test("clear keeps compact diagnostic rows on abort/full", () => {
+	test("clear hides routine rows on abort and error too", () => {
+		// An interrupted or failed turn used to keep its diagnostic rows here.
+		// That broke the promise of the quiet view, which is the whole reason
+		// the mode exists; diagnostics belong to `live` and `compact`.
 		expect(
 			decideToolRender(toolInput({ mode: "clear", phase: "full" })),
+		).toEqual({ kind: "empty" });
+	});
+
+	test("clear keeps the commit summary of an interrupted turn", () => {
+		// The commits exist whether or not the turn reached an answer, and the
+		// quiet view gets no second chance to show them.
+		expect(
+			decideToolRender(
+				toolInput({
+					mode: "clear",
+					phase: "full",
+					retainGitLive: true,
+					hasMutations: true,
+					hasGit: true,
+					hashesLength: 1,
+					isAnchor: true,
+				}),
+			),
 		).toEqual({
 			kind: "tool-rows",
-			filtered: false,
-			summary: false,
-			summaryOnly: false,
-			includeGit: true,
+			filtered: true,
+			summary: true,
+			summaryOnly: true,
+			includeGit: false,
 		});
 	});
 
@@ -471,7 +492,8 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 				}),
 			),
 		).toEqual({ kind: "empty" });
-		// clear abort keeps compact diagnostic rows.
+		// An aborted turn is hidden as well: expansion is not an escape hatch
+		// out of the quiet view.
 		expect(
 			decideToolRender(
 				toolInput({
@@ -481,13 +503,7 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 					phase: "full",
 				}),
 			),
-		).toEqual({
-			kind: "tool-rows",
-			filtered: false,
-			summary: false,
-			summaryOnly: false,
-			includeGit: true,
-		});
+		).toEqual({ kind: "empty" });
 	});
 
 	test("compactOnExpand tools stay compact at the terminal and on full", () => {
@@ -621,24 +637,27 @@ describe("decideReadGroupRender", () => {
 		).toEqual({ kind: "native" });
 	});
 
-	test("clear hides mapped read rows while working, keeps them on full", () => {
+	test("clear hides mapped read rows in every phase", () => {
 		expect(decideReadGroupRender(groupInput({ mode: "clear" }))).toEqual({
 			kind: "empty",
 		});
 		expect(
 			decideReadGroupRender(groupInput({ mode: "clear", phase: "filtered" })),
 		).toEqual({ kind: "empty" });
+		// Reads of an interrupted turn go too: routine is routine.
 		expect(
 			decideReadGroupRender(groupInput({ mode: "clear", phase: "full" })),
-		).toEqual({ kind: "read-rows" });
+		).toEqual({ kind: "empty" });
 	});
 
-	test("groups without a bound ledger are never hidden by clear", () => {
+	test("clear hides groups of restored history as well", () => {
+		// A group of a resumed session owns no ledger. Keeping it visible left
+		// stray read rows in an otherwise quiet screen.
 		expect(
 			decideReadGroupRender(
-				groupInput({ mode: "clear", phase: undefined, readCount: 0 }),
+				groupInput({ mode: "clear", phase: undefined, readCount: 2 }),
 			),
-		).toEqual({ kind: "native" });
+		).toEqual({ kind: "empty" });
 	});
 
 	test("filtered terminal answers remove the whole mapped group", () => {
@@ -693,7 +712,7 @@ describe("decideBackgroundCompletionRender", () => {
 		).toEqual({ kind: "empty" });
 	});
 
-	test("clear hides the notice while working, keeps it on full", () => {
+	test("clear hides the notice in every phase", () => {
 		expect(
 			decideBackgroundCompletionRender(completionInput({ mode: "clear" })),
 		).toEqual({ kind: "empty" });
@@ -701,19 +720,26 @@ describe("decideBackgroundCompletionRender", () => {
 			decideBackgroundCompletionRender(
 				completionInput({ mode: "clear", phase: "full" }),
 			),
-		).toEqual({ kind: "native" });
+		).toEqual({ kind: "empty" });
 	});
 
-	test("a notice outside any run is never hidden", () => {
+	test("a notice outside any run follows how history is presented", () => {
+		// No run owns a restored notice, so it matches its surroundings:
+		// `compact` shows restored history in full, the other modes fold it
+		// away. Showing the line unconditionally left it as the single
+		// surviving row of an otherwise folded history.
+		expect(
+			decideBackgroundCompletionRender(
+				completionInput({ phase: undefined, mode: "compact" }),
+			),
+		).toEqual({ kind: "native" });
 		expect(
 			decideBackgroundCompletionRender(completionInput({ phase: undefined })),
-		).toEqual({ kind: "native" });
-		// Same reason read groups without a bound ledger stay native: no run
-		// owns the notice, so nothing could ever bring the line back.
+		).toEqual({ kind: "empty" });
 		expect(
 			decideBackgroundCompletionRender(
 				completionInput({ phase: undefined, mode: "clear" }),
 			),
-		).toEqual({ kind: "native" });
+		).toEqual({ kind: "empty" });
 	});
 });

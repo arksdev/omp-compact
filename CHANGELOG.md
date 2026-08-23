@@ -14,6 +14,8 @@
 - При возвращении в сохранённую сессию история снова показывается компактно. Раньше восстановленные чтения разворачивались в полные карточки, если агент размышлял или отвечал между двумя чтениями одного хода, — а так бывает почти всегда.
 - Сообщения о завершении фоновых процессов и заданий больше не разрывают компактный лог пустыми строками сверху и снизу: такая строка встаёт вплотную к соседним и уходит вместе с остальной рутиной, когда шаг закончен.
 - Возобновление сессии больше не показывает рутину ходов, которые уже закончились ответом. Раньше восстановленная история всегда разворачивалась полным журналом, даже если выбран вид, где такая рутина убирается: на экране оставались чтения, поиски и команды из ходов, ответ на которые был получен давно. Теперь восстановленная история выглядит так же, как сразу после ответа в выбранном виде, а полный журнал остаётся у тех, кто его и выбрал.
+- Спокойный вид больше не оставляет на экране рутину прерванного или упавшего хода: чтения, поиски и команды такого хода теперь уходят так же, как после обычного ответа. Раньше стоило прервать агента или получить ошибку — и на экране оставался полный журнал хода, хотя выбран был именно тот вид, где рутины не должно быть. Разбирать незавершённую работу по-прежнему удобно в двух других видах, а строка с хешами созданных коммитов остаётся и на прерванном ходе.
+- В спокойном виде из восстановленной истории пропали и сообщения о завершении фоновых заданий. Раньше такая строка оставалась единственной посреди убранной истории, потому что не было понятно, какому ходу она принадлежит; теперь она подчиняется выбранному виду, как и всё остальное.
 
 ### Добавлено
 
@@ -236,6 +238,8 @@ In plain words — what changed for a person working in OMP with this plugin.
 - Returning to a saved session shows its history compact again. Restored reads previously expanded into full cards whenever the agent thought or answered between two reads of the same turn — which is almost always.
 - Notices about finished background processes and jobs no longer tear the compact log apart with blank lines above and below: such a row now sits flush against its neighbours and leaves together with the rest of the routine once the step is done.
 - Resuming a session no longer shows the routine of turns that already ended with an answer. Restored history used to expand into a complete log even when the chosen view removes such routine: reads, searches and commands from long-answered turns stayed on screen. Restored history now looks the way it does right after an answer in the chosen view, and the complete log stays for those who picked it.
+- The quiet view no longer leaves the routine of an interrupted or failed turn on screen: its reads, searches and commands now go the same way they go after an ordinary answer. Interrupting the agent, or hitting an error, used to keep the turn's complete log on screen even though the chosen view is precisely the one without routine. Reading unfinished work back is still comfortable in the other two views, and the line with hashes for created commits stays even for an interrupted turn.
+- Background-job completion notices are gone from restored history in the quiet view as well. Such a row used to be the only thing left in the middle of a removed history, because there was no telling which turn owned it; it now follows the chosen view like everything else.
 
 ### Added
 

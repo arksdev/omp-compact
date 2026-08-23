@@ -115,7 +115,7 @@ agent_start
 
 `message_end`, `stopReason: "toolUse"` и `agent_end.willContinue === true` не считаются завершением задачи. Полный live-log остаётся на месте до terminal `agent_end` с видимым non-tool assistant answer.
 
-После такой границы применяется выбранный режим. Если run завершился abort/error и финального ответа нет, плагин сохраняет полный diagnostic log. Незавершённая работа не исчезает без объяснения.
+После такой границы применяется выбранный режим. Если run завершился abort/error и финального ответа нет, `compact` и `live` сохраняют полный diagnostic log. Незавершённая работа не исчезает без объяснения. В `clear` этого исключения нет — см. ниже.
 
 ## Режимы
 
@@ -125,7 +125,7 @@ agent_start
 | `live` | Полный compact log mapped tools | Остаются verified non-zero mutations, optional Git commit summary и optional stats |
 | `clear` | Ordinary compact rows скрыты; штатная глобальная Working-строка и native interactive/unmapped surfaces не меняются | Tool rows и mutation rows скрыты; optional Git commit summary и optional stats остаются над ответом |
 
-В `clear` abort/error без ответа всё равно сохраняет diagnostic compact rows. Это исключение нужно, чтобы не скрыть причину незавершённого run.
+В `clear` прерванный или упавший run скрывается так же, как успешный: rows не остаются ни во время работы, ни после abort/error. Диагностику незавершённого run смотрят в `compact` или `live` — в `clear` тишина экрана и есть смысл режима. Единственное исключение — итоговая строка с хешами созданных коммитов при включённом `retainGitLive`: коммиты остаются в истории и после прерванного run, и второго шанса показать их у режима нет. Восстановленная история подчиняется тому же правилу: rows и уведомления о завершении фоновой активности в `clear` скрыты, а в `compact` остаются.
 
 ## Что остаётся в `live`
 

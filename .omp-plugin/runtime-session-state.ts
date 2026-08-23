@@ -1336,6 +1336,16 @@ export class RuntimeSessionState {
 	}
 
 	/**
+	 * Mode snapshot for surfaces that belong to no logical run — a restored
+	 * background-completion notice, for one. Reads the same source a new
+	 * ledger would, so such a surface follows the user's actual settings
+	 * instead of the fail-open default.
+	 */
+	get unownedMode(): RunModeSnapshot {
+		return this.#captureMode();
+	}
+
+	/**
 	 * Record which logical run produced a host background-completion notice.
 	 * Only a working run may own one: notices seen while installing on an
 	 * existing transcript or while rebuilding history arrive outside a working

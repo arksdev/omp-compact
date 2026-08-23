@@ -475,7 +475,9 @@ describe("runtime modes", () => {
 		booted.adapter.endRun(terminalAnswer());
 	});
 
-	test("clear abort keeps compact diagnostic rows", async () => {
+	test("clear hides diagnostic rows on abort", async () => {
+		// An interrupted turn leaves no routine behind: the quiet screen is the
+		// promise of this mode, and an abort does not suspend it.
 		const booted = await boot({ mode: "clear" });
 		await beginRun(booted);
 		addTool(booted, "bash", "bash-1", { command: "printf diag" });
@@ -492,7 +494,7 @@ describe("runtime modes", () => {
 			],
 			willContinue: false,
 		});
-		expect(visibleRows(booted).join("\n")).toContain("bash: printf diag");
+		expect(visibleRows(booted).join("\n")).not.toContain("bash: printf diag");
 		expect(booted.finalized).toEqual([]);
 	});
 
@@ -935,7 +937,10 @@ describe("runtime modes", () => {
 		expect(rows).not.toContain("native-reject");
 	});
 
-	test("clear abort keeps compact rows for expanded four tools", async () => {
+	test("clear abort hides expanded four tools without falling back to native", async () => {
+		// Expansion is not an escape hatch: an aborted turn in the quiet view
+		// drops the rows entirely, and the stock cards must not resurface
+		// either.
 		const booted = await boot({ mode: "clear" });
 		await beginRun(booted);
 		const browser = addTool(booted, "browser", "browser-1", {
@@ -957,8 +962,8 @@ describe("runtime modes", () => {
 			willContinue: false,
 		});
 		const rows = visibleRows(booted).join("\n");
-		expect(rows).toContain("browser: https://omp.test/abort-browser");
-		expect(rows).toContain("• resolve");
+		expect(rows).not.toContain("browser: https://omp.test/abort-browser");
+		expect(rows).not.toContain("• resolve");
 		expect(rows).not.toContain("native-browser");
 		expect(rows).not.toContain("native-resolve");
 	});

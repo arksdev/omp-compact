@@ -160,16 +160,19 @@ interface ToolRenderRule {
 
 /**
  * Effective aggregate-hash count for the terminal view: the summary exists
- * only for a filtered ledger when `retainGitLive` is on; otherwise Git rows
- * and the aggregate line stay visually suppressed (`live` default) while
- * persisted evidence and ledger entries are never mutated by the toggle.
- * `clear` reads the same count — the toggle is what decides whether its
- * quiet view keeps the commit summary at all.
+ * only once a run has ended and only when `retainGitLive` is on; otherwise
+ * Git rows and the aggregate line stay visually suppressed (`live` default)
+ * while persisted evidence and ledger entries are never mutated by the
+ * toggle. `clear` treats an interrupted or failed finalization as terminal
+ * too — the commits it created exist either way, and its quiet view has no
+ * second chance to show them.
  */
 function effectiveHashes(input: ToolRenderInput): number {
-	return input.phase === "filtered" && input.retainGitLive
-		? input.hashesLength
-		: 0;
+	if (!input.retainGitLive) return 0;
+	const terminal =
+		input.phase === "filtered" ||
+		(input.mode === "clear" && input.phase === "full");
+	return terminal ? input.hashesLength : 0;
 }
 
 // Rules evaluated top-to-bottom; first match wins. Order is critical:
@@ -200,20 +203,30 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 		decide: (): ToolRenderDecision => ({ kind: "native" }),
 	},
 	{
-		// `clear` hides normal tool rows while working and at the terminal
-		// answer; abort/full finalizations keep compact diagnostic rows.
-		//
-		// One deliberate exception: the trailing aggregate commit-summary
-		// line. Created commits are the only evidence a quiet view must not
-		// swallow — the log would otherwise claim nothing happened where
-		// history changed. The individual Git rows stay hidden (the working
-		// screen keeps its silence), so `clear` shows the summary and nothing
-		// else. Turning the Git toggle off zeroes the effective hash count
-		// and the exception collapses back to plain hiding.
+		// The one row `clear` never swallows: the trailing aggregate line with
+		// the hashes of the commits the run created. Without it the log would
+		// claim nothing happened where history changed. The individual Git
+		// rows stay hidden, so the anchor prints the summary alone. Effective
+		// hashes are zero while working and zero with the Git toggle off, so
+		// this exception can neither break the silence of a live turn nor
+		// override the toggle.
 		when: (input, hashes) =>
-			input.mode === "clear" &&
-			input.phase !== "full" &&
-			!(input.phase === "filtered" && input.isAnchor && hashes > 0),
+			input.mode === "clear" && input.isAnchor && hashes > 0,
+		decide: (): ToolRenderDecision => ({
+			kind: "tool-rows",
+			filtered: true,
+			summary: true,
+			summaryOnly: true,
+			includeGit: false,
+		}),
+	},
+	{
+		// `clear` hides normal tool rows in every phase — while working, at
+		// the terminal answer, and in the abort/error finalization alike. An
+		// interrupted turn is no reason to break the promise of the quiet
+		// view; `live` and `compact` are where an interrupted run is read
+		// back from its diagnostic rows.
+		when: (input) => input.mode === "clear",
 		decide: (): ToolRenderDecision => ({ kind: "empty" }),
 	},
 	{
@@ -250,14 +263,13 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	{
 		// Terminal retention: mutation rows stay in chronological position;
 		// the aggregate commit-summary line is appended only to the run's
-		// anchor state (the last retained row of the ledger). In `clear` the
-		// mutation rows are dropped and the summary is all that survives.
+		// anchor state (the last retained row of the ledger).
 		when: (input) => input.phase === "filtered",
 		decide: (input, hashes): ToolRenderDecision => ({
 			kind: "tool-rows",
 			filtered: true,
 			summary: hashes > 0 && input.isAnchor,
-			summaryOnly: input.mode === "clear",
+			summaryOnly: false,
 			includeGit: false,
 		}),
 	},
@@ -312,13 +324,11 @@ const READ_GROUP_RENDER_TABLE: readonly {
 	},
 
 	{
-		// `clear` hides mapped read rows while working and at the terminal
-		// answer; abort/full keeps diagnostics. Groups without a bound
-		// ledger (phase undefined) are never hidden.
-		when: (input) =>
-			input.mode === "clear" &&
-			input.phase !== undefined &&
-			input.phase !== "full",
+		// `clear` hides mapped read rows in every phase, and in restored
+		// history (phase undefined) too. A read group is pure routine, and
+		// neither an interrupted turn nor a resumed session is a reason to
+		// break the quiet view.
+		when: (input) => input.mode === "clear",
 		decide: (): ReadGroupRenderDecision => ({ kind: "empty" }),
 	},
 	{
@@ -371,15 +381,22 @@ const BACKGROUND_COMPLETION_RENDER_TABLE: readonly {
 		decide: (): BackgroundCompletionRenderDecision => ({ kind: "empty" }),
 	},
 	{
-		// `clear` hides the notice while working and at the terminal answer,
-		// exactly like an ordinary tool card; abort/full keeps it because a
-		// failed run is diagnosed from what was on screen. A notice belonging
-		// to no run (phase undefined) is never hidden: there is no run whose
-		// retention could bring it back, so native is the only safe view.
-		when: (input) =>
-			input.mode === "clear" &&
-			input.phase !== undefined &&
-			input.phase !== "full",
+		// `clear` hides the notice in every phase, exactly like an ordinary
+		// tool card: the quiet view owes the screen nothing but the answer.
+		when: (input) => input.mode === "clear",
+		decide: (): BackgroundCompletionRenderDecision => ({ kind: "empty" }),
+	},
+	{
+		// A notice belonging to no run (phase undefined) comes from restored
+		// history, so it follows how that history is presented: `compact`
+		// shows the restored rows, the other modes fold them away. Showing
+		// the line unconditionally left it as the single surviving row of an
+		// otherwise folded history.
+		when: (input) => input.phase === undefined && input.mode === "compact",
+		decide: (): BackgroundCompletionRenderDecision => ({ kind: "native" }),
+	},
+	{
+		when: (input) => input.phase === undefined,
 		decide: (): BackgroundCompletionRenderDecision => ({ kind: "empty" }),
 	},
 	{
