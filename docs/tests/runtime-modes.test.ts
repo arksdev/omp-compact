@@ -147,9 +147,19 @@ interface FakeTranscript {
 	addChild(child: unknown): void;
 	clear(): void;
 	render(width: number): readonly string[];
-	renderViewportTail(width: number, maxRows: number): readonly string[];
-	isBlockUncommitted(component: unknown): boolean;
-	isBlockInLiveRegion(component: unknown): boolean;
+	renderViewport(
+		width: number,
+		rows: number,
+		frame: { tick: number; now: number },
+	): readonly string[];
+	liveRowCount(width: number): number;
+	peekFinalizedBatch(
+		width: number,
+		capacity: number,
+	): { id: number; rows: readonly string[] } | undefined;
+	acknowledgeFinalizedBatch(id: number): void;
+	canRemoveBlock(component: unknown): boolean;
+	blockStates(): readonly ("active" | "settled" | "committed")[];
 }
 
 function fakeTranscript(): FakeTranscript {
@@ -172,14 +182,21 @@ function fakeTranscript(): FakeTranscript {
 			}
 			return rows;
 		},
-		renderViewportTail() {
-			return [];
+		renderViewport(width: number, rows: number) {
+			return this.render(width).slice(0, rows);
 		},
-		isBlockUncommitted() {
-			return false;
+		liveRowCount(width: number) {
+			return this.render(width).length;
 		},
-		isBlockInLiveRegion() {
-			return false;
+		peekFinalizedBatch() {
+			return undefined;
+		},
+		acknowledgeFinalizedBatch() {},
+		canRemoveBlock() {
+			return true;
+		},
+		blockStates() {
+			return children.map(() => "active" as const);
 		},
 	};
 }

@@ -500,7 +500,6 @@ stockTest(
 		);
 		expect(visibleRows(booted.transcript).join("\n")).toContain("printf done");
 		expect(call.isTranscriptBlockFinalized()).toBe(false);
-		expect(call.getTranscriptBlockSettledRows()).toBe(0);
 		await finishTool(booted, call, {
 			toolCallId: "bash-1",
 			toolName: "bash",
@@ -3055,18 +3054,16 @@ const SUPERVISED_FAILURE =
 	"✘ Supervised process failed live18b (exit 2) (1.9s)";
 
 /**
- * Transcript-block surface the fold installs on every block it owns; the host
- * reads it back to decide what may commit to native scrollback and whether a
- * block's rows may be reused without rendering it again.
+ * Transcript-block surface the fold installs on every block it owns; the
+ * container reads it back to decide which blocks have settled and may retire
+ * into terminal history.
  */
 interface FoldedBlockProbe {
 	isTranscriptBlockFinalized(): boolean;
-	getTranscriptBlockSettledRows(): number;
-	getTranscriptBlockVersion(): number;
 }
 
 /**
- * Stock notice of finished background activity (OMP 18.0.0
+ * Stock notice of finished background activity (OMP 18.0.1
  * `buildLaunchCompletionBlock` / `buildAsyncResultBlock`): a
  * `ToolActivityContainer` wrapping one `TranscriptBlock` whose children are
  * `Text` leaves, one per reported process. `ContainerBase` is the very stock
@@ -3157,8 +3154,10 @@ stockTest(
 		});
 		const rows = screenRows(booted.transcript);
 		expect(rows.some((row) => row.includes(SUPERVISED_FAILURE))).toBe(true);
+		// The carrier answers for the whole run, so the notice stays unfinalized
+		// while the run works: retirement into history is what the container
+		// gates on, and an open run must never be retired.
 		expect(notice.isTranscriptBlockFinalized()).toBe(false);
-		expect(notice.getTranscriptBlockSettledRows()).toBe(0);
 		await finishRun(booted, "the process reported before the command");
 		expect(
 			screenRows(booted.transcript).some((row) =>
@@ -3208,13 +3207,13 @@ stockTest(
 );
 
 stockTest(
-	"a run made of nothing but a notice still versions its fold boundary",
+	"a run made of nothing but a notice still closes its fold boundary",
 	async () => {
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
 		// A process dies while the model is writing: the notice lands between
-		// two text blocks, so its run holds no tool card whose version could
-		// carry the switch from live rows to the filtered log.
+		// two text blocks, so its run holds no tool card that could carry the
+		// switch from live rows to the filtered log.
 		addAnswer(booted, "writing the answer");
 		const notice = addBackgroundCompletion(booted, SUPERVISED_FAILURE);
 		addAnswer(booted, "answer continues");
@@ -3223,9 +3222,11 @@ stockTest(
 				row.includes(SUPERVISED_FAILURE),
 			),
 		).toBe(true);
-		const live = notice.getTranscriptBlockVersion();
+		expect(notice.isTranscriptBlockFinalized()).toBe(false);
 		await finishRun(booted, "answer continues");
-		expect(notice.getTranscriptBlockVersion()).not.toBe(live);
+		// Closing the run finalizes the lone member, so the container may
+		// retire it — and what it retires is the folded, empty projection.
+		expect(notice.isTranscriptBlockFinalized()).toBe(true);
 		expect(
 			screenRows(booted.transcript).some((row) =>
 				row.includes(SUPERVISED_FAILURE),
@@ -3278,9 +3279,12 @@ stockTest(
 				children: [],
 				addChild() {},
 				render: () => [],
-				renderViewportTail: () => [],
-				isBlockUncommitted: () => false,
-				isBlockInLiveRegion: () => false,
+				renderViewport: () => [],
+				liveRowCount: () => 0,
+				peekFinalizedBatch: () => undefined,
+				acknowledgeFinalizedBatch: () => {},
+				canRemoveBlock: () => true,
+				blockStates: () => [],
 			});
 			root.addChild(incompatible);
 		});
@@ -3910,8 +3914,11 @@ stockTest(
 		let transcript: TranscriptInstance | undefined;
 		const booted = await bootPlugin((root, host) => {
 			const candidate = new host.TranscriptContainer();
-			Object.defineProperty(candidate, "isBlockUncommitted", {
-				value: candidate.isBlockUncommitted,
+			// `peekFinalizedBatch` is the last transcript method the fold
+			// patches, so freezing it fails the install after earlier wrappers
+			// are already in place — exactly the transactional case.
+			Object.defineProperty(candidate, "peekFinalizedBatch", {
+				value: candidate.peekFinalizedBatch,
 				configurable: false,
 				writable: true,
 			});
@@ -3924,16 +3931,17 @@ stockTest(
 		expect(booted.notifications[0]).toContain("omp-compact disabled");
 		// wrappers applied before the failing method are gone
 		expect(Object.hasOwn(transcript, "render")).toBe(false);
-		expect(Object.hasOwn(transcript, "renderViewportTail")).toBe(false);
+		expect(Object.hasOwn(transcript, "renderViewport")).toBe(false);
+		expect(Object.hasOwn(transcript, "liveRowCount")).toBe(false);
 		expect(Object.hasOwn(transcript, "addChild")).toBe(false);
 		expect(transcript.render).toBe(Object.getPrototypeOf(transcript).render);
-		expect(transcript.renderViewportTail).toBe(
-			Object.getPrototypeOf(transcript).renderViewportTail,
+		expect(transcript.renderViewport).toBe(
+			Object.getPrototypeOf(transcript).renderViewport,
 		);
 		// the incompatible own property keeps its exact descriptor
-		expect(Object.hasOwn(transcript, "isBlockUncommitted")).toBe(true);
+		expect(Object.hasOwn(transcript, "peekFinalizedBatch")).toBe(true);
 		expect(
-			Object.getOwnPropertyDescriptor(transcript, "isBlockUncommitted")
+			Object.getOwnPropertyDescriptor(transcript, "peekFinalizedBatch")
 				?.configurable,
 		).toBe(false);
 		// native rendering still executes and the spinner never started
@@ -6192,20 +6200,31 @@ stockTest(
 // `compact` retains all in transcript order, `clear` hides ordinary rows),
 // and the assistant texts keep their order (group texts precede the later
 // group's rows; the terminal answer text is last and unchanged). The fold's
-// committed-row seam is observable on this path too: while working every
-// mapped member reports uncommitted; after the carrier declares committed
-// rows the transcript reports members below the boundary as committed —
-// and the projection still follows the mode, because the seam is
-// presentation-only (the missing live signal is the native viewport commit,
-// see the D02 classification).
+// retirement seam is observable on this path too: while a run works, none of
+// its mapped members may retire into terminal history — the container offers
+// no batch and every member is still removable — and the projection follows
+// the mode regardless, because the seam is presentation-only (the missing
+// live signal is the native history commit, see the D02 classification).
 // ---------------------------------------------------------------------------
 
 interface CommittedSeamTranscript extends TranscriptInstance {
-	isBlockUncommitted?(component: unknown): boolean;
+	canRemoveBlock?(component: unknown): boolean;
 }
-
-interface CommittedSeamComponent extends ToolExecutionInstance {
-	setNativeScrollbackCommittedRows?(rows: number): void;
+/**
+ * Retires every settled block into terminal history, the way the real
+ * terminal does: 18.0.1 offers a batch only under viewport pressure, so the
+ * one-row window below forces the offer, and the acknowledgement is what
+ * makes those rows immutable history.
+ */
+function commitTerminalHistory(
+	transcript: TranscriptInstance,
+	width = 120,
+): boolean {
+	const host = transcript as CommittedSeamTranscript;
+	const batch = host.peekFinalizedBatch?.(width, 1);
+	if (!batch) return false;
+	host.acknowledgeFinalizedBatch?.(batch.id);
+	return true;
 }
 
 stockTest(
@@ -6318,27 +6337,19 @@ stockTest(
 			const transcript = booted.transcript as CommittedSeamTranscript;
 			const span = visibleRows(booted.transcript).length;
 			if (mode === "clear") {
-				// `clear` never projects ordinary rows, so there is no span to
-				// commit: the seam stays fail-open (members report uncommitted)
-				// and the projection stays hidden.
+				// `clear` never projects ordinary rows, so there is nothing to
+				// retire: no batch is offered and the projection stays hidden.
 				expect(span).toBe(0);
-				expect(transcript.isBlockUncommitted?.(lateGroup)).toBe(true);
-				(
-					bashEarly as CommittedSeamComponent
-				).setNativeScrollbackCommittedRows?.(10);
-				expect(transcript.isBlockUncommitted?.(lateGroup)).toBe(true);
+				expect(transcript.canRemoveBlock?.(lateGroup)).toBe(true);
+				expect(transcript.peekFinalizedBatch?.(120, 100)).toBeUndefined();
 				expect(visibleRows(booted.transcript).join("\n")).toBe("");
 			} else {
-				expect(transcript.isBlockUncommitted?.(lateGroup)).toBe(true);
-				expect(transcript.isBlockUncommitted?.(bashLate)).toBe(true);
 				expect(span).toBeGreaterThan(0);
-				(
-					bashEarly as CommittedSeamComponent
-				).setNativeScrollbackCommittedRows?.(span);
-				expect(transcript.isBlockUncommitted?.(lateGroup)).toBe(false);
-				expect(transcript.isBlockUncommitted?.(bashLate)).toBe(false);
-				// The committed declaration is presentation-only: the projection
-				// still renders every mapped row while working.
+				// An open run belongs to the mutable viewport: its members are
+				// removable and no history batch may claim them.
+				expect(transcript.canRemoveBlock?.(lateGroup)).toBe(true);
+				expect(transcript.canRemoveBlock?.(bashLate)).toBe(true);
+				expect(transcript.peekFinalizedBatch?.(120, 100)).toBeUndefined();
 				expect(visibleRows(booted.transcript).join("\n")).toContain(
 					"printf late",
 				);
@@ -6355,11 +6366,10 @@ stockTest(
 				// `live` filters every routine row; `clear` hides ordinary rows.
 				expect(terminalRows).toEqual(EXPECTED_FILTERED_ROWS);
 			}
-			// Rows from both groups settled: the fold finalizes every member
-			// and reports the run's settled span on the carrier.
+			// Both groups finalized: with the run closed the container may retire
+			// the whole span, and what it retires is the folded projection.
 			expect(bashEarly.isTranscriptBlockFinalized()).toBe(true);
 			expect(bashLate.isTranscriptBlockFinalized()).toBe(true);
-			expect(bashEarly.getTranscriptBlockSettledRows()).toBeGreaterThan(0);
 			await shutdown(booted);
 		}
 	},
@@ -10326,17 +10336,15 @@ stockTest(
 );
 
 // ---------------------------------------------------------------------------
-// D03 terminal scrollback replay: stock freezes mutable live-region rows
-// into native scrollback when they move above the viewport, so a filtered
-// terminal answer leaves frozen native rows behind. After the terminal
-// projection and the stats carrier insertion attempt, the adapter replays
-// the full presentation exactly once through the capability-checked
-// exact-root `resetDisplay` — but only when the fold holds structured
-// committed rows (declared through the native
-// `setNativeScrollbackCommittedRows` seam). No committed rows, compact/full
-// terminal paths, aborts, continuations, missing capability and disposed
-// adapters all stay no-op/native. Tests assert observable rows and reset
-// counts — never private maps.
+// D03 terminal scrollback replay: the terminal retires settled rows into
+// immutable history, so a later projection change could never take them off
+// the screen again. After the terminal projection and the stats carrier
+// insertion attempt, the adapter replays the full presentation exactly once
+// through the capability-checked exact-root `resetDisplay` — but only when
+// the fold owns rows that already retired (block state `committed`). No
+// committed rows, compact/full terminal paths, aborts, continuations,
+// missing capability and disposed adapters all stay no-op/native. Tests
+// assert observable rows and reset counts — never private maps.
 // ---------------------------------------------------------------------------
 
 stockTest(
@@ -10344,6 +10352,28 @@ stockTest(
 	async () => {
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("live", harness);
+		// First run: it ends, its carrier settles, and the terminal retires the
+		// rows into immutable history — the real path to committed rows.
+		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf history" },
+			"d03-history",
+		);
+		await finishTool(booted, first, {
+			toolCallId: "d03-history",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "d03 first");
+		await completeAnswer(booted, "d03 first");
+		// Nothing had retired yet, so that terminal answer replayed nothing.
+		expect(booted.harness.resetCalls).toBe(0);
+		expect(commitTerminalHistory(booted.transcript)).toBe(true);
+		// Second run over immutable history: its terminal projection changes
+		// rows the terminal can no longer reach, so the adapter replays.
 		await beginRun(booted);
 		const call = await addTool(
 			booted,
@@ -10357,11 +10387,7 @@ stockTest(
 			result: { content: [{ type: "text", text: "ok" }] },
 			isError: false,
 		});
-		// stock froze the mutable row into native scrollback: declare the
-		// run's rendered span committed through the carrier seam
-		const span = visibleRows(booted.transcript).length;
-		expect(span).toBeGreaterThan(0);
-		(call as CommittedSeamComponent).setNativeScrollbackCommittedRows?.(span);
+		expect(visibleRows(booted.transcript).length).toBeGreaterThan(0);
 		// no replay before the terminal answer
 		expect(booted.harness.resetCalls).toBe(0);
 		addAnswer(booted, "d03 done");
@@ -10417,6 +10443,23 @@ stockTest(
 	async () => {
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("compact", harness);
+		// A first run retires into history, so committed rows really exist.
+		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf compact history" },
+			"d03-compact-history",
+		);
+		await finishTool(booted, first, {
+			toolCallId: "d03-compact-history",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "compact first");
+		await completeAnswer(booted, "compact first");
+		expect(commitTerminalHistory(booted.transcript)).toBe(true);
 		await beginRun(booted);
 		const call = await addTool(
 			booted,
@@ -10430,9 +10473,6 @@ stockTest(
 			result: { content: [{ type: "text", text: "ok" }] },
 			isError: false,
 		});
-		const span = visibleRows(booted.transcript).length;
-		expect(span).toBeGreaterThan(0);
-		(call as CommittedSeamComponent).setNativeScrollbackCommittedRows?.(span);
 		addAnswer(booted, "compact done");
 		await completeAnswer(booted, "compact done");
 		// the full retained log settles as "full": committed rows exist but
@@ -10450,7 +10490,27 @@ stockTest(
 	async () => {
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("live", harness);
+		// Retire a first run into history so the abort below really happens
+		// over immutable rows.
 		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf abort history" },
+			"d03-abort-history",
+		);
+		await finishTool(booted, first, {
+			toolCallId: "d03-abort-history",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "abort first");
+		await completeAnswer(booted, "abort first");
+		expect(commitTerminalHistory(booted.transcript)).toBe(true);
+		expect(booted.harness.resetCalls).toBe(0);
+		await beginRun(booted);
+
 		const call = await addTool(
 			booted,
 			"bash",
@@ -10463,9 +10523,7 @@ stockTest(
 			result: { content: [{ type: "text", text: "failed" }] },
 			isError: true,
 		});
-		const span = visibleRows(booted.transcript).length;
-		expect(span).toBeGreaterThan(0);
-		(call as CommittedSeamComponent).setNativeScrollbackCommittedRows?.(span);
+		expect(visibleRows(booted.transcript).length).toBeGreaterThan(0);
 		// continuation: willContinue never fires the terminal seam
 		await finishRun(booted, "continue text", "toolUse", true);
 		expect(booted.harness.resetCalls).toBe(0);
@@ -10488,7 +10546,26 @@ stockTest(
 	async () => {
 		// standard boot: the host root has no resetDisplay capability
 		const booted = await bootWithStats();
+		// Retire a first run into history: committed rows exist, only the
+		// capability is missing.
 		await beginRun(booted);
+		const first = await addTool(
+			booted,
+			"bash",
+			{ command: "printf nocap history" },
+			"d03-nocap-history",
+		);
+		await finishTool(booted, first, {
+			toolCallId: "d03-nocap-history",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "nocap first");
+		await completeAnswer(booted, "nocap first");
+		expect(commitTerminalHistory(booted.transcript)).toBe(true);
+		await beginRun(booted);
+
 		const call = await addTool(
 			booted,
 			"bash",
@@ -10501,9 +10578,7 @@ stockTest(
 			result: { content: [{ type: "text", text: "ok" }] },
 			isError: false,
 		});
-		const span = visibleRows(booted.transcript).length;
-		expect(span).toBeGreaterThan(0);
-		(call as CommittedSeamComponent).setNativeScrollbackCommittedRows?.(span);
+		expect(visibleRows(booted.transcript).length).toBeGreaterThan(0);
 		addAnswer(booted, "nocap done");
 		await completeAnswer(booted, "nocap done");
 		// capability missing: the replay fails open and the projection with

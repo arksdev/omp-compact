@@ -4,16 +4,16 @@
  * Single module tree for every private host shape, method name and
  * argument-position mapping the plugin knows about:
  * - transcript container surface (`children`, `addChild`, `clear`,
- *   render/live-region methods);
+ *   viewport render, live row count, history batches, block lifecycle);
  * - tool execution component and read group surfaces;
- * - transcript block fold surface (native render/version/seal methods);
+ * - transcript block fold surface (native render/finalize/seal methods);
  * - exact TUI surface (optional `resetDisplay` for rebuild);
  * - optional leaf fingerprints (TTSR, todo reminder, skill, late
  *   diagnostics, user bash/eval execution).
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `HostAdapter1731.hostVersion` (`"18.0.0"`) is the **verified contract**
+ * `HostAdapter1731.hostVersion` (`"18.0.1"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). The class name keeps the historical `1731` suffix from the
@@ -24,12 +24,21 @@
  * Neither string is a runtime gate: every decision is a capability probe
  * on the live instance.
  *
- * `package.json` `engines.omp` sets the public floor to `>=18.0.0`,
+ * `package.json` `engines.omp` sets the public floor to `>=18.0.1`,
  * matching the verified contract; support for older hosts is discontinued.
+ * 18.0.1 rewrote the transcript container: the native-scrollback live
+ * region became block lifecycle states (`active`/`settled`/`committed`)
+ * plus acknowledged history batches, so `renderViewportTail`,
+ * `isBlockUncommitted` and `isBlockInLiveRegion` no longer exist and the
+ * per-block row accounting (`getTranscriptBlockVersion`,
+ * `getTranscriptBlockSettledRows`, `setNativeScrollbackCommittedRows`)
+ * has no consumer left. A plugin build for 18.0.0 finds no transcript
+ * host on 18.0.1 and stays fully native, which is why the floor moves
+ * with the pin.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
- * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, and `18.0.0` are present under the bun install cache
+ * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, and `18.0.1` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
@@ -40,7 +49,7 @@
  * content extraction fails.
  *
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.0.0 pin and resolved via live capability probes on the instance;
+ * the 18.0.1 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.
@@ -57,13 +66,22 @@ import type { RenderableBlock, TranscriptHost } from "./transcript-fold";
 /**
  * Transcript methods required for discovery/install. A container missing
  * any of these is not a transcript host and stays entirely native.
+ *
+ * OMP 18.0.1 replaced the native-scrollback live region with block
+ * lifecycle states plus history batches: `renderViewportTail` became
+ * `renderViewport`, `isBlockUncommitted` became `canRemoveBlock`, and
+ * `isBlockInLiveRegion` is gone. Retirement is now an offered batch the
+ * terminal acknowledges.
  */
 export const TRANSCRIPT_CRITICAL_METHODS = [
 	"addChild",
 	"render",
-	"renderViewportTail",
-	"isBlockUncommitted",
-	"isBlockInLiveRegion",
+	"renderViewport",
+	"liveRowCount",
+	"peekFinalizedBatch",
+	"acknowledgeFinalizedBatch",
+	"canRemoveBlock",
+	"blockStates",
 ] as const;
 
 /**
@@ -75,12 +93,15 @@ export const TRANSCRIPT_OPTIONAL_METHODS = ["clear"] as const;
 
 /**
  * Transcript methods the fold patches (`TranscriptFold`). A strict subset
- * of the critical surface.
+ * of the critical surface: every entry point that renders blocks must
+ * replan the fold first, or a carrier would answer with stale rows and
+ * the host would size the viewport from members that render nothing.
  */
 export const TRANSCRIPT_FOLD_METHODS = [
 	"render",
-	"renderViewportTail",
-	"isBlockUncommitted",
+	"renderViewport",
+	"liveRowCount",
+	"peekFinalizedBatch",
 ] as const;
 
 /** OMP 17.3.1 tool execution component surface. */
@@ -119,18 +140,22 @@ export const READ_GROUP_PATCH_METHODS = [
 ] as const;
 
 /**
- * OMP 17.3.1 transcript block fold surface. All optional: the fold reads
+ * OMP 18.0.1 transcript block fold surface. All optional: the fold reads
  * them through the prototype chain and falls back to native behavior when
  * absent.
+ *
+ * 18.0.1 dropped the row-accounting contract the old native-scrollback
+ * live region needed — `getTranscriptBlockVersion`,
+ * `getTranscriptBlockSettledRows` and `setNativeScrollbackCommittedRows`
+ * have no consumer left. Retirement now reads block lifecycle states, so
+ * finalization plus the render itself carry everything the container asks
+ * a block for.
  */
 export const BLOCK_FOLD_METHODS = [
 	"render",
 	"isTranscriptBlockFinalized",
-	"getTranscriptBlockVersion",
-	"getTranscriptBlockSettledRows",
 	"isDisplaceableBlock",
 	"seal",
-	"setNativeScrollbackCommittedRows",
 ] as const;
 
 /**
@@ -161,9 +186,12 @@ export interface TranscriptCapabilities {
 	readonly children: boolean;
 	readonly addChild: boolean;
 	readonly render: boolean;
-	readonly renderViewportTail: boolean;
-	readonly isBlockUncommitted: boolean;
-	readonly isBlockInLiveRegion: boolean;
+	readonly renderViewport: boolean;
+	readonly liveRowCount: boolean;
+	readonly peekFinalizedBatch: boolean;
+	readonly acknowledgeFinalizedBatch: boolean;
+	readonly canRemoveBlock: boolean;
+	readonly blockStates: boolean;
 	/** Optional rebuild-phase capability: exact transcript `clear`. */
 	readonly clear: boolean;
 }
@@ -174,9 +202,13 @@ export function transcriptCapabilities(value: unknown): TranscriptCapabilities {
 		children: Array.isArray(candidate.children),
 		addChild: typeof candidate.addChild === "function",
 		render: typeof candidate.render === "function",
-		renderViewportTail: typeof candidate.renderViewportTail === "function",
-		isBlockUncommitted: typeof candidate.isBlockUncommitted === "function",
-		isBlockInLiveRegion: typeof candidate.isBlockInLiveRegion === "function",
+		renderViewport: typeof candidate.renderViewport === "function",
+		liveRowCount: typeof candidate.liveRowCount === "function",
+		peekFinalizedBatch: typeof candidate.peekFinalizedBatch === "function",
+		acknowledgeFinalizedBatch:
+			typeof candidate.acknowledgeFinalizedBatch === "function",
+		canRemoveBlock: typeof candidate.canRemoveBlock === "function",
+		blockStates: typeof candidate.blockStates === "function",
 		clear: typeof candidate.clear === "function",
 	};
 }
@@ -233,9 +265,12 @@ export function isTranscriptHost(value: unknown): value is TranscriptHost {
 		Array.isArray(candidate.children) &&
 		typeof candidate.addChild === "function" &&
 		typeof candidate.render === "function" &&
-		typeof candidate.renderViewportTail === "function" &&
-		typeof candidate.isBlockUncommitted === "function" &&
-		typeof candidate.isBlockInLiveRegion === "function"
+		typeof candidate.renderViewport === "function" &&
+		typeof candidate.liveRowCount === "function" &&
+		typeof candidate.peekFinalizedBatch === "function" &&
+		typeof candidate.acknowledgeFinalizedBatch === "function" &&
+		typeof candidate.canRemoveBlock === "function" &&
+		typeof candidate.blockStates === "function"
 	);
 }
 
@@ -355,7 +390,7 @@ export function readArgsTarget(args: unknown): string | undefined {
 /**
  * Whether a read collapses into {@link ReadToolGroupComponent} rather than a
  * full `ToolExecutionComponent`. Stock (`readArgsCollapseIntoGroup`, OMP
- * 18.0.0): filesystem/external targets and `xd://` collapse; internal URLs
+ * 18.0.1): filesystem/external targets and `xd://` collapse; internal URLs
  * the host router can resolve (`skill://`, `agent://`, `memory://`, …)
  * render as full tool cards so resolved content stays visible.
  *
@@ -547,7 +582,7 @@ export function isLateDiagnosticsMessageComponent(
 }
 
 /**
- * Stock notice of finished background activity (OMP 18.0.0
+ * Stock notice of finished background activity (OMP 18.0.1
  * `transcript-render-helpers.ts`): a `ToolActivityContainer` wrapping exactly
  * one `TranscriptBlock` whose children are all `Text` leaves — one line per
  * reported process or job.
@@ -564,7 +599,7 @@ export function isLateDiagnosticsMessageComponent(
  * holding one content box of text leaves, so only their execution surface tells
  * them apart from a notice. Without those rejects an unbound stock tool card
  * would be mistaken for one. The rejects deliberately avoid every name in
- * {@link BLOCK_FOLD_METHODS} (`seal`, `render`, the version/settled probes):
+ * {@link BLOCK_FOLD_METHODS} (`render`, `seal`, finalize/displace probes):
  * the fold installs those on each member it owns, so a block matched once would
  * stop matching on the next render and silently fall out of the run.
  *
@@ -665,7 +700,7 @@ export class HostAdapter1731 {
 	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays
 	 * independent release metadata. See module header "Version story".
 	 */
-	static readonly hostVersion = "18.0.0";
+	static readonly hostVersion = "18.0.1";
 
 	readonly #root: unknown;
 

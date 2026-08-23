@@ -644,9 +644,9 @@ The host-supplied agent directory and the live session `Settings` object sit
 ## Compatibility and Capacity Notes
 
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
-  (`>=18.0.0`) is the public floor (release metadata — do not edit it from a
+  (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `HostAdapter1731.hostVersion` (`18.0.0`) records the
+  `HostAdapter1731.hostVersion` (`18.0.1`) records the
   **verified** critical private-surface contract the adapter was written
   against; the class name keeps the historical `1731` suffix. Comments that
   cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
@@ -654,16 +654,33 @@ The host-supplied agent directory and the live session `Settings` object sit
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.0.0.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.0.1.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.0.0 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.0.1 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
   17.2.12; their compact path still fails open to native when content
   extraction fails.
+- **What 18.0.1 changed in the transcript.** The container replaced its
+  native-scrollback live region with explicit block lifecycle states
+  (`active` → `settled` → `committed`) plus history batches the terminal
+  acknowledges. `renderViewportTail`, `isBlockUncommitted` and
+  `isBlockInLiveRegion` are gone (`renderViewport`, `canRemoveBlock`,
+  `liveRowCount`, `peekFinalizedBatch`, `acknowledgeFinalizedBatch`,
+  `blockStates` took their place), and the per-block row accounting a live
+  region needed (`getTranscriptBlockVersion`,
+  `getTranscriptBlockSettledRows`, `setNativeScrollbackCommittedRows`) has
+  no consumer left. The fold therefore replans on four render entry points
+  instead of two, a carrier's `seal` freezes its whole run (retirement is
+  batched, not row-counted), and the committed-row gate for the scrollback
+  replay reads `blockStates()` by child position. Because the critical
+  fingerprint moved, a build for 18.0.0 finds no transcript host on 18.0.1
+  and vice versa: the plugin stays fully native instead of guessing, which
+  is why the public floor tracks the pin exactly.
+
 - **Older host outcome.** Unverified or missing surfaces remain native —
   the user loses some compaction chrome, not a wrong compact row. Ordinary
   compact tools may use expanded as a native inspection escape hatch;

@@ -34,6 +34,7 @@ import {
 	type ToolState,
 } from "../../.omp-plugin/runtime-session-state";
 import type {
+	BlockState,
 	RenderableBlock,
 	TranscriptHost,
 } from "../../.omp-plugin/transcript-fold";
@@ -49,16 +50,26 @@ class FakeTranscript implements TranscriptHost {
 		return [];
 	}
 
-	renderViewportTail(): readonly string[] {
+	renderViewport(): readonly string[] {
 		return [];
 	}
 
-	isBlockUncommitted(): boolean {
-		return false;
+	liveRowCount(): number {
+		return 0;
 	}
 
-	isBlockInLiveRegion(): boolean {
-		return false;
+	peekFinalizedBatch(): undefined {
+		return undefined;
+	}
+
+	acknowledgeFinalizedBatch(): void {}
+
+	canRemoveBlock(): boolean {
+		return true;
+	}
+
+	blockStates(): readonly BlockState[] {
+		return this.children.map(() => "active" as BlockState);
 	}
 }
 

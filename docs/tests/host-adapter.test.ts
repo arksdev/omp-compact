@@ -28,6 +28,7 @@ import {
 	updateResultToolCallId,
 } from "../../.omp-plugin/host-adapter";
 import type {
+	BlockState,
 	RenderableBlock,
 	TranscriptHost,
 } from "../../.omp-plugin/transcript-fold";
@@ -51,16 +52,26 @@ class FakeTranscript implements TranscriptHost {
 		return [];
 	}
 
-	renderViewportTail(): readonly string[] {
+	renderViewport(): readonly string[] {
 		return [];
 	}
 
-	isBlockUncommitted(): boolean {
-		return false;
+	liveRowCount(): number {
+		return 0;
 	}
 
-	isBlockInLiveRegion(): boolean {
-		return false;
+	peekFinalizedBatch(): undefined {
+		return undefined;
+	}
+
+	acknowledgeFinalizedBatch(): void {}
+
+	canRemoveBlock(): boolean {
+		return true;
+	}
+
+	blockStates(): readonly BlockState[] {
+		return this.children.map(() => "active" as BlockState);
 	}
 }
 
@@ -159,8 +170,8 @@ describe("host shape guards", () => {
 				children: [],
 				addChild() {},
 				render() {},
-				renderViewportTail() {},
-				isBlockUncommitted() {},
+				renderViewport() {},
+				liveRowCount() {},
 			}),
 		).toBe(false);
 		expect(
@@ -168,9 +179,12 @@ describe("host shape guards", () => {
 				children: [],
 				addChild() {},
 				render() {},
-				renderViewportTail() {},
-				isBlockUncommitted() {},
-				isBlockInLiveRegion() {},
+				renderViewport() {},
+				liveRowCount() {},
+				peekFinalizedBatch() {},
+				acknowledgeFinalizedBatch() {},
+				canRemoveBlock() {},
+				blockStates() {},
 			}),
 		).toBe(true);
 	});
@@ -206,9 +220,12 @@ describe("host shape guards", () => {
 				c.children &&
 				c.addChild &&
 				c.render &&
-				c.renderViewportTail &&
-				c.isBlockUncommitted &&
-				c.isBlockInLiveRegion
+				c.renderViewport &&
+				c.liveRowCount &&
+				c.peekFinalizedBatch &&
+				c.acknowledgeFinalizedBatch &&
+				c.canRemoveBlock &&
+				c.blockStates
 			);
 		};
 		const toolViaRecord = (value: unknown): boolean => {
@@ -226,25 +243,31 @@ describe("host shape guards", () => {
 			children: [],
 			addChild() {},
 			render() {},
-			renderViewportTail() {},
-			isBlockUncommitted() {},
-			isBlockInLiveRegion() {},
+			renderViewport() {},
+			liveRowCount() {},
+			peekFinalizedBatch() {},
+			acknowledgeFinalizedBatch() {},
+			canRemoveBlock() {},
+			blockStates() {},
 			clear() {},
 		};
 		const partialTranscript = {
 			children: [],
 			addChild() {},
 			render() {},
-			renderViewportTail() {},
-			isBlockUncommitted() {},
+			renderViewport() {},
+			liveRowCount() {},
 		};
 		const nonArrayChildren = {
 			children: {},
 			addChild() {},
 			render() {},
-			renderViewportTail() {},
-			isBlockUncommitted() {},
-			isBlockInLiveRegion() {},
+			renderViewport() {},
+			liveRowCount() {},
+			peekFinalizedBatch() {},
+			acknowledgeFinalizedBatch() {},
+			canRemoveBlock() {},
+			blockStates() {},
 		};
 		const tool = new ToolComponent();
 		const readGroup = new ReadGroup();
@@ -767,9 +790,12 @@ describe("capability fingerprints", () => {
 			children: true,
 			addChild: true,
 			render: true,
-			renderViewportTail: true,
-			isBlockUncommitted: true,
-			isBlockInLiveRegion: true,
+			renderViewport: true,
+			liveRowCount: true,
+			peekFinalizedBatch: true,
+			acknowledgeFinalizedBatch: true,
+			canRemoveBlock: true,
+			blockStates: true,
 			clear: true,
 		});
 		expect(transcriptCapabilities(null).children).toBe(false);
@@ -807,8 +833,8 @@ describe("capability fingerprints", () => {
 		expect(leafCapabilities(undefined).render).toBe(false);
 	});
 
-	test("the host release pin targets OMP 18.0.0", () => {
-		expect(HostAdapter1731.hostVersion).toBe("18.0.0");
+	test("the host release pin targets OMP 18.0.1", () => {
+		expect(HostAdapter1731.hostVersion).toBe("18.0.1");
 	});
 });
 
@@ -1017,9 +1043,12 @@ describe("HostAdapter1731 exact-instance patching", () => {
 			children: [] as unknown[],
 			addChild: undefined,
 			render() {},
-			renderViewportTail() {},
-			isBlockUncommitted() {},
-			isBlockInLiveRegion() {},
+			renderViewport() {},
+			liveRowCount() {},
+			peekFinalizedBatch() {},
+			acknowledgeFinalizedBatch() {},
+			canRemoveBlock() {},
+			blockStates() {},
 		};
 		expect(() =>
 			host.patchAddChild(missing as unknown as TranscriptHost, () => {}),
@@ -1162,9 +1191,12 @@ describe("HostAdapter1731 exact-instance patching", () => {
 			children: [] as unknown[],
 			addChild() {},
 			render() {},
-			renderViewportTail() {},
-			isBlockUncommitted() {},
-			isBlockInLiveRegion() {},
+			renderViewport() {},
+			liveRowCount() {},
+			peekFinalizedBatch() {},
+			acknowledgeFinalizedBatch() {},
+			canRemoveBlock() {},
+			blockStates() {},
 		};
 		expect(() =>
 			host.patchClear(missing as unknown as TranscriptHost, () => {}),
@@ -1203,7 +1235,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	});
 });
 
-stockTest("stock 18.0.0 host capability canary", async () => {
+stockTest("stock 18.0.1 host capability canary", async () => {
 	const host = await loadStockHost();
 	const transcript = new host.TranscriptContainer();
 	await host.initTheme();
@@ -1245,7 +1277,7 @@ stockTest("stock 18.0.0 host capability canary", async () => {
 	expect(isBackgroundCompletionBlock(tool)).toBe(false);
 	expect(isBackgroundCompletionBlock(readGroup)).toBe(false);
 	// Version last: a pin mismatch must not blind the seam probes above.
-	expect(stockHostVersion()).toBe("18.0.0");
+	expect(stockHostVersion()).toBe("18.0.1");
 });
 
 stockTest(

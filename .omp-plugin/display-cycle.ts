@@ -46,7 +46,7 @@ export function nextDisplayCycleState(
 /**
  * COPY of `ExtensionRunner.#RESERVED_SHORTCUTS`
  * (`@oh-my-pi/pi-coding-agent/src/extensibility/extensions/runner.ts`), taken
- * from version 18.0.0 — the version this repository pins.
+ * from version 18.0.1 — the version this repository pins.
  *
  * The host field is a `static readonly #RESERVED_SHORTCUTS` private class
  * member: it cannot be imported or read at runtime, so keeping this copy is

@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+	type AnimationFrame,
+	type BlockState,
 	type FoldCallbacks,
+	type HistoryBatch,
 	type RenderableBlock,
 	TranscriptFold,
 	type TranscriptHost,
@@ -18,22 +21,14 @@ class FakeBlock implements RenderableBlock {
 		return false;
 	}
 
-	getTranscriptBlockVersion(): number {
-		return 1;
-	}
-
-	getTranscriptBlockSettledRows(): number {
-		return 0;
-	}
-
 	isDisplaceableBlock(): boolean {
 		return false;
 	}
 
 	seal(): void {}
-
-	setNativeScrollbackCommittedRows(_rows: number): void {}
 }
+
+const FRAME: AnimationFrame = { tick: 0, now: 0 };
 
 class FakeTranscript implements TranscriptHost {
 	readonly children: unknown[] = [];
@@ -58,17 +53,39 @@ class FakeTranscript implements TranscriptHost {
 		return rows;
 	}
 
-	renderViewportTail(width: number, maxRows: number): Lines {
-		return this.render(width).slice(0, maxRows);
+	renderViewport(width: number, rows: number, _frame: AnimationFrame): Lines {
+		return this.render(width).slice(0, rows);
 	}
 
-	isBlockUncommitted(_component: unknown): boolean {
-		return false;
+	liveRowCount(width: number): number {
+		return this.render(width).length;
 	}
 
-	isBlockInLiveRegion(_component: unknown): boolean {
-		return false;
+	peekFinalizedBatch(
+		_width: number,
+		_capacity: number,
+	): HistoryBatch | undefined {
+		return undefined;
 	}
+
+	acknowledgeFinalizedBatch(_id: number): void {}
+
+	canRemoveBlock(_component: unknown): boolean {
+		return true;
+	}
+
+	blockStates(): readonly BlockState[] {
+		return this.children.map(
+			(child) => this.#states.get(child) ?? ("active" as BlockState),
+		);
+	}
+
+	/** Test seam: the container owns block lifecycle in 18.0.1. */
+	setState(child: unknown, state: BlockState): void {
+		this.#states.set(child, state);
+	}
+
+	readonly #states = new Map<unknown, BlockState>();
 }
 
 function callbacks(): FoldCallbacks {
@@ -80,8 +97,6 @@ function callbacks(): FoldCallbacks {
 			typeof block.render === "function",
 		render: (_block, width, nativeRender) => nativeRender(width),
 		isFinalized: () => true,
-		settledRows: () => 0,
-		version: () => 1,
 		isTerminal: () => true,
 	};
 }
@@ -89,40 +104,41 @@ function callbacks(): FoldCallbacks {
 describe("TranscriptFold descriptor transactions", () => {
 	test("install rolls back partial host patches on a mid-patch failure", () => {
 		const transcript = new FakeTranscript();
-		const frozen = transcript.isBlockUncommitted;
-		Object.defineProperty(transcript, "isBlockUncommitted", {
+		const frozen = transcript.peekFinalizedBatch;
+		Object.defineProperty(transcript, "peekFinalizedBatch", {
 			value: frozen,
 			configurable: false,
 			writable: true,
 		});
 		const frozenDescriptor = Object.getOwnPropertyDescriptor(
 			transcript,
-			"isBlockUncommitted",
+			"peekFinalizedBatch",
 		);
 		const marker = transcript.marker;
 		const fold = new TranscriptFold(transcript, callbacks());
 		expect(() => fold.install()).toThrow();
 		// every own wrapper created before the failure is gone
 		expect(Object.hasOwn(transcript, "render")).toBe(false);
-		expect(Object.hasOwn(transcript, "renderViewportTail")).toBe(false);
+		expect(Object.hasOwn(transcript, "renderViewport")).toBe(false);
+		expect(Object.hasOwn(transcript, "liveRowCount")).toBe(false);
 		expect(transcript.render).toBe(FakeTranscript.prototype.render);
-		expect(transcript.renderViewportTail).toBe(
-			FakeTranscript.prototype.renderViewportTail,
+		expect(transcript.renderViewport).toBe(
+			FakeTranscript.prototype.renderViewport,
 		);
 		// the incompatible own property keeps its exact descriptor
 		expect(
-			Object.getOwnPropertyDescriptor(transcript, "isBlockUncommitted"),
+			Object.getOwnPropertyDescriptor(transcript, "peekFinalizedBatch"),
 		).toEqual(frozenDescriptor);
-		expect(transcript.isBlockUncommitted).toBe(frozen);
+		expect(transcript.peekFinalizedBatch).toBe(frozen);
 		// unrelated own properties and prototype methods are untouched
 		expect(transcript.marker).toBe(marker);
-		expect(transcript.isBlockInLiveRegion).toBe(
-			FakeTranscript.prototype.isBlockInLiveRegion,
+		expect(transcript.canRemoveBlock).toBe(
+			FakeTranscript.prototype.canRemoveBlock,
 		);
 		// native transcript methods still execute
 		transcript.addChild(new FakeBlock());
 		expect(transcript.render(80)).toEqual(["native-block"]);
-		expect(transcript.renderViewportTail(80, 1)).toEqual(["native-block"]);
+		expect(transcript.renderViewport(80, 1, FRAME)).toEqual(["native-block"]);
 		// cleanup of a never-installed fold is a no-op
 		expect(() => fold.dispose()).not.toThrow();
 		expect(Object.hasOwn(transcript, "render")).toBe(false);
@@ -151,7 +167,7 @@ describe("TranscriptFold descriptor transactions", () => {
 		expect(
 			Object.getOwnPropertyDescriptor(block, "isTranscriptBlockFinalized"),
 		).toEqual(frozenDescriptor);
-		expect(Object.hasOwn(block, "getTranscriptBlockVersion")).toBe(false);
+		expect(Object.hasOwn(block, "isDisplaceableBlock")).toBe(false);
 		expect(Object.hasOwn(block, "seal")).toBe(false);
 		expect(block.seal).toBe(FakeBlock.prototype.seal);
 		// the failing block still works natively
@@ -175,8 +191,9 @@ describe("TranscriptFold descriptor transactions", () => {
 		expect(Object.hasOwn(block, "render")).toBe(true);
 		fold.dispose();
 		expect(Object.hasOwn(transcript, "render")).toBe(false);
-		expect(Object.hasOwn(transcript, "renderViewportTail")).toBe(false);
-		expect(Object.hasOwn(transcript, "isBlockUncommitted")).toBe(false);
+		expect(Object.hasOwn(transcript, "renderViewport")).toBe(false);
+		expect(Object.hasOwn(transcript, "liveRowCount")).toBe(false);
+		expect(Object.hasOwn(transcript, "peekFinalizedBatch")).toBe(false);
 		expect(transcript.render).toBe(FakeTranscript.prototype.render);
 		expect(Object.hasOwn(block, "render")).toBe(false);
 		expect(Object.hasOwn(block, "isTranscriptBlockFinalized")).toBe(false);
@@ -195,8 +212,6 @@ describe("TranscriptFold descriptor transactions", () => {
 		const passthrough = (): FoldCallbacks => ({
 			...callbacks(),
 			isFinalized: (_block, nativeFinalized) => nativeFinalized?.() ?? true,
-			settledRows: (_block, nativeSettledRows) => nativeSettledRows?.() ?? 0,
-			version: (_block, nativeVersion) => nativeVersion?.() ?? 0,
 		});
 		const first = new TranscriptFold(transcript, passthrough());
 		const second = new TranscriptFold(transcript, passthrough());
@@ -220,7 +235,7 @@ describe("TranscriptFold descriptor transactions", () => {
 });
 
 describe("TranscriptFold committed-row gate (D03)", () => {
-	test("hasCommittedRows follows structured carrier declarations only", () => {
+	test("hasCommittedRows reads the container's block lifecycle", () => {
 		const transcript = new FakeTranscript();
 		const fold = new TranscriptFold(transcript, callbacks());
 		fold.install();
@@ -228,29 +243,27 @@ describe("TranscriptFold committed-row gate (D03)", () => {
 		const second = new FakeBlock();
 		transcript.addChild(first);
 		transcript.addChild(second);
-		// roles/spans form during the first planned render
+		// roles form during the first planned render
 		expect(transcript.render(80)).toEqual(["native-block", "native-block"]);
 		expect(fold.hasCommittedRows()).toBe(false);
-		// a zero declaration never reports committed rows
-		first.setNativeScrollbackCommittedRows(0);
+		// a settled carrier still lives in the mutable viewport
+		transcript.setState(first, "settled");
 		expect(fold.hasCommittedRows()).toBe(false);
-		// the carrier's native seam declaration is the structured gate
-		first.setNativeScrollbackCommittedRows(1);
+		// retirement into terminal history is the gate
+		transcript.setState(first, "committed");
 		expect(fold.hasCommittedRows()).toBe(true);
-		// declaring zero retires the committed state
-		first.setNativeScrollbackCommittedRows(0);
-		expect(fold.hasCommittedRows()).toBe(false);
-		// rendered rows alone never flip the gate (no text inspection)
+		// rendered rows alone never flip it (no text inspection)
+		transcript.setState(first, "active");
 		expect(transcript.render(80)).toEqual(["native-block", "native-block"]);
 		expect(fold.hasCommittedRows()).toBe(false);
 		// dispose retires every role, so the gate goes silent
-		first.setNativeScrollbackCommittedRows(1);
+		transcript.setState(first, "committed");
 		expect(fold.hasCommittedRows()).toBe(true);
 		fold.dispose();
 		expect(fold.hasCommittedRows()).toBe(false);
 	});
 
-	test("non-carrier declarations are ignored by the committed-row gate", () => {
+	test("only the carrier's state counts for the committed-row gate", () => {
 		const transcript = new FakeTranscript();
 		const fold = new TranscriptFold(transcript, callbacks());
 		fold.install();
@@ -259,17 +272,18 @@ describe("TranscriptFold committed-row gate (D03)", () => {
 		transcript.addChild(first);
 		transcript.addChild(second);
 		transcript.render(80);
-		// the fold ignores committed declarations on run members: only the
-		// carrier (first block of the run) owns the run's commit state
-		second.setNativeScrollbackCommittedRows(5);
+		// A run member never owns the run's commit state; the container retires
+		// the whole run through its carrier, so a member-only state (which the
+		// stock container's ordered frontier cannot even produce) is ignored.
+		transcript.setState(second, "committed");
 		expect(fold.hasCommittedRows()).toBe(false);
-		first.setNativeScrollbackCommittedRows(5);
+		transcript.setState(first, "committed");
 		expect(fold.hasCommittedRows()).toBe(true);
 		fold.dispose();
 		expect(fold.hasCommittedRows()).toBe(false);
 	});
 
-	test("a same-instance reinstall after dispose replans without stale run state", () => {
+	test("a same-instance reinstall replans and reads the live lifecycle again", () => {
 		const transcript = new FakeTranscript();
 		const fold = new TranscriptFold(transcript, callbacks());
 		fold.install();
@@ -278,43 +292,41 @@ describe("TranscriptFold committed-row gate (D03)", () => {
 		transcript.addChild(first);
 		transcript.addChild(second);
 		transcript.render(80);
-		first.setNativeScrollbackCommittedRows(2);
+		transcript.setState(first, "committed");
 		expect(fold.hasCommittedRows()).toBe(true);
 		// Session/rebuild boundary (C02 pattern): the same fold instance is
 		// detached and re-patched onto the same transcript later.
 		fold.dispose();
+		// No roles, no gate — regardless of what the container still reports.
 		expect(fold.hasCommittedRows()).toBe(false);
 		fold.install();
 		transcript.render(80);
-		// Stale run state must not survive the boundary: the replanned run
-		// starts fresh, so the gate is silent until the native seam declares
-		// committed rows again.
-		expect(fold.hasCommittedRows()).toBe(false);
-		// The fresh run honors a new declaration exactly once.
-		first.setNativeScrollbackCommittedRows(1);
+		// The replanned run reads the container, so a block that really is
+		// terminal history reports as such again.
 		expect(fold.hasCommittedRows()).toBe(true);
-		first.setNativeScrollbackCommittedRows(0);
+		transcript.setState(first, "settled");
 		expect(fold.hasCommittedRows()).toBe(false);
 		fold.dispose();
 	});
 
-	test("an idempotent no-op dispose does not leave stale run state either", () => {
+	test("an idempotent no-op dispose does not leave stale roles either", () => {
 		const transcript = new FakeTranscript();
 		const fold = new TranscriptFold(transcript, callbacks());
 		fold.install();
 		const first = new FakeBlock();
 		transcript.addChild(first);
 		transcript.render(80);
-		first.setNativeScrollbackCommittedRows(3);
+		transcript.setState(first, "committed");
 		expect(fold.hasCommittedRows()).toBe(true);
 		fold.dispose();
 		expect(fold.hasCommittedRows()).toBe(false);
 		// The second dispose is the early no-op path; it must still reset the
 		// fold-owned run state, so a later reinstall replans clean.
 		fold.dispose();
+		expect(fold.hasCommittedRows()).toBe(false);
 		fold.install();
 		transcript.render(80);
-		expect(fold.hasCommittedRows()).toBe(false);
+		expect(fold.hasCommittedRows()).toBe(true);
 		fold.dispose();
 	});
 });

@@ -732,9 +732,6 @@ export class RuntimeAdapter {
 					this.#renderBlock(block, width, nativeRender),
 				isFinalized: (block, nativeFinalized) =>
 					this.#isFinalized(block, nativeFinalized),
-				settledRows: (block, nativeSettledRows) =>
-					this.#settledRows(block, nativeSettledRows),
-				version: (block, nativeVersion) => this.#version(block, nativeVersion),
 				isTerminal: (block) => this.#isTerminal(block),
 			});
 		}
@@ -900,39 +897,6 @@ export class RuntimeAdapter {
 		if (this.#session.backgroundCompletionLedger(block)?.phase === "working")
 			return false;
 		return nativeFinalized?.() ?? true;
-	}
-
-	#settledRows(
-		block: RenderableBlock,
-		nativeSettledRows: (() => number) | undefined,
-	): number {
-		const state = this.#session.binding.componentState(block);
-		if (state?.ledger.phase === "working") return 0;
-		const group = this.#session.binding.groupState(block);
-		if (group?.ledger?.phase === "working") return 0;
-		// Same reason as in `#isFinalized`: nothing of the notice may reach
-		// scrollback before its own run settles.
-		if (this.#session.backgroundCompletionLedger(block)?.phase === "working")
-			return 0;
-		return nativeSettledRows?.() ?? 0;
-	}
-
-	#version(
-		block: RenderableBlock,
-		nativeVersion: (() => number) | undefined,
-	): number {
-		const state = this.#session.binding.componentState(block);
-		if (state) return state.version + (nativeVersion?.() ?? 0);
-		const group = this.#session.binding.groupState(block);
-		if (group) return group.version + (nativeVersion?.() ?? 0);
-		// A notice has no native version of its own, and the host may reuse a
-		// finalized block's rows without calling render again when its version
-		// did not move — the terminal filtering of the notice's run would then
-		// never reach the screen.
-		const notice = this.#session.backgroundCompletionLedger(block);
-		if (notice && notice.phase !== "working")
-			return 1 + (nativeVersion?.() ?? 0);
-		return nativeVersion?.() ?? 0;
 	}
 
 	#isTerminal(block: RenderableBlock): boolean {

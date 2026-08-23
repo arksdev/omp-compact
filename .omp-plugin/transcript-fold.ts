@@ -7,6 +7,20 @@ export interface RenderableBlock {
 	render(width: number): Lines;
 }
 
+/** Shared animation clock the 18.0.1 transcript passes to live blocks. */
+export interface AnimationFrame {
+	readonly tick: number;
+	readonly now: number;
+}
+
+/** History batch the 18.0.1 transcript offers the terminal for retirement. */
+export interface HistoryBatch {
+	readonly id: number;
+	readonly rows: readonly string[];
+}
+
+export type BlockState = "active" | "settled" | "committed";
+
 export interface TranscriptHost extends RenderableBlock {
 	children: unknown[];
 	addChild(child: unknown): void;
@@ -17,19 +31,19 @@ export interface TranscriptHost extends RenderableBlock {
 	 * when missing.
 	 */
 	clear?(): void;
-	renderViewportTail(width: number, maxRows: number): Lines;
-	isBlockUncommitted(component: unknown): boolean;
-	isBlockInLiveRegion(component: unknown): boolean;
+	renderViewport(width: number, rows: number, frame: AnimationFrame): Lines;
+	liveRowCount(width: number): number;
+	peekFinalizedBatch(width: number, capacity: number): HistoryBatch | undefined;
+	acknowledgeFinalizedBatch(id: number): void;
+	canRemoveBlock(component: unknown): boolean;
+	blockStates(): readonly BlockState[];
 }
 
 interface NativeBlockMethods {
 	render: (width: number) => Lines;
 	finalized?: () => boolean;
-	version?: () => number;
-	settledRows?: () => number;
 	displaceable?: () => boolean;
 	seal?: () => void;
-	setCommittedRows?: (rows: number) => void;
 }
 
 export interface FoldCallbacks {
@@ -43,14 +57,6 @@ export interface FoldCallbacks {
 		block: RenderableBlock,
 		nativeFinalized: (() => boolean) | undefined,
 	): boolean;
-	settledRows(
-		block: RenderableBlock,
-		nativeSettledRows: (() => number) | undefined,
-	): number;
-	version(
-		block: RenderableBlock,
-		nativeVersion: (() => number) | undefined,
-	): number;
 	isTerminal(block: RenderableBlock): boolean;
 }
 
@@ -63,9 +69,6 @@ interface FoldRun {
 	members: RenderableBlock[];
 	spans: FoldSpan[];
 	closed: boolean;
-	version: number;
-	settled: number;
-	committed: number;
 	width: number;
 	rows: Lines;
 }
@@ -86,12 +89,6 @@ const EMPTY_LINES: Lines = Object.freeze([]);
 // but duplicate module copies must still observe the same ownership key.
 const TRANSCRIPT_FOLD_OWNER = Symbol.for("omp-compact.transcript-fold.owner");
 const NON_BLANK = /\S/;
-
-function finiteRows(value: unknown): number {
-	return typeof value === "number" && Number.isFinite(value)
-		? Math.max(0, Math.trunc(value))
-		: 0;
-}
 
 function isRenderableBlock(value: unknown): value is RenderableBlock {
 	return Boolean(
@@ -141,18 +138,24 @@ export class TranscriptFold {
 	}
 
 	/**
-	 * Structured committed-row gate for the terminal scrollback
-	 * replay. Reports whether any fold-owned run has a non-zero committed
-	 * row count declared through the native
-	 * `setNativeScrollbackCommittedRows` seam (stock freezes mutable
-	 * live-region rows into native scrollback by declaring them committed).
-	 * Pure structured fold state: rendered text and ANSI/native strings are
-	 * never inspected.
+	 * Structured committed-row gate for the terminal scrollback replay.
+	 * Reports whether any fold-owned carrier already retired into terminal
+	 * history, where its rows are immutable and a later projection change
+	 * could never take them off the screen again.
+	 *
+	 * 18.0.1 keeps that lifecycle in the container: `blockStates()` runs
+	 * parallel to `children`, so a carrier's state is read by position. No
+	 * rendered text and no ANSI is inspected — pure structured state.
 	 */
 	hasCommittedRows(): boolean {
-		for (const block of this.#patches.keys()) {
-			const role = this.#roles.get(block);
-			if (role?.carrier && role.run.committed > 0) return true;
+		if (this.#patches.size === 0) return false;
+		const states = this.#transcript.blockStates();
+		const children = this.#transcript.children;
+		for (let index = 0; index < children.length; index++) {
+			if (states[index] !== "committed") continue;
+			const child = children[index];
+			if (!child || typeof child !== "object") continue;
+			if (this.#roles.get(child)?.carrier === true) return true;
 		}
 		return false;
 	}
@@ -169,8 +172,13 @@ export class TranscriptFold {
 			});
 			ownsTranscript = true;
 			const hostRender = this.#transcript.render;
-			const hostTail = this.#transcript.renderViewportTail;
-			const hostUncommitted = this.#transcript.isBlockUncommitted;
+			const hostViewport = this.#transcript.renderViewport;
+			const hostLiveRows = this.#transcript.liveRowCount;
+			const hostPeekBatch = this.#transcript.peekFinalizedBatch;
+			// Every host entry point that renders blocks replans first: a
+			// carrier answers for its whole run, so a stale plan would size the
+			// viewport (or a retiring history batch) from members that render
+			// nothing.
 			const wrappers: Record<string, PropertyDescriptor> = {
 				render: {
 					configurable: true,
@@ -180,25 +188,35 @@ export class TranscriptFold {
 						return hostRender.call(this.#transcript, width);
 					},
 				},
-				renderViewportTail: {
+				renderViewport: {
 					configurable: true,
 					writable: true,
-					value: (width: number, maxRows: number): Lines => {
+					value: (
+						width: number,
+						rows: number,
+						frame: AnimationFrame,
+					): Lines => {
 						this.#plan(width);
-						return hostTail.call(this.#transcript, width, maxRows);
+						return hostViewport.call(this.#transcript, width, rows, frame);
 					},
 				},
-				isBlockUncommitted: {
+				liveRowCount: {
 					configurable: true,
 					writable: true,
-					value: (component: unknown): boolean => {
-						const role =
-							component && typeof component === "object"
-								? this.#roles.get(component)
-								: undefined;
-						return role && !role.carrier
-							? this.#memberUncommitted(role, component)
-							: hostUncommitted.call(this.#transcript, component);
+					value: (width: number): number => {
+						this.#plan(width);
+						return hostLiveRows.call(this.#transcript, width);
+					},
+				},
+				peekFinalizedBatch: {
+					configurable: true,
+					writable: true,
+					value: (
+						width: number,
+						capacity: number,
+					): HistoryBatch | undefined => {
+						this.#plan(width);
+						return hostPeekBatch.call(this.#transcript, width, capacity);
 					},
 				},
 			};
@@ -249,14 +267,8 @@ export class TranscriptFold {
 		return {
 			render: inheritedMethod(block, "render") ?? (() => EMPTY_LINES),
 			finalized: inheritedMethod(block, "isTranscriptBlockFinalized"),
-			version: inheritedMethod(block, "getTranscriptBlockVersion"),
-			settledRows: inheritedMethod(block, "getTranscriptBlockSettledRows"),
 			displaceable: inheritedMethod(block, "isDisplaceableBlock"),
 			seal: inheritedMethod(block, "seal"),
-			setCommittedRows: inheritedMethod(
-				block,
-				"setNativeScrollbackCommittedRows",
-			),
 		};
 	}
 
@@ -270,24 +282,9 @@ export class TranscriptFold {
 		return this.#callbacks.isFinalized(block, native.finalized?.bind(block));
 	}
 
-	#blockSettledRows(block: RenderableBlock): number {
-		const native = this.#native(block);
-		return finiteRows(
-			this.#callbacks.settledRows(block, native.settledRows?.bind(block)),
-		);
-	}
-
-	#blockVersion(block: RenderableBlock): number {
-		const native = this.#native(block);
-		const value = this.#callbacks.version(block, native.version?.bind(block));
-		return typeof value === "number" && Number.isFinite(value) ? value : 0;
-	}
-
 	#renderRun(run: FoldRun, width: number): Lines {
 		const rows: string[] = [];
 		const spans: FoldSpan[] = [];
-		let settled = 0;
-		let settling = true;
 		for (const member of run.members) {
 			const raw = this.#renderBlock(member, width);
 			let lead = 0;
@@ -296,18 +293,8 @@ export class TranscriptFold {
 			while (end > lead && !NON_BLANK.test(raw[end - 1] ?? "")) end--;
 			spans.push({ lead, rows: end - lead });
 			for (let index = lead; index < end; index++) rows.push(raw[index] ?? "");
-			if (!settling) continue;
-			if (this.#blockFinalized(member)) settled += end - lead;
-			else {
-				settled += Math.max(
-					0,
-					Math.min(end - lead, this.#blockSettledRows(member) - lead),
-				);
-				settling = false;
-			}
 		}
 		run.spans = spans;
-		run.settled = settled;
 		if (
 			run.width === width &&
 			run.rows.length === rows.length &&
@@ -354,28 +341,6 @@ export class TranscriptFold {
 					);
 				},
 			},
-			getTranscriptBlockVersion: {
-				configurable: true,
-				writable: true,
-				value(this: RenderableBlock): number {
-					const role = fold.#roles.get(this);
-					if (!role?.carrier) return fold.#blockVersion(this);
-					let version = role.run.version;
-					for (const member of role.run.members)
-						version += fold.#blockVersion(member);
-					return version;
-				},
-			},
-			getTranscriptBlockSettledRows: {
-				configurable: true,
-				writable: true,
-				value(this: RenderableBlock): number {
-					const role = fold.#roles.get(this);
-					return role?.carrier
-						? role.run.settled
-						: fold.#blockSettledRows(this);
-				},
-			},
 			isDisplaceableBlock: {
 				configurable: true,
 				writable: true,
@@ -397,46 +362,11 @@ export class TranscriptFold {
 						native.seal?.call(this);
 						return;
 					}
-					let offset = 0;
-					for (let index = 0; index < role.run.members.length; index++) {
-						const member = role.run.members[index];
-						if (!member) continue;
-						const rows = role.run.spans[index]?.rows ?? 0;
-						if (rows > 0 && offset + rows <= role.run.committed)
-							fold.#native(member).seal?.call(member);
-						offset += rows;
-					}
-				},
-			},
-			setNativeScrollbackCommittedRows: {
-				configurable: true,
-				writable: true,
-				value(this: RenderableBlock, rows: number): void {
-					const role = fold.#roles.get(this);
-					if (!role) {
-						native.setCommittedRows?.call(this, rows);
-						return;
-					}
-					if (!role.carrier) return;
-					role.run.committed = finiteRows(rows);
-					let offset = 0;
-					for (let index = 0; index < role.run.members.length; index++) {
-						const member = role.run.members[index];
-						if (!member) continue;
-						const span = role.run.spans[index];
-						const total = span?.rows ?? 0;
-						const committed = Math.max(
-							0,
-							Math.min(total, role.run.committed - offset),
-						);
-						fold
-							.#native(member)
-							.setCommittedRows?.call(
-								member,
-								committed > 0 ? (span?.lead ?? 0) + committed : 0,
-							);
-						offset += total;
-					}
+					// A carrier speaks for the whole run: the container retires
+					// every member of it in one history batch, so freezing the
+					// carrier freezes them all.
+					for (const member of role.run.members)
+						fold.#native(member).seal?.call(member);
 				},
 			},
 		};
@@ -507,16 +437,12 @@ export class TranscriptFold {
 					members: children.slice(index, end + 1) as RenderableBlock[],
 					spans: [],
 					closed: false,
-					version: 1,
-					settled: 0,
-					committed: 0,
 					width: -1,
 					rows: EMPTY_LINES,
 				};
 				this.#runs.set(carrier, run);
 			} else if (!this.#sameMembers(run.members, children, index, end)) {
 				run.members = children.slice(index, end + 1) as RenderableBlock[];
-				run.version++;
 				run.width = -1;
 			}
 			run.closed = end < children.length - 1;
@@ -531,16 +457,5 @@ export class TranscriptFold {
 		}
 		for (const block of [...this.#patches.keys()])
 			if (!planned.has(block)) this.#restoreBlock(block);
-	}
-
-	#memberUncommitted(role: FoldRole, component: unknown): boolean {
-		let offset = 0;
-		for (let index = 0; index < role.run.members.length; index++) {
-			const rows = role.run.spans[index]?.rows ?? 0;
-			if (role.run.members[index] === component)
-				return rows === 0 || offset >= role.run.committed;
-			offset += rows;
-		}
-		return true;
 	}
 }

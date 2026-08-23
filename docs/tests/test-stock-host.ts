@@ -14,8 +14,9 @@
  * so the test boundary is the same API the plugin adapts, not a hand-copied
  * subset: `ToolExecutionComponent`'s ctor takes an optional `toolCallId`,
  * `ReadToolGroupComponent` exposes `setExpanded`/`setArgsComplete`, and
- * `TranscriptContainer` exposes `clear`/`isBlockUncommitted`/
- * `renderViewportTail` plus container-owned tool-activity forwarding.
+ * `TranscriptContainer` exposes `clear`, the viewport render, live row
+ * count, history batches and block lifecycle states plus container-owned
+ * tool-activity forwarding.
  *
  * Test scaffolding only — no production code is imported at module load.
  */
@@ -42,7 +43,6 @@ export interface ToolExecutionInstance extends Renderable {
 	setToolActivityVisible(visible: boolean): void;
 	seal(): void;
 	isTranscriptBlockFinalized(): boolean;
-	getTranscriptBlockSettledRows(): number;
 }
 
 export interface ReadGroupInstance extends Renderable {
@@ -71,9 +71,19 @@ export interface TranscriptInstance extends Renderable {
 	 * Optional capability: hosts check presence before patching (see
 	 * host-adapter's capability guard), and seam transcripts may lack it.
 	 */
-	isBlockUncommitted?(component: unknown): boolean;
-	isBlockInLiveRegion(component: unknown): boolean;
-	renderViewportTail(width: number, maxRows: number): readonly string[];
+	canRemoveBlock?(component: unknown): boolean;
+	renderViewport(
+		width: number,
+		rows: number,
+		frame: { tick: number; now: number },
+	): readonly string[];
+	liveRowCount(width: number): number;
+	peekFinalizedBatch(
+		width: number,
+		capacity: number,
+	): { id: number; rows: readonly string[] } | undefined;
+	acknowledgeFinalizedBatch(id: number): void;
+	blockStates(): readonly ("active" | "settled" | "committed")[];
 }
 
 export interface ToolExecutionComponentOptions {

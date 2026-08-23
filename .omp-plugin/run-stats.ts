@@ -121,8 +121,8 @@ export function hasAssistantUsage(message: unknown): boolean {
  *
  * Discriminators follow the host's assistant persistence identity in
  * `@oh-my-pi/pi-coding-agent` `session/turn-persistence.ts`
- * `sessionMessagePersistenceKey` (18.0.0; identical AssistantMessage shape,
- * safe for `engines.omp >= 18.0.0`):
+ * `sessionMessagePersistenceKey` (18.0.1; identical AssistantMessage shape,
+ * safe for `engines.omp >= 18.0.1`):
  * timestamp + provider + model + responseId + stopReason. The host doc calls
  * those "precisely the fields that uniquely identify a single logical message
  * instance", with responseId canonical when present and the rest disambiguating
