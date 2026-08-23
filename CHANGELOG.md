@@ -13,6 +13,7 @@
 - После того как контекст автоматически встряхивался, завершённые чтения перестали скрываться и разворачивались обратно в полные карточки. Теперь после встряски вид законченного хода остаётся таким же, каким он был до неё.
 - При возвращении в сохранённую сессию история снова показывается компактно. Раньше восстановленные чтения разворачивались в полные карточки, если агент размышлял или отвечал между двумя чтениями одного хода, — а так бывает почти всегда.
 - Сообщения о завершении фоновых процессов и заданий больше не разрывают компактный лог пустыми строками сверху и снизу: такая строка встаёт вплотную к соседним и уходит вместе с остальной рутиной, когда шаг закончен.
+- Возобновление сессии больше не показывает рутину ходов, которые уже закончились ответом. Раньше восстановленная история всегда разворачивалась полным журналом, даже если выбран вид, где такая рутина убирается: на экране оставались чтения, поиски и команды из ходов, ответ на которые был получен давно. Теперь восстановленная история выглядит так же, как сразу после ответа в выбранном виде — с проверенными изменениями файлов, Git summary и статистикой, но без рутины. В спокойном виде она такая же спокойная, как живая работа в нём, а полный журнал остаётся у тех, кто его и выбрал.
 
 ### Добавлено
 
@@ -233,6 +234,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 - After the context was shaken automatically, completed reads stopped hiding and expanded back into full cards. A finished turn now looks the same after a shake as it did before it.
 - Returning to a saved session shows its history compact again. Restored reads previously expanded into full cards whenever the agent thought or answered between two reads of the same turn — which is almost always.
 - Notices about finished background processes and jobs no longer tear the compact log apart with blank lines above and below: such a row now sits flush against its neighbours and leaves together with the rest of the routine once the step is done.
+- Resuming a session no longer shows the routine of turns that already ended with an answer. Restored history used to expand into a complete log even when the chosen view removes such routine: reads, searches and commands from long-answered turns stayed on screen. Restored history now looks the way it does right after an answer in the chosen view — verified file changes, the commit summary and statistics stay, the routine goes.
 
 ### Added
 

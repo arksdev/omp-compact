@@ -1349,6 +1349,66 @@ describe("RuntimeSessionState: hydrateBranch", () => {
 		expect(session.state("hist-1")).toBeUndefined();
 		expect(session.state("live-1")).toBeDefined();
 	});
+
+	test("a restored turn that answered in text keeps the phase of the selected mode", async () => {
+		// The restore override used to impose `compact`, and TurnLedger's
+		// compact branch turns any terminal verdict into the `full` phase —
+		// the complete log — so every resumed turn came back against the
+		// selected mode. The override now snapshots the settings verbatim:
+		// only `compact` keeps the full log, `live` and `clear` filter.
+		const branch: readonly unknown[] = [
+			{ type: "message", message: { role: "user", content: [] } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "restored-read",
+							name: "read",
+							arguments: { path: "src/a.ts" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "restored-read",
+					toolName: "read",
+					content: [],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("restored done") },
+		];
+		for (const [mode, phase] of [
+			["live", "filtered"],
+			["compact", "full"],
+			["clear", "filtered"],
+		] as const) {
+			const policy = new ModePolicy(
+				fakeModeStore({ ...DEFAULT_SETTINGS, mode, enabled: true }),
+			);
+			policy.prime();
+			await policy.ready();
+			policy.armRestoreOverride();
+			expect(policy.restoreOverride?.mode).toBe(mode);
+			const session = new RuntimeSessionState({
+				placeStatsCarrier: insertTranscriptChildAt,
+				modePolicy: policy,
+			});
+			expect(session.hydrateBranch(branch)).toBe(true);
+			const state = session.state("restored-read");
+			expect(state).toBeDefined();
+			if (!state) throw new Error("expected the hydrated read state");
+			expect(session.modeFor(state.ledger).mode).toBe(mode);
+			expect(state.ledger.phase).toBe(phase);
+		}
+	});
 });
 
 describe("RuntimeSessionState: rebuild lifecycle", () => {

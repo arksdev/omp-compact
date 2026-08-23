@@ -3317,7 +3317,7 @@ stockTest(
 );
 
 stockTest(
-	"process restore reconstructs compact mutation and Git presentation under live persisted settings",
+	"process restore keeps the compact mutation and drops routine Git rows under live persisted settings",
 	async () => {
 		let transcript: TranscriptInstance | undefined;
 		const branch = [
@@ -3459,21 +3459,21 @@ stockTest(
 		);
 		if (!transcript) throw new Error("transcript missing");
 		const rows = visibleRows(transcript).join("\n");
-		// entering the existing session forces compact on the restored
-		// history: the routine bash row, the non-commit Git row and the
-		// write mutation all survive (persisted mode stays live)
-		expect(rows).toContain("git status");
-		expect(rows).not.toContain("git commit:");
+		// The restored turn answered in text, so the live restore keeps exactly
+		// what a finished live run keeps: the verified mutation, and neither the
+		// routine bash row nor the non-commit Git row.
 		expect(rows).toContain("write: resume.ts");
 		expect(rows).toContain("+2|1");
 		expect(rows).toContain("done");
-		expect(rows).toContain("printf routine");
+		expect(rows).not.toContain("git status");
+		expect(rows).not.toContain("git commit:");
+		expect(rows).not.toContain("printf routine");
 		await shutdown(booted);
 	},
 );
 
 stockTest(
-	"process restore keeps routine grouped reads visible with retained compact rows",
+	"process restore filters routine grouped reads and keeps the commit as the retained summary under live",
 	async () => {
 		let transcript: TranscriptInstance | undefined;
 		const branch = [
@@ -3570,13 +3570,14 @@ stockTest(
 		);
 		if (!transcript) throw new Error("transcript missing");
 		const rows = visibleRows(transcript).join("\n");
-		// entering the existing session forces compact on the restored
-		// history: the commit row and the routine read row both survive as
-		// individual compact rows (persisted mode stays live)
-		expect(rows).toContain("git commit abc1234 Fix replay");
-		expect(rows).not.toContain("git commit: abc1234");
+		// The restored turn answered in text, so the live restore presents it
+		// exactly like a finished live run: the routine read is gone, the
+		// commit survives as the retained aggregate summary rather than its
+		// individual row, and nothing falls back to a native read card.
+		expect(rows).toContain("git commit: abc1234");
+		expect(rows).not.toContain("git commit abc1234 Fix replay");
 		expect(rows).toContain("done");
-		expect(rows).toContain("src/replay.ts");
+		expect(rows).not.toContain("src/replay.ts");
 		expect(rows).not.toContain("Read src");
 		await shutdown(booted);
 	},
@@ -3640,7 +3641,9 @@ stockTest(
 			{ type: "message", message: assistant("done") },
 		];
 		harness.branch.current = branch;
-		const booted = await bootForRebuild("live", harness);
+		// the compact mode keeps every restored row printed, so an inflated
+		// unboundComponents count still shows up as an empty rebuild here
+		const booted = await bootForRebuild("compact", harness);
 		// Stock renderInitialMessages swap: clear + re-add reconstructed cards.
 		booted.transcript.clear();
 		const bash = addToolComponent(
@@ -4709,12 +4712,14 @@ stockTest(
 			},
 			"/tmp",
 			branch,
+			false,
+			{ mode: "compact" },
 		);
 		if (!transcript) throw new Error("transcript missing");
 		const rows = visibleRows(transcript).join("\n");
-		// entering the existing session forces compact on the restored
-		// history: the compound call keeps its individual records instead of
-		// the filtered aggregate summary
+		// the compact mode keeps the restored history a complete log, so the
+		// compound call shows its individual records instead of the filtered
+		// aggregate summary
 		expect(rows).not.toContain("git commit: abc1234");
 		expect(rows).toContain("git add src/a.ts");
 		expect(rows).toContain("git commit abc1234 Add a");
@@ -8394,7 +8399,7 @@ stockTest(
 );
 
 stockTest(
-	"process restore presents the historical transcript in compact view under live persisted settings",
+	"process restore filters the historical transcript under live persisted settings",
 	async () => {
 		const harness = rebuildHarness();
 		harness.branch.current = committedSingleToolBranch(
@@ -8427,20 +8432,153 @@ stockTest(
 			reply.addChild({ render: () => ["restored done"] });
 			transcript.addChild(reply);
 		});
-		// entering the existing session armed the one-shot restore override:
-		// the routine bash row is retained (compact) even though the
-		// persisted mode stays live
+		// entering the existing session armed the one-shot restore override,
+		// which snapshots the persisted live mode: the restored turn answered
+		// in text, so its routine row is filtered exactly as it would be
+		// right after that answer. An unbound surface would leak the stock
+		// card (it prints the command), so absence also proves the binding.
 		expect(booted.harness.resetCalls).toBe(1);
 		expect(booted.harness.clears).toBe(0);
 		const rows = visibleRows(booted.transcript).join("\n");
-		expect(rows).toContain("bash: printf routine");
+		expect(rows).not.toContain("printf routine");
 		expect(rows).toContain("restored done");
 		await shutdown(booted);
 	},
 );
 
 stockTest(
-	"the live run after a process restore keeps the persisted live mode while restored history stays compact",
+	"a restored turn that answered in text follows the selected mode: live keeps only its mutation, compact keeps the whole log, clear keeps neither",
+	async () => {
+		// Restore used to impose the complete log: TurnLedger's compact branch
+		// turns any terminal verdict into the `full` phase, so a resumed
+		// session showed the routine of turns that had already answered no
+		// matter which mode the user picked. The restore snapshot now carries
+		// the settings verbatim, so the restored turn presents exactly like it
+		// did right after its answer: `live` keeps the verified mutation and
+		// drops the read, `compact` keeps the whole log, `clear` keeps the
+		// answer alone. Native renderers are marked, so an unbound surface
+		// stays observable in every mode.
+		const branch: readonly unknown[] = [
+			{
+				type: "message",
+				message: { role: "user", content: [{ type: "text", text: "work" }] },
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "read-a",
+					toolName: "read",
+					args: { path: "src/a.ts" },
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "read-a",
+					toolName: "read",
+					content: [{ type: "text", text: "a" }],
+					isError: false,
+				},
+			},
+			{
+				type: "custom",
+				customType: "tool_execution_start",
+				data: {
+					toolCallId: "write-1",
+					toolName: "write",
+					args: { path: "resume.ts", content: "new" },
+				},
+			},
+			{
+				type: "custom",
+				customType: "omp-compact-write",
+				data: {
+					version: 1,
+					toolCallId: "write-1",
+					toolName: "write",
+					path: "resume.ts",
+					added: 2,
+					removed: 1,
+					exact: true,
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "write-1",
+					toolName: "write",
+					content: [{ type: "text", text: "ok" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("restored done") },
+		];
+		for (const mode of ["live", "compact", "clear"] as const) {
+			const harness = rebuildHarness();
+			harness.branch.current = branch;
+			const booted = await bootForRebuild(mode, harness);
+			const group = new booted.host.ReadToolGroupComponent();
+			group.render = () => ["native read rows"];
+			group.updateArgs({ path: "src/a.ts" }, "read-a");
+			group.updateResult(
+				{ content: [{ type: "text", text: "a" }], details: {} },
+				false,
+				"read-a",
+			);
+			const call = new booted.host.ToolExecutionComponent(
+				"write",
+				{ path: "resume.ts", content: "new" },
+				{ showImages: false, useBuiltInRenderer: true },
+				fakeTool("write"),
+				toolUi(),
+				booted.context.cwd,
+				"write-1",
+			);
+			call.render = () => ["native write card"];
+			call.updateResult(
+				{ content: [{ type: "text", text: "ok" }], details: {} },
+				false,
+				"write-1",
+			);
+			const reply = new booted.ContainerBase();
+			reply.addChild({ render: () => ["restored done"] });
+			booted.transcript.clear();
+			booted.transcript.addChild(group);
+			booted.transcript.addChild(call);
+			booted.transcript.addChild(reply);
+			await flushMicrotasks();
+			const rows = visibleRows(booted.transcript).join("\n");
+			expect(rows).toContain("restored done");
+			expect(rows).not.toContain("native read rows");
+			expect(rows).not.toContain("native write card");
+			if (mode === "compact") {
+				expect(rows).toContain("• read src/a.ts");
+				expect(rows).toContain("write: resume.ts");
+				expect(rows).toContain("+2|1");
+			} else {
+				// the routine read of an answered turn is gone under live and
+				// clear alike
+				expect(rows).not.toContain("src/a.ts");
+			}
+			if (mode === "live") {
+				expect(rows).toContain("write: resume.ts");
+				expect(rows).toContain("+2|1");
+			}
+			if (mode === "clear") {
+				// clear hides every ordinary tool row, the verified mutation
+				// included; the answer (and, when enabled, stats) is the view
+				expect(rows).not.toContain("write: resume.ts");
+			}
+			await shutdown(booted);
+		}
+	},
+);
+
+stockTest(
+	"the live run after a process restore keeps the persisted live mode and the restored history filtered",
 	async () => {
 		const harness = rebuildHarness();
 		harness.branch.current = committedSingleToolBranch(
@@ -8471,9 +8609,10 @@ stockTest(
 			reply.addChild({ render: () => ["restored done"] });
 			transcript.addChild(reply);
 		});
-		// the restored history froze compact…
-		expect(visibleRows(booted.transcript).join("\n")).toContain(
-			"bash: printf routine",
+		// the restored history froze under the persisted live mode: the turn
+		// answered in text, so its routine row is filtered…
+		expect(visibleRows(booted.transcript).join("\n")).not.toContain(
+			"printf routine",
 		);
 		// …and the next live run re-arms the persisted live policy
 		await beginRun(booted);
@@ -8492,7 +8631,7 @@ stockTest(
 		addAnswer(booted, "next done");
 		await finishRun(booted, "next done");
 		const rows = visibleRows(booted.transcript).join("\n");
-		expect(rows).toContain("bash: printf routine");
+		expect(rows).not.toContain("printf routine");
 		expect(rows).toContain("next done");
 		expect(rows).not.toContain("printf next");
 		await shutdown(booted);
@@ -8500,7 +8639,7 @@ stockTest(
 );
 
 stockTest(
-	"in-process /resume re-applies compact view to the restored transcript and the next live run keeps the persisted mode",
+	"in-process /resume filters the restored transcript and the next live run keeps the persisted mode",
 	async () => {
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("live", harness);
@@ -8531,7 +8670,9 @@ stockTest(
 		addAnswer(booted, "first done");
 		await flushMicrotasks();
 		const rows = visibleRows(booted.transcript).join("\n");
-		expect(rows).toContain("bash: printf first");
+		// the restored turn answered in text, so live filters its routine row;
+		// an unbound surface would leak the stock card with the command
+		expect(rows).not.toContain("printf first");
 		expect(rows).toContain("first done");
 		// exactly one full replay for the resumed generation
 		expect(booted.harness.resetCalls).toBe(1);
@@ -8552,14 +8693,14 @@ stockTest(
 		addAnswer(booted, "next done");
 		await finishRun(booted, "next done");
 		const live = visibleRows(booted.transcript).join("\n");
-		expect(live).toContain("bash: printf first");
+		expect(live).not.toContain("printf first");
 		expect(live).not.toContain("printf next");
 		await shutdown(booted);
 	},
 );
 
 stockTest(
-	"in-process /resume rebuild through disposeChildren keeps the restored history compact",
+	"in-process /resume rebuild through disposeChildren keeps the restored history plugin-owned and filtered",
 	async () => {
 		// Stock `renderInitialMessages` without `preserveExistingChat` swaps
 		// the staged transcript in via `visibleChatContainer.disposeChildren()`
@@ -8567,8 +8708,8 @@ stockTest(
 		// (`ctx.switchSession`, `/resume` picker, tree navigation, reload)
 		// takes that branch. The disposeChildren path internally calls the
 		// container's `clear`, so the C02 rebuild boundary must still fire and
-		// the re-added instances must bind compact under the armed restore
-		// override — never fall through to native rows.
+		// the re-added instances must bind under the armed restore override —
+		// never fall through to native rows.
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("live", harness);
 		// a brand-new session hydrates nothing and replays nothing
@@ -8600,9 +8741,10 @@ stockTest(
 		addAnswer(booted, "first done");
 		await flushMicrotasks();
 		const rows = visibleRows(booted.transcript).join("\n");
-		// the restored history binds compact under the armed override —
-		// native rows would leak if the boundary never fired
-		expect(rows).toContain("bash: printf first");
+		// the restored history binds under the armed override: live filters the
+		// routine row of the answered turn, and an unbound surface would leak
+		// the stock card, which prints the command
+		expect(rows).not.toContain("printf first");
 		expect(rows).toContain("first done");
 		// exactly one full replay for the resumed generation
 		expect(booted.harness.resetCalls).toBe(1);
@@ -8611,15 +8753,17 @@ stockTest(
 );
 
 stockTest(
-	"in-process /tree rebuild through disposeChildren keeps the navigated history compact",
+	"in-process /tree rebuild through disposeChildren keeps the navigated history plugin-owned and filtered",
 	async () => {
 		// Stock `/tree` commits the leaf, emits `session_tree`, then
 		// `renderInitialMessages` swaps the transcript via disposeChildren
 		// (ui-helpers.ts) — same rebuild surface as in-process /resume, but
 		// WITHOUT session_before_switch/session_switch. The default live mode
 		// plus display.collapseCompacted tail means the rebuild must arm the
-		// restore compact override (and suffix alignment) before clear, or
-		// the visible history falls through to native tool cards.
+		// restore override (and suffix alignment) before clear, or the visible
+		// history falls through to native tool cards. Bound history under live
+		// is filtered, so the marked native fallback staying off screen is
+		// what proves the arming.
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("live", harness);
 		expect(booted.harness.resetCalls).toBe(0);
@@ -8653,7 +8797,7 @@ stockTest(
 		addAnswer(booted, "new done");
 		await flushMicrotasks();
 		const rows = visibleRows(booted.transcript).join("\n");
-		expect(rows).toContain("bash: printf new");
+		expect(rows).not.toContain("printf new");
 		expect(rows).toContain("new done");
 		expect(rows).not.toContain("native-fallback");
 		expect(booted.harness.resetCalls).toBe(1);
@@ -8674,14 +8818,14 @@ stockTest(
 		addAnswer(booted, "next done");
 		await finishRun(booted, "next done");
 		const live = visibleRows(booted.transcript).join("\n");
-		expect(live).toContain("bash: printf new");
+		expect(live).not.toContain("printf new");
 		expect(live).not.toContain("printf next");
 		await shutdown(booted);
 	},
 );
 
 stockTest(
-	"in-process /branch rebuild through disposeChildren keeps the branched history compact",
+	"in-process /branch rebuild through disposeChildren keeps the branched history plugin-owned and filtered",
 	async () => {
 		// Stock `/branch` commits the new session file, emits `session_branch`,
 		// then callers (`selector-controller` / `extension-ui-controller`) run
@@ -8689,9 +8833,11 @@ stockTest(
 		// (ui-helpers.ts) — same rebuild surface as `/tree` and in-process
 		// `/resume`, but WITHOUT session_before_switch/session_switch and WITHOUT
 		// session_tree. The default live mode plus display.collapseCompacted
-		// tail means the rebuild must arm the restore compact override (and
-		// suffix alignment) before clear, or the visible history falls through
-		// to native tool cards.
+		// tail means the rebuild must arm the restore override (and suffix
+		// alignment) before clear, or the visible history falls through to
+		// native tool cards.
+		// Bound history under live is filtered, so the marked native fallback
+		// staying off screen is what proves the arming.
 		const harness = rebuildHarness();
 		const booted = await bootForRebuild("live", harness);
 		expect(booted.harness.resetCalls).toBe(0);
@@ -8724,7 +8870,7 @@ stockTest(
 		addAnswer(booted, "new done");
 		await flushMicrotasks();
 		const rows = visibleRows(booted.transcript).join("\n");
-		expect(rows).toContain("bash: printf new");
+		expect(rows).not.toContain("printf new");
 		expect(rows).toContain("new done");
 		expect(rows).not.toContain("native-fallback");
 		expect(booted.harness.resetCalls).toBe(1);
@@ -8745,14 +8891,14 @@ stockTest(
 		addAnswer(booted, "next done");
 		await finishRun(booted, "next done");
 		const live = visibleRows(booted.transcript).join("\n");
-		expect(live).toContain("bash: printf new");
+		expect(live).not.toContain("printf new");
 		expect(live).not.toContain("printf next");
 		await shutdown(booted);
 	},
 );
 
 stockTest(
-	"cold launch of a collapsed-history session binds the visible tool tail compact",
+	"cold launch of a collapsed-history session binds the visible tool tail",
 	async () => {
 		// Real-world cold restart of a long-lived session: the branch
 		// carries many committed tool calls, but stock collapses the
@@ -8784,9 +8930,10 @@ stockTest(
 		);
 		await flushMicrotasks();
 		const rows = visibleRows(booted.transcript).join("\n");
-		// the visible tail binds compact (suffix-aligned to the newest
-		// state), not the native fallback
-		expect(rows).toContain("bash: printf new");
+		// the visible tail binds (suffix-aligned to the newest state), so the
+		// live restore filters its routine row instead of leaving the native
+		// fallback on screen
+		expect(rows).not.toContain("printf new");
 		expect(rows).not.toContain("native-fallback");
 		await shutdown(booted);
 	},
@@ -8853,7 +9000,10 @@ stockTest(
 			},
 			{ type: "message", message: assistant("done") },
 		];
-		const booted = await bootForRebuild("live", harness);
+		// the compact mode keeps the paired row printed: the restore snapshot
+		// follows the settings, and `src/last.ts` rather than `src/first.ts` is
+		// what proves the trailing ledger won the suffix pairing
+		const booted = await bootForRebuild("compact", harness);
 		booted.transcript.clear();
 		const group = new booted.host.ReadToolGroupComponent();
 		booted.transcript.addChild(group);
@@ -8943,9 +9093,9 @@ stockTest(
 			},
 			{ type: "message", message: assistant("restored done") },
 		];
-		// live persisted mode: only the armed restore override can make the
-		// historical rows compact
-		const booted = await bootForRebuild("live", harness);
+		// compact persisted mode: the restore snapshot follows the settings, so
+		// the full log is what keeps every staged row observable here
+		const booted = await bootForRebuild("compact", harness);
 		// stock builds the historical blocks detached from the patched
 		// container, so they are constructed and populated first…
 		const group = new booted.host.ReadToolGroupComponent();
@@ -8988,8 +9138,8 @@ stockTest(
 		await flushMicrotasks();
 		const rows = visibleRows(booted.transcript).join("\n");
 		expect(rows).toContain("restored done");
-		// the restored history is compact: read rows folded into the group's
-		// compact lines and the routine bash row present as a compact row
+		// the staged history bound: read rows folded into the group's compact
+		// lines and the routine bash row present as a compact row
 		expect(rows).toContain("• read src/a.ts");
 		expect(rows).toContain("• read src/b.ts");
 		expect(rows).toContain("bash: printf routine");
@@ -9070,7 +9220,10 @@ stockTest(
 			},
 			{ type: "message", message: assistant("restored done") },
 		];
-		const booted = await bootForRebuild("live", harness);
+		// The fixture picks the compact mode: the restore snapshot follows the
+		// settings, so under live these paired rows would be filtered away and
+		// the paths are what prove each read reached its own group.
+		const booted = await bootForRebuild("compact", harness);
 		// two stock groups: the thinking block between the reads closed the
 		// first run
 		const first = new booted.host.ReadToolGroupComponent();
@@ -9141,7 +9294,7 @@ stockTest(
 );
 
 stockTest(
-	"fork and handoff session switches do not force compact on the transcript",
+	"fork and handoff session switches do not arm the restore view on the transcript",
 	async () => {
 		for (const reason of ["fork", "handoff"]) {
 			const harness = rebuildHarness();
@@ -9395,12 +9548,14 @@ stockTest(
 stockTest(
 	"tree rebuild presents interleaved reads compact under the restore override",
 	async () => {
-		// Committed `/tree` arms restoreOverride (compact) before the
-		// disposeChildren/clear rebuild. Interleaved read segments still
-		// pair correctly; historical rows render compact, not native and
-		// not live-filtered away.
+		// Committed `/tree` arms restoreOverride before the
+		// disposeChildren/clear rebuild. Interleaved read segments still pair
+		// correctly across the boundary. The fixture picks the compact mode
+		// because the restore snapshot follows the settings now: under live a
+		// correctly paired row of an answered turn is filtered away, and the
+		// paths are what prove each segment reached its own group.
 		const harness = rebuildHarness();
-		const booted = await bootForRebuild("live", harness);
+		const booted = await bootForRebuild("compact", harness);
 		const answer = "tree read done";
 		harness.branch.current = interleavedGroupedReadBranch(answer);
 		await dispatch(booted, {

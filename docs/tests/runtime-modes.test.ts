@@ -959,14 +959,18 @@ describe("runtime modes", () => {
 });
 
 describe("restore override (upgrade2 item 3)", () => {
-	test("armRestoreOverride arms a one-shot compact snapshot cleared by prepareRun", async () => {
+	test("armRestoreOverride arms a one-shot snapshot of the selected mode cleared by prepareRun", async () => {
 		const store = fakeStore(settings({ mode: "live", enabled: true }));
 		const policy = new modePolicyModule.ModePolicy(store);
 		policy.prime();
 		await policy.prepareRun();
 		policy.armRestoreOverride();
+		// The restored history follows the user's own mode. An imposed
+		// `compact` reached TurnLedger.finalize, whose compact branch pins
+		// every finalized run to the `full` phase, so a resumed session used
+		// to present history as a complete log against the selected mode.
 		expect(policy.restoreOverride).toEqual({
-			mode: "compact",
+			mode: "live",
 			enabled: true,
 			retainGitLive: true,
 			compactVibeRows: true,
@@ -976,6 +980,29 @@ describe("restore override (upgrade2 item 3)", () => {
 		// the override is one-shot: the next run boundary clears it
 		await policy.prepareRun();
 		expect(policy.restoreOverride).toBeUndefined();
+	});
+
+	test("armRestoreOverride snapshots compact and clear exactly as selected", async () => {
+		const compactStore = fakeStore(
+			settings({ mode: "compact", enabled: true }),
+		);
+		const compactPolicy = new modePolicyModule.ModePolicy(compactStore);
+		compactPolicy.prime();
+		await compactPolicy.ready();
+		compactPolicy.armRestoreOverride();
+		expect(compactPolicy.restoreOverride?.mode).toBe("compact");
+		// No mode substitution for any of the three values: `clear` keeps the
+		// quiet view the user picked (the answer and, when enabled, the stats
+		// line; every ordinary tool row hidden) instead of a complete log.
+		const clearStore = fakeStore(settings({ mode: "clear", enabled: true }));
+		const clearPolicy = new modePolicyModule.ModePolicy(clearStore);
+		clearPolicy.prime();
+		await clearPolicy.ready();
+		clearPolicy.armRestoreOverride();
+		expect(clearPolicy.restoreOverride?.mode).toBe("clear");
+		// neither persisted mode is modified
+		expect((await compactStore.load()).mode).toBe("compact");
+		expect((await clearStore.load()).mode).toBe("clear");
 	});
 
 	test("armRestoreOverride is a no-op while the runtime is disabled", async () => {
@@ -998,13 +1025,13 @@ describe("restore override (upgrade2 item 3)", () => {
 		expect(policy.restoreOverride).toBeUndefined();
 	});
 
-	test("resume hydration renders compact under the armed override; the next run keeps the persisted live mode", async () => {
+	test("resume hydration filters the restored routine under live; the next run keeps the persisted live mode", async () => {
 		const store = fakeStore(settings({ mode: "live", enabled: true }));
 		const policy = new modePolicyModule.ModePolicy(store);
 		policy.prime();
 		await policy.ready();
 		// stock entry into an existing session: no run boundary yet, so the
-		// override outranks the (still unresolved) persisted live mode
+		// restore snapshot carries the persisted live mode
 		policy.armRestoreOverride();
 		const finalized: string[] = [];
 		const transcript = fakeTranscript();
@@ -1070,7 +1097,9 @@ describe("restore override (upgrade2 item 3)", () => {
 			renders,
 			warned: [],
 		}).join("\n");
-		expect(restoredRows).toContain("bash: printf replay");
+		// live filters the routine row of a restored turn that answered in
+		// text; the block is plugin-owned, so the stock card never leaks
+		expect(restoredRows).not.toContain("printf replay");
 		expect(restoredRows).not.toContain("native-bash");
 		// the persisted mode is untouched by the restore entry
 		expect((await store.load()).mode).toBe("live");
@@ -1099,21 +1128,21 @@ describe("restore override (upgrade2 item 3)", () => {
 			renders,
 			warned: [],
 		}).join("\n");
-		expect(rows).toContain("bash: printf replay");
-		// live filters the routine rows of the new run
+		// live filters the routine rows of the restored turn and of the new run
+		expect(rows).not.toContain("printf replay");
 		expect(rows).not.toContain("printf next");
 	});
 });
 
 describe("collapsed rebuild permit (post-LLM compaction)", () => {
-	test("armCollapsedRebuild is one-shot and does not force compact mode", async () => {
+	test("armCollapsedRebuild is one-shot and freezes no restore snapshot", async () => {
 		const store = fakeStore(settings({ mode: "live", enabled: true }));
 		const policy = new modePolicyModule.ModePolicy(store);
 		policy.prime();
 		await policy.ready();
 		policy.armCollapsedRebuild();
 		expect(policy.collapsedRebuildArmed).toBe(true);
-		// Must not arm the restore compact-mode override.
+		// Must not arm the restore override.
 		expect(policy.restoreOverride).toBeUndefined();
 		expect((await store.load()).mode).toBe("live");
 		policy.consumeCollapsedRebuild();

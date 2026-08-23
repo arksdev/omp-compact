@@ -749,8 +749,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// stock emits `session_tree` only AFTER the leaf move lands and BEFORE
 		// the caller's `renderInitialMessages` rebuild (disposeChildren +
 		// re-add). Same restore-view contract as in-process `/resume`: arm the
-		// one-shot compact override so historical/collapsed tails bind compact
-		// under the live default mode. Cancelled/no-op tree interactions never
+		// one-shot restore override so historical/collapsed tails bind under
+		// the selected mode. Cancelled/no-op tree interactions never
 		// emit this event, so they never arm. Rehydration still keys off the
 		// transcript clear that follows — noteTreeIntent stays a no-op seam.
 		await modePolicy.ready();
@@ -764,9 +764,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// lands and BEFORE the caller's `renderInitialMessages` rebuild
 		// (disposeChildren + re-add in selector-controller /
 		// extension-ui-controller). Same restore-view contract as committed
-		// `/tree` and in-process `/resume`: arm the one-shot compact override
-		// so historical/collapsed tails bind compact under the live default
-		// mode. Cancelled session_before_branch never reaches this event.
+		// `/tree` and in-process `/resume`: arm the one-shot restore override
+		// so historical/collapsed tails bind under the selected mode.
+		// Cancelled session_before_branch never reaches this event.
 		// Rehydration still keys off the transcript clear that follows —
 		// this handler only arms; it does not begin a presentation generation.
 		await modePolicy.ready();

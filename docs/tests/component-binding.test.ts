@@ -1281,7 +1281,7 @@ describe("ComponentBinding: order fallbacks", () => {
 		// auto context-full: full branch states, collapsed visible tool tail,
 		// no preserved active run. Production commitRebuild now arms a
 		// dedicated collapsed-rebuild permit (not restoreOverride) so
-		// restoredArmed=true without forcing compact mode on ledgers.
+		// restoredArmed=true without freezing a restore snapshot on ledgers.
 		const { binding, states } = makeBinding();
 		const old = makeState({ id: "bash-old", toolName: "bash" });
 		const newest = makeState({ id: "bash-new", toolName: "bash" });

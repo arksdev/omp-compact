@@ -55,20 +55,20 @@ export class ModePolicy {
 	#resolved: Promise<CompactSettings> | undefined;
 	#current: CompactSettings | undefined;
 	#run: RunModeSnapshot | undefined;
-	// Restore view: one-shot compact snapshot armed while a restored
+	// Restore view: one-shot settings snapshot armed while a restored
 	// session's historical transcript hydrates. Entering an existing session
 	// (`omp -c`, `--resume`/picker, in-process `/resume`) presents the
-	// restored history compact immediately; the override is cleared at the
-	// next run boundary so the resumed session's live runs keep the
-	// persisted mode policy. The persisted `mode` is never touched.
+	// restored history in the selected mode immediately; the override is
+	// cleared at the next run boundary so the resumed session's live runs
+	// keep the persisted mode policy. The persisted `mode` is never touched.
 	#restore: RunModeSnapshot | undefined;
 	// Collapsed-rebuild permit: one-shot suffix-alignment arm for the
 	// post-LLM-compaction transcript rebuild. Stock emits `session_compact`
 	// after a successful compaction entry is written and BEFORE
 	// `rebuildChatFromMessages` clears/repaints the collapsed visible tail
 	// while `getBranch()` still walks the full pre-compact path. Unlike
-	// `#restore`, this never forces compact mode on historical ledgers —
-	// it only unlocks bindHydrated suffix pairing. Cleared after the
+	// `#restore`, this freezes no snapshot on historical ledgers — it only
+	// unlocks bindHydrated suffix pairing. Cleared after the
 	// rebuild settlement consumes it, at the next run boundary, and on
 	// dispose so /shake, live clears, and later runs never inherit it.
 	#collapsedRebuildArmed = false;
@@ -126,18 +126,27 @@ export class ModePolicy {
 	/**
 	 * The armed restore override; undefined between restore entries and the
 	 * next run boundary. While armed, ledgers created by branch hydration/
-	 * rebuild (a restored session's historical transcript) snapshot compact
-	 * regardless of the persisted mode.
+	 * rebuild (a restored session's historical transcript) snapshot the
+	 * current settings. The presence of the snapshot — never its mode — is
+	 * what marks a restore in progress.
 	 */
 	get restoreOverride(): RunModeSnapshot | undefined {
 		return this.#restore;
 	}
 
 	/**
-	 * Arm the one-shot restore override for the current restored session.
-	 * The snapshot forces `compact` presentation (keeping the persisted
-	 * `retainGitLive` and `compactVibeRows` preferences); the persisted
-	 * `mode` is never modified.
+	 * Arm the one-shot restore override for the current restored session:
+	 * the snapshot the ledgers of branch hydration/rebuild freeze, and the
+	 * marker that a restore is in progress.
+	 *
+	 * It no longer imposes a mode. An imposed complete log reached
+	 * `TurnLedger.finalize`, whose compact branch pins the terminal phase
+	 * of every restored run to `full`, so a resumed session broke the
+	 * promise of the selected mode: the routine of turns that had already
+	 * answered in text stayed on screen instead of collapsing the way it
+	 * does right after the answer. All three modes now snapshot exactly
+	 * what the user chose; the persisted settings are never modified.
+	 *
 	 * Cleared at the next run boundary (`prepareRun`) so live runs keep the
 	 * normal policy, and by `dispose()` so a subsequent session never
 	 * inherits it. No-op while the runtime is disabled; call only after
@@ -147,7 +156,7 @@ export class ModePolicy {
 		const base = this.#current ?? DEFAULT_SETTINGS;
 		if (!base.enabled) return;
 		this.#restore = {
-			mode: "compact",
+			mode: base.mode,
 			enabled: true,
 			retainGitLive: base.retainGitLive,
 			compactVibeRows: base.compactVibeRows,
