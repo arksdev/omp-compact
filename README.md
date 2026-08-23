@@ -68,7 +68,8 @@ Working… read src/index.ts
 ```text
 vibe sessions 2
 ∷ ⟦g⟧ audit-worker 2t grok-4.5 Reported the registry diff
-∴ ⟦f⟧ wire-vibe 3t+1q 1m 12s edit: Wiring the vibe rows
+╭─ ⠦ ⟦f⟧ wire-vibe 3t+1q 1m12s gpt-5.2-codex Wire the vibe rows
+╰─ ⠦ edit: Wiring the vibe rows
 ```
 
 ## До и после

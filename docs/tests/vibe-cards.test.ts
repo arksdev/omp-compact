@@ -1524,4 +1524,63 @@ describe("vibe-cards grammar and presentation", () => {
 			"⠦ ⟦f⟧ audit-worker-wide 2t+1q 12.3s grok-4.5 Scan host adapter for wide rendering boundaries",
 		);
 	});
+
+	// The README shows this exact block as the compact `/vibe` output. A reader
+	// compares it against their own screen, so a drift between the two is a
+	// documentation bug the renderer cannot notice on its own.
+	test("the compact rows documented in the README are what the renderer produces", async () => {
+		const idle = routineSnapshot({
+			id: "audit-worker",
+			cli: "good",
+			state: "idle",
+			turns: 2,
+			model: "AuraPass/grok-4.5:medium",
+			lastActivity: "Reported the registry diff",
+			lastActivityAt: 20_000,
+		});
+		const running = routineSnapshot({
+			id: "wire-vibe",
+			cli: "fast",
+			state: "running",
+			turns: 3,
+			queued: 1,
+			turnStartedAt: 10_000,
+			model: "AuraPass/gpt-5.2-codex:high",
+			turnMessage: "Wire the vibe rows",
+			currentTool: "edit",
+			lastIntent: "Wiring the vibe rows",
+			lastActivityAt: 20_000,
+		});
+
+		const rendered = vibeCardsModule
+			.renderCompactVibeRows(
+				routineView({
+					op: "list",
+					details: { op: "list", screens: [idle, running] },
+					isPartial: false,
+					now: 82_300,
+				}),
+				fakeTheme(),
+				120,
+			)
+			.map((row) => stripAnsi(row).trimEnd())
+			.join("\n");
+
+		expect(rendered).toBe(
+			[
+				"vibe sessions 2",
+				"∷ ⟦g⟧ audit-worker 2t grok-4.5 Reported the registry diff",
+				"╭─ ⠦ ⟦f⟧ wire-vibe 3t+1q 1m12s gpt-5.2-codex Wire the vibe rows",
+				"╰─ ⠦ edit: Wiring the vibe rows",
+			].join("\n"),
+		);
+
+		// Both READMEs must carry that block verbatim.
+		for (const name of ["README.md", "README.en.md"]) {
+			const readme = await Bun.file(new URL(`../../${name}`, import.meta.url))
+				.text()
+				.then((text) => text.replace(/\r\n/g, "\n"));
+			expect(readme).toContain(`\`\`\`text\n${rendered}\n\`\`\``);
+		}
+	});
 });
