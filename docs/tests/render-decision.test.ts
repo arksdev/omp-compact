@@ -115,6 +115,7 @@ describe("decideToolRender: settings opt-out for a tool family", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 		expect(
@@ -130,6 +131,7 @@ describe("decideToolRender: settings opt-out for a tool family", () => {
 			kind: "tool-rows",
 			filtered: true,
 			summary: false,
+			summaryOnly: false,
 			includeGit: false,
 		});
 	});
@@ -153,6 +155,7 @@ test("task route uses compact rows instead of native rendering", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	}
@@ -164,6 +167,7 @@ test("task route uses compact rows instead of native rendering", () => {
 		kind: "tool-rows",
 		filtered: true,
 		summary: false,
+		summaryOnly: false,
 		includeGit: false,
 	});
 });
@@ -189,8 +193,69 @@ describe("decideToolRender: clear mode matrix", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
+	});
+
+	test("clear keeps the commit summary when the Git toggle is on", () => {
+		// Created commits are the one thing the quiet view must not swallow:
+		// the anchor renders the aggregate hash line and nothing else — no
+		// mutation rows, no individual Git rows.
+		expect(
+			decideToolRender(
+				toolInput({
+					mode: "clear",
+					phase: "filtered",
+					retainGitLive: true,
+					hasMutations: true,
+					hasGit: true,
+					hashesLength: 2,
+					isAnchor: true,
+				}),
+			),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: true,
+			summary: true,
+			summaryOnly: true,
+			includeGit: false,
+		});
+	});
+
+	test("clear drops the commit summary when the Git toggle is off", () => {
+		// The toggle zeroes the effective hash count, so the exception
+		// collapses back to plain hiding.
+		expect(
+			decideToolRender(
+				toolInput({
+					mode: "clear",
+					phase: "filtered",
+					retainGitLive: false,
+					hasMutations: true,
+					hasGit: true,
+					hashesLength: 2,
+					isAnchor: true,
+				}),
+			),
+		).toEqual({ kind: "empty" });
+	});
+
+	test("clear hides a non-anchor row even when the run created commits", () => {
+		// Only the anchor carries the aggregate line; every other row of the
+		// run stays hidden, mutations included.
+		expect(
+			decideToolRender(
+				toolInput({
+					mode: "clear",
+					phase: "filtered",
+					retainGitLive: true,
+					hasMutations: true,
+					hashesLength: 2,
+					isAnchor: false,
+				}),
+			),
+		).toEqual({ kind: "empty" });
 	});
 });
 
@@ -221,6 +286,7 @@ describe("decideToolRender: filtered terminal matrix", () => {
 			kind: "tool-rows",
 			filtered: true,
 			summary: false,
+			summaryOnly: false,
 			includeGit: false,
 		});
 	});
@@ -240,6 +306,7 @@ describe("decideToolRender: filtered terminal matrix", () => {
 			kind: "tool-rows",
 			filtered: true,
 			summary: true,
+			summaryOnly: false,
 			includeGit: false,
 		});
 	});
@@ -258,6 +325,7 @@ describe("decideToolRender: filtered terminal matrix", () => {
 			kind: "tool-rows",
 			filtered: true,
 			summary: false,
+			summaryOnly: false,
 			includeGit: false,
 		});
 	});
@@ -271,6 +339,7 @@ describe("decideToolRender: filtered terminal matrix", () => {
 			kind: "tool-rows",
 			filtered: true,
 			summary: false,
+			summaryOnly: false,
 			includeGit: false,
 		});
 	});
@@ -292,6 +361,7 @@ describe("decideToolRender: working live matrix", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});
@@ -317,6 +387,7 @@ describe("decideToolRender: working live matrix", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 		// After settle, write/edit regain the native hatch unless compactOnExpand.
@@ -340,6 +411,7 @@ describe("decideToolRender: working live matrix", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});
@@ -359,6 +431,7 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 				kind: "tool-rows",
 				filtered: false,
 				summary: false,
+				summaryOnly: false,
 				includeGit: true,
 			});
 		}
@@ -371,6 +444,7 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});
@@ -411,6 +485,7 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});
@@ -430,6 +505,7 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 			kind: "tool-rows",
 			filtered: true,
 			summary: false,
+			summaryOnly: false,
 			includeGit: false,
 		});
 		// routine filtered rows without evidence still disappear.
@@ -456,6 +532,7 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});
@@ -473,6 +550,7 @@ describe("decideToolRender: compactOnExpand tools stay compact on expansion", ()
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});
@@ -486,6 +564,7 @@ describe("decideToolRender: full (abort/compact-terminal) matrix", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});
@@ -499,6 +578,7 @@ describe("decideToolRender: full (abort/compact-terminal) matrix", () => {
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		});
 	});

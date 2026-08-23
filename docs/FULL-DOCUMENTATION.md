@@ -123,7 +123,7 @@ agent_start
 | --- | --- | --- |
 | `compact` | Полный compact log mapped tools | Полный compact log остаётся в transcript |
 | `live` | Полный compact log mapped tools | Остаются verified non-zero mutations, optional Git commit summary и optional stats |
-| `clear` | Ordinary compact rows скрыты; штатная глобальная Working-строка и native interactive/unmapped surfaces не меняются | Tool rows скрыты; optional stats остаётся над ответом |
+| `clear` | Ordinary compact rows скрыты; штатная глобальная Working-строка и native interactive/unmapped surfaces не меняются | Tool rows и mutation rows скрыты; optional Git commit summary и optional stats остаются над ответом |
 
 В `clear` abort/error без ответа всё равно сохраняет diagnostic compact rows. Это исключение нужно, чтобы не скрыть причину незавершённого run.
 
@@ -174,7 +174,7 @@ Git распознаётся консервативно из уже выполн
 - status/add/push/switch/rebase, failed commits и commits без hash в summary не входят;
 - hashes сохраняют chronological order, newest hash остаётся видимым при узкой ширине.
 
-`retainGitLive=false` скрывает Git rows и terminal commit summary в `live`. В `compact` полный Git log остаётся независимо от этого toggle; в `clear` ordinary Git rows скрыты вместе с остальными compact rows.
+`retainGitLive=false` скрывает Git rows и terminal commit summary в `live`. В `compact` полный Git log остаётся независимо от этого toggle. В `clear` ordinary Git rows скрыты вместе с остальными compact rows, но terminal commit summary остаётся: созданные commits — единственная evidence, которую тихий режим не прячет, иначе log утверждал бы, что ничего не произошло, там где история изменилась. При `retainGitLive=false` summary не остаётся и в `clear`.
 
 ## Настройки
 

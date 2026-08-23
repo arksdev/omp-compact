@@ -95,7 +95,7 @@ Choose a mode in `/compact-settings`. The selected mode is fixed for the current
 | --- | --- | --- | --- |
 | `compact` | All supported actions appear as short lines | The entire compact log remains | Keeping a complete action history without large native cards |
 | `live` — default | The same complete compact log | File changes, Git summary, and statistics remain; temporary actions are removed | Everyday use: you can watch the process while keeping the transcript clean |
-| `clear` | Ordinary tool lines are hidden | The answer and, if enabled, statistics remain | The quietest possible interface |
+| `clear` | Ordinary tool lines are hidden | The answer, the line with hashes for created commits, and, if enabled, statistics remain | The quietest possible interface |
 
 Unknown, interactive, expanded, or incompatible tools remain in OMP's native interface. In every mode, an abort or error without a final answer preserves the diagnostic log.
 
@@ -127,7 +127,8 @@ The plugin recognizes Git activity from Bash commands that already ran and their
 - In `live`, Git actions are visible while OMP is working and are replaced after the answer by one line containing verified hashes for created commits.
 - A failed commit or a commit without a hash is not included in the final line.
 - If you disable this option, `live` shows neither intermediate Git rows nor the terminal Git summary.
-- `compact` keeps the complete short Git log regardless of this option; `clear` hides it with the other ordinary rows.
+- `compact` keeps the complete short Git log regardless of this option.
+- In `clear` the intermediate Git rows are hidden with the other ordinary rows, but the line with hashes for created commits stays after the answer: created commits are the one thing the quiet view does not hide. Disable the option and that line goes too.
 - The newest commit in a series is highlighted with color.
 
 JSON:

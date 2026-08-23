@@ -83,6 +83,12 @@ export interface ToolRowsDecision {
 	readonly filtered: boolean;
 	/** Render the aggregate commit-hash summary row after mutations. */
 	readonly summary: boolean;
+	/**
+	 * Drop the mutation rows and keep only the summary. Set for `clear`,
+	 * whose quiet view shows created commits and nothing else; every other
+	 * mode keeps mutation rows in chronological position.
+	 */
+	readonly summaryOnly: boolean;
 	/** Include Git evidence rows in the compact view (working/full). */
 	readonly includeGit: boolean;
 }
@@ -157,6 +163,8 @@ interface ToolRenderRule {
  * only for a filtered ledger when `retainGitLive` is on; otherwise Git rows
  * and the aggregate line stay visually suppressed (`live` default) while
  * persisted evidence and ledger entries are never mutated by the toggle.
+ * `clear` reads the same count — the toggle is what decides whether its
+ * quiet view keeps the commit summary at all.
  */
 function effectiveHashes(input: ToolRenderInput): number {
 	return input.phase === "filtered" && input.retainGitLive
@@ -194,7 +202,18 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	{
 		// `clear` hides normal tool rows while working and at the terminal
 		// answer; abort/full finalizations keep compact diagnostic rows.
-		when: (input) => input.mode === "clear" && input.phase !== "full",
+		//
+		// One deliberate exception: the trailing aggregate commit-summary
+		// line. Created commits are the only evidence a quiet view must not
+		// swallow — the log would otherwise claim nothing happened where
+		// history changed. The individual Git rows stay hidden (the working
+		// screen keeps its silence), so `clear` shows the summary and nothing
+		// else. Turning the Git toggle off zeroes the effective hash count
+		// and the exception collapses back to plain hiding.
+		when: (input, hashes) =>
+			input.mode === "clear" &&
+			input.phase !== "full" &&
+			!(input.phase === "filtered" && input.isAnchor && hashes > 0),
 		decide: (): ToolRenderDecision => ({ kind: "empty" }),
 	},
 	{
@@ -231,12 +250,14 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 	{
 		// Terminal retention: mutation rows stay in chronological position;
 		// the aggregate commit-summary line is appended only to the run's
-		// anchor state (the last retained row of the ledger).
+		// anchor state (the last retained row of the ledger). In `clear` the
+		// mutation rows are dropped and the summary is all that survives.
 		when: (input) => input.phase === "filtered",
-		decide: (_input, hashes): ToolRenderDecision => ({
+		decide: (input, hashes): ToolRenderDecision => ({
 			kind: "tool-rows",
 			filtered: true,
-			summary: hashes > 0 && _input.isAnchor,
+			summary: hashes > 0 && input.isAnchor,
+			summaryOnly: input.mode === "clear",
 			includeGit: false,
 		}),
 	},
@@ -247,6 +268,7 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 			kind: "tool-rows",
 			filtered: false,
 			summary: false,
+			summaryOnly: false,
 			includeGit: true,
 		}),
 	},
@@ -266,6 +288,7 @@ export function decideToolRender(input: ToolRenderInput): ToolRenderDecision {
 		kind: "tool-rows",
 		filtered: false,
 		summary: false,
+		summaryOnly: false,
 		includeGit: true,
 	};
 }

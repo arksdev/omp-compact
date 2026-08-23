@@ -496,6 +496,65 @@ describe("runtime modes", () => {
 		expect(booted.finalized).toEqual([]);
 	});
 
+	test("clear keeps the commit summary and nothing else when Git rows are retained", async () => {
+		const booted = await boot({ mode: "clear", retainGitLive: true });
+		await beginRun(booted);
+		// A mutation and a commit in the same run: the quiet view must end up
+		// with the aggregate hash line only.
+		addTool(booted, "write", "write-1", { path: "kept.ts" });
+		booted.adapter.setMutations("write-1", [
+			{
+				version: 1,
+				toolCallId: "write-1",
+				kind: "write",
+				path: "kept.ts",
+				added: 3,
+				removed: 0,
+			},
+		]);
+		settle(booted, "write-1", "write", {
+			content: [{ type: "text", text: "written" }],
+		});
+		addTool(booted, "bash", "git-1", { command: "git commit abc1234 Fix" });
+		booted.adapter.setGit("git-1", {
+			version: 1,
+			toolCallId: "git-1",
+			subcommand: "commit",
+			text: "git commit abc1234 Fix",
+			isError: false,
+		});
+		settle(booted, "git-1", "bash", {
+			content: [{ type: "text", text: "committed" }],
+		});
+		// Working stays silent: no individual Git row, no mutation row.
+		const working = visibleRows(booted).join("\n");
+		expect(working).not.toContain("git commit abc1234");
+		expect(working).not.toContain("kept.ts");
+		booted.adapter.endRun(terminalAnswer());
+		const terminal = visibleRows(booted).join("\n");
+		expect(terminal).toContain("git commit:");
+		expect(terminal).toContain("abc1234");
+		expect(terminal).not.toContain("kept.ts");
+	});
+
+	test("clear drops the commit summary when Git rows are not retained", async () => {
+		const booted = await boot({ mode: "clear", retainGitLive: false });
+		await beginRun(booted);
+		addTool(booted, "bash", "git-1", { command: "git commit abc1234 Fix" });
+		booted.adapter.setGit("git-1", {
+			version: 1,
+			toolCallId: "git-1",
+			subcommand: "commit",
+			text: "git commit abc1234 Fix",
+			isError: false,
+		});
+		settle(booted, "git-1", "bash", {
+			content: [{ type: "text", text: "committed" }],
+		});
+		booted.adapter.endRun(terminalAnswer());
+		expect(visibleRows(booted).join("\n")).not.toContain("git commit:");
+	});
+
 	test("clear hides mapped read groups but never unmapped native groups", async () => {
 		const booted = await boot({ mode: "clear" });
 		await beginRun(booted);

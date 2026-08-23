@@ -787,7 +787,7 @@ export class RuntimeAdapter {
 					// evidence without any created commit hash contributes
 					// no row at all.
 					const rows: string[] = [];
-					if (state.mutations.length > 0)
+					if (state.mutations.length > 0 && !decision.summaryOnly)
 						rows.push(
 							...renderCompactToolRows(
 								{
