@@ -6227,6 +6227,161 @@ function commitTerminalHistory(
 	return true;
 }
 
+// ---------------------------------------------------------------------------
+// Folded runs must never turn into blank rows. The container retires history
+// by rows, but its pressure fallback keys on block count: once live blocks
+// outnumber the transcript height it prints each block's first row, and a
+// folded member renders nothing, so its slot becomes an empty string. Folding
+// shrinks rows without shrinking blocks, so a long session parks below the row
+// pressure that triggers retirement while sitting above the block count that
+// triggers the fallback.
+// ---------------------------------------------------------------------------
+
+async function foldedRun(
+	booted: BootedPlugin & { transcript: TranscriptInstance },
+	prefix: string,
+	count: number,
+): Promise<void> {
+	for (let index = 0; index < count; index++) {
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: `printf ${prefix}-${index}` },
+			`${prefix}-${index}`,
+		);
+		await finishTool(booted, call, {
+			toolCallId: `${prefix}-${index}`,
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }], details: {} },
+			isError: false,
+		});
+	}
+}
+
+stockTest(
+	"a run holding more blocks than the screen has rows renders compact rows, not blanks",
+	async () => {
+		const booted = await bootWithMode("compact");
+		await beginRun(booted);
+		// One open run, 24 mapped tools: 24 transcript blocks, of which only
+		// the carrier renders anything.
+		await foldedRun(booted, "open", 24);
+		const transcript = booted.transcript;
+		const capacity = 8;
+		expect(transcript.children.length).toBeGreaterThan(capacity);
+		// The run is still open, so nothing may retire: the viewport has to
+		// cope with more blocks than rows on its own.
+		expect(transcript.peekFinalizedBatch(120, capacity)).toBeUndefined();
+		const tail = transcript
+			.renderViewport(120, capacity, { tick: 0, now: 0 })
+			.map((line) => line.replace(ansiPattern, "").trimEnd());
+		expect(tail.filter((line) => line.trim().length === 0)).toEqual([]);
+		expect(tail.length).toBe(capacity);
+		// The newest rows win the screen, and they are the compact projection.
+		expect(tail.at(0)).toBe("• bash: printf open-16");
+		expect(tail.at(-1)).toBe("• bash: printf open-23");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"hidden blocks retire on block pressure alone, without any row pressure",
+	async () => {
+		// `clear` hides routine rows outright: the run occupies 21 blocks and
+		// almost no rows, so row pressure never asks the container to retire
+		// anything while block count climbs past the screen height.
+		const booted = await bootWithMode("clear");
+		await beginRun(booted);
+		await foldedRun(booted, "done", 20);
+		addAnswer(booted, "first answer");
+		await finishRun(booted, "first answer");
+		// A second run keeps the transcript live while the first run's blocks
+		// sit settled behind it.
+		await beginRun(booted);
+		await foldedRun(booted, "open", 2);
+		const transcript = booted.transcript;
+		const capacity = 12;
+		// Nothing presses on rows: the hidden run projects to a single row.
+		expect(transcript.liveRowCount(120)).toBeLessThan(capacity);
+		expect(transcript.children.length).toBeGreaterThan(capacity);
+		// Terminal frames, until block count is back under the height. Each
+		// frame offers the prefix that still fits and the acknowledgement
+		// retires it, exactly as the composer does.
+		const history: string[] = [];
+		let frames = 0;
+		while (
+			transcript.blockStates().filter((state) => state !== "committed").length >
+			capacity
+		) {
+			const batch = transcript.peekFinalizedBatch(120, capacity);
+			expect(batch).toBeDefined();
+			history.push(...(batch as { rows: readonly string[] }).rows);
+			transcript.acknowledgeFinalizedBatch((batch as { id: number }).id);
+			frames++;
+			expect(frames).toBeLessThan(transcript.children.length);
+		}
+		// Hidden rows retire as nothing, so history holds only what `clear`
+		// shows: the run's summary line and the answer.
+		const retired = history
+			.map((line) => line.replace(ansiPattern, "").trimEnd())
+			.filter((line) => line.trim().length > 0);
+		expect(retired).toEqual([
+			"[ 20 actions · 0 sent · 0 received · 0% cache (0 hit) · 0s ]",
+			"first answer",
+		]);
+		const tail = transcript
+			.renderViewport(120, capacity, { tick: 0, now: 0 })
+			.map((line) => line.replace(ansiPattern, "").trimEnd());
+		expect(tail.filter((line) => line.trim().length === 0)).toEqual([]);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"every compact row reaches the screen exactly once across retiring frames",
+	async () => {
+		const booted = await bootWithMode("compact");
+		await beginRun(booted);
+		await foldedRun(booted, "done", 24);
+		addAnswer(booted, "an answer");
+		await finishRun(booted, "an answer");
+		await beginRun(booted);
+		await foldedRun(booted, "open", 2);
+		const transcript = booted.transcript;
+		const capacity = 8;
+		// Frames until retirement settles: history accumulates, the viewport
+		// keeps the live tail. A row printed in both would show up twice in
+		// the terminal's scrollback; a row printed in neither would be lost.
+		const history: string[] = [];
+		for (let frame = 0; frame < 40; frame++) {
+			const batch = transcript.peekFinalizedBatch(120, capacity);
+			if (!batch) break;
+			history.push(...batch.rows);
+			transcript.acknowledgeFinalizedBatch(batch.id);
+		}
+		const plain = (rows: readonly string[]): string[] =>
+			rows
+				.map((line) => line.replace(ansiPattern, "").trimEnd())
+				.filter((line) => line.trim().length > 0);
+		const printed = [
+			...plain(history),
+			...plain(transcript.renderViewport(120, capacity, { tick: 0, now: 0 })),
+		];
+		const expected = [
+			...Array.from(
+				{ length: 24 },
+				(_, index) => `• bash: printf done-${index}`,
+			),
+			"[ 24 actions · 0 sent · 0 received · 0% cache (0 hit) · 0s ]",
+			"an answer",
+			"• bash: printf open-0",
+			"• bash: printf open-1",
+		];
+		expect(printed).toEqual(expected);
+		await shutdown(booted);
+	},
+);
+
 stockTest(
 	"multi-response runs: early and late group rows follow the frozen mode at terminal; assistant texts keep order",
 	async () => {

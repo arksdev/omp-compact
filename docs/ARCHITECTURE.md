@@ -681,6 +681,21 @@ The host-supplied agent directory and the live session `Settings` object sit
   and vice versa: the plugin stays fully native instead of guessing, which
   is why the public floor tracks the pin exactly.
 
+- **Rows retire, blocks fill the screen.** The container retires history by
+  rows, but its pressure fallback keys on block count: past the transcript
+  height it prints each live block's first row, and a folded member has none.
+  Folding shrinks rows without shrinking blocks, so the fold does two things.
+  It reports the live tail's own height (minus one row) as the room for a
+  history batch while blocks outnumber rows, which keeps retirement making
+  progress every frame instead of stalling as soon as the rows happen to fit.
+  And when the fold itself is the reason the count is inflated, it answers for
+  the frame: blocks that render nothing take no row, the rest render whole, and
+  the newest rows win the screen. An open run is never settled, so retirement
+  alone could never rescue a single long turn holding more blocks than the
+  screen has rows. The live boundary comes from `canRemoveBlock`, which also
+  excludes a batch already offered but not yet acknowledged, so no row is
+  painted twice.
+
 - **Older host outcome.** Unverified or missing surfaces remain native —
   the user loses some compaction chrome, not a wrong compact row. Ordinary
   compact tools may use expanded as a native inspection escape hatch;

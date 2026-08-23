@@ -46,6 +46,11 @@ interface NativeBlockMethods {
 	seal?: () => void;
 }
 
+/** Row budget the 18.0.1 transcript hands a block before rendering it. */
+interface AllocatableBlock {
+	setTranscriptAllocation?(rows: number, frame: AnimationFrame): void;
+}
+
 export interface FoldCallbacks {
 	isFoldable(block: unknown): block is RenderableBlock;
 	render(
@@ -89,6 +94,17 @@ const EMPTY_LINES: Lines = Object.freeze([]);
 // but duplicate module copies must still observe the same ownership key.
 const TRANSCRIPT_FOLD_OWNER = Symbol.for("omp-compact.transcript-fold.owner");
 const NON_BLANK = /\S/;
+const SEPARATOR: Lines = Object.freeze([""]);
+const UNBOUNDED_ROWS = Number.MAX_SAFE_INTEGER;
+
+/** Drop the blank rows a block pads its own edges with. */
+function trimBlankEdges(raw: Lines): Lines {
+	let lead = 0;
+	while (lead < raw.length && !NON_BLANK.test(raw[lead] ?? "")) lead++;
+	let end = raw.length;
+	while (end > lead && !NON_BLANK.test(raw[end - 1] ?? "")) end--;
+	return lead === 0 && end === raw.length ? raw : raw.slice(lead, end);
+}
 
 function isRenderableBlock(value: unknown): value is RenderableBlock {
 	return Boolean(
@@ -125,6 +141,8 @@ export class TranscriptFold {
 	#runs = new WeakMap<object, FoldRun>();
 	readonly #patches = new Map<RenderableBlock, BlockPatch>();
 	#transcriptPatch: DescriptorPatch | undefined;
+	/** Native `liveRowCount`, captured while patching the transcript. */
+	#hostLiveRows: ((width: number) => number) | undefined;
 	#installed = false;
 
 	constructor(transcript: TranscriptHost, callbacks: FoldCallbacks) {
@@ -160,6 +178,136 @@ export class TranscriptFold {
 		return false;
 	}
 
+	/**
+	 * Room to report when the container offers a history batch.
+	 *
+	 * The host retires by rows but falls back to a one-row-per-block screen
+	 * by *block count*: `renderViewport` switches to that fallback as soon
+	 * as live blocks outnumber the transcript height, and it renders each
+	 * block's first row — an empty string for the folded members that render
+	 * nothing. Folding shrinks rows without shrinking blocks, so a long
+	 * session parks far below the row pressure that would trigger
+	 * retirement while sitting far above the block count that triggers the
+	 * fallback: the screen fills with blank rows.
+	 *
+	 * When live blocks outnumber the height, reporting the live tail's own
+	 * height minus one row makes the container retire its settled prefix
+	 * into terminal history. Live blocks drop back below the height, the
+	 * fallback never engages, and the retired rows are exactly the folded
+	 * projection the container itself renders. Runs still open are never
+	 * settled, so retirement stops before them.
+	 */
+	#retirementRoom(width: number, capacity: number): number {
+		const states = this.#transcript.blockStates();
+		let live = 0;
+		for (const state of states) if (state !== "committed") live++;
+		if (live <= capacity) return capacity;
+		const liveRows =
+			this.#hostLiveRows?.call(this.#transcript, width) ??
+			this.#transcript.liveRowCount(width);
+		return Math.max(0, Math.min(capacity, liveRows - 1));
+	}
+
+	/**
+	 * Replacement frame for the host's one-row-per-block fallback.
+	 *
+	 * That fallback keys on block count: once live blocks outnumber the
+	 * transcript height it prints each block's first row, and a folded member
+	 * renders nothing, so its slot becomes an empty string. Retirement fixes
+	 * the settled prefix (see `#retirementRoom`), but a run still open is
+	 * never settled — one long turn holding more blocks than the screen has
+	 * rows would still paint the viewport with blanks.
+	 *
+	 * So when the fold is the reason the count is inflated, the fold answers
+	 * for the frame: blocks that render nothing take no row, the rest render
+	 * whole, and the newest rows win the screen. Sessions the fold does not
+	 * touch keep the host's own fallback.
+	 */
+	#silentViewport(
+		width: number,
+		rows: number,
+		frame: AnimationFrame,
+	): Lines | undefined {
+		const capacity = Math.max(0, Math.trunc(rows));
+		if (capacity === 0 || this.#patches.size === 0) return undefined;
+		const children = this.#transcript.children;
+		const start = this.#liveStart(children);
+		if (children.length - start <= capacity) return undefined;
+		if (!this.#hasSilentBlock(children, start, width)) return undefined;
+		// Newest first, stopping as soon as the screen is full: the folded
+		// carrier answers for its whole run from a cached projection, and
+		// silent members cost nothing to skip.
+		const chunks: Lines[] = [];
+		let total = 0;
+		for (let index = children.length - 1; index >= start; index--) {
+			if (total >= capacity) break;
+			const child = children[index];
+			if (!isRenderableBlock(child)) continue;
+			(child as AllocatableBlock).setTranscriptAllocation?.(
+				UNBOUNDED_ROWS,
+				frame,
+			);
+			const block = trimBlankEdges(child.render(width));
+			if (block.length === 0) continue;
+			if (chunks.length > 0) {
+				chunks.push(SEPARATOR);
+				total++;
+			}
+			chunks.push(block);
+			total += block.length;
+		}
+		const output: string[] = [];
+		for (let index = chunks.length - 1; index >= 0; index--)
+			output.push(...(chunks[index] ?? EMPTY_LINES));
+		return output.length > capacity
+			? output.slice(output.length - capacity)
+			: output;
+	}
+
+	/**
+	 * First child of the mutable live tail.
+	 *
+	 * Committed blocks are terminal history, and a batch already offered for
+	 * retirement is mid-write: both sit outside the viewport. `canRemoveBlock`
+	 * is exactly that boundary — false below it, true above — so one probe
+	 * settles the common case and a bisection finds the seam while a batch
+	 * awaits its acknowledgement.
+	 */
+	#liveStart(children: readonly unknown[]): number {
+		const states = this.#transcript.blockStates();
+		let start = 0;
+		while (start < children.length && states[start] === "committed") start++;
+		if (start >= children.length) return children.length;
+		if (this.#transcript.canRemoveBlock(children[start])) return start;
+		let low = start + 1;
+		let high = children.length;
+		while (low < high) {
+			const mid = (low + high) >>> 1;
+			if (this.#transcript.canRemoveBlock(children[mid])) high = mid;
+			else low = mid + 1;
+		}
+		return low;
+	}
+
+	/** Whether the live tail holds a block the fold renders as nothing. */
+	#hasSilentBlock(
+		children: readonly unknown[],
+		start: number,
+		width: number,
+	): boolean {
+		for (let index = start; index < children.length; index++) {
+			const child = children[index];
+			if (!child || typeof child !== "object") continue;
+			const role = this.#roles.get(child);
+			if (!role) continue;
+			// Members always render nothing; a carrier is silent only when its
+			// whole run projects to no rows (the `clear` presentation).
+			if (!role.carrier) return true;
+			if (this.#renderRun(role.run, width).length === 0) return true;
+		}
+		return false;
+	}
+
 	install(): void {
 		if (this.#installed) return;
 		if (Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) !== undefined)
@@ -174,6 +322,7 @@ export class TranscriptFold {
 			const hostRender = this.#transcript.render;
 			const hostViewport = this.#transcript.renderViewport;
 			const hostLiveRows = this.#transcript.liveRowCount;
+			this.#hostLiveRows = hostLiveRows;
 			const hostPeekBatch = this.#transcript.peekFinalizedBatch;
 			// Every host entry point that renders blocks replans first: a
 			// carrier answers for its whole run, so a stale plan would size the
@@ -197,7 +346,10 @@ export class TranscriptFold {
 						frame: AnimationFrame,
 					): Lines => {
 						this.#plan(width);
-						return hostViewport.call(this.#transcript, width, rows, frame);
+						return (
+							this.#silentViewport(width, rows, frame) ??
+							hostViewport.call(this.#transcript, width, rows, frame)
+						);
 					},
 				},
 				liveRowCount: {
@@ -216,7 +368,11 @@ export class TranscriptFold {
 						capacity: number,
 					): HistoryBatch | undefined => {
 						this.#plan(width);
-						return hostPeekBatch.call(this.#transcript, width, capacity);
+						return hostPeekBatch.call(
+							this.#transcript,
+							width,
+							this.#retirementRoom(width, capacity),
+						);
 					},
 				},
 			};
@@ -256,6 +412,7 @@ export class TranscriptFold {
 		this.#patches.clear();
 		this.#transcriptPatch?.restore();
 		this.#transcriptPatch = undefined;
+		this.#hostLiveRows = undefined;
 		if (Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) === this)
 			Reflect.deleteProperty(this.#transcript, TRANSCRIPT_FOLD_OWNER);
 		this.#installed = false;
