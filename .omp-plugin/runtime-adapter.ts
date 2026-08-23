@@ -887,6 +887,14 @@ export class RuntimeAdapter {
 		if (state) return state.ledger.phase !== "working";
 		const group = this.#session.binding.groupState(block);
 		if (group?.ledger) return group.ledger.phase !== "working";
+		// A notice the host already calls final commits its row to native
+		// scrollback while the run is still live; the terminal filtering that
+		// drops the row could then never take it off the screen again.
+		if (
+			this.#session.activeLedger?.phase === "working" &&
+			isBackgroundCompletionBlock(block)
+		)
+			return false;
 		return nativeFinalized?.() ?? true;
 	}
 
@@ -898,6 +906,13 @@ export class RuntimeAdapter {
 		if (state?.ledger.phase === "working") return 0;
 		const group = this.#session.binding.groupState(block);
 		if (group?.ledger?.phase === "working") return 0;
+		// Same reason as in `#isFinalized`: nothing of the notice may reach
+		// scrollback before its run settles.
+		if (
+			this.#session.activeLedger?.phase === "working" &&
+			isBackgroundCompletionBlock(block)
+		)
+			return 0;
 		return nativeSettledRows?.() ?? 0;
 	}
 

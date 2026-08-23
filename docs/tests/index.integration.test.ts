@@ -3055,6 +3055,15 @@ const SUPERVISED_FAILURE =
 	"✘ Supervised process failed live18b (exit 2) (1.9s)";
 
 /**
+ * Transcript-block surface the fold installs on every block it owns; the host
+ * reads it back to decide what may commit to native scrollback.
+ */
+interface FoldedBlockProbe {
+	isTranscriptBlockFinalized(): boolean;
+	getTranscriptBlockSettledRows(): number;
+}
+
+/**
  * Stock notice of finished background activity (OMP 18.0.0
  * `buildLaunchCompletionBlock` / `buildAsyncResultBlock`): a
  * `ToolActivityContainer` wrapping one `TranscriptBlock` whose children are
@@ -3065,7 +3074,7 @@ const SUPERVISED_FAILURE =
 function addBackgroundCompletion(
 	booted: BootedPlugin & { transcript: TranscriptInstance },
 	line: string,
-): void {
+): FoldedBlockProbe {
 	const block = new booted.ContainerBase();
 	block.addChild({ render: () => [line] });
 	const notice = Object.assign(new booted.ContainerBase(), {
@@ -3074,6 +3083,8 @@ function addBackgroundCompletion(
 	});
 	notice.addChild(block);
 	booted.transcript.addChild(notice);
+	// The probe methods appear once the fold plans the block into a run.
+	return notice as unknown as FoldedBlockProbe;
 }
 
 stockTest(
@@ -3110,6 +3121,43 @@ stockTest(
 		// Terminal answer: background activity is not a mutation, so the
 		// notice leaves with the rest of the run's routine rows.
 		await finishRun(booted, "both processes reported");
+		expect(
+			screenRows(booted.transcript).some((row) =>
+				row.includes(SUPERVISED_FAILURE),
+			),
+		).toBe(false);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a leading background completion notice settles only with its run",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		// Notice first: it carries the run, so the span it reports is the one
+		// the host may commit to native scrollback.
+		const notice = addBackgroundCompletion(booted, SUPERVISED_FAILURE);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf after" },
+			"bash-notice-3",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "bash-notice-3",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "ok" }],
+				details: { exitCode: 0 },
+			},
+			isError: false,
+		});
+		const rows = screenRows(booted.transcript);
+		expect(rows.some((row) => row.includes(SUPERVISED_FAILURE))).toBe(true);
+		expect(notice.isTranscriptBlockFinalized()).toBe(false);
+		expect(notice.getTranscriptBlockSettledRows()).toBe(0);
+		await finishRun(booted, "the process reported before the command");
 		expect(
 			screenRows(booted.transcript).some((row) =>
 				row.includes(SUPERVISED_FAILURE),
