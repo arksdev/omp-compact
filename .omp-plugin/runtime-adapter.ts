@@ -3,6 +3,7 @@ import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import type { DisplayPathOptions } from "./display-path";
 import {
 	HostAdapter1731,
+	isBackgroundCompletionBlock,
 	isBashExecutionComponent,
 	isEvalExecutionComponent,
 	isLateDiagnosticsMessageComponent,
@@ -42,7 +43,11 @@ import {
 	userBashExecutionFromComponent,
 	userEvalExecutionFromComponent,
 } from "./render";
-import { decideReadGroupRender, decideToolRender } from "./render-decision";
+import {
+	decideBackgroundCompletionRender,
+	decideReadGroupRender,
+	decideToolRender,
+} from "./render-decision";
 import type { RunStatsEvidence } from "./run-stats";
 import {
 	type AgentEndInput,
@@ -721,6 +726,7 @@ export class RuntimeAdapter {
 				isFoldable: (block) =>
 					isToolComponent(block) ||
 					isReadGroupComponent(block) ||
+					isBackgroundCompletionBlock(block) ||
 					isCompactCustomMessage(block),
 				render: (block, width, nativeRender) =>
 					this.#renderBlock(block, width, nativeRender),
@@ -855,6 +861,20 @@ export class RuntimeAdapter {
 				);
 			}
 			return rows;
+		}
+		if (isBackgroundCompletionBlock(block)) {
+			// The notice is not bound to any state of its own: it reports host
+			// background activity, so the active run's frozen mode and phase
+			// decide whether the host's own line stays on screen.
+			const ledger = this.#session.activeLedger;
+			const decision = decideBackgroundCompletionRender({
+				mode: ledger
+					? this.#session.modeFor(ledger).mode
+					: DEFAULT_RUN_MODE.mode,
+				phase: ledger?.phase,
+			});
+			if (decision.kind === "empty") return EMPTY_LINES;
+			return nativeRender(width);
 		}
 		return nativeRender(width);
 	}

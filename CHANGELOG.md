@@ -12,6 +12,7 @@
 - Сочетания со стрелками, где зажат модификатор (Shift, Alt, Ctrl), больше не двигают курсор и не переключают значения.
 - После того как контекст автоматически встряхивался, завершённые чтения перестали скрываться и разворачивались обратно в полные карточки. Теперь после встряски вид законченного хода остаётся таким же, каким он был до неё.
 - При возвращении в сохранённую сессию история снова показывается компактно. Раньше восстановленные чтения разворачивались в полные карточки, если агент размышлял или отвечал между двумя чтениями одного хода, — а так бывает почти всегда.
+- Сообщения о завершении фоновых процессов и заданий больше не разрывают компактный лог пустыми строками сверху и снизу: такая строка встаёт вплотную к соседним и уходит вместе с остальной рутиной, когда шаг закончен.
 
 ### Добавлено
 
@@ -231,6 +232,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 - Arrow combinations with a held modifier (Shift, Alt, Ctrl) no longer move the cursor or toggle values.
 - After the context was shaken automatically, completed reads stopped hiding and expanded back into full cards. A finished turn now looks the same after a shake as it did before it.
 - Returning to a saved session shows its history compact again. Restored reads previously expanded into full cards whenever the agent thought or answered between two reads of the same turn — which is almost always.
+- Notices about finished background processes and jobs no longer tear the compact log apart with blank lines above and below: such a row now sits flush against its neighbours and leaves together with the rest of the routine once the step is done.
 
 ### Added
 

@@ -129,6 +129,21 @@ export type ReadGroupRenderDecision =
 	| { readonly kind: "empty" }
 	| { readonly kind: "read-rows" };
 
+export interface BackgroundCompletionRenderInput {
+	/** Frozen runtime-mode snapshot of the active run (if any). */
+	mode: CompactMode;
+	/**
+	 * Ledger phase of the active logical run; `undefined` when no run has
+	 * started yet (or the session was reset), so the notice belongs to no
+	 * tracked run at all.
+	 */
+	phase: LedgerPhase | undefined;
+}
+
+export type BackgroundCompletionRenderDecision =
+	| { readonly kind: "native" }
+	| { readonly kind: "empty" };
+
 interface ToolRenderRule {
 	readonly when?: (input: ToolRenderInput, hashes: number) => boolean;
 	readonly decide: (
@@ -317,4 +332,50 @@ export function decideReadGroupRender(
 		return rule.decide();
 	}
 	return { kind: "read-rows" };
+}
+
+// Rules evaluated top-to-bottom; first match wins. Terminal retention comes
+// first: it holds in every mode, `clear` included.
+const BACKGROUND_COMPLETION_RENDER_TABLE: readonly {
+	readonly when?: (input: BackgroundCompletionRenderInput) => boolean;
+	readonly decide: () => BackgroundCompletionRenderDecision;
+}[] = Object.freeze([
+	{
+		// A finished background process or job changed nothing in the
+		// workspace, so the terminal answer keeps no trace of it — same
+		// retention verdict read groups get.
+		when: (input) => input.phase === "filtered",
+		decide: (): BackgroundCompletionRenderDecision => ({ kind: "empty" }),
+	},
+	{
+		// `clear` hides the notice while working and at the terminal answer,
+		// exactly like an ordinary tool card; abort/full keeps it because a
+		// failed run is diagnosed from what was on screen. A notice belonging
+		// to no run (phase undefined) is never hidden: there is no run whose
+		// retention could bring it back, so native is the only safe view.
+		when: (input) =>
+			input.mode === "clear" &&
+			input.phase !== undefined &&
+			input.phase !== "full",
+		decide: (): BackgroundCompletionRenderDecision => ({ kind: "empty" }),
+	},
+	{
+		decide: (): BackgroundCompletionRenderDecision => ({ kind: "native" }),
+	},
+]);
+
+/**
+ * Compact-vs-native decision for a stock background-completion notice. The
+ * fold owns the block only to keep it inside the run's dense rows, so the
+ * compact view is the host's own line — this decision picks between showing
+ * that line and dropping it.
+ */
+export function decideBackgroundCompletionRender(
+	input: BackgroundCompletionRenderInput,
+): BackgroundCompletionRenderDecision {
+	for (const rule of BACKGROUND_COMPLETION_RENDER_TABLE) {
+		if (rule.when && !rule.when(input)) continue;
+		return rule.decide();
+	}
+	return { kind: "native" };
 }

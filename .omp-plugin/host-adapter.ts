@@ -547,6 +547,63 @@ export function isLateDiagnosticsMessageComponent(
 }
 
 /**
+ * Stock notice of finished background activity (OMP 18.0.0
+ * `transcript-render-helpers.ts`): a `ToolActivityContainer` wrapping exactly
+ * one `TranscriptBlock` whose children are all `Text` leaves — one line per
+ * reported process or job.
+ *
+ * Both host builders produce that identical shape: `buildLaunchCompletionBlock`
+ * (supervised process summaries) and `buildAsyncResultBlock` (background job
+ * results). Nothing structural tells them apart, and no host method exposes
+ * their kind, so this is deliberately one class of block: the plugin treats
+ * every finished-background-activity notice the same way, and a caller that
+ * needs to distinguish them cannot use this probe.
+ *
+ * Method rejects come first because two stock cards share the exact structure:
+ * `ToolExecutionComponent` and `ReadToolGroupComponent` are also containers
+ * holding one content box of text leaves, so only their execution surface tells
+ * them apart from a notice. Without those rejects an unbound stock tool card
+ * would be mistaken for one. The rejects deliberately avoid every name in
+ * {@link BLOCK_FOLD_METHODS} (`seal`, `render`, the version/settled probes):
+ * the fold installs those on each member it owns, so a block matched once would
+ * stop matching on the next render and silently fall out of the run.
+ *
+ * The remaining activity-gated neighbors are rejected by shape alone:
+ * - `TodoReminderComponent` — two children (spacer + box card);
+ * - `TtsrNotificationComponent` — two children (spacer + box card);
+ * - `LateDiagnosticsMessageComponent` — one `Text` child, so the single-child
+ *   slot holds a leaf instead of a block of lines;
+ * - `StrippedToolCallsPlaceholder` — a `Text` leaf, so it has no `children`.
+ * The generic `hideWithToolActivity` wrapper of stock `present` is the same
+ * `ToolActivityContainer` class but always wraps `[spacer, content]`, so its
+ * two children reject it too.
+ */
+export function isBackgroundCompletionBlock(
+	value: unknown,
+): value is RenderableBlock {
+	if (!value || typeof value !== "object") return false;
+	const candidate = value as Record<string, unknown>;
+	if (typeof candidate.render !== "function") return false;
+	if (typeof candidate.setToolActivityVisible !== "function") return false;
+	// Tool / read-group / TTSR execution surfaces.
+	if (typeof candidate.updateArgs === "function") return false;
+	if (typeof candidate.updateResult === "function") return false;
+	if (typeof candidate.setArgsComplete === "function") return false;
+	if (typeof candidate.removeEntry === "function") return false;
+	if (typeof candidate.renameEntry === "function") return false;
+	if (typeof candidate.addRules === "function") return false;
+	if (!Array.isArray(candidate.children) || candidate.children.length !== 1)
+		return false;
+	const lines = objectRecord(candidate.children[0]).children;
+	if (!Array.isArray(lines) || lines.length === 0) return false;
+	for (const line of lines) {
+		if (!line || typeof line !== "object") return false;
+		if (Array.isArray((line as Record<string, unknown>).children)) return false;
+	}
+	return true;
+}
+
+/**
  * OMP 17.3.1 argument positions. `updateArgs` carries
  * `(payload, toolCallId)`; the read group's `updateResult` carries
  * `(result, isPartial, toolCallId)` while the tool component's

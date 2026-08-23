@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	HostAdapter1731,
 	insertTranscriptChildAt,
+	isBackgroundCompletionBlock,
 	isBashExecutionComponent,
 	isEvalExecutionComponent,
 	isLateDiagnosticsMessageComponent,
@@ -125,6 +126,28 @@ function container(children: unknown[] = []): Record<string, unknown> {
 		addChild: (child: unknown) => (children as unknown[]).push(child),
 	};
 }
+
+/**
+ * Stock activity-gated wrapper shape (`ToolActivityContainer`): render plus
+ * the activity/expand proxies, holding whatever children a case needs.
+ */
+function activityWrapper(children: unknown[]): Record<string, unknown> {
+	return {
+		children,
+		render() {
+			return [] as const;
+		},
+		setExpanded() {},
+		setToolActivityVisible() {},
+	};
+}
+
+/** Leaf component double (stock `Text` / `Spacer`): no children of its own. */
+const leaf: Record<string, unknown> = {
+	render() {
+		return [] as const;
+	},
+};
 
 describe("host shape guards", () => {
 	test("isTranscriptHost accepts the full critical shape and rejects partial shapes", () => {
@@ -602,6 +625,63 @@ describe("host shape guards", () => {
 		expect(isLateDiagnosticsMessageComponent(new ToolComponent())).toBe(false);
 		expect(isLateDiagnosticsMessageComponent(null)).toBe(false);
 		expect(isLateDiagnosticsMessageComponent({})).toBe(false);
+	});
+
+	test("isBackgroundCompletionBlock matches completion notices and rejects neighbors", () => {
+		// One wrapped block of leaves: the launch/async-result notice shape.
+		const single = activityWrapper([container([leaf])]);
+		expect(isBackgroundCompletionBlock(single)).toBe(true);
+		// Several processes report through one block.
+		expect(
+			isBackgroundCompletionBlock(activityWrapper([container([leaf, leaf])])),
+		).toBe(true);
+		// The notice belongs to no other leaf path.
+		expect(isTtsrNotificationComponent(single)).toBe(false);
+		expect(isTodoReminderComponent(single)).toBe(false);
+		expect(isSkillMessageComponent(single)).toBe(false);
+		expect(isLateDiagnosticsMessageComponent(single)).toBe(false);
+
+		// Generic `hideWithToolActivity` wrapper: spacer plus content.
+		expect(isBackgroundCompletionBlock(activityWrapper([leaf, leaf]))).toBe(
+			false,
+		);
+		// Todo reminder and TTSR: spacer plus box card.
+		expect(
+			isBackgroundCompletionBlock(activityWrapper([leaf, container([leaf])])),
+		).toBe(false);
+		// Late diagnostics: one text child, no block of lines under it.
+		expect(isBackgroundCompletionBlock(activityWrapper([leaf]))).toBe(false);
+		// Nested containers are a deeper tree than any completion notice.
+		expect(
+			isBackgroundCompletionBlock(
+				activityWrapper([container([container([leaf])])]),
+			),
+		).toBe(false);
+
+		// Stock tool cards and read groups wrap one content box of text leaves
+		// as well, so only their execution surface separates them from a notice.
+		expect(
+			isBackgroundCompletionBlock({
+				...activityWrapper([container([leaf])]),
+				updateArgs() {},
+				updateResult() {},
+				setArgsComplete() {},
+				seal() {},
+			}),
+		).toBe(false);
+		expect(
+			isBackgroundCompletionBlock({
+				...activityWrapper([container([leaf])]),
+				updateArgs() {},
+				updateResult() {},
+				renameEntry() {},
+				removeEntry() {},
+			}),
+		).toBe(false);
+		expect(isBackgroundCompletionBlock(new ToolComponent())).toBe(false);
+		expect(isBackgroundCompletionBlock(new ReadGroup())).toBe(false);
+		expect(isBackgroundCompletionBlock(null)).toBe(false);
+		expect(isBackgroundCompletionBlock({})).toBe(false);
 	});
 });
 
@@ -1160,6 +1240,10 @@ stockTest("stock 18.0.0 host capability canary", async () => {
 	expect(isReadGroupComponent(readGroup)).toBe(true);
 	expect(leafCapabilities(tool).kind).toBe("tool");
 	expect(leafCapabilities(readGroup).kind).toBe("readGroup");
+	// Real cards, real trees: both are containers of one content box of text
+	// leaves, exactly like a background-completion notice.
+	expect(isBackgroundCompletionBlock(tool)).toBe(false);
+	expect(isBackgroundCompletionBlock(readGroup)).toBe(false);
 	// Version last: a pin mismatch must not blind the seam probes above.
 	expect(stockHostVersion()).toBe("18.0.0");
 });

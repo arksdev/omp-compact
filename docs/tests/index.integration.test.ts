@@ -3050,6 +3050,75 @@ stockTest("adjacent live tool calls render as a dense run", async () => {
 	await shutdown(booted);
 });
 
+/** Stock wording of a finished supervised process (host launch summary). */
+const SUPERVISED_FAILURE =
+	"✘ Supervised process failed live18b (exit 2) (1.9s)";
+
+/**
+ * Stock notice of finished background activity (OMP 18.0.0
+ * `buildLaunchCompletionBlock` / `buildAsyncResultBlock`): a
+ * `ToolActivityContainer` wrapping one `TranscriptBlock` whose children are
+ * `Text` leaves, one per reported process. `ContainerBase` is the very stock
+ * `Container` both host classes extend, so the double carries the real
+ * structure — including the wrapper's activity and expand proxies.
+ */
+function addBackgroundCompletion(
+	booted: BootedPlugin & { transcript: TranscriptInstance },
+	line: string,
+): void {
+	const block = new booted.ContainerBase();
+	block.addChild({ render: () => [line] });
+	const notice = Object.assign(new booted.ContainerBase(), {
+		setToolActivityVisible() {},
+		setExpanded() {},
+	});
+	notice.addChild(block);
+	booted.transcript.addChild(notice);
+}
+
+stockTest(
+	"a background completion notice joins the dense run and leaves with it",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		for (const [id, command] of [
+			["bash-notice-1", "printf one"],
+			["bash-notice-2", "printf two"],
+		] as const) {
+			if (id === "bash-notice-2")
+				addBackgroundCompletion(booted, SUPERVISED_FAILURE);
+			const call = await addTool(booted, "bash", { command }, id);
+			await finishTool(booted, call, {
+				toolCallId: id,
+				toolName: "bash",
+				result: {
+					content: [{ type: "text", text: "ok" }],
+					details: { exitCode: 0 },
+				},
+				isError: false,
+			});
+		}
+		// Working phase: the notice is one more row of the same dense run, so
+		// the transcript inserts no separator around it.
+		const rows = screenRows(booted.transcript);
+		const one = rows.findIndex((row) => row.includes("printf one"));
+		const notice = rows.findIndex((row) => row.includes(SUPERVISED_FAILURE));
+		const two = rows.findIndex((row) => row.includes("printf two"));
+		expect(one).toBeGreaterThanOrEqual(0);
+		expect(notice).toBe(one + 1);
+		expect(two).toBe(notice + 1);
+		// Terminal answer: background activity is not a mutation, so the
+		// notice leaves with the rest of the run's routine rows.
+		await finishRun(booted, "both processes reported");
+		expect(
+			screenRows(booted.transcript).some((row) =>
+				row.includes(SUPERVISED_FAILURE),
+			),
+		).toBe(false);
+		await shutdown(booted);
+	},
+);
+
 stockTest("shutdown restores own descriptors exactly", async () => {
 	let transcript: TranscriptInstance | undefined;
 	const booted = await bootPlugin((root, host) => {

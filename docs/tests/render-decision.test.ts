@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+	type BackgroundCompletionRenderInput,
+	decideBackgroundCompletionRender,
 	decideReadGroupRender,
 	decideToolRender,
 	type ReadGroupRenderInput,
@@ -581,5 +583,57 @@ describe("decideReadGroupRender", () => {
 		expect(
 			decideReadGroupRender(groupInput({ readCount: 3, phase: "full" })),
 		).toEqual({ kind: "read-rows" });
+	});
+});
+
+function completionInput(
+	overrides: Partial<BackgroundCompletionRenderInput> = {},
+): BackgroundCompletionRenderInput {
+	return { mode: "live", phase: "working", ...overrides };
+}
+
+describe("decideBackgroundCompletionRender", () => {
+	test("a working run shows the host's own completion line", () => {
+		expect(decideBackgroundCompletionRender(completionInput())).toEqual({
+			kind: "native",
+		});
+		expect(
+			decideBackgroundCompletionRender(completionInput({ mode: "compact" })),
+		).toEqual({ kind: "native" });
+	});
+
+	test("the terminal answer drops the notice in every mode", () => {
+		expect(
+			decideBackgroundCompletionRender(completionInput({ phase: "filtered" })),
+		).toEqual({ kind: "empty" });
+		expect(
+			decideBackgroundCompletionRender(
+				completionInput({ phase: "filtered", mode: "compact" }),
+			),
+		).toEqual({ kind: "empty" });
+	});
+
+	test("clear hides the notice while working, keeps it on full", () => {
+		expect(
+			decideBackgroundCompletionRender(completionInput({ mode: "clear" })),
+		).toEqual({ kind: "empty" });
+		expect(
+			decideBackgroundCompletionRender(
+				completionInput({ mode: "clear", phase: "full" }),
+			),
+		).toEqual({ kind: "native" });
+	});
+
+	test("a notice outside any run is never hidden", () => {
+		expect(
+			decideBackgroundCompletionRender(completionInput({ phase: undefined })),
+		).toEqual({ kind: "native" });
+		// Same reason read groups without a bound ledger stay native: no run
+		// owns the notice, so nothing could ever bring the line back.
+		expect(
+			decideBackgroundCompletionRender(
+				completionInput({ phase: undefined, mode: "clear" }),
+			),
+		).toEqual({ kind: "native" });
 	});
 });
