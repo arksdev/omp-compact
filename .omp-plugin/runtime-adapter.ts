@@ -1096,7 +1096,7 @@ export class RuntimeAdapter {
 		this.#patchRenderOnlyLeaf({
 			component,
 			patches: this.#patches.todoReminder,
-			probe: todoReminderFromComponent,
+			probeAtInstall: true,
 			extract: todoReminderFromComponent,
 			renderRow: renderTodoReminderRow,
 		});
@@ -1105,8 +1105,8 @@ export class RuntimeAdapter {
 	/**
 	 * Shared DescriptorPatch scaffolding for render-only leaf cards (TTSR
 	 * notification, todo reminder). Callers keep their own patch map,
-	 * optional install-time probe, render-time extract, and row renderer;
-	 * this only collapses the install path that was copy-pasted.
+	 * optional install-time probe pass, render-time extract, and row
+	 * renderer; this only collapses the install path that was copy-pasted.
 	 *
 	 * Deliberately a second shape next to `#patchExpandableLeaf`: these cards
 	 * wrap `render` only — there is no `setExpanded` observe, no observed
@@ -1114,8 +1114,8 @@ export class RuntimeAdapter {
 	 *
 	 * Invariants preserved from the two former copies:
 	 * - per-component idempotency via `patches.has`
-	 * - the caller's install-time probe runs before method resolve / patch
-	 *   install, so a mismatched component never receives a wrapper
+	 * - the caller's install-time probe pass runs before method resolve /
+	 *   patch install, so a mismatched component never receives a wrapper
 	 * - fail-open ladder, all reads live per render call: disposed → no
 	 *   theme → extract miss all return native output
 	 * - `restore()` on dispose still goes through the caller's patch map
@@ -1124,23 +1124,21 @@ export class RuntimeAdapter {
 		component: RenderableBlock;
 		patches: Map<object, DescriptorPatch>;
 		/**
-		 * Optional install-time containment probe (todo reminder only): it
-		 * must yield a view or the component stays native. Omitted (TTSR)
-		 * when the tree only exists at render time — the render-time extract
-		 * is then the only fail-open line.
+		 * Run `extract` at install time too: a miss leaves the component
+		 * native. Todo reminder only — its content probe discriminates the
+		 * StrippedToolCallsPlaceholder collision. Omitted (TTSR) because that
+		 * tree only exists at render time, when extraction is the fail-open
+		 * line.
 		 */
-		probe?: (block: unknown) => TView | undefined;
+		probeAtInstall?: boolean;
 		extract: (block: unknown) => TView | undefined;
 		renderRow: (view: TView, theme: Theme, width: number) => readonly string[];
 	}): void {
-		const { component, patches, probe, extract, renderRow } = args;
+		const { component, patches, probeAtInstall, extract, renderRow } = args;
 		if (patches.has(component)) return;
 		// Probe before capture/install so mismatched leaves stay native.
-		if (probe && !probe(component)) return;
-		// Full-chain walk (same as expandable leaves). For stock TTSR and the
-		// test double, render lives on the class — one-level lookup already
-		// found it; the deeper walk is a pure superset and cannot invent a
-		// method the old path would have rejected for these surfaces.
+		if (probeAtInstall && !extract(component)) return;
+
 		const originalRender = resolveInstanceMethod(component, "render");
 		if (!originalRender) return;
 		const original = originalRender as (
