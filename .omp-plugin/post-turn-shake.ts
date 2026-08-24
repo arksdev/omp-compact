@@ -28,24 +28,27 @@ import { type AgentEndEvent, classifyAgentEnd } from "./turn-ledger";
  * extension runner.
  */
 
+// Byte-identical twin of CompactAutoShakeSettings in config.ts — extend both together when a setting is added.
 export interface AutoShakeSettings {
 	enabled: boolean;
 	thresholdTokens: number;
 }
 
 export interface ShakeResultLike {
-	mode: string;
+	mode: "elide" | "images" | "thinking";
 	toolResultsDropped: number;
 	blocksDropped: number;
 	tokensFreed: number;
 	imagesDropped?: number;
+	thinkingBlocksDropped?: number;
 	artifactId?: string;
 }
 
 /**
  * One-line operator summary of a {@link ShakeResultLike}, a faithful port of
  * stock `formatShakeSummary` (anchor:
- * `oh-my-pi/packages/coding-agent/src/session/shake-types.ts`) so the
+ * `oh-my-pi/packages/coding-agent/src/session/shake-types.ts`, verified
+ * against stock 18.0.3) so the
  * auto-shake confirmation reads exactly like a manual `/shake`:
  * `Shook 35 tool results (~11593 tokens freed).`, regions joined with ` + `,
  * and `Nothing to shake.` for a successful no-op.
@@ -56,6 +59,12 @@ export function formatShakeSummary(result: ShakeResultLike): string {
 		return n === 0
 			? "No images found in this session."
 			: `Dropped ${n} image${n === 1 ? "" : "s"} from this session.`;
+	}
+	if (result.mode === "thinking") {
+		const n = result.thinkingBlocksDropped ?? 0;
+		return n === 0
+			? "No thinking blocks found in this session."
+			: `Dropped ${n} thinking block${n === 1 ? "" : "s"} from this session.`;
 	}
 	const parts: string[] = [];
 	if (result.toolResultsDropped > 0) {
