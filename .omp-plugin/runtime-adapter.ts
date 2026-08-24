@@ -26,7 +26,10 @@ import type { ModePolicy } from "./mode-policy";
 import { objectRecord } from "./object-record";
 import { DescriptorPatch } from "./patch-kit";
 import {
-	type ExpandObservedState,
+	PresentationPatches,
+	resolveInstanceMethod,
+} from "./presentation-patches";
+import {
 	injectRulesFromTtsrComponent,
 	isVibeToolName,
 	lateDiagnosticsFromComponent,
@@ -39,7 +42,6 @@ import {
 	skillMessageFromComponent,
 	terminalGitSummaryLine,
 	todoReminderFromComponent,
-	type UserExecutionObservedState,
 	userBashExecutionFromComponent,
 	userEvalExecutionFromComponent,
 } from "./render";
@@ -166,9 +168,10 @@ function isCompactCustomMessage(value: unknown): value is RenderableBlock {
  * Host/event orchestrator of the compact plugin. Owns no run state:
  * ComponentBinding maps components ↔ toolCallIds, RuntimeSessionState owns
  * ledgers/records/projections/rebuild lifecycle, RenderDecision maps the
- * pure presentation matrix, TranscriptFold wires the block fold. This class
- * coordinates discovery, patching, fold installation, timers, UI render
- * requests and the C rebuild boundary.
+ * pure presentation matrix, TranscriptFold wires the block fold and
+ * PresentationPatches owns the exact-instance descriptor registries;
+ * this class coordinates discovery, patching, fold installation,
+ * timers, UI render requests and the C rebuild boundary.
  */
 export class RuntimeAdapter {
 	readonly #host: HostAdapter1731;
@@ -176,31 +179,12 @@ export class RuntimeAdapter {
 	readonly #timers: TimerContext | undefined;
 	readonly #warn: ((message: string) => void) | undefined;
 	readonly #session: RuntimeSessionState;
-	readonly #patchedComponents = new Map<object, DescriptorPatch>();
-	/** Exact-instance TTSR notification render overrides (not fold-owned). */
-	readonly #ttsrPatches = new Map<object, DescriptorPatch>();
-	/** Exact-instance todo-reminder render overrides (not fold-owned). */
-	readonly #todoReminderPatches = new Map<object, DescriptorPatch>();
 	/**
-	 * Exact-instance user bash/python execution overrides (not fold-owned).
-	 * Tracks observed setComplete/setExpanded state because exit codes live
-	 * in private fields on the stock components.
+	 * Exact-instance descriptor-patch registries and their restore/clear
+	 * teardown — detach scope (per-component only) vs dispose scope (plus
+	 * transcript wrappers and the discovery watcher).
 	 */
-	readonly #userExecutionPatches = new Map<object, DescriptorPatch>();
-	readonly #userExecutionState = new WeakMap<
-		object,
-		UserExecutionObservedState
-	>();
-	/** Exact-instance skill-prompt render overrides (not fold-owned). */
-	readonly #skillPatches = new Map<object, DescriptorPatch>();
-	readonly #skillExpandState = new WeakMap<object, ExpandObservedState>();
-	/** Exact-instance late-diagnostics render overrides (not fold-owned). */
-	readonly #lateDiagnosticsPatches = new Map<object, DescriptorPatch>();
-	readonly #lateDiagnosticsExpandState = new WeakMap<
-		object,
-		ExpandObservedState
-	>();
-	readonly #discoveryPatches = new Map<object, DescriptorPatch>();
+	readonly #patches = new PresentationPatches();
 	#transcript: TranscriptHost | undefined;
 	#fold: TranscriptFold | undefined;
 	#timer: unknown;
@@ -218,8 +202,6 @@ export class RuntimeAdapter {
 	#pendingGeneration: number | undefined;
 	#rebuildPending = false;
 	#rebuildSnapshot: RebuildSnapshot | undefined;
-	/** Exact-instance transcript patches (addChild observer + clear boundary). */
-	readonly #transcriptPatches: DescriptorPatch[] = [];
 	readonly #getBranch: (() => readonly unknown[] | undefined) | undefined;
 	readonly #onRunFinalized: ((runId: string) => void) | undefined;
 	readonly #onDisabled: (() => void) | undefined;
@@ -574,21 +556,9 @@ export class RuntimeAdapter {
 			// Fold restoration must not abort adapter-level rollback.
 		}
 		this.#fold = undefined;
-		for (const patch of this.#patchedComponents.values()) patch.restore();
-		this.#patchedComponents.clear();
-		for (const patch of this.#ttsrPatches.values()) patch.restore();
-		this.#ttsrPatches.clear();
-		for (const patch of this.#todoReminderPatches.values()) patch.restore();
-		this.#todoReminderPatches.clear();
-		for (const patch of this.#userExecutionPatches.values()) patch.restore();
-		this.#userExecutionPatches.clear();
-		for (const patch of this.#skillPatches.values()) patch.restore();
-		this.#skillPatches.clear();
-		for (const patch of this.#lateDiagnosticsPatches.values()) patch.restore();
-		this.#lateDiagnosticsPatches.clear();
-		for (const patch of this.#transcriptPatches) patch.restore();
-		this.#transcriptPatches.length = 0;
-		this.#removeDiscoveryPatches();
+		this.#patches.restorePerComponent();
+		this.#patches.restoreTranscript();
+		this.#patches.restoreDiscovery();
 		this.#stopSpinner();
 		// C07: dispose invalidates any pending generation microtask — stale
 		// callbacks abort on the token/disposed guard and never replay.
@@ -641,18 +611,7 @@ export class RuntimeAdapter {
 		} catch {
 			// Fold restoration must not abort the rebuild detach.
 		}
-		for (const patch of this.#patchedComponents.values()) patch.restore();
-		this.#patchedComponents.clear();
-		for (const patch of this.#ttsrPatches.values()) patch.restore();
-		this.#ttsrPatches.clear();
-		for (const patch of this.#todoReminderPatches.values()) patch.restore();
-		this.#todoReminderPatches.clear();
-		for (const patch of this.#userExecutionPatches.values()) patch.restore();
-		this.#userExecutionPatches.clear();
-		for (const patch of this.#skillPatches.values()) patch.restore();
-		this.#skillPatches.clear();
-		for (const patch of this.#lateDiagnosticsPatches.values()) patch.restore();
-		this.#lateDiagnosticsPatches.clear();
+		this.#patches.restorePerComponent();
 	}
 
 	/** One generation-guarded settlement microtask per boundary. */
@@ -698,7 +657,7 @@ export class RuntimeAdapter {
 					// re-addChilds through the surviving wrapper, but any
 					// child already present (or reinserted without a fresh
 					// addChild) must be re-observed here so inject overrides
-					// re-attach without double-wrapping (#ttsrPatches.has).
+					// re-attach without double-wrapping (#patches.ttsr.has).
 					const transcript = this.#transcript;
 					if (transcript) {
 						for (const child of transcript.children) {
@@ -991,7 +950,7 @@ export class RuntimeAdapter {
 	}
 
 	#patchDiscoveryContainer(container: Record<string, unknown>): void {
-		if (this.#discoveryPatches.has(container)) return;
+		if (this.#patches.discovery.has(container)) return;
 		const patch = this.#host.patchDiscoveryContainer(container, (child) => {
 			try {
 				this.#observeTree(child, 0);
@@ -999,12 +958,7 @@ export class RuntimeAdapter {
 				this.#rollback(`omp-compact disabled: ${String(error)}`);
 			}
 		});
-		this.#discoveryPatches.set(container, patch);
-	}
-
-	#removeDiscoveryPatches(): void {
-		for (const patch of this.#discoveryPatches.values()) patch.restore();
-		this.#discoveryPatches.clear();
+		this.#patches.discovery.set(container, patch);
 	}
 
 	#installTranscript(transcript: TranscriptHost): void {
@@ -1012,7 +966,7 @@ export class RuntimeAdapter {
 		if (this.#transcript) throw new Error("multiple transcript containers");
 		this.#transcript = transcript;
 		this.#session.attachTranscript(transcript);
-		this.#removeDiscoveryPatches();
+		this.#patches.restoreDiscovery();
 		const addChildPatch = this.#host.patchAddChild(transcript, (child) => {
 			try {
 				this.#observeTranscriptChild(child);
@@ -1029,7 +983,7 @@ export class RuntimeAdapter {
 		// live presentation keeps working). The addChild patch is recorded
 		// FIRST so a failing clear probe still rolls the adapter back
 		// transactionally (its wrapper is restored by dispose).
-		this.#transcriptPatches.push(addChildPatch);
+		this.#patches.transcript.push(addChildPatch);
 		if (transcriptCapabilities(transcript).clear) {
 			const clearPatch = this.#host.patchClear(transcript, () => {
 				try {
@@ -1038,7 +992,7 @@ export class RuntimeAdapter {
 					this.#rollback(`omp-compact disabled: ${String(error)}`);
 				}
 			});
-			this.#transcriptPatches.push(clearPatch);
+			this.#patches.transcript.push(clearPatch);
 		}
 		for (const child of transcript.children) {
 			// A fail-closed patch failure (e.g. unpatchable read group)
@@ -1112,12 +1066,12 @@ export class RuntimeAdapter {
 	 * Unrecognized trees fail open to the native renderer.
 	 */
 	#patchTtsrNotification(component: RenderableBlock): void {
-		if (this.#ttsrPatches.has(component)) return;
+		if (this.#patches.ttsr.has(component)) return;
 		// Full-chain walk (same as expandable leaves). For stock TTSR and the
 		// test double, render lives on the class — one-level lookup already
 		// found it; the deeper walk is a pure superset and cannot invent a
 		// method the old path would have rejected for these surfaces.
-		const originalRender = this.#resolveInstanceMethod(component, "render");
+		const originalRender = resolveInstanceMethod(component, "render");
 		if (!originalRender) return;
 		const original = originalRender as (
 			this: RenderableBlock,
@@ -1140,7 +1094,7 @@ export class RuntimeAdapter {
 					},
 				},
 			});
-			this.#ttsrPatches.set(component, patch);
+			this.#patches.ttsr.set(component, patch);
 		} catch {
 			// Capability skew fails open: leave the stock yellow card alone.
 		}
@@ -1162,12 +1116,12 @@ export class RuntimeAdapter {
 	 * fail-open line if the tree later drifts.
 	 */
 	#patchTodoReminder(component: RenderableBlock): void {
-		if (this.#todoReminderPatches.has(component)) return;
+		if (this.#patches.todoReminder.has(component)) return;
 		// Probe before capture/install so unrelated activity-only leaves never
 		// receive a render wrapper. Method lookup cannot discriminate the
 		// StrippedToolCallsPlaceholder collision — only this content probe can.
 		if (!todoReminderFromComponent(component)) return;
-		const originalRender = this.#resolveInstanceMethod(component, "render");
+		const originalRender = resolveInstanceMethod(component, "render");
 		if (!originalRender) return;
 		const original = originalRender as (
 			this: RenderableBlock,
@@ -1190,7 +1144,7 @@ export class RuntimeAdapter {
 					},
 				},
 			});
-			this.#todoReminderPatches.set(component, patch);
+			this.#patches.todoReminder.set(component, patch);
 		} catch {
 			// Capability skew fails open: leave the stock yellow card alone.
 		}
@@ -1211,8 +1165,8 @@ export class RuntimeAdapter {
 	#patchSkillMessage(component: RenderableBlock): void {
 		this.#patchExpandableLeaf({
 			component,
-			patches: this.#skillPatches,
-			states: this.#skillExpandState,
+			patches: this.#patches.skill,
+			states: this.#patches.skillExpandState,
 			// Probe before capture/install so non-skill leaves stay native.
 			extract: skillMessageFromComponent,
 			renderRow: renderSkillMessageRow,
@@ -1233,37 +1187,12 @@ export class RuntimeAdapter {
 	#patchLateDiagnostics(component: RenderableBlock): void {
 		this.#patchExpandableLeaf({
 			component,
-			patches: this.#lateDiagnosticsPatches,
-			states: this.#lateDiagnosticsExpandState,
+			patches: this.#patches.lateDiagnostics,
+			states: this.#patches.lateDiagnosticsExpandState,
 			// Probe before capture/install so empty/mismatch leaves stay native.
 			extract: lateDiagnosticsFromComponent,
 			renderRow: renderLateDiagnosticsRow,
 		});
-	}
-
-	/**
-	 * Resolve a callable instance method through the prototype chain. Stock
-	 * `BashExecutionComponent` overrides `render` on its own class;
-	 * `EvalExecutionComponent` does not and inherits `Container.render`
-	 * several levels up. A one-level own-then-prototype lookup would miss
-	 * eval, so we walk until we find a function value (never patching a
-	 * shared prototype — only capturing the function to wrap as an own
-	 * instance property). TTSR / todo-reminder also use this walk; for those
-	 * surfaces it is a pure superset of the former one-level lookup.
-	 */
-	#resolveInstanceMethod(
-		component: object,
-		name: string,
-	): ((...args: never[]) => unknown) | undefined {
-		let current: object | null = component;
-		while (current && current !== Object.prototype) {
-			const descriptor = Object.getOwnPropertyDescriptor(current, name);
-			if (typeof descriptor?.value === "function") {
-				return descriptor.value as (...args: never[]) => unknown;
-			}
-			current = Object.getPrototypeOf(current) as object | null;
-		}
-		return undefined;
 	}
 
 	/**
@@ -1310,11 +1239,8 @@ export class RuntimeAdapter {
 		// Probe before capture/install so empty/mismatch leaves stay native.
 		if (!extract(component, states.get(component))) return;
 
-		const originalRender = this.#resolveInstanceMethod(component, "render");
-		const originalSetExpanded = this.#resolveInstanceMethod(
-			component,
-			"setExpanded",
-		);
+		const originalRender = resolveInstanceMethod(component, "render");
+		const originalSetExpanded = resolveInstanceMethod(component, "setExpanded");
 		if (!originalRender || !originalSetExpanded) return;
 
 		const render = originalRender as (
@@ -1335,7 +1261,7 @@ export class RuntimeAdapter {
 			  ) => unknown)
 			| undefined;
 		if (observeComplete) {
-			const originalSetComplete = this.#resolveInstanceMethod(
+			const originalSetComplete = resolveInstanceMethod(
 				component,
 				"setComplete",
 			);
@@ -1446,8 +1372,8 @@ export class RuntimeAdapter {
 				: userEvalExecutionFromComponent;
 		this.#patchExpandableLeaf({
 			component,
-			patches: this.#userExecutionPatches,
-			states: this.#userExecutionState,
+			patches: this.#patches.userExecution,
+			states: this.#patches.userExecutionState,
 			extract,
 			renderRow: renderUserExecutionRow,
 			observeComplete(state, exitCode, cancelled) {
@@ -1459,7 +1385,7 @@ export class RuntimeAdapter {
 	}
 
 	#patchToolComponent(component: RenderableBlock): void {
-		if (this.#patchedComponents.has(component)) return;
+		if (this.#patches.components.has(component)) return;
 		const patch = this.#host.patchToolComponent(component, (name, args) => {
 			try {
 				const status = this.#session.binding.observeToolMethod(
@@ -1484,13 +1410,13 @@ export class RuntimeAdapter {
 				this.#rollback(`omp-compact disabled: ${String(error)}`);
 			}
 		});
-		this.#patchedComponents.set(component, patch);
+		this.#patches.components.set(component, patch);
 		this.#session.binding.registerUnboundComponent(component);
 		this.#ensureSpinner();
 	}
 
 	#patchReadGroup(component: RenderableBlock): boolean {
-		if (this.#patchedComponents.has(component)) return true;
+		if (this.#patches.components.has(component)) return true;
 		// The group is registered with the binding BEFORE the host patch
 		// runs, so an unpatchable group (capability skew) must be contained
 		// here: the group is rolled back through the fail-closed path and
@@ -1526,7 +1452,7 @@ export class RuntimeAdapter {
 			this.#rollback(`omp-compact disabled: ${String(error)}`);
 			return false;
 		}
-		this.#patchedComponents.set(component, patch);
+		this.#patches.components.set(component, patch);
 		return true;
 	}
 
@@ -1539,7 +1465,7 @@ export class RuntimeAdapter {
 	 */
 	#quarantineComponent(component: RenderableBlock): void {
 		this.#session.binding.releaseToNative(component);
-		const patch = this.#patchedComponents.get(component);
+		const patch = this.#patches.components.get(component);
 		if (patch) {
 			try {
 				patch.restore();
@@ -1547,7 +1473,7 @@ export class RuntimeAdapter {
 				// Restoration must not escalate a data ambiguity into a
 				// session-wide rollback.
 			}
-			this.#patchedComponents.delete(component);
+			this.#patches.components.delete(component);
 		}
 	}
 
