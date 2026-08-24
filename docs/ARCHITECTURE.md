@@ -26,6 +26,8 @@ omp-compact/
 │   ├── render-decision.ts         # Compact vs native decision tables
 │   ├── render.ts                  # Row construction (mutations, git, stats)
 │   ├── render-scrape.ts           # Scraping of stock component views into views
+│   ├── tool-presentation-rules.ts # Rules registry: routes, aliases, shapes, lookups
+│   ├── tool-rule-describers.ts    # Describer library backing the registered rules
 │   ├── vibe-cards.ts              # Re-export entry point for vibe cards
 │   ├── vibe-cards-decode.ts       # Defensive decoding of untrusted vibe payloads
 │   ├── vibe-cards-render.ts       # Compact worker-session row rendering

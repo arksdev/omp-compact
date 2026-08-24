@@ -437,6 +437,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | --- | --- |
 | `index.ts` | Extension entrypoint, events, command и session wiring. |
 | `tool-presentation-rules.ts` | Typed routes, aliases, audit selectors и known structured shapes. |
+| `tool-rule-describers.ts` | Pure describer-поведение правил: describe/resultMeta, текстовые устройства и hub launch-зеркало. |
 | `runtime-adapter.ts` | Public lifecycle façade, exact-instance wrappers and terminal replay seam. |
 | `presentation-patches.ts` | Exact-instance descriptor-patch registries и их двух-scope teardown (detach для per-component, dispose-only для transcript/discovery). |
 | `host-adapter.ts` | Pinned 18.0.3 capability probes and transactional descriptor patches. |

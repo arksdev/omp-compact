@@ -163,6 +163,8 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/render-decision.ts` — decision tables only
 - `.omp-plugin/render.ts` — row construction only
 - `.omp-plugin/render-scrape.ts` — scraping stock component views into compact views only
+- `.omp-plugin/tool-presentation-rules.ts` — rules registry (routes, aliases, shapes, lookups) only
+- `.omp-plugin/tool-rule-describers.ts` — rule description behavior (describe/resultMeta, devices, hub mirror) only
 - `.omp-plugin/vibe-cards.ts` — re-export entry point only (decode/render split)
 - `.omp-plugin/vibe-cards-decode.ts` — defensive decoding of untrusted vibe payloads only
 - `.omp-plugin/vibe-cards-render.ts` — worker-session row rendering only
@@ -188,6 +190,7 @@ index.ts
       → render-decision.ts
       → render.ts
           → tool-presentation-rules.ts
+              → tool-rule-describers.ts
           → display-path.ts
           → render-scrape.ts
           → vibe-cards-render.ts
