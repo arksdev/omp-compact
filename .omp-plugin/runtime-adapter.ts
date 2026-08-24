@@ -1066,7 +1066,77 @@ export class RuntimeAdapter {
 	 * Unrecognized trees fail open to the native renderer.
 	 */
 	#patchTtsrNotification(component: RenderableBlock): void {
-		if (this.#patches.ttsr.has(component)) return;
+		this.#patchRenderOnlyLeaf({
+			component,
+			patches: this.#patches.ttsr,
+			extract: injectRulesFromTtsrComponent,
+			renderRow: renderInjectRuleRows,
+		});
+	}
+
+	/**
+	 * Override stock TodoReminder yellow multi-line card with one compact
+	 * warning row. Exact-instance render wrap only — never folded into a tool
+	 * run.
+	 *
+	 * Install-time containment: `isTodoReminderComponent` also matches other
+	 * activity-only leaves (notably OMP 17.3.4 `StrippedToolCallsPlaceholder`,
+	 * which exposes only `render` + `setToolActivityVisible`). Stock
+	 * `TodoReminderComponent` builds its Spacer/Box/Text tree in the
+	 * constructor via `#rebuild()`, so a successful `todoReminderFromComponent`
+	 * probe here is exact evidence the instance is a real reminder card. We
+	 * only install a DescriptorPatch when that probe yields a view — collision
+	 * leaves stay fully native. Render-time extraction remains the second
+	 * fail-open line if the tree later drifts.
+	 */
+	#patchTodoReminder(component: RenderableBlock): void {
+		// Probe before capture/install so unrelated activity-only leaves never
+		// receive a render wrapper. Method lookup cannot discriminate the
+		// StrippedToolCallsPlaceholder collision — only this content probe can.
+		this.#patchRenderOnlyLeaf({
+			component,
+			patches: this.#patches.todoReminder,
+			probe: todoReminderFromComponent,
+			extract: todoReminderFromComponent,
+			renderRow: renderTodoReminderRow,
+		});
+	}
+
+	/**
+	 * Shared DescriptorPatch scaffolding for render-only leaf cards (TTSR
+	 * notification, todo reminder). Callers keep their own patch map,
+	 * optional install-time probe, render-time extract, and row renderer;
+	 * this only collapses the install path that was copy-pasted.
+	 *
+	 * Deliberately a second shape next to `#patchExpandableLeaf`: these cards
+	 * wrap `render` only — there is no `setExpanded` observe, no observed
+	 * state map, and no expanded-fallback step in the render ladder.
+	 *
+	 * Invariants preserved from the two former copies:
+	 * - per-component idempotency via `patches.has`
+	 * - the caller's install-time probe runs before method resolve / patch
+	 *   install, so a mismatched component never receives a wrapper
+	 * - fail-open ladder, all reads live per render call: disposed → no
+	 *   theme → extract miss all return native output
+	 * - `restore()` on dispose still goes through the caller's patch map
+	 */
+	#patchRenderOnlyLeaf<TView>(args: {
+		component: RenderableBlock;
+		patches: Map<object, DescriptorPatch>;
+		/**
+		 * Optional install-time containment probe (todo reminder only): it
+		 * must yield a view or the component stays native. Omitted (TTSR)
+		 * when the tree only exists at render time — the render-time extract
+		 * is then the only fail-open line.
+		 */
+		probe?: (block: unknown) => TView | undefined;
+		extract: (block: unknown) => TView | undefined;
+		renderRow: (view: TView, theme: Theme, width: number) => readonly string[];
+	}): void {
+		const { component, patches, probe, extract, renderRow } = args;
+		if (patches.has(component)) return;
+		// Probe before capture/install so mismatched leaves stay native.
+		if (probe && !probe(component)) return;
 		// Full-chain walk (same as expandable leaves). For stock TTSR and the
 		// test double, render lives on the class — one-level lookup already
 		// found it; the deeper walk is a pure superset and cannot invent a
@@ -1088,65 +1158,15 @@ export class RuntimeAdapter {
 						if (adapter.#disposed) return original.call(this, width);
 						const theme = adapter.#ui.theme;
 						if (!theme) return original.call(this, width);
-						const rules = injectRulesFromTtsrComponent(this);
-						if (!rules) return original.call(this, width);
-						return renderInjectRuleRows(rules, theme, width);
-					},
-				},
-			});
-			this.#patches.ttsr.set(component, patch);
-		} catch {
-			// Capability skew fails open: leave the stock yellow card alone.
-		}
-	}
-
-	/**
-	 * Override stock TodoReminder yellow multi-line card with one compact
-	 * warning row. Exact-instance render wrap only — never folded into a tool
-	 * run.
-	 *
-	 * Install-time containment: `isTodoReminderComponent` also matches other
-	 * activity-only leaves (notably OMP 17.3.4 `StrippedToolCallsPlaceholder`,
-	 * which exposes only `render` + `setToolActivityVisible`). Stock
-	 * `TodoReminderComponent` builds its Spacer/Box/Text tree in the
-	 * constructor via `#rebuild()`, so a successful `todoReminderFromComponent`
-	 * probe here is exact evidence the instance is a real reminder card. We
-	 * only install a DescriptorPatch when that probe yields a view — collision
-	 * leaves stay fully native. Render-time extraction remains the second
-	 * fail-open line if the tree later drifts.
-	 */
-	#patchTodoReminder(component: RenderableBlock): void {
-		if (this.#patches.todoReminder.has(component)) return;
-		// Probe before capture/install so unrelated activity-only leaves never
-		// receive a render wrapper. Method lookup cannot discriminate the
-		// StrippedToolCallsPlaceholder collision — only this content probe can.
-		if (!todoReminderFromComponent(component)) return;
-		const originalRender = resolveInstanceMethod(component, "render");
-		if (!originalRender) return;
-		const original = originalRender as (
-			this: RenderableBlock,
-			width: number,
-		) => readonly string[];
-		const adapter = this;
-		try {
-			const patch = new DescriptorPatch(component, ["render"]);
-			patch.install({
-				render: {
-					configurable: true,
-					writable: true,
-					value(this: RenderableBlock, width: number): readonly string[] {
-						if (adapter.#disposed) return original.call(this, width);
-						const theme = adapter.#ui.theme;
-						if (!theme) return original.call(this, width);
-						const view = todoReminderFromComponent(this);
+						const view = extract(this);
 						if (!view) return original.call(this, width);
-						return renderTodoReminderRow(view, theme, width);
+						return renderRow(view, theme, width);
 					},
 				},
 			});
-			this.#patches.todoReminder.set(component, patch);
+			patches.set(component, patch);
 		} catch {
-			// Capability skew fails open: leave the stock yellow card alone.
+			// Capability skew fails open: leave the stock card alone.
 		}
 	}
 
