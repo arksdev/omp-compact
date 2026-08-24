@@ -448,7 +448,9 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `transcript-fold.ts` | Deferred live region и terminal commit в native scrollback. |
 | `audit.ts`, `audit-diff.ts`, `audit-lifecycle.ts` | Bounded file-mutation evidence и async lifecycle. |
 | `git-records.ts` | Conservative Git command/result classification. |
-| `vibe-cards.ts` | Compact rows для параллельных worker sessions. |
+| `vibe-cards.ts` | Re-export entry point: barrel для модулей vibe cards. |
+| `vibe-cards-decode.ts` | Defensive decoding untrusted vibe payloads в валидированные структуры. |
+| `vibe-cards-render.ts` | Compact rows для параллельных worker sessions. |
 | `config.ts`, `mode-policy.ts` | Persistent config и immutable run snapshot. |
 | `settings-ui.ts` | Re-export entry point: barrel для модулей settings UI. |
 | `settings-keys.ts` | Raw key codes и нормализация стрелок. |

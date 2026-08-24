@@ -162,7 +162,9 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/rebuild-lifecycle.ts` — branch hydration and rebuild lifecycle only
 - `.omp-plugin/render-decision.ts` — decision tables only
 - `.omp-plugin/render.ts` — row construction only
-- `.omp-plugin/vibe-cards.ts` — worker-session row grammar only
+- `.omp-plugin/vibe-cards.ts` — re-export entry point only (decode/render split)
+- `.omp-plugin/vibe-cards-decode.ts` — defensive decoding of untrusted vibe payloads only
+- `.omp-plugin/vibe-cards-render.ts` — worker-session row rendering only
 - `.omp-plugin/presentation-patches.ts` — exact-instance descriptor-patch registries only
 - `.omp-plugin/settings-keys.ts` — raw key codes and arrow normalization only
 - `.omp-plugin/host-api.ts` — structural host API types and command/shortcut registration only
@@ -185,7 +187,8 @@ index.ts
       → render.ts
           → tool-presentation-rules.ts
           → display-path.ts
-          → vibe-cards.ts
+          → vibe-cards-render.ts
+          → vibe-cards-decode.ts
   → settings-ui.ts             # re-export entry point
       → settings-keys.ts / host-api.ts / ansi-width.ts
       → save-flow.ts / cycle-handler.ts / settings-dialog.ts

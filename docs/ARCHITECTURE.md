@@ -25,7 +25,9 @@ omp-compact/
 │   ├── turn-ledger.ts             # Per-run entry accumulation
 │   ├── render-decision.ts         # Compact vs native decision tables
 │   ├── render.ts                  # Row construction (mutations, git, stats)
-│   ├── vibe-cards.ts              # Worker-session compact rows
+│   ├── vibe-cards.ts              # Re-export entry point for vibe cards
+│   ├── vibe-cards-decode.ts       # Defensive decoding of untrusted vibe payloads
+│   ├── vibe-cards-render.ts       # Compact worker-session row rendering
 │   ├── display-cycle.ts           # Shortcut cycle, chord validation, status line
 │   ├── settings-keys.ts           # Raw key codes and arrow normalization
 │   ├── host-api.ts                # Host API types; command/shortcut registration
