@@ -88,14 +88,18 @@ export interface AuditRunToken {
  * the result:
  *
  * - `settled` gates the adapter's end-run finalization (`work`): `true`
- *   means the drain finished within its bound — every record either
+ *   means the drain finished within its bound — every drained record either
  *   completed or was finally abandoned (terminal purge, dispose,
- *   replacement) — so finalization may run.
+ *   replacement), so finalization may run. Records still pending at a
+ *   continuation are not part of the drain (see `barrier`) and count
+ *   neither way.
  * - `evidenceReady` gates post-run consumers such as the auto-shake: `true`
- *   only when the drain settled AND every record in scope completed, so the
- *   run's audit/Git evidence was persisted. A terminal purge of pending
- *   records, a teardown, a same-id replacement, or a timeout all abandon
- *   records without evidence and report `false` — the run must not shake.
+ *   only when the drain settled AND no record in scope was abandoned, so no
+ *   run evidence was lost. (At a continuation a still-pending record is not
+ *   abandoned: its evidence is deferred to the next run's drain and
+ *   evaluated there.) A terminal purge of pending records, a teardown, a
+ *   same-id replacement, or a timeout all abandon records without evidence
+ *   and report `false` — the run must not shake.
  */
 export interface BarrierOutcome {
 	settled: boolean;
