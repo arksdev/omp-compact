@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { YAML } from "bun";
 
+import { createWarnOnce } from "./config";
 import type { CompactHostSettings } from "./config";
 import {
 	createSessionResolver,
@@ -541,18 +542,13 @@ export function createHostSettingsBridge(
 ): HostSettingsBridge {
 	const api = deps.api;
 	const warn = deps.warn ?? defaultWarn;
-	const warned = new Set<string>();
 	// Serial apply queue (same shape as config.ts `withUpdateQueue`): each
 	// call waits for the previous tail, then runs its own payload. Failures
 	// must not poison the chain — later applies still run with a fresh
 	// pre-image captured at their turn.
 	let applyQueue: Promise<unknown> = Promise.resolve();
 
-	function warnOnce(key: string, message: string): void {
-		if (warned.has(key)) return;
-		warned.add(key);
-		warn(message);
-	}
+	const warnOnce = createWarnOnce(warn);
 
 	function effectiveBoolean(path: HostSettingPath): boolean {
 		try {
@@ -771,7 +767,7 @@ export function createHostSettingsBridge(
 			})();
 		},
 		dispose(): void {
-			warned.clear();
+			warnOnce.clear();
 		},
 	};
 }

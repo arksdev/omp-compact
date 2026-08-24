@@ -761,6 +761,30 @@ function omitUndefinedValues<T extends object>(
 	) as Partial<T>;
 }
 
+/** Deduplicating warning sink plus its lifecycle reset (see createWarnOnce). */
+interface WarnOnce {
+	(key: string, message: string): void;
+	clear(): void;
+}
+
+/**
+ * Deduplicating warning sink: the first message per `key` reaches `warn`,
+ * later messages for the same key are dropped. Keys are opaque — callers
+ * choose the granularity (config phase, host path, ...). `clear()` resets the
+ * dedup state for callers whose sink lifetime is shorter than the module's
+ * (e.g. a bridge disposed between warning opportunities).
+ */
+export function createWarnOnce(warn: (message: string) => void): WarnOnce {
+	const warned = new Set<string>();
+	const warnOnce = (key: string, message: string): void => {
+		if (warned.has(key)) return;
+		warned.add(key);
+		warn(message);
+	};
+	warnOnce.clear = () => warned.clear();
+	return warnOnce;
+}
+
 export function createSettingsStore(
 	deps: StoreDeps = {},
 ): CompactSettingsStore {
@@ -772,12 +796,7 @@ export function createSettingsStore(
 	// can surface one diagnostic through the store warn seam.
 	const path = deps.path ?? resolveConfigPath(env, { warn });
 	const readConfigFile = deps.readFile ?? readFile;
-	const warned = new Set<string>();
-	const warnOnce = (key: string, message: string): void => {
-		if (warned.has(key)) return;
-		warned.add(key);
-		warn(message);
-	};
+	const warnOnce = createWarnOnce(warn);
 
 	// The normalized user config (what load() read / update() persisted).
 	// Environment overrides are NEVER written into this layer.
