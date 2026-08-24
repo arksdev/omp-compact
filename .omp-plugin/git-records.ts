@@ -1,5 +1,6 @@
 import { codePointLength, truncateCodePoints } from "./compact";
 import { isRejectedControlCode } from "./display-control";
+import { MAX_GIT_SUBCOMMAND_LENGTH } from "./hydration-bounds";
 
 export interface GitEvidence {
 	command: string;
@@ -326,6 +327,15 @@ function parseGitInvocationTokens(
 	const subcommand = tokens[subcommandIndex];
 	// gitSubcommandIndex only returns an in-range index of a non-empty token.
 	if (subcommand === undefined) return undefined;
+	// The hydration gate (isGitRecordDetails in messages.ts, via isBoundedString
+	// with MAX_GIT_SUBCOMMAND_LENGTH in hydration-bounds.ts) rejects persisted
+	// subcommands longer than the bound; the tokenizer's own cap is
+	// MAX_TOKEN_LENGTH (4_096 — an input-budget concern, not a field-width
+	// one). Emitting a record here would write a carrier that the replay
+	// path silently drops (rebuild-lifecycle.ts #hydrateEvidence skips it),
+	// so fail closed at recognition instead — a subcommand the hydration
+	// gate would reject is never a recognized Git invocation.
+	if (subcommand.length > MAX_GIT_SUBCOMMAND_LENGTH) return undefined;
 	return {
 		tokens,
 		subcommand,
