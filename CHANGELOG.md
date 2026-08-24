@@ -4,6 +4,26 @@
 
 ---
 
+## 1.2.1 — 24 августа 2026
+
+### Исправлено
+
+- Настройки снова сохраняются, когда в конфиге OMP есть многострочный текст. Раньше такой конфиг мог остановить сохранение: перед записью плагин читает главный `config.yml` OMP, чтобы иметь точный слепок для отката, и отказывается продолжать, если чтение нельзя считать надёжным. Охраняющий это чтение подсчёт глубины считал неверно: многострочные значения в кавычках на каждом переносе строки сбрасывали состояние кавычек, а блочные скаляры (`|`, `>`) были ему незнакомы, поэтому их отступы шли в глубину вложенности. Штатному конфигу с многострочным системным промптом и примером с отступами внутри хватало, чтобы превысить предел глубины 16, — и сохранение отказывалось с ошибкой о превышении вложенности. Ничего не портилось: отказ происходил до записи, — но и применить изменения было нельзя. Касалось это только сохранений, которые трогают собственные строки настроек OMP, — те две, что плагин переопределяет: показ recap и скрытие блока размышлений модели.
+- Плагин больше не теряет свои настройки, когда каталог конфигурации OMP задан абсолютным путём. Абсолютный `PI_CONFIG_DIR` внутри домашнего каталога принимался, а затем к нему второй раз приклеивался домашний каталог — плагин молча читал и писал свои настройки по несуществующему пути. Со стороны это выглядело так, будто настройки не сохраняются и каждый раз возвращаются к значениям по умолчанию.
+- Сохранение одной настройки больше не сбрасывает соседнюю. Значения, пришедшие в сохраняемом наборе пустыми, перезаписывали то, что уже лежало в файле, — и нетронутая настройка откатывалась к значению по умолчанию. Касалось это верхнего уровня настроек и групп статистики и авто-shake.
+
+### Изменено
+
+- Крутилка «ещё думаем» стала легче: пока агент работает, плагин обновляет её около двенадцати раз в секунду, и каждое обновление заново собирало список выполняющихся действий — даже когда он пуст. Теперь список не пересобирается: на экране ничего не меняется, просто машина делает меньше лишней работы за долгий ход.
+- Пример вывода `/vibe` в обоих README приведён в соответствие с тем, что рендер печатает на самом деле: у двухстрочной карточки воркера появилась рамка, у живой сессии — кадр braille-спиннера, а формат длительности был неверным. Теперь образец закреплён тестом, чтобы снова не разойтись с реальностью.
+
+### Проверено
+
+- Требования к OMP не менялись: закреплённый host — **18.0.3**, минимальная поддерживаемая версия — **18.0.1**.
+- Автотесты: 1371 проверка, все проходят.
+
+---
+
 ## 1.2.0 — 23 августа 2026
 
 ### Исправлено
@@ -211,7 +231,8 @@ OMP по ходу задачи показывает много больших к
 
 ## Ссылки на сравнение версий
 
-- [Не выпущено ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...HEAD)
+- [Не выпущено ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...HEAD)
+- [1.2.1 ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...v1.2.1)
 - [1.2.0 ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...v1.2.0)
 - [1.1.3 ← 1.1.2](https://github.com/arksdev/omp-compact/compare/v1.1.2...v1.1.3)
 - [1.1.2 ← 1.1.1](https://github.com/arksdev/omp-compact/compare/v1.1.1...v1.1.2)
@@ -228,6 +249,26 @@ OMP по ходу задачи показывает много больших к
 # omp-compact changelog
 
 In plain words — what changed for a person working in OMP with this plugin.
+
+---
+
+## 1.2.1 — 24 August 2026
+
+### Fixed
+
+- Settings save again when OMP's own config file holds multi-line text. Previously such a config could stop a save: before writing anything, the plugin reads OMP's main `config.yml` to capture an exact pre-image for rollback, and it refuses to proceed when that read cannot be trusted. The depth pre-scan guarding that read miscounted: quoted scalars spanning several lines had their quote state reset at every line break, so continuation lines were scanned as structure, and block scalars (`|`, `>`) were unknown to it, so their indented content counted as nesting depth. A stock config with a multi-line system prompt and an indented example inside was enough to trip the depth limit of 16, and the save was refused with an error about exceeding nesting depth. Nothing got corrupted — the refusal happened before any write — but the change could not be applied either. This only affected saves touching OMP's own settings rows, the two the plugin overrides: showing recap and hiding the model's reasoning block.
+- The plugin no longer loses its settings when the OMP config directory is given as an absolute path. An absolute `PI_CONFIG_DIR` pointing inside the home directory was accepted and then joined onto `$HOME` a second time, so the plugin silently read and wrote its own settings at a path that does not exist. From the outside it looked as if the settings were never saved and reverted to defaults every time.
+- Saving one setting no longer resets a neighbouring one. Values that arrived empty in a settings patch overwrote what was already in the file, so an untouched setting fell back to its default. This affected the top level of the settings and the statistics and auto-shake groups.
+
+### Changed
+
+- The "still thinking" spinner is cheaper: while the agent works, the plugin refreshes it about twelve times a second, and each refresh rebuilt the whole list of in-flight actions — even when the list was empty. The list is no longer rebuilt, so nothing changes on screen, but the machine does less redundant work across a long turn.
+- The `/vibe` output sample in both READMEs now matches what the renderer actually prints: the two-line worker card carries its frame, a running session shows a braille spinner frame, and the duration format was wrong. The sample is now pinned by a test, so it cannot drift from reality again.
+
+### Verified
+
+- OMP requirements are unchanged: pinned host **18.0.3**, minimum supported version **18.0.1**.
+- Automated tests: 1371 checks, all passing.
 
 ---
 
@@ -438,7 +479,8 @@ During a task OMP shows many large cards: reads, searches, commands, edits. Afte
 
 ## Version comparison links
 
-- [Unreleased ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...HEAD)
+- [Unreleased ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...HEAD)
+- [1.2.1 ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...v1.2.1)
 - [1.2.0 ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...v1.2.0)
 - [1.1.3 ← 1.1.2](https://github.com/arksdev/omp-compact/compare/v1.1.2...v1.1.3)
 - [1.1.2 ← 1.1.1](https://github.com/arksdev/omp-compact/compare/v1.1.1...v1.1.2)

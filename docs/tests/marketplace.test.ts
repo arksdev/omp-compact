@@ -67,12 +67,12 @@ describe("marketplace catalog", () => {
 	});
 
 	test("current minor release metadata is synchronized", async () => {
-		expect(pkg.version).toBe("1.2.0");
-		expect(catalog.plugins[0]?.version).toBe("1.2.0");
+		expect(pkg.version).toBe("1.2.1");
+		expect(catalog.plugins[0]?.version).toBe("1.2.1");
 		const changelog = await Bun.file(join(repoRoot, "CHANGELOG.md")).text();
-		expect(changelog).toContain("## 1.2.0 — 23 августа 2026");
+		expect(changelog).toContain("## 1.2.1 — 24 августа 2026");
 		expect(changelog).toContain(
-			"[1.2.0 ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...v1.2.0)",
+			"[1.2.1 ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...v1.2.1)",
 		);
 	});
 });
