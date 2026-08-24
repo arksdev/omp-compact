@@ -81,6 +81,13 @@ const DEFAULT_AUTO_SHAKE: CompactAutoShakeSettings = Object.freeze({
 	thresholdTokens: 120_000,
 });
 
+// Plugin-polarity defaults for the host toggles: "thinking blocks visible"
+// is the inverse of stock hideThinkingBlock. Deliberately separate from the
+// stock schema defaults in host-settings.ts (DEFAULT_RECAP_ENABLED /
+// DEFAULT_HIDE_THINKING_BLOCK, HOST_SETTING_DEFAULTS — stock polarity):
+// host-settings owns the stock truth in stock polarity, this file owns the
+// plugin config default in plugin polarity. Never merge the two — a
+// divergence between them is a decision, not a duplication.
 const DEFAULT_HOST: CompactHostSettings = Object.freeze({
 	recapEnabled: true,
 	thinkingBlocksVisible: true,

@@ -5,6 +5,7 @@ import {
 	type CompactMode,
 	type CompactSettings,
 	type CompactStatsSettings,
+	DEFAULT_SETTINGS,
 	MAX_THRESHOLD_TOKENS,
 } from "./config";
 
@@ -112,6 +113,17 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	"host.thinkingBlocksVisible": "Stock thinking block visibility",
 };
 
+/**
+ * Host-row defaults projected from the plugin config defaults. The schema
+ * types the host keys optional (normalized host groups may omit them), but
+ * DEFAULT_SETTINGS.host always carries both values, so the rows can read
+ * plain booleans. Single source for the absent-key fallback: a default
+ * change in config.ts flows here instead of drifting through literals.
+ */
+const HOST_ROW_DEFAULTS = {
+	...DEFAULT_SETTINGS.host,
+} as Required<CompactHostSettings>;
+
 const STATS_CHILD_IDS = [
 	"stats.actions",
 	"stats.sent",
@@ -180,10 +192,12 @@ export class SettingsDialog implements ComponentLike {
 		const initial = this.initial;
 		const hostDirty =
 			this.hostAvailable &&
-			((draft.host.recapEnabled ?? true) !==
-				(initial.host.recapEnabled ?? true) ||
-				(draft.host.thinkingBlocksVisible ?? true) !==
-					(initial.host.thinkingBlocksVisible ?? true));
+			((draft.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) !==
+				(initial.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) ||
+				(draft.host.thinkingBlocksVisible ??
+					HOST_ROW_DEFAULTS.thinkingBlocksVisible) !==
+					(initial.host.thinkingBlocksVisible ??
+						HOST_ROW_DEFAULTS.thinkingBlocksVisible));
 		return (
 			draft.enabled !== initial.enabled ||
 			draft.mode !== initial.mode ||
@@ -357,7 +371,7 @@ export class SettingsDialog implements ComponentLike {
 			toggle(
 				"host.recapEnabled",
 				"Recap summary",
-				() => draft.host.recapEnabled ?? true,
+				() => draft.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled,
 				(v) => {
 					draft.host.recapEnabled = v;
 				},
@@ -369,7 +383,9 @@ export class SettingsDialog implements ComponentLike {
 			toggle(
 				"host.thinkingBlocksVisible",
 				"Thinking blocks",
-				() => draft.host.thinkingBlocksVisible ?? true,
+				() =>
+					draft.host.thinkingBlocksVisible ??
+					HOST_ROW_DEFAULTS.thinkingBlocksVisible,
 				(v) => {
 					draft.host.thinkingBlocksVisible = v;
 				},
@@ -566,10 +582,12 @@ export class SettingsDialog implements ComponentLike {
 	private hostChangesBlocked(): boolean {
 		if (this.hostAvailable) return false;
 		return (
-			(this.draft.host.recapEnabled ?? true) !==
-				(this.initial.host.recapEnabled ?? true) ||
-			(this.draft.host.thinkingBlocksVisible ?? true) !==
-				(this.initial.host.thinkingBlocksVisible ?? true)
+			(this.draft.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) !==
+				(this.initial.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) ||
+			(this.draft.host.thinkingBlocksVisible ??
+				HOST_ROW_DEFAULTS.thinkingBlocksVisible) !==
+				(this.initial.host.thinkingBlocksVisible ??
+					HOST_ROW_DEFAULTS.thinkingBlocksVisible)
 		);
 	}
 
@@ -622,13 +640,17 @@ export class SettingsDialog implements ComponentLike {
 		const before = this.initial.host;
 		const changed: CompactHostSettings = {};
 		let any = false;
-		if ((after.recapEnabled ?? true) !== (before.recapEnabled ?? true)) {
+		if (
+			(after.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) !==
+			(before.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled)
+		) {
 			changed.recapEnabled = after.recapEnabled;
 			any = true;
 		}
 		if (
-			(after.thinkingBlocksVisible ?? true) !==
-			(before.thinkingBlocksVisible ?? true)
+			(after.thinkingBlocksVisible ??
+				HOST_ROW_DEFAULTS.thinkingBlocksVisible) !==
+			(before.thinkingBlocksVisible ?? HOST_ROW_DEFAULTS.thinkingBlocksVisible)
 		) {
 			changed.thinkingBlocksVisible = after.thinkingBlocksVisible;
 			any = true;
