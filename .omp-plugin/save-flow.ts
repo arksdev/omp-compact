@@ -14,6 +14,13 @@ export interface HostBridgeLike {
 	 * values, which project/runtime overrides can mask.
 	 */
 	apply(host: CompactHostSettings): Promise<HostBridgeApplyResult>;
+	/**
+	 * Live effective host values (schema defaults when unset). Optional: the
+	 * cycle keypress seeds its saved host payload from it, so the bridge's
+	 * apply diff compares against the same baseline the menu mirrors; an
+	 * absent read seam fails open to the store's host group.
+	 */
+	read?(): CompactHostSettings;
 }
 
 /**
