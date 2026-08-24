@@ -381,6 +381,34 @@ export class ComponentBinding {
 	 */
 	bindHydrated(allowOrder = true, restoredArmed = true): boolean {
 		if (this.#states.size === 0) return true;
+		this.#pairToolComponents(allowOrder, restoredArmed);
+		this.#pairReadGroups(allowOrder, restoredArmed);
+		// The queue drains unconditionally: components that could not be
+		// paired stay native rather than re-attempting later. Only visible
+		// surfaces that failed to pair are unresolved — hidden-prefix states
+		// (collapsed history) have no rendered component and must not make a
+		// fully paired visible presentation report unmapped.
+		const unresolvedStates = this.#unboundComponents.length > 0;
+		const unresolvedGroups = [...this.#groups].some(
+			(group) => group.ledger === undefined,
+		);
+		const mapped = !unresolvedStates && !unresolvedGroups;
+		// Drain both queues unconditionally: components and segments that
+		// could not be paired stay native. Segments not cleared would corrupt
+		// the next hydration's cardinality check.
+		this.#unboundComponents.length = 0;
+		this.#hydratedReadSegments.length = 0;
+		return mapped;
+	}
+
+	/**
+	 * Tool-component half of `bindHydrated`: pairs unbound tool components
+	 * with unbound non-read states — 1:1 chronological at exact full
+	 * cardinality, or newest-tail suffix alignment on a restored history.
+	 * The guard sets are deliberately conservative: a skipped shape stays
+	 * native (fail-open).
+	 */
+	#pairToolComponents(allowOrder: boolean, restoredArmed: boolean): void {
 		const toolStates = [...this.#states.values()].filter(
 			(state) =>
 				!state.component &&
@@ -421,6 +449,15 @@ export class ComponentBinding {
 				if (component && state) this.bind(component, state);
 			}
 		}
+	}
+
+	/**
+	 * Read-group half of `bindHydrated`: exact observed-id binding first,
+	 * then strict-cardinality segment assignment, else the restored-suffix
+	 * fallback with its alignment proof and per-group ambiguity scan.
+	 * Live/ambiguous shapes stay native (fail-open).
+	 */
+	#pairReadGroups(allowOrder: boolean, restoredArmed: boolean): void {
 		// Reconstructed groups can receive updateArgs before branch hydration
 		// created their states. Those exact IDs outrank ordinal fallback.
 		this.#bindObservedReadGroups();
@@ -498,22 +535,6 @@ export class ComponentBinding {
 				}
 			}
 		}
-		// The queue drains unconditionally: components that could not be
-		// paired stay native rather than re-attempting later. Only visible
-		// surfaces that failed to pair are unresolved — hidden-prefix states
-		// (collapsed history) have no rendered component and must not make a
-		// fully paired visible presentation report unmapped.
-		const unresolvedStates = this.#unboundComponents.length > 0;
-		const unresolvedGroups = [...this.#groups].some(
-			(group) => group.ledger === undefined,
-		);
-		const mapped = !unresolvedStates && !unresolvedGroups;
-		// Drain both queues unconditionally: components and segments that
-		// could not be paired stay native. Segments not cleared would corrupt
-		// the next hydration's cardinality check.
-		this.#unboundComponents.length = 0;
-		this.#hydratedReadSegments.length = 0;
-		return mapped;
 	}
 
 	/**
