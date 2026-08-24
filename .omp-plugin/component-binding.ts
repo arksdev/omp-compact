@@ -483,11 +483,27 @@ export class ComponentBinding {
 			allowOrder &&
 			strictGroups.length === this.#hydratedReadSegments.length
 		) {
-			for (let index = 0; index < strictGroups.length; index++) {
-				const group = strictGroups[index];
-				const segment = this.#hydratedReadSegments[index];
-				if (!group || !segment) continue;
-				this.#assignReadSegment(group, segment);
+			// Index-wise pairing is provable only for the strict prefix that
+			// precedes every unresolved observed-ID group (ledger unset,
+			// observed ids present): such a group can own a queued segment
+			// without contributing to strictGroups, and a queued segment
+			// shifts every later slot — a later strict group would then bind
+			// a segment whose true owner is the unresolved group and render
+			// wrong-position rows. Pairs before it are unaffected, so only
+			// they pair; from that group on, slots stay native (fail-open):
+			// native rows of the right group beat wrong rows of any group.
+			for (
+				let visibleIndex = 0, strictIndex = 0;
+				visibleIndex < visibleGroups.length;
+				visibleIndex++
+			) {
+				const group = visibleGroups[visibleIndex];
+				if (!group) continue;
+				if (group.ledger !== undefined) continue;
+				if (group.observedIds.size > 0) break;
+				const segment = this.#hydratedReadSegments[strictIndex];
+				if (segment) this.#assignReadSegment(group, segment);
+				strictIndex++;
 			}
 		} else if (restoredSuffix) {
 			// Collapsed-history suffix alignment for reads (same contract as
