@@ -126,7 +126,7 @@ function settledMeta(
 // Only the foreground is opened, so only the foreground is closed: `[39m`
 // keeps any surrounding dim/bold intact and never resets the background,
 // matching the transparent-row contract in `fitTransparentLine`.
-function fixedForeground(hex: string, text: string): string {
+export function fixedForeground(hex: string, text: string): string {
 	const ansi = Bun.color(hex, "ansi-16m");
 	return ansi ? `${ansi}${text}\u001b[39m` : text;
 }

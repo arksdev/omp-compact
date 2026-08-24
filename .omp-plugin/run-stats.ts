@@ -3,7 +3,9 @@ import { type Component, truncateToWidth } from "@oh-my-pi/pi-tui";
 
 import type { CompactStatsSettings } from "./config";
 import { fitTransparentLine } from "./fit-transparent-line";
+import { isBoundedCount } from "./hydration-bounds";
 import { objectRecord } from "./object-record";
+import { fixedForeground } from "./render";
 
 export const STATS_MESSAGE_TYPE = "omp-compact-stats";
 export const STATS_EVIDENCE_VERSION = 1;
@@ -74,15 +76,6 @@ function nonNegativeNumber(value: unknown): number {
 	return typeof value === "number" && Number.isFinite(value) && value >= 0
 		? value
 		: 0;
-}
-
-function isBoundedCount(value: unknown, max: number): value is number {
-	return (
-		typeof value === "number" &&
-		Number.isFinite(value) &&
-		value >= 0 &&
-		value <= max
-	);
 }
 
 function usageOf(message: unknown): {
@@ -275,14 +268,6 @@ export function formatDuration(milliseconds: number): string {
 	if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
 	if (minutes > 0) return `${minutes}m ${seconds}s`;
 	return `${seconds}s`;
-}
-
-// Only the foreground is opened, so only the foreground is closed: `[39m`
-// keeps any surrounding dim/bold intact and never resets the background,
-// matching the transparent-row contract in `fitTransparentLine`.
-function fixedForeground(hex: string, text: string): string {
-	const ansi = Bun.color(hex, "ansi-16m");
-	return ansi ? `${ansi}${text}\u001b[39m` : text;
 }
 
 /**
