@@ -440,7 +440,8 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `tool-rule-describers.ts` | Pure describer-поведение правил: describe/resultMeta, текстовые устройства и hub launch-зеркало. |
 | `runtime-adapter.ts` | Public lifecycle façade, exact-instance wrappers and terminal replay seam. |
 | `presentation-patches.ts` | Exact-instance descriptor-patch registries и их двух-scope teardown (detach для per-component, dispose-only для transcript/discovery). |
-| `host-adapter.ts` | Pinned 18.0.3 capability probes and transactional descriptor patches. |
+| `host-adapter.ts` | Pinned 18.0.3 capability probes и transactional descriptor patches; re-exports the host-surface sheet so existing importers keep their path. |
+| `host-surface.ts` | Pinned stock host surface sheet: method-name manifests, component fingerprints и argument-position decoders. |
 | `component-binding.ts` | Exact-ID/proven-order component mapping and native fail-open statuses. |
 | `runtime-session-state.ts` | Ledgers, terminal projections and bounded payload retirement. |
 | `rebuild-lifecycle.ts` | Branch hydration walks, rebuild generations and replayed stats carriers. |

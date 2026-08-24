@@ -163,6 +163,7 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/render-decision.ts` — decision tables only
 - `.omp-plugin/render.ts` — row construction only
 - `.omp-plugin/render-scrape.ts` — scraping stock component views into compact views only
+- `.omp-plugin/host-surface.ts` — pinned stock host surface sheet (method manifests, component fingerprints, argument decoders) only
 - `.omp-plugin/tool-presentation-rules.ts` — rules registry (routes, aliases, shapes, lookups) only
 - `.omp-plugin/tool-rule-describers.ts` — rule description behavior (describe/resultMeta, devices, hub mirror) only
 - `.omp-plugin/vibe-cards.ts` — re-export entry point only (decode/render split)
@@ -187,6 +188,8 @@ index.ts
           → turn-ledger.ts
           → component-binding.ts
       → presentation-patches.ts
+      → host-adapter.ts
+          → host-surface.ts
       → render-decision.ts
       → render.ts
           → tool-presentation-rules.ts
