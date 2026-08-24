@@ -99,6 +99,17 @@ function makeSession(): RuntimeSessionState {
 	});
 }
 
+/**
+ * Snapshot of the pending set via the allocation-free iterator. The store
+ * itself no longer offers a snapshot accessor (the spinner reads the set
+ * without allocating), so tests collect through `forEachPending`.
+ */
+function pendingStates(session: RuntimeSessionState): readonly ToolState[] {
+	const states: ToolState[] = [];
+	session.forEachPending((state) => states.push(state));
+	return states;
+}
+
 function makeStatsSession(): RuntimeSessionState {
 	return new RuntimeSessionState({
 		statsRenderer: () => "usage row",
@@ -267,7 +278,7 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		session.beginRun();
 		const second = session.activeLedger;
 		expect(first?.phase).toBe("working");
-		expect(session.pending().some((state) => state.ledger === first)).toBe(
+		expect(pendingStates(session).some((state) => state.ledger === first)).toBe(
 			true,
 		);
 
@@ -275,7 +286,7 @@ describe("RuntimeSessionState: run sequence and continuation", () => {
 		// exact ledger it just finalized (fallback finalization performed).
 		expect(session.releaseTerminalRun(firstRunId)).toBe(first);
 		expect(first?.phase).toBe("full");
-		expect(session.pending().some((state) => state.ledger === first)).toBe(
+		expect(pendingStates(session).some((state) => state.ledger === first)).toBe(
 			false,
 		);
 		expect(second?.phase).toBe("working");
@@ -358,7 +369,7 @@ describe("RuntimeSessionState: tool state records", () => {
 		expect(session.state("c1")).toBe(state);
 		expect(state.ledger).toBe(activeLedger);
 		expect(state.entry.id).toBe("c1");
-		expect(session.pending()).toContain(state);
+		expect(pendingStates(session)).toContain(state);
 		expect(session.activeLedger?.entries.length).toBe(1);
 	});
 
@@ -392,7 +403,7 @@ describe("RuntimeSessionState: tool state records", () => {
 		});
 		expect(partial).toBeUndefined();
 		expect(session.state("c1")?.isPartial).toBe(true);
-		expect(session.pending().length).toBe(1);
+		expect(pendingStates(session).length).toBe(1);
 		session.finishTool({
 			toolCallId: "c1",
 			toolName: "bash",
@@ -403,7 +414,7 @@ describe("RuntimeSessionState: tool state records", () => {
 		expect(state?.isPartial).toBe(false);
 		expect(state?.isError).toBe(true);
 		expect(state?.entry.state).toBe("error");
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 	});
 
 	test("setMutations assigns exact retention only for non-zero diffs", () => {
@@ -521,7 +532,7 @@ describe("RuntimeSessionState: tool state records", () => {
 		session.beginRun();
 		mustStart(session, { toolCallId: "c1", toolName: "bash", args: {} });
 		expect(session.endRun({ messages: [assistant("done")] })).toBe("filtered");
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 	});
 });
 
@@ -552,7 +563,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.result).toBeUndefined();
 		expect(state.isPartial).toBe(false);
 		expect(state.version).toBe(version);
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 
 		expect(
 			session.finishTool({
@@ -567,7 +578,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		// Never-finished tool: no fabricated success after finalization.
 		expect(state.entry.state).toBe("running");
 		expect(state.version).toBe(version);
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 	});
 
 	test("updateTool/finishTool are no-ops after a full (abort) finalization", () => {
@@ -604,7 +615,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 				isPartial: true,
 			}),
 		).toBeUndefined();
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 		expect(state.isPartial).toBe(false);
 		expect(state.version).toBe(version);
 	});
@@ -714,7 +725,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.isPartial).toBe(false);
 		expect(state.isError).toBe(false);
 		expect(state.entry.state).toBe("success");
-		expect(session.pending()).not.toContain(state);
+		expect(pendingStates(session)).not.toContain(state);
 
 		// Finalization keeps the real result; does not fabricate over it.
 		expect(session.endRun({ messages: [assistant("done")] }, runId)).toBe(
@@ -777,7 +788,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			isPartial: true,
 		});
 		expect(state.isPartial).toBe(true);
-		expect(session.pending()).toContain(state);
+		expect(pendingStates(session)).toContain(state);
 		session.finishTool({
 			toolCallId: "c1",
 			toolName: "bash",
@@ -785,7 +796,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			isError: false,
 		});
 		expect(session.state("c1")?.entry.state).toBe("success");
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 	});
 
 	test("continuation tool events are not blocked (willContinue keeps the ledger working)", () => {
@@ -806,7 +817,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 			isPartial: true,
 		});
 		expect(session.state("c2")?.isPartial).toBe(true);
-		expect(session.pending().length).toBe(1);
+		expect(pendingStates(session).length).toBe(1);
 	});
 
 	test("live startState refuses oversized ids the way hydration does (no ordinal compact bind)", () => {
@@ -883,7 +894,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.args).toBeUndefined();
 		expect(session.state("live-big-args")).toBe(state);
 		expect(state.isPartial).toBe(true);
-		expect(session.pending()).toContain(state);
+		expect(pendingStates(session)).toContain(state);
 
 		// In-budget refresh still lands.
 		const okArgs = { command: "printf ok" };
@@ -930,7 +941,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(state.result).toBeUndefined();
 		expect(state.isPartial).toBe(false);
 		expect(state.entry.state).toBe("success");
-		expect(session.pending()).not.toContain(state);
+		expect(pendingStates(session)).not.toContain(state);
 	});
 
 	test("setMutations/setGit are no-ops after a filtered finalization", () => {
@@ -1080,7 +1091,7 @@ describe("RuntimeSessionState: phase guards freeze settled ledgers", () => {
 		expect(first?.phase).toBe("filtered");
 		// Visual settle: no spinner residual after terminal finalization.
 		expect(state.isPartial).toBe(false);
-		expect(session.pending()).not.toContain(state);
+		expect(pendingStates(session)).not.toContain(state);
 		// Mutation retention already promoted entry.state during the drain;
 		// finalization must not fabricate a different success claim.
 		expect(state.entry.state).toBe("success");
@@ -1339,7 +1350,7 @@ describe("RuntimeSessionState: hydrateBranch", () => {
 		expect(state?.mutations.length).toBe(1);
 		expect(state?.ledger.phase).toBe("filtered");
 		expect(session.activeLedger).toBe(state?.ledger);
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 	});
 
 	test("hydrateBranch is a no-op once live states exist", () => {
@@ -1446,7 +1457,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 			args: {},
 		});
 		session.binding.bind(component, activeState);
-		expect(session.pending()).toContain(activeState);
+		expect(pendingStates(session)).toContain(activeState);
 
 		const snapshot = session.beginRebuild();
 		expect(snapshot.generation).toBe(1);
@@ -1462,7 +1473,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		expect(activeState.component).toBeUndefined();
 		expect(session.binding.componentState(component)).toBeUndefined();
 		// Active pending semantics are untouched.
-		expect(session.pending()).toContain(activeState);
+		expect(pendingStates(session)).toContain(activeState);
 		// The active ledger phase is untouched.
 		expect(active.phase).toBe("working");
 		expect(first.phase).toBe("filtered");
@@ -1718,7 +1729,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		session.dispose();
 		expect(session.activeLedger).toBeUndefined();
 		expect(session.allStates()).toEqual([]);
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 		expect(session.showStats("x", "line")).toBe(false);
 		expect(session.ledgerActions("x")).toBeUndefined();
 		// A stale rebuild token must not resurrect work on a disposed session.
@@ -2362,7 +2373,7 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 			session.state("c".repeat(MAX_TOOL_CALL_ID_LENGTH + 1)),
 		).toBeUndefined();
 		expect(session.activeLedger?.phase).toBe("filtered");
-		expect(session.pending()).toEqual([]);
+		expect(pendingStates(session)).toEqual([]);
 	});
 
 	test("mutation evidence validator bounds fields at limit and over limit", () => {
@@ -2577,5 +2588,95 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 		]);
 		expect(session.state("wide")).toBeUndefined();
 		expect(session.state("small")?.args).toEqual({ values: [1, 2, 3] });
+	});
+});
+
+describe("RuntimeSessionState: forEachPending and somePending (no allocation)", () => {
+	test("forEachPending iterates all pending states exactly once", () => {
+		const session = makeSession();
+		session.beginRun();
+		mustStart(session, {
+			toolCallId: "c1",
+			toolName: "bash",
+			args: { command: "echo 1" },
+		});
+		mustStart(session, {
+			toolCallId: "c2",
+			toolName: "read",
+			args: { path: "file.txt" },
+		});
+
+		const visited: ToolState[] = [];
+		session.forEachPending((state) => visited.push(state));
+
+		expect(visited.length).toBe(2);
+		expect(visited.map((s) => s.id)).toContain("c1");
+		expect(visited.map((s) => s.id)).toContain("c2");
+	});
+
+	test("somePending returns true when predicate matches", () => {
+		const session = makeSession();
+		session.beginRun();
+		mustStart(session, {
+			toolCallId: "c1",
+			toolName: "bash",
+			args: { command: "echo 1" },
+		});
+
+		const result = session.somePending((s) => s.id === "c1");
+		expect(result).toBe(true);
+	});
+
+	test("somePending returns false when no match", () => {
+		const session = makeSession();
+		session.beginRun();
+		mustStart(session, {
+			toolCallId: "c1",
+			toolName: "bash",
+			args: { command: "echo 1" },
+		});
+
+		const result = session.somePending((s) => s.id === "nonexistent");
+		expect(result).toBe(false);
+	});
+
+	test("somePending preserves early-exit semantics by stopping at first match", () => {
+		const session = makeSession();
+		session.beginRun();
+		mustStart(session, {
+			toolCallId: "c1",
+			toolName: "bash",
+			args: { command: "echo 1" },
+		});
+		mustStart(session, {
+			toolCallId: "c2",
+			toolName: "read",
+			args: { path: "file.txt" },
+		});
+
+		let callCount = 0;
+		const result = session.somePending((s) => {
+			callCount++;
+			return s.id === "c1";
+		});
+
+		expect(result).toBe(true);
+		expect(callCount).toBeLessThan(3); // should stop at or before c2
+	});
+
+	test("forEachPending yields live state records, so ticker mutations persist", () => {
+		const session = makeSession();
+		session.beginRun();
+		mustStart(session, {
+			toolCallId: "c1",
+			toolName: "bash",
+			args: { command: "echo 1" },
+		});
+
+		const before = session.state("c1")?.version ?? 0;
+		session.forEachPending((state) => {
+			state.version++;
+		});
+		expect(session.state("c1")?.version).toBe(before + 1);
 	});
 });

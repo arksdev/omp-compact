@@ -134,8 +134,12 @@ function sanitizeText(value: unknown, limit?: number): string {
 
 /**
  * Select the active braille spinner frame for a pending animation tick.
+ *
+ * Uses `theme.getSpinnerFrames("activity")` when available, falls back to
+ * `theme.spinnerFrames`, then defaults to the bullet `"•"`. This is the
+ * canonical fallback chain used across compact renderers.
  */
-function pendingFrame(theme: Theme, tick: number): string {
+export function pendingFrame(theme: Theme, tick: number): string {
 	const activity =
 		typeof theme.getSpinnerFrames === "function"
 			? theme.getSpinnerFrames("activity")

@@ -907,6 +907,155 @@ describe("runtime modes", () => {
 		expect(timerCallbacks).toHaveLength(2);
 	});
 
+	describe("spinner tick contract", () => {
+		async function tickBoot(
+			overrides: { mode?: "compact" | "live" | "clear" } = {},
+		): Promise<Booted & { ticks: Array<() => void>; cleared: unknown[] }> {
+			const store = fakeStore(
+				settings({
+					mode: overrides.mode ?? "live",
+					retainGitLive: true,
+					enabled: true,
+				}),
+			);
+			const policy = new modePolicyModule.ModePolicy(store);
+			policy.prime();
+			await policy.prepareRun();
+			const transcript = fakeTranscript();
+			const ticks: Array<() => void> = [];
+			const cleared: unknown[] = [];
+			const renders = { render: 0, components: [] as unknown[] };
+			const adapter = new adapterModule.RuntimeAdapter({
+				root: transcript,
+				ui: {
+					theme: fakeTheme(),
+					setWidget() {},
+					requestRender() {
+						renders.render++;
+					},
+					requestComponentRender(component: unknown) {
+						renders.components.push(component);
+					},
+					getToolsExpanded: () => false,
+				},
+				timers: {
+					setInterval: (cb: () => void) => {
+						ticks.push(cb);
+						return ticks.length;
+					},
+					clearTimer: (value: unknown) => cleared.push(value),
+				},
+				modePolicy: policy,
+				onRunFinalized: () => {},
+			});
+			if (!adapter.install()) throw new Error("adapter install failed");
+			return {
+				adapter,
+				transcript,
+				policy,
+				store,
+				finalized: [],
+				renders,
+				warned: [],
+				ticks,
+				cleared,
+			};
+		}
+
+		test("each tick requests a component render for every qualifying pending state; settled states are skipped", async () => {
+			const booted = await tickBoot();
+			await beginRun(booted);
+			addTool(booted, "bash", "bash-1", { command: "printf 1" });
+			const c2 = addTool(booted, "bash", "bash-2", { command: "printf 2" });
+			expect(booted.ticks).toHaveLength(1);
+
+			// bash-1 settles: only bash-2 qualifies on subsequent ticks.
+			settle(booted, "bash-1", "bash", {
+				content: [{ type: "text", text: "ok" }],
+			});
+			// Ignore the renders startTool/settle themselves requested.
+			booted.renders.components.length = 0;
+			booted.renders.render = 0;
+
+			booted.ticks[0]?.();
+			expect(booted.renders.components).toHaveLength(1);
+			expect(booted.renders.components[0]).toBe(c2);
+			expect(booted.renders.render).toBe(1);
+
+			// A second tick repeats the request while the state qualifies.
+			booted.ticks[0]?.();
+			expect(booted.renders.components).toHaveLength(2);
+			expect(booted.renders.components[1]).toBe(c2);
+			expect(booted.renders.render).toBe(2);
+		});
+
+		test("pending states without a component are skipped by the ticker", async () => {
+			const booted = await tickBoot();
+			await beginRun(booted);
+			// A started tool whose transcript child never arrives stays
+			// pending with no component (stock may drop the row before
+			// binding). It must not render on ticks.
+			const c1 = addTool(booted, "bash", "bash-1", { command: "printf 1" });
+			expect(booted.ticks).toHaveLength(1);
+			booted.adapter.startTool({
+				toolCallId: "lonely",
+				toolName: "bash",
+				args: {},
+			});
+			expect(booted.ticks).toHaveLength(1); // still the same timer
+
+			booted.renders.components.length = 0;
+			booted.renders.render = 0;
+			booted.ticks[0]?.();
+			expect(booted.renders.components).toHaveLength(1);
+			expect(booted.renders.components[0]).toBe(c1);
+
+			// With only the componentless state left, the next tick stops
+			// the spinner: nothing qualifies.
+			settle(booted, "bash-1", "bash", {
+				content: [{ type: "text", text: "ok" }],
+			});
+			booted.renders.components.length = 0;
+			booted.renders.render = 0;
+			booted.ticks[0]?.();
+			expect(booted.cleared).toHaveLength(1);
+			expect(booted.renders.render).toBe(0);
+		});
+
+		test("spinner stops on a tick with no qualifying work and re-arms for new work", async () => {
+			const booted = await tickBoot();
+			await beginRun(booted);
+			addTool(booted, "bash", "bash-1", { command: "printf 1" });
+			expect(booted.ticks).toHaveLength(1);
+
+			settle(booted, "bash-1", "bash", {
+				content: [{ type: "text", text: "ok" }],
+			});
+			booted.renders.components.length = 0;
+			booted.renders.render = 0;
+
+			// Idle tick: nothing qualifies → stop, no render churn.
+			booted.ticks[0]?.();
+			expect(booted.cleared).toHaveLength(1);
+			expect(booted.renders.render).toBe(0);
+			expect(booted.renders.components).toHaveLength(0);
+
+			// New work re-arms a fresh timer.
+			addTool(booted, "bash", "bash-2", { command: "printf 2" });
+			expect(booted.ticks).toHaveLength(2);
+		});
+
+		test("clear mode never arms the spinner: the work predicate and the ticker agree", async () => {
+			const booted = await tickBoot({ mode: "clear" });
+			await beginRun(booted);
+			addTool(booted, "bash", "bash-1", { command: "printf 1" });
+			// #hasSpinnerWork rejects clear-mode ledgers, so no timer is
+			// ever created and no tick can fire.
+			expect(booted.ticks).toHaveLength(0);
+			expect(booted.cleared).toHaveLength(0);
+		});
+	});
+
 	test("expanded browser/computer/resolve/reject stay compact while working", async () => {
 		const booted = await boot();
 		await beginRun(booted);

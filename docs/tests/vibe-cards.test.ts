@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import { formatDuration } from "@oh-my-pi/pi-utils/format";
+import { pendingFrame } from "../../.omp-plugin/vibe-cards";
 import type {
 	CompactVibeView,
 	VibeScreenSnapshot,
@@ -1582,5 +1583,64 @@ describe("vibe-cards grammar and presentation", () => {
 				.then((text) => text.replace(/\r\n/g, "\n"));
 			expect(readme).toContain(`\`\`\`text\n${rendered}\n\`\`\``);
 		}
+	});
+});
+
+describe("pendingFrame", () => {
+	test("uses spinnerFrames when no getSpinnerFrames method", () => {
+		const theme = {
+			fg: (_c: string, t: string) => t,
+			spinnerFrames: ["A", "B", "C"],
+		} as unknown as Theme;
+
+		expect(pendingFrame(theme, 0)).toBe("A");
+		expect(pendingFrame(theme, 1)).toBe("B");
+		expect(pendingFrame(theme, 2)).toBe("C");
+		expect(pendingFrame(theme, 3)).toBe("A");
+		expect(pendingFrame(theme, 4)).toBe("B");
+	});
+
+	test("getSpinnerFrames takes precedence over spinnerFrames", () => {
+		const theme = {
+			fg: (_c: string, t: string) => t,
+			spinnerFrames: ["X", "Y", "Z"],
+			getSpinnerFrames: (_t: string) => ["P", "Q", "R", "S"],
+		} as unknown as Theme;
+
+		expect(pendingFrame(theme, 0)).toBe("P");
+		expect(pendingFrame(theme, 1)).toBe("Q");
+		expect(pendingFrame(theme, 2)).toBe("R");
+		expect(pendingFrame(theme, 3)).toBe("S");
+		expect(pendingFrame(theme, 4)).toBe("P");
+	});
+
+	test("falls back to spinnerFrames when getSpinnerFrames returns empty array", () => {
+		const theme = {
+			fg: (_c: string, t: string) => t,
+			spinnerFrames: ["M", "N"],
+			getSpinnerFrames: (_t: string) => [],
+		} as unknown as Theme;
+
+		expect(pendingFrame(theme, 0)).toBe("M");
+		expect(pendingFrame(theme, 1)).toBe("N");
+		expect(pendingFrame(theme, 2)).toBe("M");
+	});
+
+	test("defaults to bullet when neither getSpinnerFrames nor spinnerFrames available", () => {
+		const theme = { fg: (_c: string, t: string) => t } as unknown as Theme;
+
+		expect(pendingFrame(theme, 0)).toBe("•");
+		expect(pendingFrame(theme, 1)).toBe("•");
+		expect(pendingFrame(theme, 100)).toBe("•");
+	});
+
+	test("defaults to bullet when spinnerFrames is empty array", () => {
+		const theme = {
+			fg: (_c: string, t: string) => t,
+			spinnerFrames: [],
+		} as unknown as Theme;
+
+		expect(pendingFrame(theme, 0)).toBe("•");
+		expect(pendingFrame(theme, 1)).toBe("•");
 	});
 });

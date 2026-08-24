@@ -24,6 +24,7 @@ import {
 	renderCompactVibeRows,
 	unpackVibeToolDetails,
 	type VibeOp,
+	pendingFrame,
 } from "./vibe-cards";
 
 const ADDED_STAT_COLOR = "#A4D734";
@@ -931,26 +932,6 @@ export function terminalGitSummaryLine(
 	return visibleWidth(last) <= safeWidth
 		? last
 		: fitTransparentLine(last, safeWidth);
-}
-
-/**
- * Braille frames for the compact "Working…" indicator. The stock TUI's Working
- * loader animates `theme.getSpinnerFrames("activity")` (the dot frames, e.g.
- * ⠦ ⠧ ⠇ ⠏ for the unicode preset), so the compact pending row follows it;
- * unknown shapes fall back to `theme.spinnerFrames` and finally to the bullet.
- */
-function pendingFrame(theme: Theme, tick: number): string {
-	const activity =
-		typeof theme.getSpinnerFrames === "function"
-			? theme.getSpinnerFrames("activity")
-			: undefined;
-	const frames =
-		(activity && activity.length > 0 ? activity : undefined) ??
-		(Array.isArray(theme.spinnerFrames) && theme.spinnerFrames.length > 0
-			? theme.spinnerFrames
-			: undefined);
-	const frame = frames ? frames[tick % frames.length] : "•";
-	return frame ?? "•";
 }
 
 /**

@@ -204,14 +204,17 @@ export function resolveConfigPath(
 	const agentDir = env.PI_CODING_AGENT_DIR;
 	if (agentDir) return join(agentDir, "omp-compact", "config.json");
 	// Rejected PI_CONFIG_DIR falls back to the stock ".omp" root silently.
+	const configRootRaw = env.PI_CONFIG_DIR;
 	const configRoot =
-		env.PI_CONFIG_DIR && isPathInsideHome(env.PI_CONFIG_DIR, home)
-			? env.PI_CONFIG_DIR
-			: ".omp";
+		configRootRaw && isPathInsideHome(configRootRaw, home)
+			? isAbsolute(configRootRaw)
+				? resolve(configRootRaw)
+				: join(home, configRootRaw)
+			: join(home, ".omp");
 	const profile = sanitizeProfileToken(env.PI_PROFILE);
 	const agentBase = profile
-		? join(home, configRoot, "profiles", profile, "agent")
-		: join(home, configRoot, "agent");
+		? join(configRoot, "profiles", profile, "agent")
+		: join(configRoot, "agent");
 	return join(agentBase, "omp-compact", "config.json");
 }
 
@@ -763,6 +766,22 @@ export function readDisplayCycleKeySync(deps: StoreDeps = {}): string {
 	return isDisplayCycleKey(chord) ? chord : DEFAULT_SETTINGS.displayCycleKey;
 }
 
+/**
+ * Drop explicit `undefined` values from a patch object (top level or one of
+ * the stats/autoShake groups): `undefined` means "leave the persisted value
+ * alone", never "write absent" — a present-but-undefined key must not
+ * overwrite what the file already holds. Host is the one deliberate
+ * exception: `host: { key: undefined }` is the documented removal signal
+ * (see `SettingsLeafPatch`), so callers merge the host group raw.
+ */
+function omitUndefinedValues<T extends object>(
+	patch: T | undefined,
+): Partial<T> {
+	return Object.fromEntries(
+		Object.entries(patch ?? {}).filter(([, value]) => value !== undefined),
+	) as Partial<T>;
+}
+
 export function createSettingsStore(
 	deps: StoreDeps = {},
 ): CompactSettingsStore {
@@ -940,9 +959,15 @@ export function createSettingsStore(
 		// config file.
 		const merged: Record<string, unknown> = {
 			...persisted,
-			...patch,
-			stats: { ...persisted.stats, ...(patch.stats ?? {}) },
-			autoShake: { ...persisted.autoShake, ...(patch.autoShake ?? {}) },
+			// Skip undefined keys in the patch so they don't overwrite persisted
+			// values. stats/autoShake groups get the same treatment; host is
+			// exempt because `host: { key: undefined }` is the removal signal.
+			...omitUndefinedValues(patch),
+			stats: { ...persisted.stats, ...omitUndefinedValues(patch.stats) },
+			autoShake: {
+				...persisted.autoShake,
+				...omitUndefinedValues(patch.autoShake),
+			},
 			host: { ...persisted.host, ...(patch.host ?? {}) },
 		};
 		const { settings: desired, invalid } = normalizeWithDiagnostics(

@@ -213,8 +213,22 @@ export const MAX_HOST_SETTINGS_YAML_DEPTH = 16;
  * full YAML lexer — it only rejects obviously over-deep input before
  * `YAML.parse`. Malformed YAML that passes the scan is still caught by
  * the parse below.
+ *
+ * Quoted scalars may span lines: quote state persists across newlines
+ * (single-quoted uses `''` escapes, double-quoted uses backslash
+ * escapes), and continuation lines of a quoted scalar contribute neither
+ * block nor flow depth.
+ *
+ * Block scalar headers (`|` or `>` with optional chomping/indentation
+ * indicators, e.g. `|-`, `>+`, `|2`, and an optional trailing comment)
+ * open a literal region: every more-indented line is content and skipped,
+ * until the first non-empty line indented at or below the header's
+ * indentation resumes structural scanning. Blank lines inside the region
+ * stay in it. Not a full lexer: a header's indicator must follow a
+ * `key:` or a sequence dash, and quoted-scalar content on the same line
+ * is honored, so `desc: foo |` and `title: "a | b"` are never headers.
  */
-function yamlNestingDepth(text: string): number {
+export function yamlNestingDepth(text: string): number {
 	let maxDepth = 0;
 	let flowDepth = 0;
 	let inSingle = false;
@@ -225,18 +239,60 @@ function yamlNestingDepth(text: string): number {
 	let atLineStart = true;
 	let lineIndent = 0;
 	let countingIndent = true;
+	// Block scalar region: content lines are literal, so only their
+	// indentation matters (to find where the region ends).
+	let inBlockScalar = false;
+	let blockScalarHeaderIndent = 0;
 
 	for (let i = 0; i < text.length; i++) {
 		const ch = text[i];
 		if (ch === undefined) break;
-		if (ch === "\n" || ch === "\r") {
+		if (ch === "\r") {
+			// CRLF is one line break (a lone CR is a classic-Mac break).
+			if (text[i + 1] === "\n") i += 1;
 			atLineStart = true;
 			lineIndent = 0;
 			countingIndent = true;
-			inSingle = false;
-			inDouble = false;
 			escaped = false;
 			continue;
+		}
+		if (ch === "\n") {
+			atLineStart = true;
+			lineIndent = 0;
+			countingIndent = true;
+			escaped = false;
+			continue;
+		}
+		if (inBlockScalar) {
+			if (atLineStart && countingIndent) {
+				if (ch === " ") {
+					lineIndent += 1;
+					continue;
+				}
+				if (ch === "\t") {
+					lineIndent += 2;
+					continue;
+				}
+				if (lineIndent <= blockScalarHeaderIndent) {
+					// Region ended: scan this line normally (it may itself
+					// open a new block scalar).
+					inBlockScalar = false;
+				} else {
+					// Still inside the region; the rest of the line is
+					// literal content (no quotes, flow or comments in it).
+					while (
+						i + 1 < text.length &&
+						text[i + 1] !== "\n" &&
+						text[i + 1] !== "\r"
+					) {
+						i += 1;
+					}
+					continue;
+				}
+			}
+			// Not at a fresh line start: the rest of the header line (the
+			// `key: |` tail) falls through to normal scanning so quoted
+			// keys still update quote state.
 		}
 		if (atLineStart && countingIndent) {
 			if (ch === " ") {
@@ -251,10 +307,20 @@ function yamlNestingDepth(text: string): number {
 			}
 			countingIndent = false;
 			atLineStart = false;
-			// Stock and this plugin indent mappings by 2 spaces.
+			// Stock and this plugin indent mappings by 2 spaces. Lines that
+			// continue a quoted scalar are content, not structure.
 			blockDepth = Math.floor(lineIndent / 2);
-			if (blockDepth + flowDepth > maxDepth) {
+			if (!inSingle && !inDouble && blockDepth + flowDepth > maxDepth) {
 				maxDepth = blockDepth + flowDepth;
+			}
+			if (
+				!inSingle &&
+				!inDouble &&
+				flowDepth === 0 &&
+				isBlockScalarHeader(text, i)
+			) {
+				inBlockScalar = true;
+				blockScalarHeaderIndent = lineIndent;
 			}
 		}
 		if (inSingle) {
@@ -300,6 +366,97 @@ function yamlNestingDepth(text: string): number {
 		}
 	}
 	return maxDepth;
+}
+
+/**
+ * True when the text from `start` (the first non-indent character of a
+ * line) to the end of that line is a block scalar header: a `|` or `>`
+ * indicator with optional chomping/indentation indicators and an optional
+ * trailing comment, after either a `key:` prefix or a sequence dash `-`.
+ * Allocation-free; not a full lexer — the indicator must follow a colon
+ * or dash, so plain scalars like `desc: foo |` are never misread as
+ * headers.
+ */
+function isBlockScalarHeader(text: string, start: number): boolean {
+	const end = lineEnd(text, start);
+	// Any `|`/`>` can be the indicator; it is a header only when the rest
+	// of the line is indicators/whitespace/comment and the text before it
+	// is a `key:` (any non-empty key) or a block sequence dash (`- |`).
+	for (let i = start; i < end; i++) {
+		if (text[i] !== "|" && text[i] !== ">") continue;
+		let k = i + 1;
+		// Optional chomping (`+`/`-`) and indentation (digit) indicators,
+		// in either order (`|-2`, `|2-`).
+		while (
+			k < end &&
+			(text[k] === "+" ||
+				text[k] === "-" ||
+				(text.charCodeAt(k) >= 48 && text.charCodeAt(k) <= 57))
+		) {
+			k += 1;
+		}
+		while (k < end && (text[k] === " " || text[k] === "\t")) k += 1;
+		// A comment must be separated from the indicator by whitespace
+		// (`| # note` is a comment; `|#note` is not).
+		if (
+			k < end &&
+			text[k] === "#" &&
+			(text[k - 1] === " " || text[k - 1] === "\t")
+		) {
+			while (k < end) k += 1;
+		}
+		if (k !== end) continue;
+		// The indicator must not sit inside a quoted scalar opened on this
+		// line: walk the prefix with the same quote rules as the main scan
+		// (doubled `''`, backslash escapes). A quoted key is fine — its
+		// quotes are balanced before the `:`.
+		let inSingleQuote = false;
+		let inDoubleQuote = false;
+		for (let q = start; q < i; q++) {
+			const c = text[q];
+			if (inSingleQuote) {
+				if (c === "'") {
+					if (text[q + 1] === "'") q += 1;
+					else inSingleQuote = false;
+				}
+			} else if (inDoubleQuote) {
+				if (c === "\\") q += 1;
+				else if (c === '"') inDoubleQuote = false;
+			} else if (c === "'") {
+				inSingleQuote = true;
+			} else if (c === '"') {
+				inDoubleQuote = true;
+			}
+		}
+		if (inSingleQuote || inDoubleQuote) continue;
+		let prefix = i;
+		while (
+			prefix > start &&
+			(text[prefix - 1] === " " || text[prefix - 1] === "\t")
+		) {
+			prefix -= 1;
+		}
+		if (prefix === start) {
+			// The indicator is the first content character of the line; a
+			// line-leading `|`/`>` is never a header in YAML (it needs a
+			// key or sequence dash before it).
+			return false;
+		}
+		if (text[prefix - 1] === ":") return true;
+		// Block sequence entry: `- |`. The dash must be the first content
+		// character; a dash later on the line is plain scalar text.
+		if (prefix - 1 === start && text[prefix - 1] === "-") return true;
+	}
+	return false;
+}
+
+/** Index just past the end of the line containing `start`. */
+function lineEnd(text: string, start: number): number {
+	let end = start;
+	while (end < text.length && text[end] !== "\n" && text[end] !== "\r") {
+		end += 1;
+	}
+	return end;
 }
 
 /**

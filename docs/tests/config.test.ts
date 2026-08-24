@@ -375,6 +375,130 @@ describe("resolveConfigPath", () => {
 			),
 		).toBe("/home/user/.omp/agent/omp-compact/config.json");
 	});
+
+	describe("Task 1 — absolute PI_CONFIG_DIR bug regression", () => {
+		test("absolute PI_CONFIG_DIR inside home is used directly without duplicating $HOME", () => {
+			const HOME = "/home/user";
+			const path = resolveConfigPath({
+				HOME,
+				PI_CONFIG_DIR: join(HOME, ".pi"),
+			});
+			expect(path).toBe(
+				join(HOME, ".pi", "agent", "omp-compact", "config.json"),
+			);
+			expect(path).not.toContain(join(HOME, HOME));
+		});
+
+		test("absolute PI_CONFIG_DIR with PI_PROFILE uses correct profile path", () => {
+			const HOME = "/home/user";
+			const path = resolveConfigPath({
+				HOME,
+				PI_CONFIG_DIR: join(HOME, ".pi"),
+				PI_PROFILE: "work",
+			});
+			expect(path).toBe(
+				join(
+					HOME,
+					".pi",
+					"profiles",
+					"work",
+					"agent",
+					"omp-compact",
+					"config.json",
+				),
+			);
+			expect(path).not.toContain(join(HOME, HOME));
+		});
+
+		test("absolute PI_CONFIG_DIR with trailing slash normalizes correctly", () => {
+			const HOME = "/home/user";
+			const absWithSlash = `${join(HOME, ".omp")}/`;
+			const path = resolveConfigPath({ HOME, PI_CONFIG_DIR: absWithSlash });
+			expect(path).toBe(
+				join(HOME, ".omp", "agent", "omp-compact", "config.json"),
+			);
+		});
+
+		test("absolute PI_CONFIG_DIR exactly equal to $HOME uses home directly", () => {
+			const HOME = "/home/user";
+			const path = resolveConfigPath({ HOME, PI_CONFIG_DIR: HOME });
+			expect(path).toBe(join(HOME, "agent", "omp-compact", "config.json"));
+		});
+
+		test("absolute PI_CONFIG_DIR outside home falls back to .omp gracefully", () => {
+			const HOME = "/home/user";
+			const path = resolveConfigPath({ HOME, PI_CONFIG_DIR: "/tmp/outside" });
+			expect(path).toBe(
+				join(HOME, ".omp", "agent", "omp-compact", "config.json"),
+			);
+		});
+
+		test("relative PI_CONFIG_DIR still works after absolute fix is applied", () => {
+			const HOME = "/home/user";
+			const path = resolveConfigPath({ HOME, PI_CONFIG_DIR: ".omp-custom" });
+			expect(path).toBe(
+				join(HOME, ".omp-custom", "agent", "omp-compact", "config.json"),
+			);
+		});
+	});
+
+	describe("Task 2 — undefined patch key trap", () => {
+		test("patch with explicit undefined top-level key does not clobber persisted value", async () => {
+			const dir = await tempDir();
+			const { store } = storeAt(dir);
+			await mkdir(join(dir, "omp-compact"), { recursive: true });
+			await writeFile(
+				join(dir, "omp-compact", "config.json"),
+				JSON.stringify({ mode: "live" }),
+			);
+			await store.load();
+			await store.update({ mode: undefined });
+			expect(store.snapshot().mode).toBe("live");
+		});
+
+		test("patch with explicit undefined nested key does not clobber persisted value", async () => {
+			const dir = await tempDir();
+			const { store } = storeAt(dir);
+			await mkdir(join(dir, "omp-compact"), { recursive: true });
+			await writeFile(
+				join(dir, "omp-compact", "config.json"),
+				JSON.stringify({ stats: { actions: false } }),
+			);
+			await store.load();
+			await store.update({ stats: { actions: undefined } });
+			expect(store.snapshot().stats.actions).toBe(false);
+		});
+	});
+
+	describe("Task 3 — undefined nested group keys do not clobber persisted values", () => {
+		test("stats group: persisted value survives an undefined patch key", async () => {
+			const dir = await tempDir();
+			const { store } = storeAt(dir);
+			await mkdir(join(dir, "omp-compact"), { recursive: true });
+			await writeFile(
+				join(dir, "omp-compact", "config.json"),
+				JSON.stringify({ stats: { time: false } }),
+			);
+			await store.load();
+			await store.update({ stats: { time: undefined } });
+			expect(store.snapshot().stats.time).toBe(false);
+			await rm(dir, { recursive: true, force: true });
+		});
+
+		test("autoShake group: persisted value survives an undefined patch key", async () => {
+			const dir = await tempDir();
+			const { store } = storeAt(dir);
+			await mkdir(join(dir, "omp-compact"), { recursive: true });
+			await writeFile(
+				join(dir, "omp-compact", "config.json"),
+				JSON.stringify({ autoShake: { thresholdTokens: 5000 } }),
+			);
+			await store.load();
+			await store.update({ autoShake: { thresholdTokens: undefined } });
+			expect(store.snapshot().autoShake.thresholdTokens).toBe(5000);
+			await rm(dir, { recursive: true, force: true });
+		});
+	});
 });
 
 describe("store load fail-open", () => {

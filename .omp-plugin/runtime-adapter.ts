@@ -934,27 +934,28 @@ export class RuntimeAdapter {
 
 	/** True when at least one pending state would animate on the next tick. */
 	#hasSpinnerWork(): boolean {
-		for (const state of this.#session.pending()) {
-			if (state.ledger.phase !== "working" || !state.component) continue;
-			if (this.#session.modeFor(state.ledger).mode === "clear") continue;
+		return this.#session.somePending((state) => {
+			if (state.ledger.phase !== "working" || !state.component) return false;
+			// `clear` renders no compact rows; stock surfaces animate
+			// themselves, so hidden rows must not churn renders.
+			if (this.#session.modeFor(state.ledger).mode === "clear") return false;
 			return true;
-		}
-		return false;
+		});
 	}
 
 	#startSpinner(): void {
 		if (this.#timer !== undefined || !this.#timers?.setInterval) return;
 		this.#timer = this.#timers.setInterval(() => {
 			let pending = false;
-			for (const state of this.#session.pending()) {
-				if (state.ledger.phase !== "working" || !state.component) continue;
+			this.#session.forEachPending((state) => {
+				if (state.ledger.phase !== "working" || !state.component) return;
 				// `clear` renders no compact rows; stock surfaces animate
 				// themselves, so hidden rows must not churn renders.
-				if (this.#session.modeFor(state.ledger).mode === "clear") continue;
+				if (this.#session.modeFor(state.ledger).mode === "clear") return;
 				pending = true;
 				state.version++;
 				this.#ui.requestComponentRender?.(state.component);
-			}
+			});
 			if (pending) this.#ui.requestRender?.();
 			else this.#stopSpinner();
 		}, 80);

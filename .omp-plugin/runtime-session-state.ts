@@ -1387,9 +1387,34 @@ export class RuntimeSessionState {
 		);
 	}
 
-	/** Snapshot of the pending set (in-flight component updates). */
-	pending(): readonly ToolState[] {
-		return [...this.#pendingStates];
+	/**
+	 * Iterate pending states without allocating. Safe for the callers that
+	 * exist today — the spinner tick and the work predicate only read state
+	 * fields (`ledger.phase`, `component`), resolve the ledger mode, bump the
+	 * plain `version` field and issue UI render requests; none of that reaches
+	 * `markPending`/`unmarkPending`/`clearPending`, which run only from
+	 * session entry points (tool event handlers, hydration/rebuild, dispose)
+	 * that never execute inside this loop. A callback must keep that
+	 * contract: a mid-iteration mutation would not throw (a `Set` iterator
+	 * tolerates deleting the current entry and visits entries added during
+	 * iteration), but the visit sequence would no longer reflect a stable
+	 * pending set.
+	 */
+	forEachPending(callback: (state: ToolState) => void): void {
+		for (const state of this.#pendingStates) {
+			callback(state);
+		}
+	}
+
+	/**
+	 * Check if any pending state satisfies the predicate without allocating.
+	 * Returns true immediately on first match, preserving early-exit semantics.
+	 */
+	somePending(predicate: (state: ToolState) => boolean): boolean {
+		for (const state of this.#pendingStates) {
+			if (predicate(state)) return true;
+		}
+		return false;
 	}
 
 	markPending(state: ToolState): void {
