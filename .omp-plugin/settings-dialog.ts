@@ -119,6 +119,9 @@ const ROW_HELP: Readonly<Record<string, string>> = {
  * DEFAULT_SETTINGS.host always carries both values, so the rows can read
  * plain booleans. Single source for the absent-key fallback: a default
  * change in config.ts flows here instead of drifting through literals.
+ * Absent-key resolution sites (extend every one when a host field is added):
+ * `hostRowsChanged` for the dirty/blocked comparison, `emitHostChanges`, and
+ * the two host-row getters in `buildRows`.
  */
 const HOST_ROW_DEFAULTS = {
 	...DEFAULT_SETTINGS.host,
@@ -131,6 +134,21 @@ const STATS_CHILD_IDS = [
 	"stats.cache",
 	"stats.time",
 ] as const;
+
+/**
+ * Shallow field-wise copy of a settings value: fresh top-level sub-objects,
+ * same leaves. The dialog's working draft and the snapshot it hands to
+ * onSave are both built from this shape — when a new sub-object joins
+ * CompactSettings, copy it here, not at either call site.
+ */
+function cloneSettings(settings: CompactSettings): CompactSettings {
+	return {
+		...settings,
+		stats: { ...settings.stats },
+		autoShake: { ...settings.autoShake },
+		host: { ...settings.host },
+	};
+}
 
 /**
  * Display a shake threshold in human units: `2m tokens`, `200k tokens`, and
@@ -174,12 +192,7 @@ export class SettingsDialog implements ComponentLike {
 		this.done = done;
 		this.initial = deps.settings;
 		this.hostAvailable = deps.hostAvailable !== false;
-		this.draft = {
-			...this.initial,
-			stats: { ...this.initial.stats },
-			autoShake: { ...this.initial.autoShake },
-			host: { ...this.initial.host },
-		};
+		this.draft = cloneSettings(this.initial);
 	}
 
 	/** The mutable working draft (read-only by convention). */
@@ -190,14 +203,7 @@ export class SettingsDialog implements ComponentLike {
 	get isDirty(): boolean {
 		const draft = this.draft;
 		const initial = this.initial;
-		const hostDirty =
-			this.hostAvailable &&
-			((draft.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) !==
-				(initial.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) ||
-				(draft.host.thinkingBlocksVisible ??
-					HOST_ROW_DEFAULTS.thinkingBlocksVisible) !==
-					(initial.host.thinkingBlocksVisible ??
-						HOST_ROW_DEFAULTS.thinkingBlocksVisible));
+		const hostDirty = this.hostAvailable && this.hostRowsChanged();
 		return (
 			draft.enabled !== initial.enabled ||
 			draft.mode !== initial.mode ||
@@ -575,12 +581,12 @@ export class SettingsDialog implements ComponentLike {
 	}
 
 	/**
-	 * True when the draft carries host changes that cannot be persisted: the
-	 * rows are locked when no verified live host settings instance exists, so
-	 * this can only arise from direct draft mutation.
+	 * True when the draft's host fields differ from the snapshot, both sides
+	 * resolved against HOST_ROW_DEFAULTS. The hostAvailable polarity is the
+	 * callers' concern: isDirty compares while the host rows are live,
+	 * hostChangesBlocked while they are not.
 	 */
-	private hostChangesBlocked(): boolean {
-		if (this.hostAvailable) return false;
+	private hostRowsChanged(): boolean {
 		return (
 			(this.draft.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) !==
 				(this.initial.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) ||
@@ -589,6 +595,16 @@ export class SettingsDialog implements ComponentLike {
 				(this.initial.host.thinkingBlocksVisible ??
 					HOST_ROW_DEFAULTS.thinkingBlocksVisible)
 		);
+	}
+
+	/**
+	 * True when the draft carries host changes that cannot be persisted: the
+	 * rows are locked when no verified live host settings instance exists, so
+	 * this can only arise from direct draft mutation.
+	 */
+	private hostChangesBlocked(): boolean {
+		if (this.hostAvailable) return false;
+		return this.hostRowsChanged();
 	}
 
 	private save(): void {
@@ -611,12 +627,7 @@ export class SettingsDialog implements ComponentLike {
 		// mutating the live draft while a slow onSave is pending; the queued
 		// payload and the dialog's resolved value must stay the confirmed
 		// draft, not whatever the working copy holds when the write runs.
-		const confirmed: CompactSettings = {
-			...this.draft,
-			stats: { ...this.draft.stats },
-			autoShake: { ...this.draft.autoShake },
-			host: { ...this.draft.host },
-		};
+		const confirmed = cloneSettings(this.draft);
 		this.saving = true;
 		this.pending = this.pending.then(async () => {
 			try {
@@ -845,17 +856,22 @@ export class SettingsDialog implements ComponentLike {
 				? focusLine - middleStart
 				: -1;
 
+		// Window start that keeps the focused row centered for a given
+		// content height. Shared by the initial placement and the indicator
+		// pass below, where the content shrinks and the start must follow.
+		const clampStart = (content: number): number =>
+			focusInMiddle >= 0
+				? Math.max(
+						0,
+						Math.min(
+							focusInMiddle - Math.floor(content / 2),
+							middleCount - content,
+						),
+					)
+				: 0;
+
 		let content = Math.min(viewport, middleCount);
-		let start = 0;
-		if (focusInMiddle >= 0) {
-			start = Math.max(
-				0,
-				Math.min(
-					focusInMiddle - Math.floor(content / 2),
-					middleCount - content,
-				),
-			);
-		}
+		let start = clampStart(content);
 		// Indicator rows (dim "…" at the clipped edges) replace content rows
 		// so the frame still fits the terminal; the focused row keeps priority
 		// over the markers.
@@ -866,15 +882,7 @@ export class SettingsDialog implements ComponentLike {
 			const fit = Math.max(1, viewport - indicatorRows);
 			if (fit < content) {
 				content = Math.min(fit, middleCount);
-				if (focusInMiddle >= 0) {
-					start = Math.max(
-						0,
-						Math.min(
-							focusInMiddle - Math.floor(content / 2),
-							middleCount - content,
-						),
-					);
-				}
+				start = clampStart(content);
 				topClipped = start > 0;
 				bottomClipped = start + content < middleCount;
 			}
