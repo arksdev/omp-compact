@@ -406,7 +406,11 @@ export class ComponentBinding {
 	 * with unbound non-read states — 1:1 chronological at exact full
 	 * cardinality, or newest-tail suffix alignment on a restored history.
 	 * The guard sets are deliberately conservative: a skipped shape stays
-	 * native (fail-open).
+	 * native (fail-open). `#rebuildBacklog` states are eligible here,
+	 * unlike `tryBindByOrder`: the suffix branch skips them as hidden
+	 * prefix (the offset counts them), and the exact branch pairs them
+	 * chronologically under the same full-cardinality proof that gates
+	 * the branch — so a backlog state is never a single-pair guess.
 	 */
 	#pairToolComponents(allowOrder: boolean, restoredArmed: boolean): void {
 		const toolStates = [...this.#states.values()].filter(
