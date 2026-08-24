@@ -30,6 +30,10 @@ export interface CompactHostSettings {
 	thinkingBlocksVisible?: boolean;
 }
 
+/** Current persisted schema version. Every writer stamps it (update guard);
+ * read accepts only this value (normalize guard). */
+export const SCHEMA_VERSION = 1 as const;
+
 export interface CompactSettings {
 	version: 1;
 	enabled: boolean;
@@ -97,7 +101,7 @@ const DEFAULT_HOST: CompactHostSettings = Object.freeze({
 });
 
 export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
-	version: 1,
+	version: SCHEMA_VERSION,
 	enabled: true,
 	mode: "live",
 	retainGitLive: true,
@@ -131,7 +135,7 @@ function isFiniteInteger(value: unknown): value is number {
 
 function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 	const clone: CompactSettings = {
-		version: 1,
+		version: SCHEMA_VERSION,
 		enabled: settings.enabled,
 		mode: settings.mode,
 		retainGitLive: settings.retainGitLive,
@@ -391,7 +395,7 @@ function normalizeWithDiagnostics(
 		return { settings: DEFAULT_SETTINGS, invalid: ["root"] };
 	}
 	const version = raw.version;
-	if (version !== undefined && version !== 1) {
+	if (version !== undefined && version !== SCHEMA_VERSION) {
 		warn?.(`unsupported config version ${String(version)}; using defaults`);
 		return { settings: DEFAULT_SETTINGS, invalid: ["version"] };
 	}
@@ -421,7 +425,7 @@ function normalizeWithDiagnostics(
 	}
 
 	const settings: CompactSettings = {
-		version: 1,
+		version: SCHEMA_VERSION,
 		enabled: field("enabled", raw.enabled, DEFAULT_SETTINGS.enabled),
 		mode,
 		retainGitLive: field(
@@ -1011,7 +1015,9 @@ export function createSettingsStore(
 			// file once a v2 format appears. readLatestStrict already rejected
 			// every non-1 version, so only the absent case reaches this guard
 			// and an existing `version: 1` is never rewritten.
-			if (mergedRecord.version !== 1) mergedRecord.version = 1;
+			if (mergedRecord.version !== SCHEMA_VERSION) {
+				mergedRecord.version = SCHEMA_VERSION;
+			}
 			const { settings: mergedSettings, invalid: latestInvalid } =
 				normalizeWithDiagnostics(mergedRecord, warn);
 			if (latestInvalid.length > 0) {
