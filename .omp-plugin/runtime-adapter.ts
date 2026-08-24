@@ -57,6 +57,7 @@ import {
 	RuntimeSessionState,
 	type ToolResultInput,
 	type ToolStartInput,
+	type ToolState,
 } from "./runtime-session-state";
 import { resolveToolRule } from "./tool-presentation-rules";
 import {
@@ -893,13 +894,21 @@ export class RuntimeAdapter {
 
 	/** True when at least one pending state would animate on the next tick. */
 	#hasSpinnerWork(): boolean {
-		return this.#session.somePending((state) => {
-			if (state.ledger.phase !== "working" || !state.component) return false;
-			// `clear` renders no compact rows; stock surfaces animate
-			// themselves, so hidden rows must not churn renders.
-			if (this.#session.modeFor(state.ledger).mode === "clear") return false;
-			return true;
-		});
+		return this.#session.somePending((state) => this.#shouldAnimate(state));
+	}
+
+	/**
+	 * True when a pending state is worth an animation frame: it is working,
+	 * bound to a component, and its presentation mode renders compact rows.
+	 * `modeFor` is deliberately last — it is the only check that does a
+	 * lookup.
+	 */
+	#shouldAnimate(state: ToolState): boolean {
+		if (state.ledger.phase !== "working" || !state.component) return false;
+		// `clear` renders no compact rows; stock surfaces animate
+		// themselves, so hidden rows must not churn renders.
+		if (this.#session.modeFor(state.ledger).mode === "clear") return false;
+		return true;
 	}
 
 	#startSpinner(): void {
@@ -907,10 +916,7 @@ export class RuntimeAdapter {
 		this.#timer = this.#timers.setInterval(() => {
 			let pending = false;
 			this.#session.forEachPending((state) => {
-				if (state.ledger.phase !== "working" || !state.component) return;
-				// `clear` renders no compact rows; stock surfaces animate
-				// themselves, so hidden rows must not churn renders.
-				if (this.#session.modeFor(state.ledger).mode === "clear") return;
+				if (!this.#shouldAnimate(state)) return;
 				pending = true;
 				state.version++;
 				this.#ui.requestComponentRender?.(state.component);
