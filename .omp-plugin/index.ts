@@ -64,6 +64,7 @@ import {
 } from "./settings-ui";
 import { resolveToolAudit } from "./tool-presentation-rules";
 import { classifyAgentEnd } from "./turn-ledger";
+import { defaultWarn } from "./warn-sink";
 
 interface PendingGit {
 	command: string;
@@ -389,14 +390,14 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				notify.call(context.ui, message, "warning");
 				return;
 			}
-			console.warn(`[omp-compact] ${message}`);
+			defaultWarn(message);
 		} catch {
 			// Best-effort: the warning itself must never throw.
 		}
 	}
 	// Audit lifecycle owns its own class-keyed warn-once (capture/completion/
 	// barrier/chain). Constructed without a live ExtensionContext, so the
-	// sink is console.warn — same default as host-settings/config. The
+	// sink is the shared defaultWarn (see ./warn-sink). The
 	// adapter's `warn` callback is reserved for session-terminal disable.
 	const auditLifecycle = new AuditLifecycle({
 		capture: captureWriteCandidate,
