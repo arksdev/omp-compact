@@ -4,6 +4,7 @@ import type {
 	CompactSettings,
 	CompactSettingsStore,
 } from "./config";
+import { createKeyedQueue } from "./keyed-queue";
 
 /** Host-configuration bridge seam (wired by HostSettingsBridge's slice). */
 export interface HostBridgeLike {
@@ -64,29 +65,7 @@ export interface SaveFlowDeps {
  * update, so serializing per store also serializes the shared host config
  * target (two dialogs build their own bridge but share the store).
  */
-const saveFlowQueues = new Map<CompactSettingsStore, Promise<void>>();
-
-async function withSaveFlowQueue<T>(
-	store: CompactSettingsStore,
-	operation: () => Promise<T>,
-): Promise<T> {
-	const previous = saveFlowQueues.get(store) ?? Promise.resolve();
-	let release!: () => void;
-	const current = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	const tail = previous.catch(() => undefined).then(() => current);
-	saveFlowQueues.set(store, tail);
-	await previous.catch(() => undefined);
-	try {
-		return await operation();
-	} finally {
-		release();
-		// Only the last queued operation cleans up the entry; earlier
-		// operations find a newer tail and correctly skip the delete.
-		if (saveFlowQueues.get(store) === tail) saveFlowQueues.delete(store);
-	}
-}
+const withSaveFlowQueue = createKeyedQueue<CompactSettingsStore>();
 
 /**
  * One persisted setting that a hard env override currently masks: the JSON
@@ -140,7 +119,7 @@ export interface SaveOutcome {
  * and keeps its unsaved state. Returns the structured persisted-versus-
  * effective outcome.
  *
- * Overlapping calls serialize per target (see {@link saveFlowQueues}): each
+ * Overlapping calls serialize per target (see {@link withSaveFlowQueue}): each
  * save runs to completion — bridge apply, JSON persist, and on failure its
  * compensating rollback — before the next one starts, so no call silently
  * loses its arguments to the bridge's concurrent-apply coalescing and a

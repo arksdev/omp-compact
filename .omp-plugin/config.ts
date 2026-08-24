@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 import { DEFAULT_DISPLAY_CYCLE_KEY, isDisplayCycleKey } from "./display-cycle";
+import { createKeyedQueue } from "./keyed-queue";
 import { isPathInsideRoot } from "./path-inside-root";
 
 export type CompactMode = "compact" | "live" | "clear";
@@ -546,29 +547,7 @@ const HOST_FIELDS = ["recapEnabled", "thinkingBlocksVisible"] as const;
  * this process closes the reread-to-rename race so disjoint stale patches
  * compose even when callers use `Promise.all`.
  */
-const updateQueues = new Map<string, Promise<void>>();
-
-async function withUpdateQueue<T>(
-	path: string,
-	operation: () => Promise<T>,
-): Promise<T> {
-	const previous = updateQueues.get(path) ?? Promise.resolve();
-	let release!: () => void;
-	const current = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	const tail = previous.catch(() => undefined).then(() => current);
-	updateQueues.set(path, tail);
-	await previous.catch(() => undefined);
-	try {
-		return await operation();
-	} finally {
-		release();
-		// Only the last queued operation cleans up the path entry; earlier
-		// operations find a newer tail and correctly skip the delete.
-		if (updateQueues.get(path) === tail) updateQueues.delete(path);
-	}
-}
+const withUpdateQueue = createKeyedQueue<string>();
 
 /**
  * The leaf fields an update actually changes. An explicit `undefined` entry
