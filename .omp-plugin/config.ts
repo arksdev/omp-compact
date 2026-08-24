@@ -570,17 +570,7 @@ const withUpdateQueue = createKeyedQueue<string>();
  * keys, so `host: { recapEnabled: undefined }` clears the persisted value.
  */
 interface SettingsLeafPatch {
-	top: Partial<
-		Pick<
-			CompactSettings,
-			| "enabled"
-			| "mode"
-			| "retainGitLive"
-			| "compactPaths"
-			| "compactVibeRows"
-			| "displayCycleKey"
-		>
-	>;
+	top: Partial<Pick<CompactSettings, (typeof TOP_LEVEL_FIELDS)[number]>>;
 	stats?: Partial<CompactStatsSettings>;
 	autoShake?: Partial<CompactAutoShakeSettings>;
 	host?: Partial<CompactHostSettings>;
