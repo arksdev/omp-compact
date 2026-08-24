@@ -438,6 +438,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `index.ts` | Extension entrypoint, events, command и session wiring. |
 | `tool-presentation-rules.ts` | Typed routes, aliases, audit selectors и known structured shapes. |
 | `runtime-adapter.ts` | Public lifecycle façade, exact-instance wrappers and terminal replay seam. |
+| `presentation-patches.ts` | Exact-instance descriptor-patch registries и их двух-scope teardown (detach для per-component, dispose-only для transcript/discovery). |
 | `host-adapter.ts` | Pinned 18.0.3 capability probes and transactional descriptor patches. |
 | `component-binding.ts` | Exact-ID/proven-order component mapping and native fail-open statuses. |
 | `runtime-session-state.ts` | Ledgers, terminal projections and bounded payload retirement. |
@@ -448,7 +449,14 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `audit.ts`, `audit-diff.ts`, `audit-lifecycle.ts` | Bounded file-mutation evidence и async lifecycle. |
 | `git-records.ts` | Conservative Git command/result classification. |
 | `vibe-cards.ts` | Compact rows для параллельных worker sessions. |
-| `config.ts`, `mode-policy.ts`, `settings-ui.ts` | Persistent config, immutable run snapshot и TUI settings. |
+| `config.ts`, `mode-policy.ts` | Persistent config и immutable run snapshot. |
+| `settings-ui.ts` | Re-export entry point: barrel для модулей settings UI. |
+| `settings-keys.ts` | Raw key codes и нормализация стрелок. |
+| `host-api.ts` | Структурные host API типы и регистрация command/shortcut. |
+| `ansi-width.ts` | ANSI-SGR-safe strip и truncate. |
+| `save-flow.ts` | Save flow: host bridge apply → JSON persist → optional reload. |
+| `cycle-handler.ts` | Keypress handler display-cycle через saveSettingsFlow. |
+| `settings-dialog.ts` | TUI settings dialog. |
 | `host-settings.ts` | Transactional bridge к двум initialized stock settings. |
 | `run-stats.ts` | Usage aggregation, persisted evidence и terminal stats row. |
 | `post-turn-shake.ts` | Isolated, default-off native context elision. |

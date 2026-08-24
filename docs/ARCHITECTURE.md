@@ -18,6 +18,7 @@ omp-compact/
 │   ├── marketplace.json
 │   ├── index.ts                   # Plugin entry point
 │   ├── runtime-adapter.ts         # Host orchestration, event hooks
+│   ├── presentation-patches.ts    # Exact-instance descriptor-patch registries
 │   ├── runtime-session-state.ts   # Ledgers, tool states, projections
 │   ├── rebuild-lifecycle.ts       # Branch hydration and rebuild generations
 │   ├── component-binding.ts       # toolCallId ↔ component mapping
@@ -26,6 +27,13 @@ omp-compact/
 │   ├── render.ts                  # Row construction (mutations, git, stats)
 │   ├── vibe-cards.ts              # Worker-session compact rows
 │   ├── display-cycle.ts           # Shortcut cycle, chord validation, status line
+│   ├── settings-keys.ts           # Raw key codes and arrow normalization
+│   ├── host-api.ts                # Host API types; command/shortcut registration
+│   ├── ansi-width.ts              # ANSI-SGR-safe strip/truncate
+│   ├── save-flow.ts               # Host bridge apply → JSON persist → reload
+│   ├── cycle-handler.ts           # Display-cycle keypress handler
+│   ├── settings-dialog.ts         # TUI settings dialog
+│   ├── settings-ui.ts             # Re-export entry point for the settings modules
 │   └── …                          # Remaining production modules
 ├── docs/
 │   ├── tests/                     # Unit/integration tests and replay corpus
@@ -206,9 +214,19 @@ Host orchestrator. Installs and manages patches.
 }
 ```
 
-**`noteTreeIntent`:** Explicit no-op seam on `RuntimeAdapter`. `session_tree` is optional intent/coalescing metadata only; the method deliberately has no side effects. Rehydration and presentation-generation bumps key off the transcript `clear` that follows a committed navigation, never this event.
+### Presentation Patches (presentation-patches.ts)
+
+Exact-instance registry for the descriptor patches `RuntimeAdapter` installs on host components — per-component render/method wraps, transcript `addChild`/`clear` wrappers and the discovery tree-watcher patches — plus their teardown.
+
+**Two teardown scopes, deliberately:**
+- `restorePerComponent()` is the detach scope: per-component patches are restored to native and cleared so retired component instances can be collected; the transcript's own patches survive — they define the rebuild boundary.
+- `restoreTranscript()` / `restoreDiscovery()` are dispose-only: recorded so a failing clear probe still rolls the adapter back transactionally; discovery restore also runs when a transcript is found (the watcher's job is done).
+
+The per-component restore runs from one shared list, so a new patch kind cannot leak patched components across a rebuild.
 
 ---
+
+## Decision Flow
 
 ## Decision Flow
 
@@ -420,7 +438,7 @@ async function withUpdateQueue<T>(path: string, op: () => Promise<T>): Promise<T
 
 **Key:** Leaf-level patch merge preserves concurrent in-process edits to different fields. The queue is in-process only (no lock file): writers in separate OS processes still race on the same JSON path, and the last successful atomic rename wins for any overlapping leaf.
 
-### Display-Cycle Shortcut (display-cycle.ts, settings-ui.ts)
+### Display-Cycle Shortcut (display-cycle.ts, cycle-handler.ts)
 
 One chord (`alt+c` by default, stored as plain text in `displayCycleKey`) walks the persisted `enabled`/`mode` pair through four states:
 
@@ -441,9 +459,13 @@ One chord (`alt+c` by default, stored as plain text in `displayCycleKey`) walks 
 1. `ExtensionAPI` exposes `registerShortcut` with **no** counterpart for removal, so the chord cannot be rebound on a live session. A chord change is reported through the same `restartRequired` channel already used for thinking-block visibility. The chord is therefore read synchronously at registration (`readDisplayCycleKeySync`) — the async store would resolve after the host has already collected the extension's shortcuts.
 2. The runtime's reserved-chord list is a **private class field** and unreadable at runtime; a conflicting registration is dropped with only a log line. `RESERVED_SHORTCUTS` is a version-annotated copy, pinned by a test, and validation refuses an occupied chord rather than letting the key silently die. The public default keymap (`KEYBINDINGS`) is read live and never copied. See `context/display-cycle-reserved-copy.md`.
 
-The status line colors only the mode name (theme role `success`); `off` is intentionally left unstyled and worded differently (`from the next run` versus `takes effect next run`) so disabling the plugin does not read as another mode swap. `ui.notify` reaches `showStatus` → `Text` → `wrapTextWithAnsi`, which preserves ANSI, so in-string markup survives.
+The status line colors only the mode name (theme role `success`); `off` is intentionally left unstyled and worded differently (`from the next run` versus `takes effect next run`) so disabling the plugin does not read as another mode swap. ### Settings UI Surface (settings-ui.ts)
+
+`settings-ui.ts` is the caller-facing entry point: it re-exports every name the settings surface exposes — key codes, host API types, ANSI utilities, the save flow, the display-cycle keypress handler and the dialog — from six focused modules (`settings-keys.ts`, `host-api.ts`, `ansi-width.ts`, `save-flow.ts`, `cycle-handler.ts`, `settings-dialog.ts`). The split is pure movement: importers of `settings-ui` resolve the same names and types; the module itself holds no logic.
 
 ---
+
+## Lifecycle Diagrams
 
 ## Lifecycle Diagrams
 
