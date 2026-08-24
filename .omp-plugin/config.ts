@@ -63,6 +63,9 @@ export interface CompactSettingsPatch {
 
 export type EnvLike = Record<string, string | undefined>;
 
+// Config JSON byte/depth budgets; mirrored by the host-settings YAML
+// pre-image budgets (MAX_HOST_SETTINGS_YAML_BYTES / _DEPTH in host-settings.ts)
+// — keep both pairs in sync when either changes.
 export const MAX_CONFIG_BYTES = 65_536;
 export const MAX_CONFIG_DEPTH = 16;
 export const MAX_THRESHOLD_TOKENS = 10_000_000;
