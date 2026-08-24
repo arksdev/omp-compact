@@ -56,9 +56,10 @@ export interface SaveFlowDeps {
  * seeing the actual state after the previous save settled — including a
  * failed save's compensating rollback, which runs inside ITS queue turn.
  * Without this, two overlapping saves could interleave: the host bridge
- * coalesces concurrent applies (silently dropping the second payload), and
- * a failing save's rollback restores a pre-image that predates the other
- * save's already-successful write.
+ * handles its own concurrent applies, but a failing save's compensating
+ * rollback restores a pre-image that predates the other save's
+ * already-successful write — so the rollback must run inside its own
+ * queue turn.
  *
  * Keyed by the store identity: the store is the per-plugin-instance save
  * pipeline, and each flow couples exactly one host apply to one store
