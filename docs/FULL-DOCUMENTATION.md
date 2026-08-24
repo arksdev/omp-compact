@@ -444,6 +444,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `runtime-session-state.ts` | Ledgers, terminal projections and bounded payload retirement. |
 | `rebuild-lifecycle.ts` | Branch hydration walks, rebuild generations and replayed stats carriers. |
 | `render-decision.ts` | Pure mode/route projection decisions. |
+| `render-scrape.ts` | Scraping компактных view из live stock компонентов: публичные accessor-пробы, fail open к native. |
 | `turn-ledger.ts` | Logical-run boundary, phases и retention. |
 | `transcript-fold.ts` | Deferred live region и terminal commit в native scrollback. |
 | `audit.ts`, `audit-diff.ts`, `audit-lifecycle.ts` | Bounded file-mutation evidence и async lifecycle. |
