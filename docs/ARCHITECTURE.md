@@ -28,6 +28,7 @@ omp-compact/
 │   ├── vibe-cards.ts              # Re-export entry point for vibe cards
 │   ├── vibe-cards-decode.ts       # Defensive decoding of untrusted vibe payloads
 │   ├── vibe-cards-render.ts       # Compact worker-session row rendering
+│   ├── vibe-cards-slots.ts        # Slot formatters for compact vibe rows
 │   ├── display-cycle.ts           # Shortcut cycle, chord validation, status line
 │   ├── settings-keys.ts           # Raw key codes and arrow normalization
 │   ├── host-api.ts                # Host API types; command/shortcut registration

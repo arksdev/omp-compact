@@ -1,10 +1,7 @@
 import type { ThemeColor } from "@oh-my-pi/pi-coding-agent/modes/theme/schema";
 import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
-import { formatDuration } from "@oh-my-pi/pi-utils/format";
 
-import { codePointLength, truncateCodePoints } from "./compact";
-import { stripRejectedControls } from "./display-control";
 import { fitTransparentLine } from "./fit-transparent-line";
 import { objectRecord } from "./object-record";
 import type {
@@ -13,6 +10,15 @@ import type {
 	VibeScreenSnapshot,
 	VibeToolDetails,
 } from "./vibe-cards-decode";
+import {
+	renderBadge,
+	renderDurationSlot,
+	renderHighlightedActivity,
+	renderModelSlot,
+	renderName,
+	renderTurns,
+	sanitizeText,
+} from "./vibe-cards-slots";
 
 /**
  * Compact presentation renderer for OMP vibe multi-agent worker sessions.
@@ -42,29 +48,12 @@ export interface CompactVibeView {
 	result?: unknown;
 }
 
-const MAX_ID_CODE_POINTS = 24;
-const MAX_MODEL_CODE_POINTS = 16;
-
 const DEAD_TTL_MS = 5_000;
 const ABORTED_TTL_MS = 5_000;
 const FAILED_TTL_MS = 10_000;
 const CANCELLED_TTL_MS = 10_000;
 
 const CURSOR_GLYPH = "▌";
-
-/**
- * Sanitize arbitrary input to a single clean line of text.
- */
-function sanitizeText(value: unknown, limit?: number): string {
-	const text = typeof value === "string" ? value : "";
-	const clean = stripRejectedControls(Bun.stripANSI(text))
-		.replace(/\s+/g, " ")
-		.trim();
-	if (limit === undefined || clean.length <= limit) return clean;
-	const chars = Array.from(clean);
-	if (chars.length <= limit) return clean;
-	return `${chars.slice(0, Math.max(0, limit - 1)).join("")}…`;
-}
 
 /**
  * Select the active braille spinner frame for a pending animation tick.
@@ -85,95 +74,6 @@ export function pendingFrame(theme: Theme, tick: number): string {
 			: undefined);
 	const frame = frames ? frames[tick % frames.length] : "•";
 	return frame ?? "•";
-}
-
-function renderBadge(
-	cli: string | undefined,
-	role: ThemeColor,
-	theme: Theme,
-): string {
-	const left = theme.format?.bracketLeft ?? "⟦";
-	const right = theme.format?.bracketRight ?? "⟧";
-	const letter =
-		cli === "fast"
-			? "f"
-			: cli === "good"
-				? "g"
-				: typeof cli === "string" && cli.length > 0
-					? (cli[0]?.toLowerCase() ?? "?")
-					: "?";
-	return theme.fg(role, `${left}${letter}${right}`);
-}
-
-/**
- * Format session ID capped at 24 code points with terminal ellipsis.
- */
-function renderName(id: string, theme: Theme): string {
-	const sanitized = sanitizeText(id);
-	const formatted =
-		codePointLength(sanitized) > MAX_ID_CODE_POINTS
-			? `${truncateCodePoints(sanitized, MAX_ID_CODE_POINTS - 1)}…`
-			: sanitized;
-	return theme.fg("muted", formatted);
-}
-
-/**
- * Format turn count and queue depth: `{N}t[+{M}q]`.
- */
-function renderTurns(turns: number, queued: number, theme: Theme): string {
-	const text = `${turns}t${queued > 0 ? `+${queued}q` : ""}`;
-	return theme.fg("muted", text);
-}
-
-/**
- * Format duration slot if elapsed time is known.
- */
-function renderDurationSlot(
-	turnStartedAt: number | undefined,
-	now: number,
-	theme: Theme,
-): string | undefined {
-	if (turnStartedAt === undefined) return undefined;
-	const elapsed = Math.max(0, now - turnStartedAt);
-	return theme.fg("dim", formatDuration(elapsed));
-}
-
-/**
- * Format short model name (post-slash, pre-colon, max 16 code points).
- */
-function renderModelSlot(
-	model: string | undefined,
-	theme: Theme,
-): string | undefined {
-	if (!model) return undefined;
-	let name = sanitizeText(model);
-	const slashIdx = name.lastIndexOf("/");
-	if (slashIdx >= 0) name = name.slice(slashIdx + 1);
-	const colonIdx = name.indexOf(":");
-	if (colonIdx >= 0) name = name.slice(0, colonIdx);
-	if (!name) return undefined;
-	if (codePointLength(name) > MAX_MODEL_CODE_POINTS) {
-		name = `${truncateCodePoints(name, MAX_MODEL_CODE_POINTS - 1)}…`;
-	}
-	return theme.fg("muted", name);
-}
-
-/**
- * Highlight a specific keyword as `error` while rendering the rest as `muted`.
- */
-function renderHighlightedActivity(
-	text: string,
-	keyword: "killed" | "aborted",
-	theme: Theme,
-): string {
-	const parts = text.split(new RegExp(`(${keyword})`, "g"));
-	return parts
-		.map((part) => {
-			if (!part) return "";
-			if (part === keyword) return theme.fg("error", part);
-			return theme.fg("muted", part);
-		})
-		.join("");
 }
 
 /**

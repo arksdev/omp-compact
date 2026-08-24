@@ -451,6 +451,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `vibe-cards.ts` | Re-export entry point: barrel для модулей vibe cards. |
 | `vibe-cards-decode.ts` | Defensive decoding untrusted vibe payloads в валидированные структуры. |
 | `vibe-cards-render.ts` | Compact rows для параллельных worker sessions. |
+| `vibe-cards-slots.ts` | Slot formatters: санитизация и форматирование отдельных слотов строки. |
 | `config.ts`, `mode-policy.ts` | Persistent config и immutable run snapshot. |
 | `settings-ui.ts` | Re-export entry point: barrel для модулей settings UI. |
 | `settings-keys.ts` | Raw key codes и нормализация стрелок. |
