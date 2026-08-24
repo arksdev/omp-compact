@@ -1,5 +1,6 @@
 import type { MutationCandidate } from "./audit";
 import type { MutationMessageDetails } from "./messages";
+import { defaultWarn } from "./warn-sink";
 
 export interface AuditLifecycleOptions {
 	capture(input: {
@@ -121,10 +122,6 @@ interface ResolvedOptions {
 const DEFAULT_BARRIER_MS = 5_000;
 
 const defaultNow = (): number => Date.now();
-
-function defaultWarn(message: string): void {
-	console.warn(`[omp-compact] ${message}`);
-}
 
 /** Drop retained pre-image bytes once evidence is done or abandoned. */
 function releaseCandidatePreImage(

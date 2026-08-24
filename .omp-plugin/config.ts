@@ -7,6 +7,7 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { DEFAULT_DISPLAY_CYCLE_KEY, isDisplayCycleKey } from "./display-cycle";
 import { createKeyedQueue } from "./keyed-queue";
 import { isPathInsideRoot } from "./path-inside-root";
+import { defaultWarn } from "./warn-sink";
 
 export type CompactMode = "compact" | "live" | "clear";
 
@@ -789,9 +790,7 @@ export function createSettingsStore(
 	deps: StoreDeps = {},
 ): CompactSettingsStore {
 	const env = deps.env ?? process.env;
-	const warn =
-		deps.warn ??
-		((message: string) => console.warn(`[omp-compact] ${message}`));
+	const warn = deps.warn ?? defaultWarn;
 	// Resolve after warn is bound so a rejected explicit OMP_COMPACT_CONFIG
 	// can surface one diagnostic through the store warn seam.
 	const path = deps.path ?? resolveConfigPath(env, { warn });

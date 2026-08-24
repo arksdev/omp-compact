@@ -8,6 +8,7 @@ import {
 	MAIN_AGENT_ID,
 	type ShakeableSession,
 } from "./post-turn-shake";
+import { defaultWarn } from "./warn-sink";
 
 /**
  * Host-settings bridge (upgrade2 item 6): menu controls for stock
@@ -530,11 +531,6 @@ export class HostSettingsApplyError extends Error {
 		this.name = "HostSettingsApplyError";
 		this.rollbackFailed = options.rollbackFailed === true;
 	}
-}
-
-function defaultWarn(message: string): void {
-	// eslint-disable-next-line no-console
-	console.warn(`[omp-compact] ${message}`);
 }
 
 export function createHostSettingsBridge(
