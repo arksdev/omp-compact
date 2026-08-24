@@ -440,7 +440,8 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `runtime-adapter.ts` | Public lifecycle façade, exact-instance wrappers and terminal replay seam. |
 | `host-adapter.ts` | Pinned 18.0.3 capability probes and transactional descriptor patches. |
 | `component-binding.ts` | Exact-ID/proven-order component mapping and native fail-open statuses. |
-| `runtime-session-state.ts` | Ledgers, rebuild generations, terminal projections and bounded payload retirement. |
+| `runtime-session-state.ts` | Ledgers, terminal projections and bounded payload retirement. |
+| `rebuild-lifecycle.ts` | Branch hydration walks, rebuild generations and replayed stats carriers. |
 | `render-decision.ts` | Pure mode/route projection decisions. |
 | `turn-ledger.ts` | Logical-run boundary, phases и retention. |
 | `transcript-fold.ts` | Deferred live region и terminal commit в native scrollback. |

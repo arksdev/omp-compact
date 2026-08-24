@@ -19,6 +19,7 @@ omp-compact/
 │   ├── index.ts                   # Plugin entry point
 │   ├── runtime-adapter.ts         # Host orchestration, event hooks
 │   ├── runtime-session-state.ts   # Ledgers, tool states, projections
+│   ├── rebuild-lifecycle.ts       # Branch hydration and rebuild generations
 │   ├── component-binding.ts       # toolCallId ↔ component mapping
 │   ├── turn-ledger.ts             # Per-run entry accumulation
 │   ├── render-decision.ts         # Compact vs native decision tables
@@ -74,9 +75,7 @@ Session-scoped state manager. Owns:
 **Lifecycle methods:**
 - `beginRun()` — creates new ledger, bumps it
 - `endRun(AgentEndEvent)` — finalizes ledger, retires pending states
-- `beginRebuild()` — bumps generation, snapshots active working ownership
-- `commitRebuild()` — validates & binds rehydrated branch
-- `abortRebuild()` — test/soft-abort helper: clears rebuild marker + preserved identity window for the matching generation; production adapter uses hard rollback/dispose instead
+- `hydrateBranch()`, `beginRebuild()`, `commitRebuild()`, `abortRebuild()` — entry points that delegate to `RebuildLifecycle` (see below); the class keeps the mutable stores, the lifecycle module owns the walks
 - `dispose()` — clears all maps
 
 **Tool state management:**
@@ -90,6 +89,24 @@ Session-scoped state manager. Owns:
 - Historical ledgers frozen after finalization
 - Pending set subset of states map
 - Generation bumps invalidate old rebuild callbacks
+
+---
+
+### RebuildLifecycle (rebuild-lifecycle.ts)
+
+Branch hydration and rebuild generations, extracted from `RuntimeSessionState`
+so the walks are reviewable in isolation.
+
+- `hydrateBranch(entries)` — session_start replay: parses typed branch entries into ledgers/states, hydrates persisted evidence, reinserts stats carriers
+- `beginRebuild()` — bumps generation, snapshots active working ownership, retires historical bindings
+- `commitRebuild(snapshot, options)` — generation-guarded settlement: merges branch states into preserved active ownership, binds rehydrated components
+- `abortRebuild(snapshot)` — clears the rebuild marker and preserved identity window for the matching generation
+
+One shared `#walkBranch` serves both replay and commit; a pure replay passes no
+active ledger, a rebuild commit passes the preserved one. The seam back into
+session state is the `RebuildLifecycleAccess` interface, built inside
+`RuntimeSessionState` over its private fields — the class's public surface is
+unchanged by the extraction.
 
 ---
 

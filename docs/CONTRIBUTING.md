@@ -159,6 +159,7 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 **One responsibility per module:**
 - `.omp-plugin/runtime-adapter.ts` — host orchestration only
 - `.omp-plugin/runtime-session-state.ts` — state management only
+- `.omp-plugin/rebuild-lifecycle.ts` — branch hydration and rebuild lifecycle only
 - `.omp-plugin/render-decision.ts` — decision tables only
 - `.omp-plugin/render.ts` — row construction only
 - `.omp-plugin/vibe-cards.ts` — worker-session row grammar only
@@ -168,6 +169,7 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 index.ts
   → runtime-adapter.ts
       → runtime-session-state.ts
+          → rebuild-lifecycle.ts
           → turn-ledger.ts
           → component-binding.ts
       → render-decision.ts
