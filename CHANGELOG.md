@@ -35,8 +35,6 @@
 ### Проверено
 
 - Требования к OMP не менялись: закреплённый host — **18.0.3**, минимальная поддерживаемая версия — **18.0.1**.
-- Автотесты: 1439 проверок, все проходят.
-- Добавлено 14 новых тестовых файлов.
 
 ---
 
@@ -56,7 +54,6 @@
 ### Проверено
 
 - Требования к OMP не менялись: закреплённый host — **18.0.3**, минимальная поддерживаемая версия — **18.0.1**.
-- Автотесты: 1371 проверка, все проходят.
 
 ---
 
@@ -225,7 +222,6 @@
 
 ### Проверено
 
-- 774 теста, 0 падений, 3 928 проверок в 28 файлах.
 - Строгие проверки TypeScript и Biome.
 - Проверка ссылок в README и документации.
 - Проверки содержимого пакета и dry-run для Marketplace.
@@ -321,8 +317,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 ### Verified
 
 - OMP requirements are unchanged: pinned host **18.0.3**, minimum supported version **18.0.1**.
-- Automated tests: 1439 checks, all passing.
-- 14 new test files added.
 
 ---
 
@@ -342,7 +336,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 ### Verified
 
 - OMP requirements are unchanged: pinned host **18.0.3**, minimum supported version **18.0.1**.
-- Automated tests: 1371 checks, all passing.
 
 ---
 
@@ -511,7 +504,6 @@ Public release polish. This patch release does not change plugin behavior; it ti
 
 ### Verified
 
-- 774 tests, 0 failures, 3,928 assertions across 28 files.
 - Strict TypeScript and Biome checks.
 - README and documentation link checks.
 - Package payload and Marketplace dry-run checks.
