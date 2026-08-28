@@ -135,7 +135,7 @@ agent_start
 • write: src/app.ts +17|0
 • edit: src/theme.css +2|0
 • git commit: 1983fsdf34, a4c12de890
-[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ]
+[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ] — 16:33
 <assistant answer>
 ```
 
@@ -143,7 +143,7 @@ agent_start
 
 1. Успешные `write`/`edit` с проверенным `added > 0 || removed > 0`.
 2. Одна строка подтверждённых commit hashes, если включён `Retain Git rows`.
-3. Одна configurable stats row, если включена статистика.
+3. Одна configurable stats row, если включена статистика. Справа от неё — локальное время завершения ответа (`hh:mm`), если включён `Add local time`; при восстановлении истории показывается то же время, что и в момент ответа.
 
 Удаляются routine reads, searches, globs, ordinary shell calls, no-op mutations и прочие mapped tool rows.
 
@@ -232,6 +232,7 @@ compact → live → clear → off → compact
 | `Received tokens` / `stats.received` | `true` | Сумма `usage.output`. |
 | `Cache stats` / `stats.cache` | `true` | `cacheRead / (sent + cacheRead)` и число cache-hit tokens. |
 | `Time` / `stats.time` | `true` | Wall time от `agent_start` до terminal `agent_end`. |
+| `Add local time` / `stats.clock` | `true` | Локальное время завершения ответа (`hh:mm`) справа от строки, за скобками. Берётся из момента terminal `agent_end`, поэтому restored history показывает время самого ответа, а не время перерисовки. |
 | `Recap summary` / `host.recapEnabled` | fallback `true` | Показывает live `recap.enabled`, если host settings доступны; меняет его только при save. |
 | `Thinking blocks` / `host.thinkingBlocksVisible` | fallback `true` | Показывает inverse live `hideThinkingBlock`; меняет при save и требует restart OMP. |
 

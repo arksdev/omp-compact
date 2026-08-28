@@ -609,6 +609,7 @@ describe("store load fail-open", () => {
 			received: true,
 			cache: true,
 			time: true,
+			clock: true,
 		});
 		expect(settings.autoShake.thresholdTokens).toBe(1000);
 		expect(settings.host.recapEnabled).toBe(false);

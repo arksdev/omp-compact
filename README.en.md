@@ -55,7 +55,7 @@ After a successful answer, the default `live` mode keeps only useful history:
 • edit: src/theme.css +2|0
 • delete: src/legacy.ts -3
 • git commit: 1983fsdf34, a4c12de890
-[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ]
+[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ] — 16:33
 <assistant answer>
 ```
 
@@ -223,7 +223,7 @@ The plugin first saves these values through OMP's live `session.settings` and on
 
 ### Statistics
 
-`Run statistics` adds one line after a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color.
+`Run statistics` adds one line after a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color. `Add local time` appends the local time of the answer beside the row as `— 16:33`; it comes from the instant the turn finished, so restored history reports the time of the answer itself rather than the time of the repaint.
 
 ## Safe removal
 

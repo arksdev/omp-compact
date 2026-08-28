@@ -55,7 +55,7 @@ Working… read src/index.ts
 • edit: src/theme.css +2|0
 • delete: src/legacy.ts -3
 • git commit: 1983fsdf34, a4c12de890
-[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ]
+[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ] — 16:33
 <assistant answer>
 ```
 
@@ -223,7 +223,7 @@ Auto-shake автоматически вызывает штатный `AgentSess
 
 ### Статистика
 
-`Run statistics` добавляет одну строку после завершённого run. Отдельно можно включать actions, sent/received tokens, cache hit и elapsed time. Ошибка хотя бы одного инструмента отмечается warning color.
+`Run statistics` добавляет одну строку после завершённого run. Отдельно можно включать actions, sent/received tokens, cache hit и elapsed time. Ошибка хотя бы одного инструмента отмечается warning color. `Add local time` дописывает справа от строки локальное время ответа в виде `— 16:33`; оно берётся из момента завершения хода, поэтому восстановленная история показывает то же время, что и в момент ответа.
 
 ## Безопасное удаление
 

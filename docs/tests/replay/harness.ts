@@ -365,7 +365,14 @@ export async function replayFixture(
 		settings: {
 			...DEFAULT_SETTINGS,
 			mode: settings.mode,
-			stats: { ...DEFAULT_SETTINGS.stats, enabled: settings.stats },
+			// The clock reports the wall time of the replayed run, so goldens
+			// leave it off: they pin the row's composition, not the hour the
+			// fixture happened to be captured or replayed in.
+			stats: {
+				...DEFAULT_SETTINGS.stats,
+				enabled: settings.stats,
+				clock: false,
+			},
 		},
 	});
 	onBoot?.(booted);

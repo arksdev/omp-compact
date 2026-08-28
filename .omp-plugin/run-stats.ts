@@ -271,12 +271,30 @@ export function formatDuration(milliseconds: number): string {
 }
 
 /**
+ * Local wall clock as `hh:mm`, from the run's own completion instant — so a
+ * replayed row reports when the answer landed, not when it was repainted.
+ * A zero instant means no evidence of completion (pre-clock persisted rows),
+ * and renders nothing rather than the epoch.
+ */
+export function formatClock(completedAt: number): string {
+	const instant = nonNegativeNumber(completedAt);
+	if (instant === 0) return "";
+	const at = new Date(instant);
+	if (Number.isNaN(at.getTime())) return "";
+	const hours = String(at.getHours()).padStart(2, "0");
+	const minutes = String(at.getMinutes()).padStart(2, "0");
+	return `${hours}:${minutes}`;
+}
+
+/**
  * Render the configurable terminal stats row:
- * `[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ]`
+ * `[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ] — 16:33`
  * Values and brackets stay dim neutral; the `·` separators are
  * `#A4D734` on a clean run and theme warning otherwise. Segments follow the
  * `stats` settings; `stats.enabled === false` or an all-disabled field set
- * renders nothing.
+ * renders nothing. The clock rides outside the brackets in ordinary
+ * foreground, a shade brighter than the dim body, and needs a row to ride on:
+ * no segments, no clock.
  */
 export function statsLine(
 	result: RunStatsResult,
@@ -303,8 +321,11 @@ export function statsLine(
 	const content = segments
 		.map((segment) => theme.fg("dim", segment))
 		.join(separator);
+	const clock = stats.clock ? formatClock(result.completedAt) : "";
+	const suffix =
+		clock === "" ? "" : `${theme.fg("dim", " — ")}${theme.fg("text", clock)}`;
 	return fitTransparentLine(
-		`${theme.fg("dim", "[")} ${content} ${theme.fg("dim", "]")}`,
+		`${theme.fg("dim", "[")} ${content} ${theme.fg("dim", "]")}${suffix}`,
 		width,
 	);
 }
@@ -389,6 +410,7 @@ const ALL_STATS_SEGMENTS: CompactStatsSettings = {
 	received: true,
 	cache: true,
 	time: true,
+	clock: true,
 };
 
 class StatsMessageLines implements Component {

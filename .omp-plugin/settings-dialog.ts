@@ -109,6 +109,7 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	"stats.received": "Received tokens in the usage row",
 	"stats.cache": "Cache hits in the usage row",
 	"stats.time": "Run time in the usage row",
+	"stats.clock": "Local time of the answer, beside the usage row",
 	"host.recapEnabled": "Stock recap summary visibility",
 	"host.thinkingBlocksVisible": "Stock thinking block visibility",
 };
@@ -133,6 +134,7 @@ const STATS_CHILD_IDS = [
 	"stats.received",
 	"stats.cache",
 	"stats.time",
+	"stats.clock",
 ] as const;
 
 /**
@@ -217,6 +219,7 @@ export class SettingsDialog implements ComponentLike {
 			draft.stats.received !== initial.stats.received ||
 			draft.stats.cache !== initial.stats.cache ||
 			draft.stats.time !== initial.stats.time ||
+			draft.stats.clock !== initial.stats.clock ||
 			draft.autoShake.enabled !== initial.autoShake.enabled ||
 			draft.autoShake.thresholdTokens !== initial.autoShake.thresholdTokens ||
 			hostDirty
@@ -360,7 +363,9 @@ export class SettingsDialog implements ComponentLike {
 								? "Received tokens"
 								: id === "stats.cache"
 									? "Cache stats"
-									: "Time";
+									: id === "stats.time"
+										? "Time"
+										: "Add local time";
 				const prefix = index === STATS_CHILD_IDS.length - 1 ? "└─ " : "├─ ";
 				return toggle(
 					id,

@@ -111,7 +111,8 @@ the pinned value instead of claiming a change the environment forbids.
     "sent": true,
     "received": true,
     "cache": true,
-    "time": true
+    "time": true,
+    "clock": true
   },
   "autoShake": {
     "enabled": false,

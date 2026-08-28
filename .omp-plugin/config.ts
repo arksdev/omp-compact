@@ -18,6 +18,7 @@ export interface CompactStatsSettings {
 	received: boolean;
 	cache: boolean;
 	time: boolean;
+	clock: boolean;
 }
 
 export interface CompactAutoShakeSettings {
@@ -81,6 +82,7 @@ const DEFAULT_STATS: CompactStatsSettings = Object.freeze({
 	received: true,
 	cache: true,
 	time: true,
+	clock: true,
 });
 
 const DEFAULT_AUTO_SHAKE: CompactAutoShakeSettings = Object.freeze({
@@ -469,6 +471,7 @@ function normalizeWithDiagnostics(
 			),
 			cache: field("stats.cache", raw.stats.cache, settings.stats.cache),
 			time: field("stats.time", raw.stats.time, settings.stats.time),
+			clock: field("stats.clock", raw.stats.clock, settings.stats.clock),
 		};
 	} else if (raw.stats !== undefined) {
 		invalid.push("stats");
@@ -550,6 +553,7 @@ const STATS_FIELDS = [
 	"received",
 	"cache",
 	"time",
+	"clock",
 ] as const;
 
 const AUTO_SHAKE_FIELDS = ["enabled", "thresholdTokens"] as const;

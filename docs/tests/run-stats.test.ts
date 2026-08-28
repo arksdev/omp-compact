@@ -33,6 +33,7 @@ interface RunStatsModule {
 	hasAssistantUsage(message: unknown): boolean;
 	formatTokens(value: number): string;
 	formatDuration(milliseconds: number): string;
+	formatClock(completedAt: number): string;
 	hitRateOf(sent: number, cacheRead: number): number;
 	statsLine(
 		result: RunStatsResult,
@@ -43,6 +44,7 @@ interface RunStatsModule {
 			received: boolean;
 			cache: boolean;
 			time: boolean;
+			clock: boolean;
 		},
 		theme: Theme,
 		width?: number,
@@ -88,6 +90,7 @@ const ALL_ON = {
 	received: true,
 	cache: true,
 	time: true,
+	clock: true,
 } as const;
 
 function result(overrides: Partial<RunStatsResult> = {}): RunStatsResult {
@@ -540,11 +543,74 @@ describe("formatting and rounding", () => {
 		expect(module.formatDuration(-1_000)).toBe("0s");
 	});
 
+	test("formatClock pads to hh:mm in local time", () => {
+		// Built from local parts so the expectation holds in any zone: the row
+		// reports the user's wall clock, not UTC.
+		const at = new Date(2026, 7, 28, 16, 33, 7, 500);
+		expect(module.formatClock(at.getTime())).toBe("16:33");
+		const early = new Date(2026, 7, 28, 6, 5, 0, 0);
+		expect(module.formatClock(early.getTime())).toBe("06:05");
+		const midnight = new Date(2026, 7, 28, 0, 0, 0, 0);
+		expect(module.formatClock(midnight.getTime())).toBe("00:00");
+		// No completion instant is no evidence of a completion time: the row
+		// stays silent instead of reporting the epoch.
+		expect(module.formatClock(0)).toBe("");
+		expect(module.formatClock(-1)).toBe("");
+		expect(module.formatClock(Number.NaN)).toBe("");
+	});
+
 	test("full row renders the spec format", () => {
-		const line = module.statsLine(result(), ALL_ON, fakeTheme());
+		const at = new Date(2026, 7, 28, 16, 33, 0, 0);
+		const line = module.statsLine(
+			result({ completedAt: at.getTime() }),
+			ALL_ON,
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ] — 16:33",
+		);
+	});
+
+	test("the clock rides outside the brackets in ordinary foreground", () => {
+		const at = new Date(2026, 7, 28, 16, 33, 0, 0);
+		const line = module.statsLine(
+			result({ completedAt: at.getTime() }),
+			ALL_ON,
+			fakeTheme(),
+		);
+		// `]` closes in dim, then the dash stays dim and the clock switches to
+		// the ordinary foreground, so it reads brighter than the row body.
+		expect(line).toContain(
+			"\u001b[2m]\u001b[0m\u001b[2m — \u001b[0m\u001b[0m16:33",
+		);
+	});
+
+	test("the clock is off when its own toggle is off", () => {
+		const line = module.statsLine(
+			result(),
+			{ ...ALL_ON, clock: false },
+			fakeTheme(),
+		);
 		expect(stripAnsi(line)).toBe(
 			"[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ]",
 		);
+	});
+
+	test("no segments means no row to hang the clock beside", () => {
+		const line = module.statsLine(
+			result(),
+			{
+				enabled: true,
+				actions: false,
+				sent: false,
+				received: false,
+				cache: false,
+				time: false,
+				clock: true,
+			},
+			fakeTheme(),
+		);
+		expect(line).toBe("");
 	});
 });
 
@@ -559,6 +625,7 @@ describe("statsLine field subsets and gating", () => {
 				received: false,
 				cache: false,
 				time: true,
+				clock: false,
 			},
 			fakeTheme(),
 		);
@@ -575,6 +642,7 @@ describe("statsLine field subsets and gating", () => {
 				received: false,
 				cache: false,
 				time: false,
+				clock: false,
 			},
 			fakeTheme(),
 		);
@@ -600,6 +668,7 @@ describe("statsLine field subsets and gating", () => {
 				received: false,
 				cache: false,
 				time: false,
+				clock: false,
 			},
 			fakeTheme(),
 		);
@@ -637,7 +706,7 @@ describe("statsLine coloring", () => {
 		expect(line).toContain(WARNING_SEP);
 		expect(line).not.toContain(GREEN_SEP);
 		expect(stripAnsi(line)).toBe(
-			"[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ]",
+			`[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ] — ${module.formatClock(result().completedAt)}`,
 		);
 	});
 });

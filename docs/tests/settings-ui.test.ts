@@ -72,6 +72,7 @@ const FOCUSABLE_LABELS = [
 	"Received tokens",
 	"Cache stats",
 	"Time",
+	"Add local time",
 	"Recap summary",
 	"Thinking blocks",
 ];
@@ -278,8 +279,8 @@ describe("keyboard navigation", () => {
 
 	test("focus stays on the same row when stats children collapse under it", () => {
 		const { dialog } = makeDialog();
-		// Land on a trailing host row while the five stats children are still
-		// focusable (cursor index 13 of 14). Shrinking the focusable set must
+		// Land on a trailing host row while the six stats children are still
+		// focusable (cursor index 14 of 15). Shrinking the focusable set must
 		// not remap that high index onto an unrelated earlier row.
 		focus(dialog, "Thinking blocks");
 		expect(focusedRow(dialog)).toContain("Thinking blocks");
@@ -1440,8 +1441,8 @@ describe("menu labels and layout", () => {
 			.map((line, index) => (line === "" ? index : -1))
 			.filter((index) => index >= 0);
 		// header, global (2 rows), display (4 rows), shake (2 rows),
-		// stats (6 rows), host (2 rows), help
-		expect(blanks).toEqual([3, 8, 11, 18]);
+		// stats (7 rows), host (2 rows), help
+		expect(blanks).toEqual([3, 8, 11, 19]);
 	});
 });
 
@@ -1529,7 +1530,7 @@ describe("short-terminal viewport", () => {
 		const full = lines(makeDialog().dialog);
 		const tall = lines(makeDialog(DEFAULT_SETTINGS, true, () => 40).dialog);
 		expect(tall).toEqual(full);
-		expect(full).toHaveLength(22);
+		expect(full).toHaveLength(23);
 		expect(full.join("\n")).not.toContain("…");
 	});
 });

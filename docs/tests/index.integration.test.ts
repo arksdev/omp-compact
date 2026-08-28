@@ -5948,7 +5948,15 @@ async function bootWithMode(
 		"/tmp",
 		[],
 		false,
-		{ ...DEFAULT_SETTINGS, mode, ...extra },
+		{
+			...DEFAULT_SETTINGS,
+			mode,
+			// These contracts pin the composition of the projected rows, so the
+			// clock stays off: it reports the wall time of the run and would
+			// tie the expectations to the hour and minute of the test run.
+			stats: { ...DEFAULT_SETTINGS.stats, clock: false },
+			...extra,
+		},
 	);
 	if (!transcript) throw new Error("transcript missing");
 	return { ...booted, transcript };
