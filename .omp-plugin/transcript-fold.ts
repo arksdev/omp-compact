@@ -1,4 +1,8 @@
-import { BLOCK_FOLD_METHODS, TRANSCRIPT_FOLD_METHODS } from "./host-adapter";
+import {
+	BLOCK_FOLD_METHODS,
+	TRANSCRIPT_FOLD_METHODS,
+	TRANSCRIPT_FOLD_OPTIONAL_METHODS,
+} from "./host-adapter";
 import { DescriptorPatch } from "./patch-kit";
 
 type Lines = readonly string[];
@@ -34,6 +38,13 @@ export interface TranscriptHost extends RenderableBlock {
 	renderViewport(width: number, rows: number, frame: AnimationFrame): Lines;
 	liveRowCount(width: number): number;
 	peekFinalizedBatch(width: number, capacity: number): HistoryBatch | undefined;
+	/**
+	 * Complete-history replay (18.0.6). The terminal drives it through
+	 * `resetDisplay`, and it renders blocks, so the fold replans through it
+	 * like every other render entry point. Optional: older hosts replay
+	 * through `peekFinalizedBatch` alone.
+	 */
+	peekReplayBatch?(width: number): HistoryBatch | undefined;
 	acknowledgeFinalizedBatch(id: number): void;
 	canRemoveBlock(component: unknown): boolean;
 	blockStates(): readonly BlockState[];
@@ -143,6 +154,13 @@ export class TranscriptFold {
 	#transcriptPatch: DescriptorPatch | undefined;
 	/** Native `liveRowCount`, captured while patching the transcript. */
 	#hostLiveRows: ((width: number) => number) | undefined;
+	/**
+	 * Whether a history batch has been handed to the terminal since install.
+	 * Set from the fold's own batch wrappers, so an append-only answer whose
+	 * prefix streams out row by row is counted even though the container
+	 * still reports its block `active`.
+	 */
+	#emittedHistory = false;
 	#installed = false;
 
 	constructor(transcript: TranscriptHost, callbacks: FoldCallbacks) {
@@ -156,16 +174,26 @@ export class TranscriptFold {
 	}
 
 	/**
-	 * Structured committed-row gate for the terminal scrollback replay.
-	 * Reports whether any fold-owned carrier already retired into terminal
-	 * history, where its rows are immutable and a later projection change
-	 * could never take them off the screen again.
+	 * Whether any fold-owned row has already reached terminal history, where
+	 * it is immutable and a later projection change could never take it off
+	 * the screen again.
 	 *
-	 * 18.0.1 keeps that lifecycle in the container: `blockStates()` runs
-	 * parallel to `children`, so a carrier's state is read by position. No
-	 * rendered text and no ANSI is inspected — pure structured state.
+	 * Two ways that happens, and both must count. A retired carrier is the
+	 * obvious one: `blockStates()` runs parallel to `children`, so its state
+	 * is read by position. The other leaves no trace in those states at all —
+	 * an append-only answer stays `active` while the container streams its
+	 * published prefix into scrollback one row per frame. A long answer with
+	 * no tool use retires nothing and yet is mostly written out already, so
+	 * gating on carriers alone left exactly that case without its replay:
+	 * the leading rows stayed above the viewport and out of reach.
+	 *
+	 * The fold sees those rows because every history batch passes through its
+	 * own wrapper, so `#emittedHistory` records them without asking the
+	 * container to render anything. No text and no ANSI is inspected —
+	 * structured state only.
 	 */
 	hasCommittedRows(): boolean {
+		if (this.#emittedHistory) return true;
 		if (this.#patches.size === 0) return false;
 		const states = this.#transcript.blockStates();
 		const children = this.#transcript.children;
@@ -368,18 +396,39 @@ export class TranscriptFold {
 						capacity: number,
 					): HistoryBatch | undefined => {
 						this.#plan(width);
-						return hostPeekBatch.call(
+						const batch = hostPeekBatch.call(
 							this.#transcript,
 							width,
 							this.#retirementRoom(width, capacity),
 						);
+						// An offered batch is history on its way to the terminal,
+						// whatever the container reports about the block it came
+						// from: a streaming answer publishes its prefix this way
+						// while staying `active`.
+						if (batch !== undefined) this.#emittedHistory = true;
+						return batch;
 					},
 				},
 			};
-			this.#transcriptPatch = new DescriptorPatch(
-				this.#transcript,
-				TRANSCRIPT_FOLD_METHODS,
-			);
+			const patched: string[] = [...TRANSCRIPT_FOLD_METHODS];
+			const hostReplayBatch = this.#transcript.peekReplayBatch;
+			if (typeof hostReplayBatch === "function") {
+				// 18.0.6 replays the complete history here, and the terminal
+				// drives it through `resetDisplay` with no frame in between: an
+				// unplanned carrier would answer with the rows of a run that has
+				// since grown, and members added after the last frame would
+				// render their native cards straight into scrollback.
+				wrappers.peekReplayBatch = {
+					configurable: true,
+					writable: true,
+					value: (width: number): HistoryBatch | undefined => {
+						this.#plan(width);
+						return hostReplayBatch.call(this.#transcript, width);
+					},
+				};
+				patched.push(...TRANSCRIPT_FOLD_OPTIONAL_METHODS);
+			}
+			this.#transcriptPatch = new DescriptorPatch(this.#transcript, patched);
 			this.#transcriptPatch.install(wrappers);
 			this.#installed = true;
 		} catch (error) {
@@ -413,6 +462,7 @@ export class TranscriptFold {
 		this.#transcriptPatch?.restore();
 		this.#transcriptPatch = undefined;
 		this.#hostLiveRows = undefined;
+		this.#emittedHistory = false;
 		if (Reflect.get(this.#transcript, TRANSCRIPT_FOLD_OWNER) === this)
 			Reflect.deleteProperty(this.#transcript, TRANSCRIPT_FOLD_OWNER);
 		this.#installed = false;

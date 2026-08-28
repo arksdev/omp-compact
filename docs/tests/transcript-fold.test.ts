@@ -65,8 +65,20 @@ class FakeTranscript implements TranscriptHost {
 		_width: number,
 		_capacity: number,
 	): HistoryBatch | undefined {
-		return undefined;
+		return this.batch;
 	}
+
+	/** What the container would hand the terminal for retirement. */
+	batch: HistoryBatch | undefined;
+
+	/** 18.0.6 complete-history replay, driven by the terminal's resetDisplay. */
+	peekReplayBatch(width: number): HistoryBatch | undefined {
+		this.replayWidths.push(width);
+		return this.replay;
+	}
+
+	readonly replayWidths: number[] = [];
+	replay: HistoryBatch | undefined;
 
 	acknowledgeFinalizedBatch(_id: number): void {}
 
@@ -232,6 +244,56 @@ describe("TranscriptFold descriptor transactions", () => {
 		expect(() => second.install()).not.toThrow();
 		second.dispose();
 	});
+	test("the complete-history replay replans the fold before the host renders it", () => {
+		const transcript = new FakeTranscript();
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		// 18.0.6 routes the whole-history replay through its own entry point,
+		// and the terminal drives it straight from `resetDisplay` with no
+		// frame in between. Unwrapped, the fold would never see the block.
+		const block = new FakeBlock();
+		transcript.addChild(block);
+		transcript.replay = { id: 7, rows: ["history"] };
+
+		expect(transcript.peekReplayBatch(96)).toEqual({
+			id: 7,
+			rows: ["history"],
+		});
+		expect(transcript.replayWidths).toEqual([96]);
+		// Planning happened: the block is fold-owned now.
+		expect(Object.hasOwn(block, "render")).toBe(true);
+		expect(Object.hasOwn(transcript, "peekReplayBatch")).toBe(true);
+
+		fold.dispose();
+		expect(Object.hasOwn(transcript, "peekReplayBatch")).toBe(false);
+		expect(transcript.peekReplayBatch).toBe(
+			FakeTranscript.prototype.peekReplayBatch,
+		);
+	});
+
+	test("a host without the replay entry point installs and disposes cleanly", () => {
+		const transcript = new FakeTranscript();
+		// An older host simply lacks it; patching a method the host never had
+		// would invent a capability the adapter probes for.
+		Reflect.deleteProperty(FakeTranscript.prototype, "peekReplayBatch");
+		try {
+			const fold = new TranscriptFold(transcript, callbacks());
+			expect(() => fold.install()).not.toThrow();
+			expect(Object.hasOwn(transcript, "peekReplayBatch")).toBe(false);
+			transcript.addChild(new FakeBlock());
+			expect(transcript.render(80)).toEqual(["native-block"]);
+			fold.dispose();
+		} finally {
+			Object.defineProperty(FakeTranscript.prototype, "peekReplayBatch", {
+				configurable: true,
+				writable: true,
+				value: function (this: FakeTranscript, width: number) {
+					this.replayWidths.push(width);
+					return this.replay;
+				},
+			});
+		}
+	});
 });
 
 describe("TranscriptFold committed-row gate (D03)", () => {
@@ -327,6 +389,32 @@ describe("TranscriptFold committed-row gate (D03)", () => {
 		fold.install();
 		transcript.render(80);
 		expect(fold.hasCommittedRows()).toBe(true);
+		fold.dispose();
+	});
+
+	test("history already streamed out counts, even with no carrier retired", () => {
+		const transcript = new FakeTranscript();
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		const answer = new FakeBlock();
+		transcript.addChild(answer);
+		transcript.render(80);
+		// A long answer with no tool use retires nothing: the container keeps
+		// its block `active` while publishing the prefix row by row. Gating on
+		// a retired carrier alone left exactly that turn without its replay,
+		// so its leading rows stayed above the viewport and out of reach.
+		expect(transcript.blockStates()).toEqual(["active"]);
+		expect(fold.hasCommittedRows()).toBe(false);
+		transcript.batch = { id: 3, rows: ["line-1"] };
+		expect(transcript.peekFinalizedBatch(80, 4)).toBeDefined();
+		expect(transcript.blockStates()).toEqual(["active"]);
+		expect(fold.hasCommittedRows()).toBe(true);
+		// A fresh install starts over: nothing of this transcript's history
+		// belongs to the new run's projection.
+		fold.dispose();
+		expect(fold.hasCommittedRows()).toBe(false);
+		fold.install();
+		expect(fold.hasCommittedRows()).toBe(false);
 		fold.dispose();
 	});
 });

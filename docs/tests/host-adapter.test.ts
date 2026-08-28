@@ -64,6 +64,10 @@ class FakeTranscript implements TranscriptHost {
 		return undefined;
 	}
 
+	peekReplayBatch(): undefined {
+		return undefined;
+	}
+
 	acknowledgeFinalizedBatch(): void {}
 
 	canRemoveBlock(): boolean {
@@ -785,7 +789,7 @@ describe("stats carrier placement", () => {
 });
 
 describe("capability fingerprints", () => {
-	test("transcriptCapabilities probes every critical method and the optional clear", () => {
+	test("transcriptCapabilities probes every critical method and the optional ones", () => {
 		expect(transcriptCapabilities(new FakeTranscript())).toEqual({
 			children: true,
 			addChild: true,
@@ -797,6 +801,7 @@ describe("capability fingerprints", () => {
 			canRemoveBlock: true,
 			blockStates: true,
 			clear: true,
+			peekReplayBatch: true,
 		});
 		expect(transcriptCapabilities(null).children).toBe(false);
 		expect(transcriptCapabilities({ children: [] }).addChild).toBe(false);

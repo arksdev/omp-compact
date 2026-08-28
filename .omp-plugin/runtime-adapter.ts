@@ -337,14 +337,15 @@ export class RuntimeAdapter {
 	/**
 	 * Terminal scrollback replay seam: invoked once per successful
 	 * filtered terminal run, after the terminal projection and the stats
-	 * carrier insertion. Stock freezes mutable live-region rows into native
-	 * scrollback when they move above the viewport, so a filtered answer
-	 * leaves frozen native rows behind; replaying the full presentation
-	 * through the exact-root `resetDisplay` re-derives every row through
-	 * the patched renders. Gates: the run must settle filtered (compact
-	 * mode finalizes as a full retained log whose projection never
-	 * changed, and aborts/errors/continuations never reach this seam), the
-	 * fold must be installed with structured committed rows, and the
+	 * carrier insertion. The container writes history above the viewport as
+	 * a turn grows — a retired carrier for a run of cards, or the published
+	 * prefix of a streaming answer that is still reported live — and those
+	 * rows are frozen native output. Replaying the full presentation through
+	 * the exact-root `resetDisplay` re-derives every one of them through the
+	 * patched renders. Gates: the run must settle filtered (compact mode
+	 * finalizes as a full retained log whose projection never changed, and
+	 * aborts/errors/continuations never reach this seam), the fold must be
+	 * installed and have handed history to the terminal, and the
 	 * exact-root capability must exist. Disposed/session-switched adapters,
 	 * a pending generation, a missing capability and exceptions all fail
 	 * open inside the delegated `replayCurrentPresentation()`.

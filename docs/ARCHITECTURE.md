@@ -746,6 +746,27 @@ The host-supplied agent directory and the live session `Settings` object sit
   excludes a batch already offered but not yet acknowledged, so no row is
   painted twice.
 
+- **History leaves by two doors, and the replay gate must know both.** The
+  container writes rows above the viewport either by retiring a settled block
+  or by publishing the stable prefix of an append-only block that is still
+  reported `active` — a streamed answer does the latter one row per frame. Both
+  are frozen native output, so the terminal replay seam fires on either: the
+  fold records every history batch handed over through its own wrapper, which
+  is what a lifecycle state cannot show. Gating on a retired carrier alone left
+  a long answer with no tool calls without its replay, and its leading rows
+  stayed unreachable. The gate is not dropped altogether because `resetDisplay`
+  replays the entire committed ledger and blocks on PTY backpressure; short
+  turns with nothing above the viewport must not pay for it.
+
+- **The 18.0.6 replay entry point is optional, not critical.** That release
+  routes complete-history replay through `peekReplayBatch`, driven from
+  `resetDisplay` with no frame in between, so the fold wraps it and replans
+  first — otherwise a carrier answers with the rows of a run that has since
+  grown, and members added after the last frame render native cards straight
+  into scrollback. It stays out of the critical fingerprint because the floor
+  is `>=18.0.1`, where the method does not exist; patching only what an
+  instance really has also keeps the capability probe honest.
+
 - **Older host outcome.** Unverified or missing surfaces remain native —
   the user loses some compaction chrome, not a wrong compact row. Ordinary
   compact tools may use expanded as a native inspection escape hatch;

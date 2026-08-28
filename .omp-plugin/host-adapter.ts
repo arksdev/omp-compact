@@ -40,6 +40,7 @@ export {
 	TOOL_PATCH_METHODS,
 	TRANSCRIPT_CRITICAL_METHODS,
 	TRANSCRIPT_FOLD_METHODS,
+	TRANSCRIPT_FOLD_OPTIONAL_METHODS,
 	TRANSCRIPT_OPTIONAL_METHODS,
 	TUI_OPTIONAL_METHODS,
 	isBackgroundCompletionBlock,
@@ -88,6 +89,11 @@ export interface TranscriptCapabilities {
 	readonly blockStates: boolean;
 	/** Optional rebuild-phase capability: exact transcript `clear`. */
 	readonly clear: boolean;
+	/**
+	 * Optional 18.0.6 capability: the complete-history replay entry point
+	 * the terminal drives through `resetDisplay`.
+	 */
+	readonly peekReplayBatch: boolean;
 }
 
 export function transcriptCapabilities(value: unknown): TranscriptCapabilities {
@@ -104,6 +110,7 @@ export function transcriptCapabilities(value: unknown): TranscriptCapabilities {
 		canRemoveBlock: typeof candidate.canRemoveBlock === "function",
 		blockStates: typeof candidate.blockStates === "function",
 		clear: typeof candidate.clear === "function",
+		peekReplayBatch: typeof candidate.peekReplayBatch === "function",
 	};
 }
 

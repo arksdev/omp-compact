@@ -4,6 +4,14 @@
 
 ---
 
+## Не выпущено
+
+### Исправлено
+
+- Длинный ответ больше не теряет свои первые строки. После завершения хода верх ответа иногда оставался выше видимой части экрана и не попадал в историю терминала: прокрутить к нему было нельзя. Причин было две. Плагин перерисовывал историю только тогда, когда в неё уже уехала свёрнутая строка с итогом хода, а у длинного ответа без вызовов инструментов такой строки нет вообще — при этом сам ответ уже был частично выписан наверх по мере набора. И новый OMP отдаёт полную историю через отдельный путь, которого плагин не видел, поэтому история уходила в терминал в обычном виде, минуя компактный. Теперь перерисовка запускается, как только наверх ушла хотя бы одна строка, а полная история проходит через тот же компактный вид, что и экран.
+
+---
+
 ## 1.2.2 — 24 августа 2026
 
 ### Исправлено
@@ -270,6 +278,34 @@ OMP по ходу задачи показывает много больших к
 # omp-compact changelog
 
 In plain words — what changed for a person working in OMP with this plugin.
+
+---
+
+## Unreleased
+
+### Fixed
+
+- A long answer no longer loses its first lines. After the turn finished, the top of the answer sometimes stayed above the visible screen and never reached terminal history, so scrolling could not bring it back. Two causes. The plugin repainted history only once a folded summary row for the turn had already moved up there, and a long answer with no tool calls has no such row at all — while the answer itself was already partly written out above as it streamed. And newer OMP hands over complete history through a separate path the plugin did not watch, so that history reached the terminal in its plain form, bypassing the compact one. The repaint now runs as soon as any row has moved up, and complete history goes through the same compact view as the screen.
+
+---
+
+## 1.2.2 — 24 August 2026
+
+### Fixed
+
+- Read rows from one cycle of the model's work no longer end up in another cycle, as could happen before.
+- The output-view hotkey no longer resets OMP's own settings to their defaults. Pressing the view cycle (`alt+c` by default) could silently reset settings OMP itself keeps — `recap.enabled`, or hiding the thinking block, for example: a copy from the plugin's own config was written into the host file instead of what OMP actually reports. The live value from OMP is now used when saving, exactly as the settings dialog already did.
+
+### Changed
+
+- Rows about Git commands no longer disappear after a restart.
+- A comprehensive refactor of the code.
+
+### Verified
+
+- OMP requirements are unchanged: pinned host **18.0.3**, minimum supported version **18.0.1**.
+- Automated tests: 1439 checks, all passing.
+- 14 new test files added.
 
 ---
 

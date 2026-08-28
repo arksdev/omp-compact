@@ -86,10 +86,14 @@ export const TRANSCRIPT_CRITICAL_METHODS = [
 
 /**
  * Transcript methods the rebuild phase consumes (stock `clear` on the
- * exact transcript instance). Optional: the current presentation never
- * calls them, and a missing/incompatible capability fails open to native.
+ * exact transcript instance) and the replay path offers (`peekReplayBatch`,
+ * 18.0.6). Optional: a host without them fails open to native
+ * presentation rather than losing the session.
  */
-export const TRANSCRIPT_OPTIONAL_METHODS = ["clear"] as const;
+export const TRANSCRIPT_OPTIONAL_METHODS = [
+	"clear",
+	"peekReplayBatch",
+] as const;
 
 /**
  * Transcript methods the fold patches (`TranscriptFold`). A strict subset
@@ -103,6 +107,15 @@ export const TRANSCRIPT_FOLD_METHODS = [
 	"liveRowCount",
 	"peekFinalizedBatch",
 ] as const;
+
+/**
+ * Fold-patched transcript methods that only newer hosts expose. 18.0.6
+ * routes the complete-history replay through `peekReplayBatch`, and that
+ * path renders blocks too, so it must replan like the rest. Patched only
+ * when the instance really has it: defining a method the host never had
+ * would invent a capability the rest of the adapter probes for.
+ */
+export const TRANSCRIPT_FOLD_OPTIONAL_METHODS = ["peekReplayBatch"] as const;
 
 /** OMP 17.3.1 tool execution component surface. */
 export const TOOL_METHODS = [

@@ -10594,6 +10594,45 @@ stockTest(
 );
 
 stockTest(
+	"D03: a long answer whose rows already streamed out replays them",
+	async () => {
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		// The case from the field: one long streamed answer, no tool use. The
+		// container publishes its prefix into scrollback row by row while the
+		// block itself stays live, so no carrier ever retires — yet most of the
+		// answer is already written out above the viewport.
+		await beginRun(booted);
+		// An append-only answer: the container publishes stable rows as they
+		// arrive and streams them out one per frame.
+		const rows = Array.from({ length: 12 }, (_, index) => `line-${index + 1}`);
+		booted.transcript.addChild({
+			transcriptBlockMode: "appendOnly",
+			render: () => rows,
+			getTranscriptStableRows: () => rows.map((_, index) => ({ id: index })),
+			renderTranscriptStableRows: (count: number) => rows.slice(0, count),
+			isTranscriptBlockFinalized: () => false,
+			isDisplaceableBlock: () => false,
+			setTranscriptAllocation: () => {},
+			seal: () => {},
+		});
+		booted.transcript.renderViewport(120, 4, { tick: 0, now: 0 });
+		const batch = booted.transcript.peekFinalizedBatch(120, 4);
+		expect(batch).toBeDefined();
+		booted.transcript.acknowledgeFinalizedBatch((batch as { id: number }).id);
+		expect(
+			booted.transcript.blockStates().every((state) => state !== "committed"),
+		).toBe(true);
+		expect(booted.harness.resetCalls).toBe(0);
+		await completeAnswer(booted, "a long answer");
+		// Those emitted rows are frozen native output, so the finished answer
+		// gets its one replay and becomes reachable from its first line.
+		expect(booted.harness.resetCalls).toBe(1);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"D03: compact-mode terminal runs (full retained log) never replay",
 	async () => {
 		const harness = rebuildHarness();
