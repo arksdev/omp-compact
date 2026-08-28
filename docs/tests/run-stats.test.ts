@@ -77,7 +77,14 @@ const WARNING_SEP = "\u001b[93m";
 function fakeTheme(): Theme {
 	return {
 		fg: (color: string, text: string) => {
-			const code = color === "warning" ? "93" : color === "dim" ? "2" : "0";
+			const code =
+				color === "warning"
+					? "93"
+					: color === "dim"
+						? "2"
+						: color === "muted"
+							? "90"
+							: "0";
 			return `\x1b[${code}m${text}\x1b[0m`;
 		},
 	} as unknown as Theme;
@@ -571,18 +578,20 @@ describe("formatting and rounding", () => {
 		);
 	});
 
-	test("the clock rides outside the brackets in ordinary foreground", () => {
+	test("the clock rides outside the brackets in the compact-row grey", () => {
 		const at = new Date(2026, 7, 28, 16, 33, 0, 0);
 		const line = module.statsLine(
 			result({ completedAt: at.getTime() }),
 			ALL_ON,
 			fakeTheme(),
 		);
-		// `]` closes in dim, then the dash stays dim and the clock switches to
-		// the ordinary foreground, so it reads brighter than the row body.
+		// `]` closes in dim, the dash stays dim, and the clock switches to the
+		// muted grey the compact rows give a file name: a step up from the dim
+		// body without going white.
 		expect(line).toContain(
-			"\u001b[2m]\u001b[0m\u001b[2m — \u001b[0m\u001b[0m16:33",
+			"\u001b[2m]\u001b[0m\u001b[2m — \u001b[0m\u001b[90m16:33",
 		);
+		expect(line).not.toContain("\u001b[0m16:33");
 	});
 
 	test("the clock is off when its own toggle is off", () => {

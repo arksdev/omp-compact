@@ -292,9 +292,9 @@ export function formatClock(completedAt: number): string {
  * Values and brackets stay dim neutral; the `·` separators are
  * `#A4D734` on a clean run and theme warning otherwise. Segments follow the
  * `stats` settings; `stats.enabled === false` or an all-disabled field set
- * renders nothing. The clock rides outside the brackets in ordinary
- * foreground, a shade brighter than the dim body, and needs a row to ride on:
- * no segments, no clock.
+ * renders nothing. The clock rides outside the brackets in the same muted
+ * grey the compact rows give a file name — a step up from the dim body
+ * without going white — and needs a row to ride on: no segments, no clock.
  */
 export function statsLine(
 	result: RunStatsResult,
@@ -323,7 +323,7 @@ export function statsLine(
 		.join(separator);
 	const clock = stats.clock ? formatClock(result.completedAt) : "";
 	const suffix =
-		clock === "" ? "" : `${theme.fg("dim", " — ")}${theme.fg("text", clock)}`;
+		clock === "" ? "" : `${theme.fg("dim", " — ")}${theme.fg("muted", clock)}`;
 	return fitTransparentLine(
 		`${theme.fg("dim", "[")} ${content} ${theme.fg("dim", "]")}${suffix}`,
 		width,

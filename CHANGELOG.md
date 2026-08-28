@@ -8,7 +8,7 @@
 
 ### Добавлено
 
-- Справа от строки с итогом хода теперь можно показывать время ответа — местное, в виде `— 16:33`. Оно чуть светлее самой строки, поэтому читается как отметка сбоку, а не как ещё один её пункт. Время берётся из момента, когда ход завершился, поэтому при возврате истории на экран видно время самого ответа, а не время перерисовки. Включается и выключается отдельным пунктом `Add local time` в настройках строки.
+- Справа от строки с итогом хода теперь можно показывать время ответа — местное, в виде `— 16:33`. Оно окрашено тем же серым, каким в компактных строках набрано имя файла: чуть светлее самой строки, поэтому читается как отметка сбоку, а не как ещё один её пункт. Время берётся из момента, когда ход завершился, поэтому при возврате истории на экран видно время самого ответа, а не время перерисовки. Включается и выключается отдельным пунктом `Add local time` в настройках строки.
 
 ### Исправлено
 
@@ -293,7 +293,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 ### Added
 
-- The turn's summary row can now carry the time of the answer beside it — local, as `— 16:33`. It sits a shade brighter than the row itself, so it reads as a note alongside rather than another item inside. The time comes from the instant the turn finished, so when history is brought back to the screen it reports the time of the answer, not the time of the repaint. Turn it on or off with its own `Add local time` entry in the row settings.
+- The turn's summary row can now carry the time of the answer beside it — local, as `— 16:33`. It takes the same grey the compact rows give a file name: a shade brighter than the row itself, so it reads as a note alongside rather than another item inside. The time comes from the instant the turn finished, so when history is brought back to the screen it reports the time of the answer, not the time of the repaint. Turn it on or off with its own `Add local time` entry in the row settings.
 
 ### Fixed
 
