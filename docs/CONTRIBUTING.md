@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.0.3 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.0.8 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -541,7 +541,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.0.3
+4. Manual smoke test on OMP 18.0.8
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`

@@ -14,6 +14,10 @@
 
 - Длинный ответ больше не теряет свои первые строки. После завершения хода верх ответа иногда оставался выше видимой части экрана и не попадал в историю терминала: прокрутить к нему было нельзя. Причин было две. Плагин перерисовывал историю только тогда, когда в неё уже уехала свёрнутая строка с итогом хода, а у длинного ответа без вызовов инструментов такой строки нет вообще — при этом сам ответ уже был частично выписан наверх по мере набора. И новый OMP отдаёт полную историю через отдельный путь, которого плагин не видел, поэтому история уходила в терминал в обычном виде, минуя компактный. Теперь перерисовка запускается, как только наверх ушла хотя бы одна строка, а полная история проходит через тот же компактный вид, что и экран.
 
+### Изменено
+
+- Плагин проверен на OMP 18.0.8 и теперь собирается против него. Требования к версии OMP не изменились: минимально поддерживаемая — 18.0.1. Ничего дописывать не потребовалось: всё, от чего зависит компактный вид, в этом выпуске осталось прежним. Сам OMP завёл собственный показ длительности хода в своей строке расхода — он выключен по умолчанию, живёт отдельно от строки плагина и с ней не пересекается.
+
 ---
 
 ## 1.2.2 — 24 августа 2026
@@ -294,6 +298,10 @@ In plain words — what changed for a person working in OMP with this plugin.
 ### Fixed
 
 - A long answer no longer loses its first lines. After the turn finished, the top of the answer sometimes stayed above the visible screen and never reached terminal history, so scrolling could not bring it back. Two causes. The plugin repainted history only once a folded summary row for the turn had already moved up there, and a long answer with no tool calls has no such row at all — while the answer itself was already partly written out above as it streamed. And newer OMP hands over complete history through a separate path the plugin did not watch, so that history reached the terminal in its plain form, bypassing the compact one. The repaint now runs as soon as any row has moved up, and complete history goes through the same compact view as the screen.
+
+### Changed
+
+- The plugin is verified on OMP 18.0.8 and now builds against it. OMP version requirements are unchanged: the minimum supported release is still 18.0.1. Nothing needed adding: everything the compact view depends on stayed the same in this release. OMP itself gained its own turn-duration display in its usage row — off by default, separate from the plugin's row, and with no overlap.
 
 ---
 
