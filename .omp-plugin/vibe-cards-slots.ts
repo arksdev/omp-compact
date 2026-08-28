@@ -1,9 +1,9 @@
 import type { ThemeColor } from "@oh-my-pi/pi-coding-agent/modes/theme/schema";
 import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
-import { formatDuration } from "@oh-my-pi/pi-utils";
 
 import { codePointLength, truncateCodePoints } from "./compact";
 import { stripRejectedControls } from "./display-control";
+import { formatDuration } from "./format-duration";
 
 /**
  * Slot formatters for compact vibe rows.
