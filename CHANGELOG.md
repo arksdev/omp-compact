@@ -4,7 +4,7 @@
 
 ---
 
-## Не выпущено
+## 1.2.3 — 28 августа 2026
 
 ### Добавлено
 
@@ -267,7 +267,8 @@ OMP по ходу задачи показывает много больших к
 
 ## Ссылки на сравнение версий
 
-- [Не выпущено ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...HEAD)
+- [Не выпущено ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...HEAD)
+- [1.2.3 ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...v1.2.3)
 - [1.2.2 ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...v1.2.2)
 - [1.2.1 ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...v1.2.1)
 - [1.2.0 ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...v1.2.0)
@@ -289,7 +290,7 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 ---
 
-## Unreleased
+## 1.2.3 — 28 August 2026
 
 ### Added
 
@@ -552,7 +553,8 @@ During a task OMP shows many large cards: reads, searches, commands, edits. Afte
 
 ## Version comparison links
 
-- [Unreleased ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...HEAD)
+- [Unreleased ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...HEAD)
+- [1.2.3 ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...v1.2.3)
 - [1.2.2 ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...v1.2.2)
 - [1.2.1 ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...v1.2.1)
 - [1.2.0 ← 1.1.3](https://github.com/arksdev/omp-compact/compare/v1.1.3...v1.2.0)
