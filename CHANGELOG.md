@@ -4,6 +4,14 @@
 
 ---
 
+## 1.2.4 — 28 августа 2026
+
+### Исправлено
+
+- Плагин больше не требует, чтобы OMP отдавал ему сторонний пакет ради одной строки с длительностью: нужный расчёт теперь свой, и на установке OMP одним файлом плагин загружается без доустановки чего-либо.
+
+---
+
 ## 1.2.3 — 28 августа 2026
 
 ### Добавлено
@@ -263,7 +271,8 @@ OMP по ходу задачи показывает много больших к
 
 ## Ссылки на сравнение версий
 
-- [Не выпущено ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...HEAD)
+- [Не выпущено ← 1.2.4](https://github.com/arksdev/omp-compact/compare/v1.2.4...HEAD)
+- [1.2.4 ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...v1.2.4)
 - [1.2.3 ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...v1.2.3)
 - [1.2.2 ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...v1.2.2)
 - [1.2.1 ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...v1.2.1)
@@ -283,6 +292,14 @@ OMP по ходу задачи показывает много больших к
 # omp-compact changelog
 
 In plain words — what changed for a person working in OMP with this plugin.
+
+---
+
+## 1.2.4 — 28 August 2026
+
+### Fixed
+
+- The plugin no longer needs OMP to hand it a separate package just to spell out a duration: that small calculation is now its own, so on a single-file OMP install the plugin loads without anything extra alongside it.
 
 ---
 
@@ -545,7 +562,8 @@ During a task OMP shows many large cards: reads, searches, commands, edits. Afte
 
 ## Version comparison links
 
-- [Unreleased ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...HEAD)
+- [Unreleased ← 1.2.4](https://github.com/arksdev/omp-compact/compare/v1.2.4...HEAD)
+- [1.2.4 ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...v1.2.4)
 - [1.2.3 ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...v1.2.3)
 - [1.2.2 ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...v1.2.2)
 - [1.2.1 ← 1.2.0](https://github.com/arksdev/omp-compact/compare/v1.2.0...v1.2.1)
