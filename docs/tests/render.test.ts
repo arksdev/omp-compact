@@ -1726,16 +1726,19 @@ describe("todo reminder row", () => {
 		});
 	});
 
-	test("extractor accepts singular todo label", () => {
+	test("extractor strips every built-in preset checkbox glyph", () => {
+		// ASCII preset glyphs contain a space ("[ ]") — a leading-token strip
+		// leaves a stray "]" behind; the nerd glyphs are checked too so all
+		// three symbol presets (symbols.ts SYMBOL_PRESETS) stay covered.
 		const tree = stockTree(
-			"⚠ 1 incomplete todo - reminder 2/3",
-			"  ☐ only item",
+			"⚠ 2 incomplete todos - reminder 1/3",
+			"  [ ] alpha\n  [x] beta\n  \uf096 gamma\n  \uf14a delta\n  ☐ epsilon\n  ☑ zeta",
 		);
 		expect(renderModule.todoReminderFromComponent(tree)).toEqual({
-			count: 1,
-			attempt: 2,
+			count: 2,
+			attempt: 1,
 			maxAttempts: 3,
-			items: ["only item"],
+			items: ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"],
 		});
 	});
 
@@ -1845,8 +1848,11 @@ describe("user bash/python execution rows", () => {
 		output?: string;
 		finalized?: boolean;
 		footer?: string;
+		header?: string;
 	}) {
 		const children: Array<{ getText(): string }> = [];
+		const header = options.header;
+		if (header) children.push({ getText: () => header });
 		const footer = options.footer;
 		if (footer) children.push({ getText: () => footer });
 		return {
@@ -1868,8 +1874,11 @@ describe("user bash/python execution rows", () => {
 		output?: string;
 		finalized?: boolean;
 		footer?: string;
+		header?: string;
 	}) {
 		const children: Array<{ getText(): string }> = [];
+		const header = options.header;
+		if (header) children.push({ getText: () => header });
 		const footer = options.footer;
 		if (footer) children.push({ getText: () => footer });
 		return {
@@ -1921,28 +1930,52 @@ describe("user bash/python execution rows", () => {
 		});
 	});
 
-	test("extractors scrape stock footer when setComplete was missed at attach", () => {
+	test("footer scrape ignores command/output text mentioning exit markers", () => {
+		// Stock leaves the command in the header Text (`$ echo "build failed
+		// (exit 3)"`) and the output may repeat it; neither is the status
+		// footer, so the fallback must fail closed instead of faking a code.
+		const bash = bashBlock({
+			command: 'echo "build failed (exit 3)"',
+			output: "build failed (exit 3)",
+			finalized: true,
+			header: '$ echo "build failed (exit 3)"',
+		});
+		expect(renderModule.userBashExecutionFromComponent(bash)).toEqual({
+			kind: "bash",
+			source: 'echo "build failed (exit 3)"',
+			running: false,
+		});
+	});
+
+	test("footer scrape accepts only nodes made of footer marker lines", () => {
+		// A node that merely ends with the marker is not the stock footer;
+		// the real footer is the last text node and every one of its lines
+		// belongs to buildStatusFooter's vocabulary.
 		const bash = bashBlock({
 			command: "boom",
 			finalized: true,
-			footer: "(exit 2)",
+			footer: "boom (exit 2)",
 		});
 		expect(renderModule.userBashExecutionFromComponent(bash)).toEqual({
 			kind: "bash",
 			source: "boom",
 			running: false,
-			exitCode: 2,
 		});
-		const cancelled = evalBlock({
-			code: "1/0",
+	});
+
+	test("footer scrape reads the real multi-part stock footer", () => {
+		// buildStatusFooter emits "\n" + parts.join("\n"), e.g. a hidden-line
+		// hint above the exit marker (execution-shared.ts).
+		const bash = bashBlock({
+			command: "false",
 			finalized: true,
-			footer: "(cancelled)",
+			footer: "\n… 12 more lines (ctrl+o to expand)\n(exit 2)",
 		});
-		expect(renderModule.userEvalExecutionFromComponent(cancelled)).toEqual({
-			kind: "python",
-			source: "1/0",
+		expect(renderModule.userBashExecutionFromComponent(bash)).toEqual({
+			kind: "bash",
+			source: "false",
 			running: false,
-			cancelled: true,
+			exitCode: 2,
 		});
 	});
 

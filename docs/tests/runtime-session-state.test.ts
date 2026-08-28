@@ -22,7 +22,6 @@ import {
 import {
 	type GitMessageDetails,
 	isGitMessageDetails,
-	isLegacyMutationMessageDetails,
 	isMutationMessageDetails,
 	type MutationMessageDetails,
 } from "../../.omp-plugin/messages";
@@ -1477,7 +1476,6 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		// The active ledger phase is untouched.
 		expect(active.phase).toBe("working");
 		expect(first.phase).toBe("filtered");
-		session.abortRebuild(snapshot);
 	});
 
 	test("a second beginRebuild supersedes the pending rebuild", () => {
@@ -1492,37 +1490,6 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		// Only the latest generation commits; the stale token no-ops.
 		const stale = session.commitRebuild(first, { branchEntries: [] });
 		expect(stale.mapped).toBe(false);
-		session.abortRebuild(second);
-	});
-
-	test("abortRebuild clears the marker and never throws", () => {
-		const session = makeSession();
-		session.beginRun();
-		const snapshot = session.beginRebuild();
-		expect(() => session.abortRebuild(snapshot)).not.toThrow();
-		const again = session.beginRebuild();
-		expect(again.generation).toBe(2);
-		session.abortRebuild(again);
-	});
-
-	test("abortRebuild closes the preserved identity window", () => {
-		const session = makeSession();
-		session.beginRun();
-		const component = new FakeToolComponent();
-		const state = mustStart(session, {
-			toolCallId: "live-1",
-			toolName: "bash",
-			args: {},
-		});
-		session.binding.bind(component, state);
-		const snapshot = session.beginRebuild();
-		expect(state.component).toBeUndefined();
-		session.abortRebuild(snapshot);
-		// after abort a re-add is never identity-bound: the exact component
-		// map is only valid until the rebuild is cancelled or settled
-		session.binding.registerUnboundComponent(component);
-		expect(session.binding.componentState(component)).toBeUndefined();
-		expect(session.binding.unboundComponents()).toEqual([component]);
 	});
 
 	test("commitRebuild rebuilds historical ledgers and restores the active one", () => {
@@ -1620,12 +1587,12 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		const session = makeSession();
 		session.beginRun();
 		const first = session.beginRebuild();
-		session.abortRebuild(first);
-		const second = session.beginRebuild();
+		// A newer beginRebuild supersedes the pending rebuild and bumps the
+		// generation, so committing the first snapshot is a stale no-op.
+		session.beginRebuild();
 		const outcome = session.commitRebuild(first, { branchEntries: [] });
 		expect(outcome.generation).toBe(2);
 		expect(outcome.mapped).toBe(false);
-		session.abortRebuild(second);
 	});
 
 	test("commitRebuild reports mapped=false when bindings stay ambiguous", () => {
@@ -1820,7 +1787,7 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		];
 		expect(session.hydrateBranch(branch)).toBe(true);
 		// Permit is not spent by hydrateBranch (cold path); only commitRebuild
-		// / abortRebuild / prepareRun / dispose consume it.
+		// / prepareRun / dispose consume it.
 		expect(policy.collapsedRebuildArmed).toBe(true);
 		const oldState = session.state("bash-old");
 		const newState = session.state("bash-new");
@@ -2424,19 +2391,6 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 			isMutationMessageDetails({ ...base, removed: MAX_MUTATION_COUNT + 1 }),
 		).toBe(false);
 		expect(isMutationMessageDetails({ ...base, version: 2 })).toBe(false);
-	});
-
-	test("count-less delete evidence validates as legacy, not as exact", () => {
-		const deleteWithoutCounts = {
-			toolCallId: "m1",
-			toolName: "delete",
-			path: "/tmp/gone.ts",
-			exact: false,
-		};
-		expect(isLegacyMutationMessageDetails(deleteWithoutCounts)).toBe(true);
-		// Exact-evidence validation is NOT weakened for count-less deletes:
-		// the strict v1 validator still rejects them.
-		expect(isMutationMessageDetails(deleteWithoutCounts)).toBe(false);
 	});
 
 	test("git evidence validator bounds fields at limit and over limit", () => {

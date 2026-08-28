@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { mkdir, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
@@ -9,7 +10,6 @@ import {
 	type HostModules,
 	loadHost,
 	type Renderable,
-	stockSettingsPath,
 	type ToolExecutionInstance,
 	type TranscriptInstance,
 	writeStockSettings,
@@ -18,6 +18,29 @@ import {
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;
 const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+// Per-boot unique dir/file names: every boot runs its own working directory
+// and its own settings file, so parallel test files (bun runs them as
+// separate processes) can never see each other's /tmp files or clobber each
+// other's config mid-boot. Counters are per-process (per file), which is
+// enough for uniqueness; the pid disambiguates processes.
+let bootCounter = 0;
+// The settings file of the most recent boot, so tests that read the persisted
+// JSON after a dialog save resolve the same path the boot wrote.
+let lastBootSettingsPath: string | undefined;
+function bootTempDir(prefix = "omp-compact-boot-"): string {
+	return mkdtempSync(join(tmpdir(), `${prefix}${process.pid}-`));
+}
+/**
+ * Per-process fixture root for tests that pass an explicit cwd. The same
+ * suite runs concurrently (multiple `bun test` processes on one machine)
+ * must never share audit pre/post-image files: a test's own write fixture
+ * in a sibling process would corrupt the capture and silently drop the
+ * evidence row.
+ */
+function fixtureDir(name: string): string {
+	return join(tmpdir(), `omp-compact-fx-${process.pid}-${name}`);
+}
 /** Plain-CSI Down arrow, as a terminal delivers it to `handleInput`. */
 const KEY_DOWN = "\u001b[B";
 
@@ -101,11 +124,15 @@ interface BootedPlugin {
 interface BootHarness {
 	piPi?: unknown;
 	sessionManager?: { getBranch(): readonly unknown[] };
+	/** Mutates the fake host `pi` before the plugin boots: lets tests
+	 * simulate a host surface that throws on one of the guarded
+	 * registration calls. */
+	piMutate?: (pi: Record<string, unknown>) => void;
 }
 
 async function bootPlugin(
 	prepare?: (root: BootedPlugin["root"], host: HostModules) => void,
-	cwd = "/tmp",
+	cwd = bootTempDir(),
 	branch: readonly unknown[] = [],
 	toolsExpanded = false,
 	settings?: Record<string, unknown>,
@@ -127,7 +154,11 @@ async function bootPlugin(
 		...DEFAULT_SETTINGS,
 		stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
 	};
-	const modeConfigPath = writeStockSettings(bootSettings, "test-settings.json");
+	const modeConfigPath = writeStockSettings(
+		bootSettings,
+		`test-settings-${process.pid}-${bootCounter++}.json`,
+	);
+	lastBootSettingsPath = modeConfigPath;
 	const previousModeConfig = Bun.env.OMP_COMPACT_CONFIG;
 	Bun.env.OMP_COMPACT_CONFIG = modeConfigPath;
 	const handlers = new Map<string, Handler[]>();
@@ -191,6 +222,9 @@ async function bootPlugin(
 	// (`pi.pi.AgentRegistry`) synchronously at boot; inject the probe first.
 	if (harness?.piPi !== undefined) {
 		(pi as { pi?: unknown }).pi = harness.piPi;
+	}
+	if (harness?.piMutate) {
+		harness.piMutate(pi);
 	}
 	// `createSettingsStore` resolves the config path synchronously, so the
 	// env must be set while the plugin boots and can be restored right after.
@@ -357,7 +391,7 @@ function screenRows(component: Renderable, width = 120): string[] {
 }
 
 async function bootWithTranscript(
-	cwd = "/tmp",
+	cwd = bootTempDir(),
 	toolsExpanded = false,
 ): Promise<BootedPlugin & { transcript: TranscriptInstance }> {
 	let transcript: TranscriptInstance | undefined;
@@ -519,6 +553,45 @@ stockTest(
 		expect(completed).toContain("final answer");
 		expect(completed).not.toContain("printf done");
 		expect(call.isTranscriptBlockFinalized()).toBe(true);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a host without message renderers degrades instead of failing boot",
+	async () => {
+		const booted = await bootPlugin(undefined, "/tmp", [], false, undefined, {
+			piMutate: (pi) => {
+				pi.registerMessageRenderer = () => {
+					throw new Error("RPC shim: renderer registration unavailable");
+				};
+			},
+		});
+		// The renderer trio is skipped; the rest of the boot survives: the
+		// settings command stays registered and the event listeners still bind.
+		expect(booted.renderers.size).toBe(0);
+		expect(booted.commands).toContain("compact-settings");
+		expect(booted.handlers.size).toBeGreaterThan(0);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a host without event subscriptions degrades instead of failing boot",
+	async () => {
+		const booted = await bootPlugin(undefined, "/tmp", [], false, undefined, {
+			piMutate: (pi) => {
+				pi.on = () => {
+					throw new Error("RPC shim: event subscription unavailable");
+				};
+			},
+		});
+		// Each registration is guarded independently: the renderer trio and the
+		// settings command still land even though every event subscription was
+		// rejected.
+		expect(booted.renderers.size).toBe(3);
+		expect(booted.commands).toContain("compact-settings");
+		expect(booted.handlers.size).toBe(0);
 		await shutdown(booted);
 	},
 );
@@ -1439,7 +1512,7 @@ stockTest("tool-use continuation never triggers cleanup", async () => {
 stockTest(
 	"provisional tool IDs migrate onto the bound native component",
 	async () => {
-		const cwd = "/tmp/omp-compact-provisional-id";
+		const cwd = fixtureDir("provisional-id");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "migrated.ts");
@@ -1510,7 +1583,7 @@ stockTest(
 stockTest(
 	"non-empty provisional tool IDs migrate onto the bound component",
 	async () => {
-		const cwd = "/tmp/omp-compact-provisional-nonempty";
+		const cwd = fixtureDir("provisional-nonempty");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "final.ts");
@@ -1578,7 +1651,7 @@ stockTest(
 );
 
 stockTest("git evidence lands on the migrated real-ID row", async () => {
-	const cwd = "/tmp/omp-compact-provisional-git";
+	const cwd = fixtureDir("provisional-git");
 	await rm(cwd, { recursive: true, force: true });
 	await mkdir(cwd, { recursive: true });
 	const booted = await bootWithTranscript(cwd);
@@ -1641,7 +1714,7 @@ stockTest("git evidence lands on the migrated real-ID row", async () => {
 stockTest(
 	"migration merges a pre-existing real-ID state without duplicates",
 	async () => {
-		const cwd = "/tmp/omp-compact-provisional-merge";
+		const cwd = fixtureDir("provisional-merge");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "merged.ts");
@@ -1766,7 +1839,7 @@ stockTest(
 );
 
 stockTest("verified non-zero write survives final filtering", async () => {
-	const cwd = "/tmp/omp-compact-integration";
+	const cwd = fixtureDir("integration");
 	await mkdir(cwd, { recursive: true });
 	const path = join(cwd, "write.ts");
 	await Bun.write(path, "const a = 1;\nkeep();\n");
@@ -1811,8 +1884,8 @@ stockTest(
 		// ExtensionContext: context.cwd stays at the pre-move snapshot while
 		// getCwd() returns the live root. Relative write pre-images must land
 		// under the live root, or +N/−M evidence is wrong or missing.
-		const stale = "/tmp/omp-compact-write-cwd-stale";
-		const live = "/tmp/omp-compact-write-cwd-live";
+		const stale = fixtureDir("write-cwd-stale");
+		const live = fixtureDir("write-cwd-live");
 		await rm(stale, { recursive: true, force: true });
 		await rm(live, { recursive: true, force: true });
 		await mkdir(stale, { recursive: true });
@@ -1870,7 +1943,7 @@ stockTest(
 stockTest(
 	"write audit fails open to context.cwd when getCwd is unavailable",
 	async () => {
-		const cwd = "/tmp/omp-compact-write-cwd-fallback";
+		const cwd = fixtureDir("write-cwd-fallback");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "fallback.ts");
@@ -1910,7 +1983,7 @@ stockTest(
 );
 
 stockTest("new write below a symlinked parent keeps exact stats", async () => {
-	const cwd = "/tmp/omp-compact-symlink";
+	const cwd = fixtureDir("symlink");
 	await rm(cwd, { recursive: true, force: true });
 	await mkdir(join(cwd, "real"), { recursive: true });
 	await symlink("real", join(cwd, "link"));
@@ -1947,7 +2020,7 @@ stockTest("new write below a symlinked parent keeps exact stats", async () => {
 stockTest(
 	"no-op writes and non-Git failures are removed after the answer",
 	async () => {
-		const cwd = "/tmp/omp-compact-noop";
+		const cwd = fixtureDir("noop");
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "same.ts");
 		await Bun.write(path, "same\n");
@@ -2268,7 +2341,7 @@ stockTest(
 stockTest(
 	"audit kinds route write, edit, and Git Bash through the registry lifecycle",
 	async () => {
-		const cwd = "/tmp/omp-compact-audit-kinds";
+		const cwd = fixtureDir("audit-kinds");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "kinds.ts");
@@ -3022,6 +3095,101 @@ stockTest("compact rows stay transparent and width-bounded", async () => {
 	}
 	await shutdown(booted);
 });
+
+stockTest(
+	"compact rows repaint when the host swaps its theme object",
+	async () => {
+		const booted = await bootWithTranscript();
+		// Mirror the host's live ui surface (`agent-session.ts` exposes
+		// `get theme() { return theme; }` over the module binding that `/theme`
+		// reassigns): the adapter must see each swap, not a boot-time snapshot.
+		Object.defineProperty(booted.context.ui, "theme", {
+			configurable: true,
+			get: () => booted.host.getTheme(),
+		});
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf theme-swap" },
+			"bash-theme-swap",
+		);
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "read-theme-swap",
+			toolName: "read",
+			args: { path: "src/theme-swap.ts" },
+		});
+		const group = new booted.host.ReadToolGroupComponent();
+		booted.transcript.addChild(group);
+		group.updateArgs({ path: "src/theme-swap.ts" }, "read-theme-swap");
+		await finishTool(booted, call, {
+			toolCallId: "bash-theme-swap",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "ok" }],
+				details: { exitCode: 0 },
+			},
+			isError: false,
+		});
+		await dispatch(booted, {
+			type: "tool_execution_end",
+			toolCallId: "read-theme-swap",
+			toolName: "read",
+			result: { content: [{ type: "text", text: "ok" }], details: {} },
+			isError: false,
+		});
+		group.updateResult(
+			{ content: [{ type: "text", text: "ok" }], details: {} },
+			false,
+			"read-theme-swap",
+		);
+		const rawBefore = booted.transcript.render(120).join("\n");
+		const textBefore = visibleRows(booted.transcript).join("\n");
+		const dimBefore = booted.host.getTheme().getFgAnsi("dim");
+		expect(textBefore).toContain("• bash: printf theme-swap");
+		expect(textBefore).toContain("• read src/theme-swap.ts");
+		expect(rawBefore).toContain(dimBefore);
+		// Run the host's real `/theme <name>` swap on the shared binding. The
+		// import uses the same file URL as the host harness so the ESM cache
+		// returns the module whose `theme` binding `host.getTheme()` reads —
+		// a static specifier cannot share that module identity, and the host's
+		// subpath is not a runtime registry key for the test runner either.
+		const themeModule = await import(
+			new URL(
+				"../../node_modules/@oh-my-pi/pi-coding-agent/src/modes/theme/theme.ts",
+				import.meta.url,
+			).href
+		);
+		expect(themeModule.theme).toBe(booted.host.getTheme());
+		// The host theme binding is process-global: every test in this file
+		// shares it, so restore the pre-test theme even when an assertion
+		// fails mid-test (each bootPlugin re-inits it, but the binding must
+		// not leak to tests that read it without rebooting).
+		const previousTheme = themeModule.getCurrentThemeName() ?? "dark";
+		try {
+			const swapped = await themeModule.setTheme("light-dunes");
+			expect(swapped.success).toBe(true);
+			const dimAfter = booted.host.getTheme().getFgAnsi("dim");
+			expect(dimAfter).not.toBe(dimBefore);
+			const rawAfter = booted.transcript.render(120).join("\n");
+			expect(rawAfter).toContain(dimAfter);
+			expect(rawAfter).not.toContain(dimBefore);
+			// Same rows, same shape — only the palette follows the host's swap.
+			expect(visibleRows(booted.transcript).join("\n")).toContain(
+				"• bash: printf theme-swap",
+			);
+		} finally {
+			// Restore the name that was active before the swap, not a
+			// hardcoded default — a hardcoded value would itself leak when
+			// the suite runs under a non-default theme.
+			const restored = await themeModule.setTheme(previousTheme);
+			expect(restored.success).toBe(true);
+			expect(themeModule.getCurrentThemeName()).toBe(previousTheme);
+		}
+		await shutdown(booted);
+	},
+);
 
 stockTest("adjacent live tool calls render as a dense run", async () => {
 	const booted = await bootWithTranscript();
@@ -4739,7 +4907,7 @@ stockTest(
 stockTest(
 	"brand-new file below a new nested directory keeps exact +N|0 and retention",
 	async () => {
-		const cwd = "/tmp/omp-compact-newfile";
+		const cwd = fixtureDir("newfile");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "src", "components", "Button.tsx");
@@ -4794,7 +4962,7 @@ stockTest(
 stockTest(
 	"multi-line brand-new file reports exact +3|0 on the same row",
 	async () => {
-		const cwd = "/tmp/omp-compact-newfile-multi";
+		const cwd = fixtureDir("newfile-multi");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "multi.ts");
@@ -4840,7 +5008,7 @@ stockTest(
 stockTest(
 	"brand-new empty file stays a no-op and disappears after the answer",
 	async () => {
-		const cwd = "/tmp/omp-compact-newfile-empty";
+		const cwd = fixtureDir("newfile-empty");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "empty.ts");
@@ -4911,7 +5079,7 @@ stockTest(
 stockTest(
 	"fire-and-forget write start/end overlap still publishes exact +3|0 evidence",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-overlap";
+		const cwd = fixtureDir("race-overlap");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "multi.ts");
@@ -4979,7 +5147,7 @@ stockTest(
 stockTest(
 	"agent_end waits for an in-flight write audit before terminal filtering",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-agentend";
+		const cwd = fixtureDir("race-agentend");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "multi.ts");
@@ -5056,7 +5224,7 @@ stockTest(
 stockTest(
 	"concurrent fire-and-forget writes keep one exact row and entry each",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-concurrent";
+		const cwd = fixtureDir("race-concurrent");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const pathA = join(cwd, "a.ts");
@@ -5179,7 +5347,7 @@ stockTest(
 stockTest(
 	"fire-and-forget write audit survives a willContinue agent_end",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-continue";
+		const cwd = fixtureDir("race-continue");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "multi.ts");
@@ -5257,7 +5425,7 @@ stockTest(
 stockTest(
 	"abort commit keeps fire-and-forget write evidence intact",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-abort";
+		const cwd = fixtureDir("race-abort");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "multi.ts");
@@ -5329,7 +5497,7 @@ stockTest(
 stockTest(
 	"no-op write under fire-and-forget delivery stays filtered without evidence",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-noop";
+		const cwd = fixtureDir("race-noop");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "same.ts");
@@ -5387,7 +5555,7 @@ stockTest(
 stockTest(
 	"a write ended after the terminal commit publishes no late evidence",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-lateend";
+		const cwd = fixtureDir("race-lateend");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const path = join(cwd, "multi.ts");
@@ -5448,7 +5616,7 @@ stockTest(
 stockTest(
 	"shutdown during an in-flight write audit stays deadlock-free and clean",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-shutdown";
+		const cwd = fixtureDir("race-shutdown");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		const booted = await bootWithTranscript(cwd);
@@ -5799,7 +5967,7 @@ stockTest(
 );
 
 stockTest("write mutation rows relativize the audited path", async () => {
-	const cwd = "/tmp/omp-compact-display-write";
+	const cwd = fixtureDir("display-write");
 	await rm(cwd, { recursive: true, force: true });
 	await mkdir(cwd, { recursive: true });
 	const path = join(cwd, "write.ts");
@@ -7108,8 +7276,12 @@ async function waitForDialog(
 }
 
 function pluginConfigPath(): string {
-	// Same derivation as bootPlugin: two levels up from the stock .bin dir.
-	return stockSettingsPath("test-settings.json");
+	// The path of the settings file written for the current boot (unique per
+	// boot, so parallel test files never clobber one another).
+	if (lastBootSettingsPath === undefined) {
+		throw new Error("pluginConfigPath called before any boot wrote settings");
+	}
+	return lastBootSettingsPath;
 }
 
 stockTest(
@@ -7560,7 +7732,7 @@ stockTest(
 stockTest(
 	"a late agent-end drain after session dispose never touches the reinstalled adapter",
 	async () => {
-		const cwd = "/tmp/omp-compact-race-latedrain";
+		const cwd = fixtureDir("race-latedrain");
 		await rm(cwd, { recursive: true, force: true });
 		await mkdir(cwd, { recursive: true });
 		let transcript: TranscriptInstance | undefined;

@@ -94,6 +94,10 @@ export function chooseSettingsCommandName(
 /**
  * Register the settings command. Runs unconditionally — the command must stay
  * available even when the plugin runtime is globally disabled.
+ *
+ * Returns the name registered, or `undefined` when the host rejects the
+ * registration: a host without command support (older runtime, RPC shim) must
+ * not take the plugin down, every other feature keeps working.
  */
 export function registerSettingsCommand<Ctx>(
 	pi: CommandApiLike<Ctx>,
@@ -101,7 +105,7 @@ export function registerSettingsCommand<Ctx>(
 		description: string;
 		handler: (args: string, ctx: Ctx) => Promise<void>;
 	},
-): string {
+): string | undefined {
 	let names: readonly string[] = [];
 	try {
 		names = pi.getCommands().map((command) => command.name);
@@ -111,7 +115,14 @@ export function registerSettingsCommand<Ctx>(
 		names = [];
 	}
 	const name = chooseSettingsCommandName(names);
-	pi.registerCommand(name, options);
+	try {
+		pi.registerCommand(name, options);
+	} catch {
+		// A host without command registration support (older runtime, RPC
+		// shim) must not take the plugin down: every other feature keeps
+		// working.
+		return undefined;
+	}
 	return name;
 }
 

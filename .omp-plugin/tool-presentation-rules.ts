@@ -577,12 +577,19 @@ export function resolveToolRule(
  *
  * Structured args only, no rendered text. An unregistered tool, a malformed
  * device URL, or unreadable args keep the static kind — unknown data must
- * never silently disable a real file audit.
+ * never silently disable a real file audit. `args` is optional because the
+ * `tool_execution_end` event carries no args: a caller with no args resolves
+ * the static kind only (device re-checking needs the start payload), and
+ * audit lifecycle no-ops keep that residual difference inert.
  */
-export function resolveToolAudit(name: string, args: unknown): ToolAuditKind {
+export function resolveToolAudit(name: string, args?: unknown): ToolAuditKind {
 	const rule = resolveToolRule(name);
 	if (rule === undefined) return "none";
-	if (rule.audit === "write" && writeDeviceName(record(args)) !== undefined)
+	if (
+		rule.audit === "write" &&
+		args !== undefined &&
+		writeDeviceName(record(args)) !== undefined
+	)
 		return "none";
 	return rule.audit;
 }

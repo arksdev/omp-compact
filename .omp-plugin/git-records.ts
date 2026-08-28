@@ -383,21 +383,6 @@ export function recognizeGitCommands(
 	}));
 }
 
-/**
- * Recognize one shell-simple Git command, optionally preceded by exactly one
- * `cd <path> &&`. For compound chains this returns the first invocation; use
- * `recognizeGitCommands` for the full ordered set. The parser intentionally
- * has no execution path.
- */
-export function recognizeGitCommand(command: string): GitCommand | undefined {
-	const chain = parseGitChain(command);
-	if (!chain) return undefined;
-	const first = chain.segments[0];
-	// parseGitChain returns undefined when segments is empty.
-	if (first === undefined) return undefined;
-	return { subcommand: first.subcommand, gated: first.cdGated };
-}
-
 function skipEscapeSequence(value: string, index: number): number {
 	if (value.charCodeAt(index + 1) !== 0x5b) return index;
 	for (let cursor = index + 2; cursor < value.length; cursor++) {
@@ -513,6 +498,7 @@ function commitSummary(
 ): { hash: string; subject: string } | undefined {
 	const end = Math.min(resultText.length, MAX_RESULT_SCAN_LENGTH);
 	let start = 0;
+	let banner: RegExpExecArray | undefined;
 	for (let lines = 0; start < end && lines < 8; lines++) {
 		let lineEnd = start;
 		while (
@@ -522,14 +508,14 @@ function commitSummary(
 		)
 			lineEnd++;
 		const line = oneLine(resultText.slice(start, lineEnd));
-		const match = /^\[[^\]]*\s([\da-f]{4,64})\]\s*(.*)$/i.exec(line);
+		const match = COMMIT_SUMMARY_LINE.exec(line);
+		// A second banner-shaped line makes the capture ambiguous: hook
+		// output can sit on either side of the real banner depending on the
+		// git version, so no first/last ordering rule discriminates. Fail
+		// closed instead of picking one (see the pattern's comment).
 		if (match) {
-			// Both capturing groups are required by the pattern; a successful
-			// match always populates them (subject may be the empty string).
-			const hash = match[1];
-			const subject = match[2];
-			if (hash === undefined || subject === undefined) return undefined;
-			return { hash, subject: oneLine(subject) };
+			if (banner) return undefined;
+			banner = match;
 		}
 		while (
 			lineEnd < end &&
@@ -538,10 +524,40 @@ function commitSummary(
 			lineEnd++;
 		start = lineEnd;
 	}
-	return undefined;
+	if (!banner) return undefined;
+	// Both capturing groups are required by the pattern; a successful
+	// match always populates them (subject may be the empty string).
+	const hash = banner[1];
+	const subject = banner[2];
+	if (hash === undefined || subject === undefined) return undefined;
+	return { hash, subject: oneLine(subject) };
 }
 
-const COMMIT_SUMMARY_LINE = /^\[[^\]]*\s[\da-f]{4,64}\]/i;
+/**
+ * The banner git prints after a successful commit: `[<branch> <hash>]
+ * <subject>`, `[<branch> (root-commit) <hash>] <subject>` for the initial
+ * commit, or `[detached HEAD <hash>] <subject>` outside a branch.
+ *
+ * The branch token is restricted to git's ref-name characters
+ * (git-check-ref-format: no space, `~ ^ : ? * [ \` or control bytes, and no
+ * `]`). That alone stops a bracket-labeled line whose token is not a legal
+ * ref name — `[a[b 0badf00d]  …`, `[hook chatter deadbeef] …`. It does NOT
+ * stop a line whose content is a legal ref name plus a hex blob: `pre-commit`
+ * and `main` are legal ref names, so `[pre-commit a1b2c3d] …` and, after ANSI
+ * stripping, a wrapped `[main deadbeef] …` match the same character class as
+ * a genuine banner. No ordering rule discriminates either — on git 2.50 the
+ * pre-commit, commit-msg AND post-commit hooks all print before the summary
+ * line, but that is an implementation detail rather than a contract, and the
+ * capture is a whole Bash call's output, not git's stdout alone.
+ * commitSummary therefore attributes only when the scan window holds EXACTLY
+ * ONE banner-shaped line; two or more mean the capture is ambiguous and
+ * nothing is attributed — the same fail-closed stance this file already
+ * takes for several commit segments. Accepted ceiling: a lone banner-shaped
+ * line with the real banner absent from the capture is indistinguishable
+ * from the genuine article and is attributed.
+ */
+const COMMIT_SUMMARY_LINE =
+	/^\[(?:detached HEAD|[^\]\s~^:?*\\[\p{Cc}]+)(?:\s\(root-commit\))?\s([\da-f]{4,64})\]\s*(.*)$/iu;
 
 /**
  * Produce bounded, display-safe Git rows for every proven invocation of one
@@ -620,15 +636,4 @@ export function formatGitRecords(
 		records.push({ subcommand: segment.subcommand, text, isError: false });
 	}
 	return records;
-}
-
-/**
- * Produce one bounded, display-safe Git row using only the already captured
- * command and result text. A failed Git command never borrows success output.
- * For compound commands this returns the first invocation's row; use
- * `formatGitRecords` for the full ordered set.
- */
-export function formatGitRecord(evidence: GitEvidence): string | undefined {
-	const records = formatGitRecords(evidence);
-	return records?.[0]?.text;
 }

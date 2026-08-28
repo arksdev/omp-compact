@@ -567,35 +567,6 @@ export class RebuildLifecycle {
 	}
 
 	/**
-	 * Rebuild lifecycle: abort helper for tests and future soft-recovery.
-	 * Production RuntimeAdapter never calls this — a settlement failure takes
-	 * the hard `#rollback`/`dispose` path (session-wide disable), not a
-	 * generation abort that restores presentation. Never throws. When the
-	 * snapshot generation still matches, clears the in-progress marker so a
-	 * later rebuild can start, and closes the preserved identity window —
-	 * the exact component ↔ state map is only valid until the rebuild is
-	 * cancelled or settled. The unresolved backlog stays: states that lost
-	 * their host callback remain exact evidence and must keep excluding
-	 * themselves from new-tool fallbacks until the logical-run boundary
-	 * (dispose clears it anyway). Does not restore historical states or
-	 * transcript children discarded by `beginRebuild`.
-	 */
-	abortRebuild(snapshot: RebuildSnapshot): void {
-		const access = this.#access;
-		try {
-			if (snapshot.generation === access.generation) {
-				access.rebuildInProgress = false;
-				access.binding.clearPreserved();
-				// A cancelled rebuild must not leave the compaction permit
-				// armed for a later unrelated clear (/shake, theme toggle).
-				access.modePolicy?.consumeCollapsedRebuild();
-			}
-		} catch {
-			// Abort must never throw into the clear wrapper.
-		}
-	}
-
-	/**
 	 * Whether bindHydrated may suffix-align a collapsed visible tail.
 	 * Resume restore override OR the one-shot post-compaction permit.
 	 * Never invents a mode change — mode capture stays on restoreOverride alone.

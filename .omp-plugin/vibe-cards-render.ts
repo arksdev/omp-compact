@@ -409,7 +409,8 @@ function extractErrorText(result: unknown): string {
 }
 
 /**
- * Render an error status row when tool execution failed or details are missing.
+ * Render an error status row when tool execution failed or a settled frame is
+ * missing details (in-flight frames without details render their op rows).
  */
 function renderErrorRow(
 	view: CompactVibeView,
@@ -443,10 +444,7 @@ export function renderCompactVibeRows(
 	const isPartial = view.isPartial === true;
 	const { op, details } = view;
 
-	if (
-		view.isError ||
-		(!details && !(isPartial && (op === "spawn" || op === "send")))
-	) {
+	if (view.isError || (!details && !isPartial)) {
 		return renderErrorRow(view, theme, width);
 	}
 

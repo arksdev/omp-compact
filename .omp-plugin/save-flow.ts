@@ -87,7 +87,11 @@ export interface EnvMask {
  * facts; `masks` is empty for an unmasked save.
  */
 export interface SaveOutcome {
-	/** The settings now on disk (the requested values; env is never baked in). */
+	/**
+	 * The settings now on disk: the requested values minus anything a hard
+	 * env override forced (env is never baked in — see `omitEnvEchoes` in
+	 * config.ts). Stores without a persisted seam report the request.
+	 */
 	persisted: CompactSettings;
 	/** The effective snapshot with hard env overrides reapplied. */
 	effective: CompactSettings;
@@ -163,7 +167,8 @@ async function runSaveSettingsFlow(
 		}
 		throw cause;
 	}
-	const masks = maskedByEnv(deps.store, next, effective);
+	const onDisk = deps.store.persistedSnapshot?.() ?? next;
+	const masks = maskedByEnv(onDisk, deps.store, effective);
 	const masked = masks.length > 0;
 	deps.notify?.(
 		"info",
@@ -185,7 +190,7 @@ async function runSaveSettingsFlow(
 		);
 	}
 	return {
-		persisted: next,
+		persisted: onDisk,
 		effective,
 		restartRequired: restartRequired || chordChanged,
 		masked,
@@ -217,20 +222,24 @@ async function rollbackHostAfterFailedSave(
 }
 
 /**
- * Per-field env masks for the requested `enabled`/`mode` values on disk.
- * The store persists the requested values and returns the effective snapshot
- * with hard env overrides reapplied, so a difference in `enabled`/`mode`
- * means the saved JSON is currently overridden. Only the variables the store
- * reports as active are named — never inferred from the diff alone.
+ * Per-field env masks for the `enabled`/`mode` values now on disk.
+ * The baseline is `onDisk` — the store's PERSISTED layer, not the values the
+ * caller requested: the dialog is seeded from the effective snapshot, so a
+ * masked field arrives already carrying the forced value and the store
+ * deliberately does not persist that echo (`omitEnvEchoes` in config.ts).
+ * Comparing against the request would then find no difference and stay
+ * silent in exactly the case the user needs to hear about. Only the
+ * variables the store reports as active are named — never inferred from the
+ * diff alone.
  */
 function maskedByEnv(
+	onDisk: CompactSettings,
 	store: CompactSettingsStore,
-	requested: CompactSettings,
 	effective: CompactSettings,
 ): EnvMask[] {
 	const masks: EnvMask[] = [];
 	const overrides = store.overrides?.();
-	if (requested.enabled !== effective.enabled) {
+	if (onDisk.enabled !== effective.enabled) {
 		const enabledBy = overrides?.enabledBy ?? [];
 		if (enabledBy.length > 0) {
 			masks.push({
@@ -240,7 +249,7 @@ function maskedByEnv(
 			});
 		}
 	}
-	if (requested.mode !== effective.mode && overrides?.modeBy !== undefined) {
+	if (onDisk.mode !== effective.mode && overrides?.modeBy !== undefined) {
 		masks.push({
 			field: "mode",
 			effective: effective.mode,

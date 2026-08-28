@@ -4,7 +4,11 @@ import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
-import { DEFAULT_DISPLAY_CYCLE_KEY, isDisplayCycleKey } from "./display-cycle";
+import {
+	canonicalize,
+	DEFAULT_DISPLAY_CYCLE_KEY,
+	isDisplayCycleKey,
+} from "./display-cycle";
 import { createKeyedQueue } from "./keyed-queue";
 import { isPathInsideRoot } from "./path-inside-root";
 import { defaultWarn } from "./warn-sink";
@@ -412,9 +416,17 @@ function normalizeWithDiagnostics(
 	// named in field order, right after `compactVibeRows`, alongside its peers.
 	const chord = (value: unknown): string => {
 		if (value === undefined) return DEFAULT_SETTINGS.displayCycleKey;
-		if (isDisplayCycleKey(value)) return value;
-		invalid.push("displayCycleKey");
-		return DEFAULT_SETTINGS.displayCycleKey;
+		if (!isDisplayCycleKey(value)) {
+			invalid.push("displayCycleKey");
+			return DEFAULT_SETTINGS.displayCycleKey;
+		}
+		// The stored and displayed spelling is the canonical one — the same
+		// id the host derives from the keypress (`canonicalize` mirrors the
+		// host's `canonicalKeyId`) — so an uppercase chord like `alt+Q` is
+		// persisted and shown as `shift+alt+q` instead of registering one id
+		// and firing another. `isDisplayCycleKey` already validated the
+		// canonical form, so this cannot produce an occupied chord.
+		return canonicalize(value);
 	};
 	const mode =
 		raw.mode === undefined
@@ -703,6 +715,13 @@ export class ConfigUpdateError extends Error {
 export interface CompactSettingsStore {
 	load(): Promise<CompactSettings>;
 	snapshot(): CompactSettings;
+	/**
+	 * The layer actually on disk (no env overrides applied). Optional for the
+	 * same reason as `overrides?()`: read-only consumers and fakes implement
+	 * the interface without a persisted layer, and the save flow then falls
+	 * back to the values it requested.
+	 */
+	persistedSnapshot?(): CompactSettings;
 	update(patch: CompactSettingsPatch): Promise<CompactSettings>;
 	/**
 	 * Hard env overrides currently in force (see `resolveEnvOverrides`).
@@ -751,7 +770,15 @@ export function readDisplayCycleKeySync(deps: StoreDeps = {}): string {
 		return DEFAULT_SETTINGS.displayCycleKey;
 	}
 	const chord = parsed.raw.displayCycleKey;
-	return isDisplayCycleKey(chord) ? chord : DEFAULT_SETTINGS.displayCycleKey;
+	// Same canonicalization as normalizeSettings: the chord the host
+	// registers is the canonical spelling, so a chord stored as `alt+Q` by a
+	// release before canonicalization still registers as `shift+alt+q` — the
+	// id derived from the physical keypress. The file is deliberately not
+	// rewritten here: reads never write, and the next chord-changing save
+	// persists the canonical spelling.
+	return isDisplayCycleKey(chord)
+		? canonicalize(chord)
+		: DEFAULT_SETTINGS.displayCycleKey;
 }
 
 /**
@@ -837,6 +864,34 @@ export function createSettingsStore(
 		}
 		if (modeBy !== undefined) {
 			next = { ...next, mode: env.OMP_COMPACT_MODE as CompactMode };
+		}
+		return next;
+	}
+
+	/**
+	 * Drop patch entries that merely echo a hard env override back at the
+	 * store. `load()` hands out the EFFECTIVE snapshot and the settings
+	 * dialog saves that whole snapshot back (index.ts seeds the dialog from
+	 * it), so an env-forced `enabled`/`mode` arrives in the patch looking
+	 * exactly like a user edit — and `deriveLeafPatch` would then write it
+	 * into the file, baking the override in for every future session. A
+	 * patch value that DIFFERS from the forced one is a genuine user edit
+	 * and is persisted as requested; the effective layer keeps masking it
+	 * (see `applyEnvOverrides`) and the save flow reports that mask.
+	 *
+	 * Echoed keys are set to `undefined` rather than deleted: the merge in
+	 * `update()` already drops undefined patch keys as "leave the persisted
+	 * value alone" (see `omitUndefinedValues`).
+	 */
+	function omitEnvEchoes(patch: CompactSettingsPatch): CompactSettingsPatch {
+		const { enabledBy, modeBy } = resolveEnvOverrides(env);
+		const next = { ...patch };
+		// enabledBy in force means the effective `enabled` is pinned false.
+		if (enabledBy.length > 0 && next.enabled === false) {
+			next.enabled = undefined;
+		}
+		if (modeBy !== undefined && next.mode === env.OMP_COMPACT_MODE) {
+			next.mode = undefined;
 		}
 		return next;
 	}
@@ -961,13 +1016,17 @@ export function createSettingsStore(
 		if (!loaded) await load();
 		// Merge on top of the PERSISTED layer: a save expresses the user's
 		// requested values and must not bake environment overrides into the
-		// config file.
+		// config file. Callers save back the EFFECTIVE snapshot they were
+		// handed, so the patch is first stripped of values that merely echo a
+		// hard env override (see `omitEnvEchoes`) — otherwise the leaf diff
+		// below would mistake a forced value for a user edit.
+		const requested = omitEnvEchoes(patch);
 		const merged: Record<string, unknown> = {
 			...persisted,
 			// Skip undefined keys in the patch so they don't overwrite persisted
 			// values. stats/autoShake groups get the same treatment; host is
 			// exempt because `host: { key: undefined }` is the removal signal.
-			...omitUndefinedValues(patch),
+			...omitUndefinedValues(requested),
 			stats: { ...persisted.stats, ...omitUndefinedValues(patch.stats) },
 			autoShake: {
 				...persisted.autoShake,
@@ -1068,6 +1127,9 @@ export function createSettingsStore(
 	return {
 		load,
 		snapshot,
+		// `persisted` is deep-frozen at every assignment, exactly like
+		// `current` — no per-call clone needed.
+		persistedSnapshot: () => persisted,
 		update,
 		overrides: () => resolveEnvOverrides(env),
 		subscribe,

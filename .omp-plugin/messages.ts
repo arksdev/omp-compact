@@ -8,7 +8,6 @@ import {
 	MAX_GIT_SUBCOMMAND_LENGTH,
 	MAX_MUTATION_COUNT,
 	MAX_TOOL_CALL_ID_LENGTH,
-	MAX_TOOL_NAME_LENGTH,
 } from "./hydration-bounds";
 
 /**
@@ -104,26 +103,6 @@ export function isMutationMessageDetails(
 		isBoundedCount(details.added, MAX_MUTATION_COUNT) &&
 		isBoundedCount(details.removed, MAX_MUTATION_COUNT) &&
 		details.exact === true
-	);
-}
-
-export function isLegacyMutationMessageDetails(
-	value: unknown,
-): value is LegacyMutationMessageDetails {
-	if (!value || typeof value !== "object") return false;
-	const details = value as Partial<LegacyMutationMessageDetails>;
-	return (
-		(details.toolCallId === undefined ||
-			isBoundedString(details.toolCallId, MAX_TOOL_CALL_ID_LENGTH)) &&
-		isBoundedString(details.toolName, MAX_TOOL_NAME_LENGTH) &&
-		isBoundedString(details.path, MAX_EVIDENCE_PATH_LENGTH) &&
-		(details.added === undefined ||
-			isBoundedCount(details.added, MAX_MUTATION_COUNT)) &&
-		(details.removed === undefined ||
-			isBoundedCount(details.removed, MAX_MUTATION_COUNT)) &&
-		(details.lineCount === undefined ||
-			isBoundedCount(details.lineCount, MAX_MUTATION_COUNT)) &&
-		typeof details.exact === "boolean"
 	);
 }
 

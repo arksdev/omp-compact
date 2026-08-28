@@ -19,9 +19,11 @@ import {
 	MAX_CONFIG_BYTES,
 	MAX_THRESHOLD_TOKENS,
 	normalizeSettings,
+	readDisplayCycleKeySync,
 	resolveConfigPath,
 	resolveEnvOverrides,
 } from "../../.omp-plugin/config";
+import { registerDisplayCycleShortcut } from "../../.omp-plugin/host-api";
 
 async function tempDir(): Promise<string> {
 	return mkdtemp(join(tmpdir(), "omp-compact-config-"));
@@ -162,14 +164,73 @@ describe("defaults", () => {
 		]);
 	});
 
-	test("a free chord in the file survives normalization verbatim", () => {
+	test("a free chord in the file normalizes to the host's modifier order", () => {
+		// The stored spelling follows the host's canonical modifier order
+		// (ctrl > shift > alt > super): `alt+shift+d` and `shift+alt+d` are
+		// the same chord to the host — both canonicalize to `shift+alt+d` —
+		// and one spelling keeps config, dialog, occupancy and registration
+		// identical. Do not "fix" this back to input order.
 		const warnings: string[] = [];
 		const normalized = normalizeSettings(
 			{ version: 1, displayCycleKey: "alt+shift+d" },
 			(m) => warnings.push(m),
 		);
-		expect(normalized.displayCycleKey).toBe("alt+shift+d");
+		expect(normalized.displayCycleKey).toBe("shift+alt+d");
 		expect(warnings).toEqual([]);
+	});
+
+	test("a legacy uppercase chord normalizes to the canonical spelling", () => {
+		// A chord stored by a release that kept `alt+Q` verbatim must come
+		// out of the read boundary as the spelling the host derives from the
+		// keypress: stored, displayed, occupancy-checked and registered forms
+		// are one and the same.
+		const warnings: string[] = [];
+		const normalized = normalizeSettings(
+			{ version: 1, displayCycleKey: "alt+Q" },
+			(m) => warnings.push(m),
+		);
+		expect(normalized.displayCycleKey).toBe("shift+alt+q");
+		expect(warnings).toEqual([]);
+	});
+
+	test("an uppercase chord on disk registers the canonical spelling", async () => {
+		const dir = await tempDir();
+		const path = join(dir, "config.json");
+		await writeFile(
+			path,
+			JSON.stringify({ version: 1, displayCycleKey: "alt+Q" }),
+			"utf8",
+		);
+		// Registration reads the chord synchronously; the canonical spelling
+		// is what reaches the host, so the chord the user meant fires.
+		const chord = readDisplayCycleKeySync({ path });
+		expect(chord).toBe("shift+alt+q");
+		const registered: string[] = [];
+		const used = registerDisplayCycleShortcut(
+			{ registerShortcut: (key: string) => registered.push(key) },
+			chord,
+			{ description: "cycle", handler: async () => {} },
+		);
+		expect(used).toBe("shift+alt+q");
+		expect(registered).toEqual(["shift+alt+q"]);
+		// Reads never write: the file is rewritten to the canonical spelling
+		// only when the next chord-changing save persists it.
+		expect(JSON.parse(await readFile(path, "utf8")).displayCycleKey).toBe(
+			"alt+Q",
+		);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("saving an uppercase chord persists the canonical spelling", async () => {
+		const dir = await tempDir();
+		const path = join(dir, "config.json");
+		const store = createSettingsStore({ path });
+		await store.load();
+		const saved = await store.update({ displayCycleKey: "alt+Q" });
+		expect(saved.displayCycleKey).toBe("shift+alt+q");
+		const onDisk = JSON.parse(await readFile(path, "utf8"));
+		expect(onDisk.displayCycleKey).toBe("shift+alt+q");
+		await rm(dir, { recursive: true, force: true });
 	});
 });
 
@@ -711,6 +772,153 @@ describe("store load fail-open", () => {
 			await readFile(join(dir, "omp-compact", "config.json"), "utf8"),
 		) as CompactSettings;
 		expect(raw.mode).toBe("live");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	// An env override must never survive as a persisted user value. `load()`
+	// hands out the EFFECTIVE snapshot and every save path (settings dialog,
+	// cycle keypress) hands that whole snapshot back, so a forced value
+	// reaches `update()` looking exactly like a user edit.
+	test("an unrelated save does not bake an env-forced enabled into the file", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_PLUGIN: "0" },
+		});
+		// The menu opens on the effective snapshot (enabled forced false) and
+		// the user toggles one unrelated display row.
+		const initial = await store.load();
+		expect(initial.enabled).toBe(false);
+		await store.update({ ...initial, compactPaths: false });
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.enabled).toBe(true);
+		expect(raw.compactPaths).toBe(false);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("an unrelated save does not bake an env-forced mode into the file", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_MODE: "live" },
+		});
+		const initial = await store.load();
+		expect(initial.mode).toBe("live");
+		await store.update({ ...initial, compactPaths: false });
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.mode).toBe("compact");
+		expect(raw.compactPaths).toBe(false);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	// The echo strip is value-based, never field-based: a patch value that
+	// DIFFERS from the forced one is a genuine user edit and still persists.
+	test("a user edit of an env-masked field still persists (only the echo is dropped)", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: false, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_PLUGIN: "0", OMP_COMPACT_MODE: "clear" },
+		});
+		await store.load();
+		// The user asks for the opposite of what the env forces.
+		const effective = await store.update({ enabled: true, mode: "live" });
+		// The effective layer keeps the overrides authoritative…
+		expect(effective.enabled).toBe(false);
+		expect(effective.mode).toBe("clear");
+		// …while the file records exactly what the user asked for.
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.enabled).toBe(true);
+		expect(raw.mode).toBe("live");
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("without any override a save of the whole snapshot persists it verbatim", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({ path: file, env: {} });
+		const initial = await store.load();
+		await store.update({ ...initial, compactPaths: false });
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.enabled).toBe(true);
+		expect(raw.mode).toBe("compact");
+		expect(raw.compactPaths).toBe(false);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	// A genuine disable is indistinguishable from the echo by value, so the
+	// chosen semantics are documented here: with `OMP_COMPACT_PLUGIN=0` in
+	// force, asking for enabled=false is a no-op on disk. The user cannot
+	// express "disable permanently" while the env already disables the
+	// runtime — the alternative (persisting it) is exactly the bug.
+	test("with enabled env-forced, requesting the forced value leaves the file alone", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_PLUGIN: "0" },
+		});
+		await store.load();
+		await store.update({ enabled: false });
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.enabled).toBe(true);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("persistedSnapshot reports the disk layer, snapshot the effective one", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_PLUGIN: "0", OMP_COMPACT_MODE: "clear" },
+		});
+		await store.load();
+		expect(store.persistedSnapshot?.()).toMatchObject({
+			enabled: true,
+			mode: "compact",
+		});
+		expect(store.snapshot()).toMatchObject({
+			enabled: false,
+			mode: "clear",
+		});
 		await rm(dir, { recursive: true, force: true });
 	});
 });

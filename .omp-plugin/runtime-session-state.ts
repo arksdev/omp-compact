@@ -13,9 +13,9 @@
  * - terminal projections (aggregate Git hashes + summary anchor);
  * - stats-carrier placement (live rows and replayed evidence);
  * - active-vs-historical ownership; the rebuild lifecycle itself
- *   (`beginRebuild`/`commitRebuild`/`abortRebuild`) delegates to
- *   `rebuild-lifecycle.ts` — behavior-neutral hooks the C rebuild phase
- *   consumes instead of a second generation store.
+ *   (`beginRebuild`/`commitRebuild`) delegates to `rebuild-lifecycle.ts` —
+ *   behavior-neutral hooks the C rebuild phase consumes instead of a second
+ *   generation store.
  *
  * The module never holds private stock method names and never touches host
  * objects beyond the plugin's own typed transcript abstraction (used for
@@ -485,14 +485,6 @@ export class RuntimeSessionState {
 		options: { branchEntries: readonly unknown[] },
 	): RebuildOutcome {
 		return this.#lifecycle.commitRebuild(snapshot, options);
-	}
-
-	/**
-	 * Rebuild lifecycle: abort. The implementation lives in
-	 * `RebuildLifecycle` (see its doc comment for semantics).
-	 */
-	abortRebuild(snapshot: RebuildSnapshot): void {
-		this.#lifecycle.abortRebuild(snapshot);
 	}
 
 	/** Release every reference; idempotent, never throws. */

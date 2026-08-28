@@ -21,7 +21,11 @@ import {
 	MAX_TOOL_CALL_ID_LENGTH,
 	MAX_TOOL_NAME_LENGTH,
 } from "./hydration-bounds";
-import type { GitMessageDetails, MutationMessageDetails } from "./messages";
+import type {
+	GitMessageDetails,
+	LegacyMutationMessageDetails,
+	MutationMessageDetails,
+} from "./messages";
 import type { ModePolicy } from "./mode-policy";
 import { objectRecord } from "./object-record";
 import { DescriptorPatch } from "./patch-kit";
@@ -468,7 +472,14 @@ export class RuntimeAdapter {
 		this.#requestRender(this.#session.finishTool(input));
 	}
 
-	setMutations(toolCallId: string, entries: MutationMessageDetails[]): void {
+	// Delete evidence with no exact pre-image is legacy-shaped (exact:false,
+	// no version/added/removed); the ledger already accepts the union and the
+	// renderer handles both shapes structurally, so the contract here is the
+	// audit evidence, not a stricter subset.
+	setMutations(
+		toolCallId: string,
+		entries: (MutationMessageDetails | LegacyMutationMessageDetails)[],
+	): void {
 		if (this.#disposed || !this.#session.state(toolCallId)) return;
 		this.#requestRender(this.#session.setMutations(toolCallId, entries));
 	}

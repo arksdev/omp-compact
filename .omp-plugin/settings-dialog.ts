@@ -9,7 +9,7 @@ import {
 	MAX_THRESHOLD_TOKENS,
 } from "./config";
 
-import { validateDisplayCycleKey } from "./display-cycle";
+import { canonicalize, validateDisplayCycleKey } from "./display-cycle";
 
 import type {
 	ComponentLike,
@@ -570,7 +570,10 @@ export class SettingsDialog implements ComponentLike {
 	 * Commit the chord row. A chord occupied by OMP is refused here rather
 	 * than saved: the host drops a conflicting extension shortcut with only a
 	 * log line, so accepting one would hand the user a key that never fires.
-	 * The rejection keeps the editor open with the typed text intact.
+	 * The rejection keeps the editor open with the typed text intact. An
+	 * accepted chord is committed in canonical form (host modifier order and
+	 * the shift an uppercase base implies), so the row shows the spelling the
+	 * store persists and the host registers — one spelling on all surfaces.
 	 */
 	private commitChordEdit(row: Row): void {
 		const chord = this.editBuffer.trim();
@@ -579,7 +582,9 @@ export class SettingsDialog implements ComponentLike {
 			this.error = rejection;
 			return;
 		}
-		row.set(chord);
+		// Validate the typed text (the error line mirrors what the user
+		// typed), then commit the canonical spelling.
+		row.set(canonicalize(chord));
 		this.editing = false;
 		this.editBuffer = "";
 		this.error = "";

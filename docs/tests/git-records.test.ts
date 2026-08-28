@@ -1,9 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-	formatGitRecord,
 	formatGitRecords,
 	type GitEvidence,
-	recognizeGitCommand,
 	recognizeGitCommands,
 } from "../../.omp-plugin/git-records";
 import {
@@ -17,62 +15,55 @@ import { isGitMessageDetails } from "../../.omp-plugin/messages";
 
 describe("Git command recognition", () => {
 	test("recognizes direct and cd-prefixed Git invocations", () => {
-		expect(recognizeGitCommand("git status --short")?.subcommand).toBe(
+		expect(recognizeGitCommands("git status --short")?.[0]?.subcommand).toBe(
 			"status",
 		);
 		expect(
-			recognizeGitCommand("cd repo && git commit -m 'Fix compact log'")
+			recognizeGitCommands("cd repo && git commit -m 'Fix compact log'")?.[0]
 				?.subcommand,
 		).toBe("commit");
 		expect(
-			recognizeGitCommand("git -C repo switch feature/compact")?.subcommand,
+			recognizeGitCommands("git -C repo switch feature/compact")?.[0]
+				?.subcommand,
 		).toBe("switch");
 	});
 
 	test("does not classify quoted words or ambiguous shell text as Git", () => {
-		expect(recognizeGitCommand("echo git status")).toBeUndefined();
+		expect(recognizeGitCommands("echo git status")).toBeUndefined();
 		expect(
-			recognizeGitCommand("printf '%s' 'git commit -m nope'"),
+			recognizeGitCommands("printf '%s' 'git commit -m nope'"),
 		).toBeUndefined();
-		expect(recognizeGitCommand("git status && echo done")).toBeUndefined();
-		expect(recognizeGitCommand("echo hi && git status")).toBeUndefined();
+		expect(recognizeGitCommands("git status && echo done")).toBeUndefined();
+		expect(recognizeGitCommands("echo hi && git status")).toBeUndefined();
 		expect(
-			recognizeGitCommand("cd repo && git status && echo done"),
+			recognizeGitCommands("cd repo && git status && echo done"),
 		).toBeUndefined();
 	});
 
 	test("exposes the gated cd-prefix flag on every recognized command", () => {
-		expect(recognizeGitCommand("git status")).toEqual({
+		expect(recognizeGitCommands("git status")?.[0]).toEqual({
 			subcommand: "status",
 			gated: false,
 		});
-		expect(recognizeGitCommand("command git status")).toEqual({
+		expect(recognizeGitCommands("command git status")?.[0]).toEqual({
 			subcommand: "status",
 			gated: false,
 		});
-		expect(recognizeGitCommand("git -C repo status")).toEqual({
+		expect(recognizeGitCommands("git -C repo status")?.[0]).toEqual({
 			subcommand: "status",
 			gated: false,
 		});
-		expect(recognizeGitCommand("cd repo && git status")).toEqual({
+		expect(recognizeGitCommands("cd repo && git status")?.[0]).toEqual({
 			subcommand: "status",
 			gated: true,
 		});
-		expect(recognizeGitCommand("cd /missing && git status")).toEqual({
+		expect(recognizeGitCommands("cd /missing && git status")?.[0]).toEqual({
 			subcommand: "status",
 			gated: true,
 		});
 	});
 
 	test("recognizes short pager flags -p/-P like their long forms", () => {
-		expect(recognizeGitCommand("git -p status")?.subcommand).toBe("status");
-		expect(recognizeGitCommand("git -P commit -m x")?.subcommand).toBe(
-			"commit",
-		);
-		expect(recognizeGitCommand("git -p -C repo log")?.subcommand).toBe("log");
-		expect(recognizeGitCommand("git --no-pager status")?.subcommand).toBe(
-			"status",
-		);
 		expect(recognizeGitCommands("git -P status && git -p diff")).toEqual([
 			{ subcommand: "status", gated: false },
 			{ subcommand: "diff", gated: false },
@@ -87,89 +78,89 @@ describe("Git record formatting", () => {
 			resultText: "[main abc1234] Fix compact log\n 1 file changed",
 			isError: false,
 		};
-		expect(formatGitRecord(evidence)).toBe(
+		expect(formatGitRecords(evidence)?.[0]?.text).toBe(
 			"git commit abc1234 Fix compact log",
 		);
 	});
 
 	test("pager-flagged commits still surface the evidence hash", () => {
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "git -p commit -m 'Fix compact log'",
 				resultText: "[main abc1234] Fix compact log\n 1 file changed",
 				isError: false,
-			}),
+			})?.[0]?.text,
 		).toBe("git commit abc1234 Fix compact log");
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "git -P commit -m 'Fix compact log'",
 				resultText: "[main abc1234] Fix compact log\n 1 file changed",
 				isError: false,
-			}),
+			})?.[0]?.text,
 		).toBe("git commit abc1234 Fix compact log");
 	});
 
 	test("retains failed records with an explicit marker", () => {
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "git rebase main",
 				resultText: "conflict",
 				isError: true,
-			}),
+			})?.[0]?.text,
 		).toBe("✗ git rebase main");
 	});
 
 	test("retains failed command-wrapped and -C invocations", () => {
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "command git rebase main",
 				resultText: "conflict",
 				isError: true,
-			}),
+			})?.[0]?.text,
 		).toBe("✗ git rebase main");
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "git -C repo rebase main",
 				resultText: "conflict",
 				isError: true,
-			}),
+			})?.[0]?.text,
 		).toBe("✗ git rebase main");
 	});
 
 	test("fails closed for a failed cd-gated Git command", () => {
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "cd /missing && git status",
 				resultText: "cd: no such file or directory: /missing",
 				isError: true,
-			}),
+			})?.[0]?.text,
 		).toBeUndefined();
 	});
 
 	test("keeps successful gated commands recognized", () => {
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "cd repo && git status",
 				resultText: " M feature.md\n",
 				isError: false,
-			}),
+			})?.[0]?.text,
 		).toBe("git status M feature.md");
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "cd repo && git commit -m 'Fix compact log'",
 				resultText: "[main abc1234] Fix compact log\n 1 file changed",
 				isError: false,
-			}),
+			})?.[0]?.text,
 		).toBe("git commit abc1234 Fix compact log");
 	});
 
 	test("ambiguous multi-command strings never format as Git", () => {
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "git status && echo done",
 				resultText: " M feature.md",
 				isError: false,
-			}),
+			})?.[0]?.text,
 		).toBeUndefined();
 	});
 
@@ -179,11 +170,11 @@ describe("Git record formatting", () => {
 		// Printable remnants after a dropped single-byte CSI (e.g. "[31m")
 		// stay — same as sanitizeOneLine after stripControl.
 		expect(
-			formatGitRecord({
+			formatGitRecords({
 				command: "git commit -m 'x'",
 				resultText: "[main abcd] hi\x7Fthere\x9B[31m🚀\u2028bye\u2029",
 				isError: false,
-			}),
+			})?.[0]?.text,
 		).toBe("git commit abcd hi there [31m🚀 bye");
 	});
 
@@ -194,11 +185,11 @@ describe("Git record formatting", () => {
 		// 225 ASCII + 1 emoji ("🚀") + trailing text.
 		// Truncating to available - 1 = 226 code points keeps the whole emoji + "…".
 		const longBranch = `${"a".repeat(225)}🚀tail`;
-		const record = formatGitRecord({
+		const record = formatGitRecords({
 			command: `git checkout ${longBranch}`,
 			resultText: "Switched to branch",
 			isError: false,
-		});
+		})?.[0]?.text;
 		expect(record).toBe(`git checkout ${"a".repeat(225)}🚀…`);
 		expect([...(record ?? "")].length).toBe(240);
 		expect(
@@ -211,22 +202,22 @@ describe("Git record formatting", () => {
 
 	test("appendDetail preserves exact ASCII truncation behavior", () => {
 		const longBranch = "a".repeat(300);
-		const record = formatGitRecord({
+		const record = formatGitRecords({
 			command: `git checkout ${longBranch}`,
 			resultText: "Switched to branch",
 			isError: false,
-		});
+		})?.[0]?.text;
 		expect(record).toBe(`git checkout ${"a".repeat(226)}…`);
 		expect(record?.length).toBe(240);
 	});
 
 	test("renderInvocation collects subsequent tokens when earlier astral tokens inflate UTF-16 length", () => {
 		const emojiPattern = "🚀".repeat(120);
-		const record = formatGitRecord({
+		const record = formatGitRecords({
 			command: `git log -n 1 --grep ${emojiPattern} --oneline`,
 			resultText: "abc1234 feat",
 			isError: false,
-		});
+		})?.[0]?.text;
 		expect(record).toBe(`git log -n 1 --grep ${emojiPattern} --oneline`);
 	});
 });
@@ -473,5 +464,105 @@ describe("persisted multi-Git evidence", () => {
 				],
 			}),
 		).toBe(false);
+	});
+});
+
+describe("commit summary banner recognition", () => {
+	test("two banner-shaped lines attribute nothing", () => {
+		// A pre-commit hook prints a banner-shaped line (legal ref name plus
+		// hex — `pre-commit` is a valid ref token) before the real one. Both
+		// lines match, so the capture is ambiguous: no ordering rule can
+		// tell them apart, and the plugin attributes nothing instead of
+		// picking one and storing a hook line as commit evidence.
+		expect(
+			formatGitRecords({
+				command: "git commit -m x",
+				resultText:
+					"[pre-commit a1b2c3d] restoring build cache\n" +
+					"[main 0badf00d] real subject\n 1 file changed",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -m x");
+		expect(
+			formatGitRecords({
+				command: "git commit -m x",
+				resultText:
+					"[lefthook deadbeef] run checks\n" + "[main a1b2c3d] real subject",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -m x");
+	});
+
+	test("a banner-shaped hook line after the real banner also attributes nothing", () => {
+		// post-commit-shaped: a banner-shaped line after the genuine banner
+		// makes the capture ambiguous exactly like one before it — the rule
+		// is uniqueness in the window, not first/last position.
+		expect(
+			formatGitRecords({
+				command: "git commit -m x",
+				resultText:
+					"[main 0badf00d] real subject\n 1 file changed\n" +
+					"[main deadbeef] post-commit message",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -m x");
+	});
+
+	test("ANSI-wrapped banner-shaped hook output cannot fabricate a hash", () => {
+		// After ANSI stripping the mimic has exactly the banner shape, so the
+		// window holds two banner-shaped lines: ambiguous, no attribution.
+		expect(
+			formatGitRecords({
+				command: "git commit -m x",
+				resultText:
+					"\x1b[31m[main deadbeef] spoof\x1b[0m\n" +
+					"[main 0badf00d] real subject\n 1 file changed",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -m x");
+	});
+
+	test("a non-ref bracket line cannot fabricate a hash on its own", () => {
+		// "a[b" is not a valid git ref name (refnames forbid "["), so with no
+		// real banner in the captured output the row stays unadorned.
+		expect(
+			formatGitRecords({
+				command: "git commit -m x",
+				resultText: "[a[b 0badf00d] spoof",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -m x");
+	});
+
+	test("label-and-hash hook lines without brackets never fabricate a hash", () => {
+		const rows = formatGitRecords({
+			command: "git commit -m x",
+			resultText: [
+				"clean        : git commit a1b2c3d real subject",
+				"hook chatter : git commit deadbeef restoring build cache",
+				"ansi spoof   : git commit 0badf00d spoof",
+				"[main 0badf00d] real subject",
+				" 1 file changed",
+			].join("\n"),
+			isError: false,
+		});
+		expect(rows?.[0]?.text).toBe("git commit 0badf00d real subject");
+	});
+
+	test("root-commit and detached-HEAD banners stay recognized", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -m x",
+				resultText: "[main (root-commit) 8a2c4d5] initial\n 1 file changed",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit 8a2c4d5 initial");
+		expect(
+			formatGitRecords({
+				command: "git commit -m x",
+				resultText: "[detached HEAD 82e797a] wip",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit 82e797a wip");
 	});
 });

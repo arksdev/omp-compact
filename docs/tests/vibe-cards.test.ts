@@ -697,6 +697,39 @@ describe("vibe-cards grammar and presentation", () => {
 		expect(rows).toEqual([]);
 	});
 
+	test("in-flight frames without details render the op row, not an error", () => {
+		const cases: Array<{
+			view: CompactVibeView;
+			expected: readonly string[];
+		}> = [
+			{
+				view: { op: "kill", isPartial: true, tick: 0 },
+				expected: [],
+			},
+			{
+				view: { op: "wait", isPartial: true, tick: 0 },
+				expected: ["vibe wait"],
+			},
+			{
+				view: { op: "list", isPartial: true, tick: 0 },
+				expected: ["vibe sessions 0"],
+			},
+		];
+
+		for (const { view, expected } of cases) {
+			const rows = vibeCardsModule.renderCompactVibeRows(view, fakeTheme());
+			expect(rows).toEqual(expected);
+		}
+	});
+
+	test("settled frames without details still render the error fallback row", () => {
+		const rows = vibeCardsModule.renderCompactVibeRows(
+			{ op: "wait", isPartial: false },
+			fakeTheme(),
+		);
+		expect(stripAnsi(rows[0] ?? "")).toBe("✘ vibe wait");
+	});
+
 	test("error result produces single line with ✘, muted prefix, and error text", () => {
 		const rows = vibeCardsModule.renderCompactVibeRows(
 			{

@@ -134,10 +134,91 @@ const CROSS_PLATFORM_PASTE_KEYS: readonly string[] = [
 	"super+v",
 ];
 
-function canonicalize(key: string): string {
-	const parts = key.toLowerCase().split("+");
-	const base = parts[parts.length - 1] ?? "";
-	const modifiers = parts.slice(0, -1);
+/** Exactly one ASCII letter A-Z — the only shape the host reads as "shifted"
+ *  (`@oh-my-pi/pi-tui` `keybindings.ts` `isAsciiUppercaseLetter`). Deliberately
+ *  ASCII-only: an uppercase non-ASCII base (e.g. Cyrillic А) does not imply
+ *  shift to the host, and this check must agree. */
+function isAsciiUppercaseLetter(key: string): boolean {
+	if (key.length !== 1) return false;
+	const code = key.charCodeAt(0);
+	return code >= 65 && code <= 90;
+}
+
+/** Case-insensitive modifier prefix scan, mirroring the host's
+ *  `startsWithModifier` (`@oh-my-pi/pi-tui` `keybindings.ts`): a modifier
+ *  match requires `+` right after the name, in any case. */
+function startsWithModifier(
+	key: string,
+	offset: number,
+	modifier: string,
+): boolean {
+	if (
+		key.length <= offset + modifier.length ||
+		key.charCodeAt(offset + modifier.length) !== 43
+	) {
+		return false;
+	}
+	for (let i = 0; i < modifier.length; i++) {
+		const actual = key.charCodeAt(offset + i);
+		const expected = modifier.charCodeAt(i);
+		if (actual !== expected && actual !== expected - 32) return false;
+	}
+	return true;
+}
+
+/**
+ * Canonical spelling of a chord — the exact algorithm of the host's
+ * `canonicalKeyId` (`@oh-my-pi/pi-tui` `keybindings.ts`), because the host
+ * derives the id that fires from the *keypress* with that same function.
+ * Rule by rule:
+ *
+ * - Modifiers are scanned case-insensitively and sorted into ctrl > shift >
+ *   alt > super order on output (`alt+ctrl+x` and `ctrl+alt+x` are one chord).
+ * - The base is lowercased, with `esc`/`return` aliased to `escape`/`enter`
+ *   (`alt+esc` and `alt+escape` are the same chord to the host).
+ * - An uppercase ASCII base without an explicit `shift` gets `shift` appended
+ *   (`alt+Q` -> `shift+alt+q`): the host reads an uppercase letter as a
+ *   shifted key and pushes shift before sorting.
+ * - An explicit `shift` is never duplicated (`alt+shift+Q` -> `shift+alt+q`).
+ * - A non-ASCII uppercase base gets no shift — the host only infers shift
+ *   for ASCII A-Z.
+ *
+ * A chord in this spelling is the id the host matches the physical press
+ * against, so registration, occupancy checks, stored config and the settings
+ * dialog all agree on one spelling. When the plugin canonicalizes at the read
+ * boundary and passes the result to `registerShortcut`, `alt+Q` is stored,
+ * shown and registered as `shift+alt+q` and fires on alt+Q — instead of
+ * registering `alt+q` (the host lowercases the registered chord first) and
+ * silently firing on a different key.
+ */
+export function canonicalize(key: string): string {
+	let offset = 0;
+	const modifiers: string[] = [];
+	let foundModifier = true;
+
+	while (foundModifier) {
+		foundModifier = false;
+		for (const modifier of MODIFIER_ORDER) {
+			if (startsWithModifier(key, offset, modifier)) {
+				modifiers.push(modifier);
+				offset += modifier.length + 1;
+				foundModifier = true;
+				break;
+			}
+		}
+	}
+	const rawBase = key.slice(offset);
+	const lowerBase = rawBase.toLowerCase();
+	const base =
+		lowerBase === "esc"
+			? "escape"
+			: lowerBase === "return"
+				? "enter"
+				: lowerBase;
+	if (isAsciiUppercaseLetter(rawBase) && !modifiers.includes("shift")) {
+		modifiers.push("shift");
+	}
+	if (modifiers.length === 0) return base;
 	modifiers.sort(
 		(left, right) =>
 			MODIFIER_ORDER.indexOf(left) - MODIFIER_ORDER.indexOf(right),
@@ -184,6 +265,11 @@ export function occupiedShortcuts(): ReadonlySet<string> {
  * A chord without a modifier is refused even when unoccupied: a bare letter
  * registered as an extension shortcut intercepts that letter everywhere in the
  * prompt editor, which reads as a broken keyboard rather than as a shortcut.
+ *
+ * An uppercase ASCII base without an explicit `shift` (`alt+Q`) is accepted
+ * and validated under its canonical spelling: the host reads an uppercase
+ * letter as a shifted key, so `alt+Q` is one with `shift+alt+q` — the
+ * spelling the settings dialog then stores, shows and registers.
  */
 export function validateDisplayCycleKey(key: string): string | undefined {
 	if (key.length === 0) return "shortcut must not be empty";
@@ -200,6 +286,9 @@ export function validateDisplayCycleKey(key: string): string | undefined {
 		seen.add(modifier);
 	}
 	if (!isBaseKey(base)) return `unknown key "${base}"`;
+	// Occupancy is checked against the canonical spelling: `alt+Q` and
+	// `shift+alt+q` are one chord to the host, so a collision with a
+	// reserved or built-in chord must be caught under either spelling.
 	if (occupiedShortcuts().has(canonicalize(key))) {
 		return `${key} is already taken by OMP; pick another shortcut`;
 	}

@@ -218,6 +218,28 @@ const TODO_REMINDER_HEADER =
 	/(\d+)\s+incomplete\s+todos?\s*-\s*reminder\s+(\d+)\s*\/\s*(\d+)/i;
 
 /**
+ * Checkbox glyphs for every built-in symbol preset (stock
+ * `modes/theme/symbols.ts` `SYMBOL_PRESETS`): unicode "☑"/"☐", nerd
+ * "\uf14a"/"\uf096", ascii "[x]"/"[ ]". The ASCII glyphs contain a space, so
+ * a generic leading-token strip cannot work for them.
+ */
+const CHECKBOX_GLYPHS = ["☑", "☐", "\uf14a", "\uf096", "[x]", "[ ]"];
+
+/**
+ * Strip the leading checkbox glyph (and the separator space) from a stock
+ * todo-reminder body line. Built-in presets are matched exactly; a custom
+ * theme with a single-token glyph falls back to dropping one leading token.
+ */
+function stripCheckboxGlyph(line: string): string {
+	for (const glyph of CHECKBOX_GLYPHS) {
+		if (line.startsWith(glyph)) {
+			return line.slice(glyph.length).replace(/^\s+/, "");
+		}
+	}
+	return line.replace(/^\S+\s+/, "");
+}
+
+/**
  * Recover incomplete-todo counts and item text from a live stock
  * `TodoReminderComponent`. Walks public `children` / `getText()` only — never
  * touches private constructor fields. Returns `undefined` when the tree is
@@ -251,12 +273,14 @@ export function todoReminderFromComponent(
 	for (const raw of texts.slice(1)) {
 		const plain = stripRejectedControls(stripAnsi(raw));
 		for (const segment of plain.split(/\r\n|\n|\r/)) {
-			// Stock body lines are "  <checkbox> <content>"; the checkbox glyph
-			// is theme-dependent, so drop one leading non-space token only.
+			// Stock body lines are "  <checkbox> <content>"; the checkbox
+			// glyph varies per symbol preset, and the ASCII preset's "[ ]"
+			// contains a space, so strip the known glyph rather than a
+			// generic leading token.
 			const trimmed = segment.replace(/^\s+/, "").trimEnd();
 			if (!trimmed) continue;
 			const content = sanitizeOneLine(
-				trimmed.replace(/^\S+\s+/, ""),
+				stripCheckboxGlyph(trimmed),
 				MAX_DESCRIPTION,
 			);
 			if (content) items.push(content);
@@ -299,24 +323,52 @@ function readAccessorBoolean(
 }
 
 /**
+ * Marker lines emitted by the stock status footer (stock
+ * `modes/components/execution-shared.ts` `buildStatusFooter`): the
+ * hidden-line hint, the exit/cancel marker, and the truncation notice.
+ */
+const FOOTER_MARKER_LINES = [
+	/^…\s+\d+\s+more lines \(ctrl\+o to expand\)$/i,
+	/^\(cancelled\)$/i,
+	/^\(exit\s+-?\d+\)$/i,
+	/^Showing\b/i,
+];
+
+/**
  * Best-effort recovery of exit/cancel markers from the stock status footer
  * when `setComplete` was not observed (e.g. hydrated history). Prefer
  * observed `setComplete` args; this is only a fallback.
+ *
+ * Both execution components append the footer as the LAST text-bearing
+ * child of their content container (`#updateDisplay`, after header and
+ * output), and every line of it belongs to the marker vocabulary above. A
+ * text node qualifies only when both hold, so unrelated leaves — the
+ * command header (`$ echo "build failed (exit 3)"`), the output text —
+ * fail closed instead of faking an exit code from their content.
  */
 function scrapeExecutionFooter(
 	block: unknown,
 ): Pick<UserExecutionView, "exitCode" | "cancelled"> | undefined {
 	const texts: string[] = [];
 	collectComponentTexts(block, texts);
+	const raw = texts[texts.length - 1];
+	if (raw === undefined) return undefined;
+	const plain = stripRejectedControls(stripAnsi(raw)).trim();
+	if (!plain) return undefined;
+	const lines = plain
+		.split(/\r\n|\n|\r/)
+		.map((line) => line.replace(/\s+/g, " ").trim())
+		.filter((line) => line !== "");
+	if (lines.length === 0) return undefined;
+	if (lines.some((line) => !FOOTER_MARKER_LINES.some((re) => re.test(line)))) {
+		// Not the stock status footer: recover nothing rather than guess.
+		return undefined;
+	}
 	let exitCode: number | undefined;
 	let cancelled: boolean | undefined;
-	for (const raw of texts) {
-		const plain = stripRejectedControls(stripAnsi(raw))
-			.replace(/\s+/g, " ")
-			.trim();
-		if (!plain) continue;
-		if (/\(cancelled\)/i.test(plain)) cancelled = true;
-		const exit = plain.match(/\(exit\s+(-?\d+)\)/i);
+	for (const line of lines) {
+		if (/^\(cancelled\)$/i.test(line)) cancelled = true;
+		const exit = line.match(/^\(exit\s+(-?\d+)\)$/i);
 		if (exit?.[1] !== undefined) {
 			const code = Number(exit[1]);
 			if (Number.isFinite(code)) exitCode = code;

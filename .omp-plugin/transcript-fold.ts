@@ -76,14 +76,8 @@ export interface FoldCallbacks {
 	isTerminal(block: RenderableBlock): boolean;
 }
 
-interface FoldSpan {
-	lead: number;
-	rows: number;
-}
-
 interface FoldRun {
 	members: RenderableBlock[];
-	spans: FoldSpan[];
 	closed: boolean;
 	width: number;
 	rows: Lines;
@@ -491,17 +485,14 @@ export class TranscriptFold {
 
 	#renderRun(run: FoldRun, width: number): Lines {
 		const rows: string[] = [];
-		const spans: FoldSpan[] = [];
 		for (const member of run.members) {
 			const raw = this.#renderBlock(member, width);
 			let lead = 0;
 			while (lead < raw.length && !NON_BLANK.test(raw[lead] ?? "")) lead++;
 			let end = raw.length;
 			while (end > lead && !NON_BLANK.test(raw[end - 1] ?? "")) end--;
-			spans.push({ lead, rows: end - lead });
 			for (let index = lead; index < end; index++) rows.push(raw[index] ?? "");
 		}
-		run.spans = spans;
 		if (
 			run.width === width &&
 			run.rows.length === rows.length &&
@@ -642,7 +633,6 @@ export class TranscriptFold {
 			if (!run) {
 				run = {
 					members: children.slice(index, end + 1) as RenderableBlock[],
-					spans: [],
 					closed: false,
 					width: -1,
 					rows: EMPTY_LINES,

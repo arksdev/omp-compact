@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-	formatGitRecord,
 	formatGitRecords,
 	recognizeGitCommands,
 } from "../../.omp-plugin/git-records";
@@ -75,13 +74,6 @@ describe("git subcommand envelope: write side stays inside the hydration gate", 
 			isError: true,
 		});
 		expect(records).toBeUndefined();
-		expect(
-			formatGitRecord({
-				command,
-				resultText: "fatal: not a git command",
-				isError: true,
-			}),
-		).toBeUndefined();
 
 		// A chain with one over-limit member fails the whole call closed —
 		// mirroring the read gate, which rejects the entire carrier.

@@ -4,6 +4,22 @@
 
 ---
 
+## 1.2.5 — 29 августа 2026
+
+### Исправлено
+
+- Значение, навязанное переменной окружения, больше не записывается в файл настроек: раньше, если сессия начиналась с плагином, отключённым такой переменной, сохранение любой другой настройки отключало плагин насовсем. Сообщение о том, что переменная окружения перекрывает сохранённое значение, теперь появляется и в этом случае.
+- Строки рабочих сессий, которые ещё не завершились, больше не выглядят как завершившиеся ошибкой.
+- Краткая сводка коммита больше не приписывает себе хэш, в котором не уверена: вывод хуков коммита раньше мог быть принят за настоящий хэш.
+- Переключение цветовой темы теперь сразу перекрашивает компактные строки, а не оставляет их в старых цветах до перезапуска.
+- Горячая клавиша, набранная заглавной буквой, теперь действительно срабатывает: раньше она принималась и сохранялась, но привести её в действие было нельзя.
+- Окно настроек больше не ломает раскладку, когда в тексте встречаются широкие символы — например, китайские или японские.
+- Строки напоминаний с чекбоксами больше не искажаются при упрощённом наборе символов.
+- При восстановлении более ранней сессии код завершения команды больше не берётся из текста, который эта команда напечатала.
+- Если хост не предоставляет одну из поверхностей, которые регистрирует плагин, пропускается только эта возможность, а не загрузка всего плагина.
+
+---
+
 ## 1.2.4 — 28 августа 2026
 
 ### Исправлено
@@ -271,7 +287,8 @@ OMP по ходу задачи показывает много больших к
 
 ## Ссылки на сравнение версий
 
-- [Не выпущено ← 1.2.4](https://github.com/arksdev/omp-compact/compare/v1.2.4...HEAD)
+- [Не выпущено ← 1.2.5](https://github.com/arksdev/omp-compact/compare/v1.2.5...HEAD)
+- [1.2.5 ← 1.2.4](https://github.com/arksdev/omp-compact/compare/v1.2.4...v1.2.5)
 - [1.2.4 ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...v1.2.4)
 - [1.2.3 ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...v1.2.3)
 - [1.2.2 ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...v1.2.2)
@@ -292,6 +309,22 @@ OMP по ходу задачи показывает много больших к
 # omp-compact changelog
 
 In plain words — what changed for a person working in OMP with this plugin.
+
+---
+
+## 1.2.5 — 29 August 2026
+
+### Fixed
+
+- A setting forced by an environment variable is no longer written into the saved settings file: previously, starting a session with the plugin disabled through an environment variable and then saving any unrelated setting disabled the plugin for good. The notice explaining that an environment variable overrides a saved value now appears in that case too.
+- Rows for worker sessions that are still finishing are no longer drawn as failures.
+- The commit summary no longer credits a commit hash it cannot recognise with confidence — output from commit hooks could previously be mistaken for the real thing.
+- Switching the colour theme now repaints the compact rows immediately, instead of leaving them in the old colours until a restart.
+- A shortcut typed with a capital letter now works: it used to be accepted and saved, but could never actually fire.
+- The settings window no longer breaks its layout when the text contains wide characters such as Chinese or Japanese.
+- Reminder rows with checkboxes are no longer mangled when the simplified symbol set is in use.
+- When restoring an earlier session, a command's exit status is no longer taken from the text the command printed.
+- If the host does not provide one of the surfaces the plugin registers, that single feature is skipped instead of the whole plugin failing to load.
 
 ---
 
@@ -562,7 +595,8 @@ During a task OMP shows many large cards: reads, searches, commands, edits. Afte
 
 ## Version comparison links
 
-- [Unreleased ← 1.2.4](https://github.com/arksdev/omp-compact/compare/v1.2.4...HEAD)
+- [Unreleased ← 1.2.5](https://github.com/arksdev/omp-compact/compare/v1.2.5...HEAD)
+- [1.2.5 ← 1.2.4](https://github.com/arksdev/omp-compact/compare/v1.2.4...v1.2.5)
 - [1.2.4 ← 1.2.3](https://github.com/arksdev/omp-compact/compare/v1.2.3...v1.2.4)
 - [1.2.3 ← 1.2.2](https://github.com/arksdev/omp-compact/compare/v1.2.2...v1.2.3)
 - [1.2.2 ← 1.2.1](https://github.com/arksdev/omp-compact/compare/v1.2.1...v1.2.2)

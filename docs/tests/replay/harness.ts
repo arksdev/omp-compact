@@ -20,6 +20,9 @@ import {
 
 const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
+/** Boot counter for per-boot unique settings filenames. */
+let bootSeq = 0;
+
 type Handler = (
 	event: Record<string, unknown>,
 	context: BootedPlugin["context"],
@@ -79,9 +82,12 @@ export async function bootReplay(options: {
 		...DEFAULT_SETTINGS,
 		stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
 	};
+	// Per-boot unique settings file: replay fixtures differ per id, and the
+	// same suite runs concurrently in multiple processes — a shared filename
+	// would let process B's fixture settings leak into process A's boot.
 	const modeConfigPath = writeStockSettings(
 		bootSettings,
-		"replay-settings.json",
+		`replay-settings-${process.pid}-${Number(++bootSeq)}.json`,
 	);
 	const previousModeConfig = Bun.env.OMP_COMPACT_CONFIG;
 	Bun.env.OMP_COMPACT_CONFIG = modeConfigPath;

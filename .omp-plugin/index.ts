@@ -120,8 +120,25 @@ function adapterUI(context: ExtensionContext, root: unknown): AdapterUI {
 	const ui = context.ui as ExtensionContext["ui"] & {
 		getToolsExpanded?: () => boolean;
 	};
+	// `/theme` reassigns the host's live theme binding (`export var theme`
+	// in the host's modes/theme/theme.ts, swapped via setTheme), and
+	// `context.ui.theme` is a getter over
+	// that binding. Snapshotting it here froze every compact row on the boot
+	// palette until the session restarted, while the message renderers and
+	// statsRenderer already read the host getter per call. The eager read below
+	// keeps bring-up validation: a host whose accessor throws must fail open
+	// once at bring-up rather than from inside a host render call.
+	const bootTheme = context.ui.theme;
 	return {
-		theme: context.ui.theme,
+		get theme(): AdapterUI["theme"] {
+			try {
+				return context.ui.theme;
+			} catch {
+				// An accessor that starts throwing mid-session keeps rows on the
+				// last known-good palette instead of throwing into host paint.
+				return bootTheme;
+			}
+		},
 		setWidget: context.ui.setWidget.bind(context.ui) as AdapterUI["setWidget"],
 		requestRender: requestMethod(root, "requestRender"),
 		requestComponentRender: requestMethod(root, "requestComponentRender"),
@@ -172,6 +189,32 @@ function commitDetails(
 
 export default function ompCompact(pi: ExtensionAPI): void {
 	pi.setLabel("omp-compact");
+
+	// Guarded host registrations, same degrade contract as
+	// registerSettingsCommand: a host without the surface (older runtime, RPC
+	// shim) must not take the plugin down — the feature is skipped with a
+	// warning, every other feature keeps working. The narrow casts mirror the
+	// host signatures; the pinned host's implementations are pure in-memory
+	// writes, so these only fire on hosts that lack the surface.
+	const listen = ((event: string, handler: unknown) => {
+		try {
+			(pi.on as (event: string, handler: unknown) => void)(event, handler);
+		} catch {
+			defaultWarn(`event subscription skipped (${event} unavailable)`);
+		}
+	}) as unknown as ExtensionAPI["on"];
+	const registerRenderer = ((customType: string, renderer: unknown) => {
+		try {
+			(
+				pi.registerMessageRenderer as (
+					customType: string,
+					renderer: unknown,
+				) => void
+			)(customType, renderer);
+		} catch {
+			defaultWarn(`message renderer skipped (${customType} unavailable)`);
+		}
+	}) as unknown as ExtensionAPI["registerMessageRenderer"];
 
 	// Public SDK registry seam shared with post-turn-shake: resolves the live
 	// main AgentSession (identity-checked against each command context).
@@ -668,21 +711,21 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	}
 
-	pi.registerMessageRenderer<
-		MutationMessageDetails | LegacyMutationMessageDetails
-	>(MUTATION_MESSAGE_TYPE, (message, _context, theme) =>
-		mutationMessageComponent(message.details, theme),
+	registerRenderer<MutationMessageDetails | LegacyMutationMessageDetails>(
+		MUTATION_MESSAGE_TYPE,
+		(message, _context, theme) =>
+			mutationMessageComponent(message.details, theme),
 	);
-	pi.registerMessageRenderer<GitMessageDetails>(
+	registerRenderer<GitMessageDetails>(
 		GIT_MESSAGE_TYPE,
 		(message, _context, theme) => gitMessageComponent(message.details, theme),
 	);
-	pi.registerMessageRenderer<RunStatsEvidence>(
+	registerRenderer<RunStatsEvidence>(
 		STATS_MESSAGE_TYPE,
 		(message, _context, theme) => statsMessageComponent(message.details, theme),
 	);
 
-	pi.on("session_start", async (_event, context) => {
+	listen("session_start", async (_event, context) => {
 		// RuntimeModes: never install the runtime before the first settings
 		// resolution — a persisted `enabled=false` must not see a transient
 		// adapter (wrappers/timers) even for an instant.
@@ -709,7 +752,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("session_switch", async (event, context) => {
+	listen("session_switch", async (event, context) => {
 		// Restore view (upgrade2 item 3): an in-process entry into an
 		// existing session (`/resume` picker, `ctx.switchSession`, reload)
 		// arrives as `session_switch` with reason "resume" — emitted after
@@ -730,7 +773,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		ensureAdapter(context);
 	});
 
-	pi.on("session_compact", async () => {
+	listen("session_compact", async () => {
 		// Successful LLM compaction (manual /compact or auto context-full):
 		// stock writes the compaction entry then rebuilds the transcript via
 		// rebuildChatFromMessages with display.collapseCompacted (default
@@ -745,7 +788,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		modePolicy.armCollapsedRebuild();
 	});
 
-	pi.on("session_tree", async (event) => {
+	listen("session_tree", async (event) => {
 		// Committed `/tree` navigation (and equivalent navigateTree callers):
 		// stock emits `session_tree` only AFTER the leaf move lands and BEFORE
 		// the caller's `renderInitialMessages` rebuild (disposeChildren +
@@ -759,7 +802,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		adapter?.noteTreeIntent(event);
 	});
 
-	pi.on("session_branch", async () => {
+	listen("session_branch", async () => {
 		// Committed `/branch` (AgentSession.branch and equivalent callers):
 		// stock emits `session_branch` only AFTER the branched session file
 		// lands and BEFORE the caller's `renderInitialMessages` rebuild
@@ -774,7 +817,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		if (modePolicy.enabled) modePolicy.armRestoreOverride();
 	});
 
-	pi.on("agent_start", async (_event, context) => {
+	listen("agent_start", async (_event, context) => {
 		// RuntimeModes: a logical run starts here and spans toolUse/
 		// willContinue continuations. The mode snapshot is captured only at
 		// the start (settings changes apply at the next idle boundary, never
@@ -809,7 +852,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		runStats.start();
 	});
 
-	pi.on("message_update", async (event) => {
+	listen("message_update", async (event) => {
 		adapter?.observeAssistantMessage(event.message);
 	});
 
@@ -821,14 +864,14 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// usage filter: advisor cards, non-assistant messages, and completions
 	// without a real usage record never count, while an empty/all-zero usage
 	// object is a legitimate completion and counts once.
-	pi.on("message_end", async (event) => {
+	listen("message_end", async (event) => {
 		const message = objectRecord(event.message);
 		if (message.role !== "assistant") return;
 		if (!hasAssistantUsage(message)) return;
 		runStats.observeAssistantMessage(message);
 	});
 
-	pi.on("tool_execution_start", async (event, context) => {
+	listen("tool_execution_start", async (event, context) => {
 		// RunStats: count every distinct execution here, deduplicated by
 		// toolCallId — independent of adapter mapping.
 		runStats.recordTool(event.toolCallId);
@@ -869,7 +912,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("tool_execution_update", async (event) => {
+	listen("tool_execution_update", async (event) => {
 		adapter?.updateTool({
 			toolCallId: event.toolCallId,
 			toolName: event.toolName,
@@ -879,7 +922,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		});
 	});
 
-	pi.on("tool_execution_end", async (event: ToolExecutionEndEvent) => {
+	listen("tool_execution_end", async (event: ToolExecutionEndEvent) => {
 		// RunStats: failed executions mark the run's row as dirty (warning
 		// separators); distinct action counting happens at start.
 		if (event.isError === true) runStats.recordToolError(event.toolCallId);
@@ -893,8 +936,12 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// The same effective audit kind selects the end-path consumption;
 		// unknown/native-live/routine tools and device dispatches fall through
 		// with no audit work. `endWrite` is a no-op without a start record, so
-		// a mid-call settings change cannot strand one.
-		switch (resolveToolAudit(event.toolName, event.args)) {
+		// a mid-call settings change cannot strand one. The end event carries
+		// no `args` (see the host's `ToolExecutionEndEvent`), so the resolve
+		// here can only see the static kind: device re-checking already
+		// happened at start, and the no-op conditions above keep the residual
+		// difference inert.
+		switch (resolveToolAudit(event.toolName)) {
 			case "write":
 				// Consume the record registered synchronously at start; capture,
 				// post-image audit, and publish run exactly once inside the
@@ -934,6 +981,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					});
 					if (records && records.length > 0) {
 						const first = records[0];
+						if (!first) return;
 						const details: GitMessageDetails = {
 							version: 1,
 							toolCallId: event.toolCallId,
@@ -955,7 +1003,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("agent_end", (event, context) => {
+	listen("agent_end", (event, context) => {
 		// Snapshot the run's audit records synchronously at emission: work
 		// registered later (a continuation run) must not join this drain.
 		const runAudit = auditLifecycle.snapshot();
@@ -1078,10 +1126,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		decorativeWarned.clear();
 	}
 
-	pi.on("session_before_switch", async () => {
+	listen("session_before_switch", async () => {
 		dispose();
 	});
-	pi.on("session_shutdown", async () => {
+	listen("session_shutdown", async () => {
 		dispose();
 	});
 }

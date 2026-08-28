@@ -90,7 +90,7 @@ Session-scoped state manager. Owns:
 **Lifecycle methods:**
 - `beginRun()` — creates new ledger, bumps it
 - `endRun(AgentEndEvent)` — finalizes ledger, retires pending states
-- `hydrateBranch()`, `beginRebuild()`, `commitRebuild()`, `abortRebuild()` — entry points that delegate to `RebuildLifecycle` (see below); the class keeps the mutable stores, the lifecycle module owns the walks
+- `hydrateBranch()`, `beginRebuild()`, `commitRebuild()` — entry points that delegate to `RebuildLifecycle` (see below); the class keeps the mutable stores, the lifecycle module owns the walks
 - `dispose()` — clears all maps
 
 **Tool state management:**
@@ -115,7 +115,6 @@ so the walks are reviewable in isolation.
 - `hydrateBranch(entries)` — session_start replay: parses typed branch entries into ledgers/states, hydrates persisted evidence, reinserts stats carriers
 - `beginRebuild()` — bumps generation, snapshots active working ownership, retires historical bindings
 - `commitRebuild(snapshot, options)` — generation-guarded settlement: merges branch states into preserved active ownership, binds rehydrated components
-- `abortRebuild(snapshot)` — clears the rebuild marker and preserved identity window for the matching generation
 
 One shared `#walkBranch` serves both replay and commit; a pure replay passes no
 active ledger, a rebuild commit passes the preserved one. The seam back into

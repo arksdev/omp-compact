@@ -20,9 +20,15 @@
 		"types": ["bun"],
 		"typeRoots": ["./node_modules/@types"]
 	},
-	"include": ["**/*.ts"],
+	"include": ["**/*.ts", ".omp-plugin/**/*.ts"],
 	// Fourth entry is one directory literally named "reports, ideas, features"
 	// (commas and spaces in the name). Splitting it into three elements would
 	// silently un-exclude that directory.
-	"exclude": ["node_modules", "omp-compact", "runtime", "reports, ideas, features", "tools"]
+	"exclude": [
+		"node_modules",
+		"omp-compact",
+		"runtime",
+		"reports, ideas, features",
+		"tools"
+	]
 }

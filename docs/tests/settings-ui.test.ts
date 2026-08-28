@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -232,6 +239,21 @@ describe("command registration", () => {
 				handler: async () => {},
 			}),
 		).toBe("compact-settings");
+	});
+
+	test("registerSettingsCommand tolerates a throwing registerCommand", () => {
+		const pi = {
+			getCommands: () => [],
+			registerCommand: () => {
+				throw new Error("RPC shim: command registration unavailable");
+			},
+		};
+		expect(
+			registerSettingsCommand(pi, {
+				description: "d",
+				handler: async () => {},
+			}),
+		).toBeUndefined();
 	});
 });
 
@@ -1159,6 +1181,140 @@ describe("env override notification on save", () => {
 			"omp-compact settings saved; effective enabled remains false because OMP_COMPACT_PLUGIN=0",
 		);
 	});
+
+	// End-to-end against the REAL store on a temp config: the dialog is
+	// seeded from the effective snapshot (index.ts) and hands that whole
+	// snapshot back, so a hard override must neither reach the file nor
+	// silence the masking notice.
+	test("an unrelated save under OMP_COMPACT_PLUGIN=0 keeps the file's enabled and still reports the mask", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "omp-compact-envbake-"));
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_PLUGIN: "0" },
+			warn: () => {},
+		});
+		const initial = await store.load();
+		expect(initial.enabled).toBe(false);
+		const notifies: Array<[string, string]> = [];
+		const outcome = await saveSettingsFlow(
+			{ ...initial, compactPaths: false },
+			{ store, notify: (level, message) => notifies.push([level, message]) },
+		);
+		// The override never reaches the file…
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.enabled).toBe(true);
+		expect(raw.compactPaths).toBe(false);
+		// …and the honesty mechanism still fires: the persisted enabled=true
+		// cannot take effect while OMP_COMPACT_PLUGIN=0 is set.
+		expect(outcome.persisted.enabled).toBe(true);
+		expect(outcome.effective.enabled).toBe(false);
+		expect(outcome.masks).toEqual([
+			{ field: "enabled", effective: false, by: ["OMP_COMPACT_PLUGIN"] },
+		]);
+		expect(notifies).toEqual([
+			[
+				"info",
+				"omp-compact settings saved; effective enabled remains false because OMP_COMPACT_PLUGIN=0",
+			],
+		]);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("an unrelated save under OMP_COMPACT_MODE keeps the file's mode and still reports the mask", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "omp-compact-envbake-"));
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_MODE: "live" },
+			warn: () => {},
+		});
+		const initial = await store.load();
+		expect(initial.mode).toBe("live");
+		const notifies: Array<[string, string]> = [];
+		const outcome = await saveSettingsFlow(
+			{ ...initial, compactPaths: false },
+			{ store, notify: (level, message) => notifies.push([level, message]) },
+		);
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.mode).toBe("compact");
+		expect(raw.compactPaths).toBe(false);
+		expect(outcome.persisted.mode).toBe("compact");
+		expect(outcome.masks).toEqual([
+			{ field: "mode", effective: "live", by: ["OMP_COMPACT_MODE"] },
+		]);
+		expect(notifies[0]?.[1]).toBe(
+			"omp-compact settings saved; effective mode remains live because OMP_COMPACT_MODE=live",
+		);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("without an override the whole snapshot persists verbatim and nothing is masked", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "omp-compact-envbake-"));
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: true, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({ path: file, env: {}, warn: () => {} });
+		const initial = await store.load();
+		const notifies: Array<[string, string]> = [];
+		const outcome = await saveSettingsFlow(
+			{ ...initial, compactPaths: false },
+			{ store, notify: (level, message) => notifies.push([level, message]) },
+		);
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.enabled).toBe(true);
+		expect(raw.mode).toBe("compact");
+		expect(raw.compactPaths).toBe(false);
+		expect(outcome.masked).toBe(false);
+		expect(notifies).toEqual([["info", "omp-compact settings saved"]]);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a real user edit of an env-masked field persists and is reported as masked", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "omp-compact-envbake-"));
+		const file = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			file,
+			JSON.stringify({ version: 1, enabled: false, mode: "compact" }),
+			"utf8",
+		);
+		const store = createSettingsStore({
+			path: file,
+			env: { OMP_COMPACT_PLUGIN: "0" },
+			warn: () => {},
+		});
+		const initial = await store.load();
+		const notifies: Array<[string, string]> = [];
+		// The user flips the masked row to the opposite of what env forces.
+		const outcome = await saveSettingsFlow(
+			{ ...initial, enabled: true },
+			{ store, notify: (level, message) => notifies.push([level, message]) },
+		);
+		const raw = JSON.parse(await readFile(file, "utf8")) as CompactSettings;
+		expect(raw.enabled).toBe(true);
+		expect(outcome.effective.enabled).toBe(false);
+		expect(notifies[0]?.[1]).toBe(
+			"omp-compact settings saved; effective enabled remains false because OMP_COMPACT_PLUGIN=0",
+		);
+		await rm(dir, { recursive: true, force: true });
+	});
 });
 
 describe("dialog save notification contract", () => {
@@ -1701,30 +1857,47 @@ describe("rendering safety", () => {
 		expect(truncateAnsiSafe(styled, 20)).toBe(styled);
 	});
 
-	test("truncateAnsiSafe counts code points and never splits surrogate pairs", () => {
-		const emoji = "🚀".repeat(6); // 12 UTF-16 units, 6 code points
-		const truncated = truncateAnsiSafe(emoji, 3);
-		expect(stripAnsi(truncated)).toBe("🚀".repeat(3));
-		expect(truncated.endsWith("\x1b[0m")).toBe(true);
-		// 6 code points fit a width of 6 despite 12 UTF-16 units
-		expect(truncateAnsiSafe(emoji, 6)).toBe(emoji);
-		// styled astral content keeps escapes intact and closes the reset
+	test("truncateAnsiSafe counts terminal cells and never splits surrogate pairs", () => {
+		// The budget is terminal cells, not code points: each 🚀 paints two
+		// columns, so a second one would need columns 3-4 of a 3-column
+		// budget and is dropped whole rather than half-emitted.
+		// Unstyled text cut at a boundary needs no reset (nothing is open);
+		// styled cuts below assert the reset that closes color state.
+		// Three glyphs are exactly 6 cells: byte-identical, no reset.
+		expect(truncateAnsiSafe("🚀🚀🚀", 6)).toBe("🚀🚀🚀");
+		// Styled astral content keeps escapes intact and closes the reset;
+		// "a" would land in column 3 of a 2-column budget.
 		const styled = "\x1b[31m🚀ab\x1b[39m";
 		const styledTruncated = truncateAnsiSafe(styled, 2);
-		expect(stripAnsi(styledTruncated)).toBe("🚀a");
+		expect(stripAnsi(styledTruncated)).toBe("🚀");
 		expect(styledTruncated.endsWith("\x1b[0m")).toBe(true);
+		// A cut must never land between the UTF-16 units of an astral glyph:
+		// an index-based slice of "x🚀y" at width 2 would split the pair.
+		expect(stripAnsi(truncateAnsiSafe("x🚀y", 2))).toBe("x");
+		expect(stripAnsi(truncateAnsiSafe("x🚀y", 3))).toBe("x🚀");
 	});
 
-	test("truncateAnsiSafe drops DEL, C1, and line separators from visible text", () => {
-		// Shared rejected class: controls never count toward width and never
-		// land in the truncated output. Astral characters still count as one.
-		const dirty = "a\x7Fb\x9Bc\u2028d\u2029e🚀";
-		const truncated = truncateAnsiSafe(dirty, 10);
-		expect(stripAnsi(truncated)).toBe("abcde🚀");
-		expect(truncated.includes("\x7f")).toBe(false);
-		expect(truncated.includes("\x9b")).toBe(false);
-		expect(truncated.includes("\u2028")).toBe(false);
-		expect(truncated.includes("\u2029")).toBe(false);
+	test("truncateAnsiSafe budgets terminal cells, not code points", () => {
+		// Two 2-cell glyphs fill a 4-column budget exactly; the old walk
+		// counted each glyph as one cell and emitted three (6 columns).
+		expect(stripAnsi(truncateAnsiSafe("日本語", 4))).toBe("日本");
+		expect(stripAnsi(truncateAnsiSafe("日本語", 5))).toBe("日本");
+		expect(stripAnsi(truncateAnsiSafe("日本語", 6))).toBe("日本語");
+	});
+
+	test("truncateAnsiSafe never half-emits a wide glyph at the budget boundary", () => {
+		// 本 is 2 cells: a budget of 2 must not emit half of the following
+		// wide glyph, and the host's truncation drops everything past a
+		// glyph that would straddle the edge.
+		expect(stripAnsi(truncateAnsiSafe("x本y", 1))).toBe("x");
+		expect(stripAnsi(truncateAnsiSafe("x本y", 2))).toBe("x");
+		expect(stripAnsi(truncateAnsiSafe("x本y", 3))).toBe("x本");
+		expect(stripAnsi(truncateAnsiSafe("x本y", 4))).toBe("x本y");
+	});
+
+	test("truncateAnsiSafe keeps combining marks with their base glyph", () => {
+		expect(stripAnsi(truncateAnsiSafe("e\u0301x", 1))).toBe("e\u0301");
+		expect(truncateAnsiSafe("e\u0301x", 2)).toBe("e\u0301x");
 	});
 });
 
@@ -2249,7 +2422,7 @@ describe("display cycle: keypress handler", () => {
 });
 
 describe("display cycle: dialog row", () => {
-	test("the row shows the current chord and edits as free text", () => {
+	test("the row shows the current chord and commits it in canonical spelling", () => {
 		const { dialog } = makeDialog();
 		expect(renderedValue(dialog, "Cycle shortcut")).toBe("alt+c");
 		focus(dialog, "Cycle shortcut");
@@ -2259,7 +2432,24 @@ describe("display cycle: dialog row", () => {
 		expect(lines(dialog)[lines(dialog).length - 1]).toContain("chord edit");
 		for (const ch of "alt+shift+d") dialog.handleInput(ch);
 		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.displayCycleKey).toBe("alt+shift+d");
+		// Committed in canonical form: the row echoes the host's modifier
+		// order (ctrl > shift > alt > super), the spelling the store
+		// persists and the host registers.
+		expect(dialog.current.displayCycleKey).toBe("shift+alt+d");
+		expect(dialog.isDirty).toBe(true);
+	});
+
+	test("an uppercase chord commits in canonical spelling", () => {
+		// The canonicalise-not-reject decision: `alt+Q` is a valid chord; the
+		// dialog echoes the canonical form the store persists and the host
+		// registers (`shift+alt+q` — the id the physical press derives), not
+		// the raw typed text.
+		const { dialog } = makeDialog();
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		for (const ch of "alt+Q") dialog.handleInput(ch);
+		dialog.handleInput(KEY_ENTER);
+		expect(dialog.current.displayCycleKey).toBe("shift+alt+q");
 		expect(dialog.isDirty).toBe(true);
 	});
 
