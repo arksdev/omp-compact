@@ -3204,25 +3204,17 @@ stockTest(
 		expect(textBefore).toContain("• bash: printf theme-swap");
 		expect(textBefore).toContain("• read src/theme-swap.ts");
 		expect(rawBefore).toContain(dimBefore);
-		// Run the host's real `/theme <name>` swap on the shared binding. The
-		// import uses the same file URL as the host harness so the ESM cache
-		// returns the module whose `theme` binding `host.getTheme()` reads —
-		// a static specifier cannot share that module identity, and the host's
-		// subpath is not a runtime registry key for the test runner either.
-		const themeModule = await import(
-			new URL(
-				"../../node_modules/@oh-my-pi/pi-coding-agent/src/modes/theme/theme.ts",
-				import.meta.url,
-			).href
-		);
-		expect(themeModule.theme).toBe(booted.host.getTheme());
+		// Run the host's real `/theme <name>` swap on the binding the harness
+		// hands back: `loadStockHost` derives theme.ts from the same package
+		// root as the host itself (OMP_STOCK_BIN), so a second module
+		// instance is impossible by construction.
 		// The host theme binding is process-global: every test in this file
 		// shares it, so restore the pre-test theme even when an assertion
 		// fails mid-test (each bootPlugin re-inits it, but the binding must
 		// not leak to tests that read it without rebooting).
-		const previousTheme = themeModule.getCurrentThemeName() ?? "dark";
+		const previousTheme = booted.host.getCurrentThemeName() ?? "dark";
 		try {
-			const swapped = await themeModule.setTheme("light-dunes");
+			const swapped = await booted.host.setTheme("light-dunes");
 			expect(swapped.success).toBe(true);
 			const dimAfter = booted.host.getTheme().getFgAnsi("dim");
 			expect(dimAfter).not.toBe(dimBefore);
@@ -3237,9 +3229,9 @@ stockTest(
 			// Restore the name that was active before the swap, not a
 			// hardcoded default — a hardcoded value would itself leak when
 			// the suite runs under a non-default theme.
-			const restored = await themeModule.setTheme(previousTheme);
+			const restored = await booted.host.setTheme(previousTheme);
 			expect(restored.success).toBe(true);
-			expect(themeModule.getCurrentThemeName()).toBe(previousTheme);
+			expect(booted.host.getCurrentThemeName()).toBe(previousTheme);
 		}
 		await shutdown(booted);
 	},

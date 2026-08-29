@@ -116,6 +116,10 @@ export interface HostModules {
 		getFgAnsi(color: string): string;
 	};
 	initTheme: () => Promise<void>;
+	/** `/theme` swap on the same theme module instance `getTheme()` reads. */
+	setTheme: (name: string) => Promise<{ success: boolean; error?: string }>;
+	/** Name of the active theme, or undefined before the first init/swap. */
+	getCurrentThemeName: () => string | undefined;
 }
 
 /** True when the pinned stock binary is on the environment. */
@@ -201,6 +205,8 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		).constructor,
 		getTheme: () => themeModule.theme,
 		initTheme: themeModule.initTheme,
+		setTheme: themeModule.setTheme,
+		getCurrentThemeName: themeModule.getCurrentThemeName,
 	};
 }
 

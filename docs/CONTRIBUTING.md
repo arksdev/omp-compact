@@ -549,6 +549,91 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 
 ---
 
+## Host Version Bump Checklist
+
+The repository pins stock OMP through two independent numbers (see
+`context/host-pin-versus-public-floor.md`):
+
+- **Gate pin** — `devDependencies["@oh-my-pi/pi-coding-agent"]` in the root
+  `package.json` plus `HostAdapter1731.hostVersion` in `.omp-plugin/host-adapter.ts`.
+  It records the release on which the plugin's critical private surfaces were verified.
+- **Public floor** — `engines.omp` in the root `package.json`. It records the release
+  below which the plugin cannot recognise the host at all.
+
+The two move independently: a fingerprint-preserving release raises the gate pin alone
+and leaves the floor alone. Only a change inside `TRANSCRIPT_CRITICAL_METHODS` — or in
+the tool/read-group shapes (`TOOL_METHODS` / `READ_GROUP_METHODS`) — is a reason to move
+the floor.
+
+**Diff checklist.** `node_modules` is not version-controlled, so compare the two
+installed trees directly:
+
+```bash
+diff -rq node_modules/@oh-my-pi/pi-coding-agent/src \
+  runtime/omp-<new>/node_modules/@oh-my-pi/pi-coding-agent/src
+```
+
+Then `diff -u` scoped per file. All paths are relative to
+`node_modules/@oh-my-pi/pi-coding-agent/`:
+
+1. `src/modes/components/transcript-container.ts` — any new method that renders blocks
+   bypassing `render`, and any change to the methods the fold wraps (`render`,
+   `renderTail`, `addChild`, `clear`, `peekFinalizedBatch`, `peekReplayBatch`,
+   `peekFlushBatch`, `acknowledgeFinalizedBatch`).
+2. `src/modes/controllers/event-controller.ts` — changed terminality conditions
+   (`isTerminal`, background-task call ids, orphaned tool completions), any new path that
+   completes a tool card.
+3. `src/modes/controllers/input-controller.ts` + `src/session/agent-session.ts` — the
+   await contract for plugin callbacks: shortcuts called without `await`, commands
+   awaited inside `try/catch`.
+4. `src/modes/components/tool-execution.ts` — the set of callbacks `component-binding.ts`
+   observes (`updateArgs`, `updateResult`, `setArgsComplete`, `setExpanded`). The real
+   filename is `tool-execution.ts`; some plan notes in `code-review/` call it
+   `tool-execution-component.ts`.
+5. `src/modes/components/read-tool-group.ts` and `src/modes/utils/ui-helpers.ts` — shape
+   changes.
+6. `src/config/keybindings.ts` and `src/config/settings-schema.ts` — the plugin reads both
+   (display-cycle shortcut validation, host-settings bridge).
+
+**Isolated verification.** Create `runtime/omp-<version>/` mirroring an existing copy
+(`runtime/omp-17.3.1/`): `package.json` (candidate version), `.gitignore`,
+`launcher.test.ts` — do not copy `test.md` or `.omp-compact-test/`. Point the `compact`
+script at the repo's plugin entry (`-e ../../.omp-plugin/index.ts`, not the stale
+`../../plugins/omp-compact/index.ts` the old copies carry), then:
+
+```bash
+cd runtime/omp-<version> && bun install
+cd ../.. && OMP_STOCK_BIN=./runtime/omp-<version>/node_modules/.bin/omp \
+  bun test --timeout=120000 docs/tests
+```
+
+This executes the stock-host tests against the candidate host without moving the root
+pin. The only expected failure is the hardcoded version assertion in
+`docs/tests/host-adapter.test.ts` (`stockHostVersion()` pin); any other failure is a real
+regression.
+
+Run `docs/tests/host-patch-surface.test.ts` as the live arity/presence guard: it catches a
+missing method or a changed `Function.prototype.length` on the patched surface. It cannot
+catch changed semantics (e.g. the shortcut `await` contract) — that is what the diff
+checklist above is for.
+
+For every new host path that completes a transcript row, confirm it stamps `settledAt` —
+see `context/settled-frame-clock.md` for the four current paths and why the drain of
+historical pending rows intentionally does not stamp.
+
+**Pin-move edit list** (when the decision is to raise the gate pin):
+
+- Root `package.json` devDependency and `bun.lock` (via `bun install`).
+- `HostAdapter1731.hostVersion` in `.omp-plugin/host-adapter.ts`.
+- The version story comment block in `.omp-plugin/host-surface.ts`.
+- The `18.0.8` assertions in `docs/tests/host-adapter.test.ts` and
+  `docs/tests/marketplace.test.ts`.
+- `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`.
+- Prose pins in `docs/CONTRIBUTING.md`, `docs/ARCHITECTURE.md`,
+  `docs/FULL-DOCUMENTATION.md`, `README.md`, `README.en.md`.
+
+---
+
 ## Getting Help
 
 - **Bug reports and questions:** [GitHub Issues](https://github.com/arksdev/omp-compact/issues)
