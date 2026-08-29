@@ -596,6 +596,60 @@ stockTest(
 	},
 );
 
+stockTest(
+	"a failing display-cycle keypress notifies instead of crashing the host",
+	async () => {
+		// Stock awaits extension *command* handlers inside a try/catch
+		// (`session/agent-session.ts` `#tryExecuteExtensionCommand`) but calls
+		// *shortcut* handlers without awaiting
+		// (`modes/controllers/input-controller.ts`
+		// `registerExtensionShortcuts`), so its try/catch only catches
+		// synchronous throws. An async rejection from the plugin's handler
+		// would reach the process-level `unhandledRejection` hook, which
+		// `pi-utils/postmortem.ts` treats as fatal — one keypress on a
+		// read-only config file would end the user's session.
+		let handler:
+			| ((ctx: BootedPlugin["context"]) => Promise<void> | void)
+			| undefined;
+		const booted = await bootPlugin(undefined, "/tmp", [], false, undefined, {
+			piMutate: (pi) => {
+				pi.registerShortcut = (
+					_chord: string,
+					options: {
+						handler: (ctx: BootedPlugin["context"]) => Promise<void> | void;
+					},
+				) => {
+					handler = options.handler;
+				};
+			},
+		});
+		expect(handler).toBeDefined();
+
+		const notifications: string[] = [];
+		const ctx = {
+			...booted.context,
+			ui: {
+				...booted.context.ui,
+				notify: (message: string) => {
+					notifications.push(message);
+				},
+				// The cycle reads the theme before saving; a throwing getter
+				// stands in for any failure inside the handler body.
+				get theme(): never {
+					throw new Error("theme unavailable");
+				},
+			},
+		} as unknown as BootedPlugin["context"];
+
+		// Must resolve: the rejection is contained and reported.
+		await expect(handler?.(ctx)).resolves.toBeUndefined();
+		expect(notifications).toHaveLength(1);
+		expect(notifications[0]).toContain("display cycle failed");
+		expect(notifications[0]).toContain("theme unavailable");
+		await shutdown(booted);
+	},
+);
+
 stockTest("expanded live tools delegate to the native renderer", async () => {
 	const booted = await bootWithTranscript();
 	await beginRun(booted);
@@ -11392,6 +11446,72 @@ stockTest(
 		expect(afterTick[0]).toContain(
 			"⟦f⟧ late-worker 1t bash: Running the suite",
 		);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a settled vibe card renders identically on a later repaint",
+	async () => {
+		// End-to-end cover for the adapter -> renderer frame clock: the tool
+		// state stamps `settledAt` at its end event, `#renderBlock` threads it
+		// into the view, and the vibe renderer measures its TTLs against that
+		// instead of paint time. Without the wiring the host's own repaint
+		// paths (resize `renderTail`, replay, shutdown flush) re-measure
+		// against a later wall clock and the settlement card disappears from
+		// committed scrollback while the rows above it stay intact.
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const wait = await addTool(
+			booted,
+			"vibe_wait",
+			{ sessions: ["ttl-worker"] },
+			"vibe-wait-ttl",
+		);
+		wait.render = () => ["native-vibe-wait-ttl"];
+		await finishTool(booted, wait, {
+			toolCallId: "vibe-wait-ttl",
+			toolName: "vibe_wait",
+			result: {
+				content: [{ type: "text", text: "Worker failed." }],
+				details: {
+					op: "wait",
+					screens: [
+						{
+							id: "ttl-worker",
+							cli: "fast",
+							state: "idle",
+							turns: 1,
+							queued: 0,
+							lastIntent: "boom",
+							trace: [],
+							outputTail: [],
+							lastActivityAt: Date.now(),
+						},
+					],
+					wait: {
+						settled: [{ id: "ttl-worker", jobId: "job-ttl", status: "failed" }],
+						stillRunning: [],
+						timedOut: false,
+					},
+				},
+			},
+			isError: false,
+		});
+
+		const settled = visibleRows(booted.transcript);
+		expect(settled.join("\n")).toContain("turn failed");
+
+		// Repaint the same committed block well past the settlement TTL. The
+		// frozen clock makes the rows a pure function of the evidence, so the
+		// failure card must still be there.
+		const realNow = Date.now;
+		Date.now = () => realNow() + 3_600_000;
+		try {
+			expect(visibleRows(booted.transcript)).toEqual(settled);
+		} finally {
+			Date.now = realNow;
+		}
 		await shutdown(booted);
 	},
 );

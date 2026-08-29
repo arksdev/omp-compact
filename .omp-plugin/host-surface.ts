@@ -113,13 +113,19 @@ export const TRANSCRIPT_FOLD_METHODS = [
 ] as const;
 
 /**
- * Fold-patched transcript methods that only newer hosts expose. 18.0.6
- * routes the complete-history replay through `peekReplayBatch`, and that
- * path renders blocks too, so it must replan like the rest. Patched only
- * when the instance really has it: defining a method the host never had
- * would invent a capability the rest of the adapter probes for.
+ * Fold-patched transcript methods that only newer hosts expose. Each renders
+ * blocks, so each must replan like the rest of the critical surface:
+ * - `peekReplayBatch` (18.0.6): complete-history replay via `resetDisplay`.
+ * - `renderTail`: the terminal's resize repaint of the trailing rows.
+ * - `peekFlushBatch`: the zero-capacity shutdown flush of remaining history.
+ * Patched only when the instance really has them: defining a method the host
+ * never had would invent a capability the rest of the adapter probes for.
  */
-export const TRANSCRIPT_FOLD_OPTIONAL_METHODS = ["peekReplayBatch"] as const;
+export const TRANSCRIPT_FOLD_OPTIONAL_METHODS = [
+	"peekReplayBatch",
+	"renderTail",
+	"peekFlushBatch",
+] as const;
 
 /** OMP 17.3.1 tool execution component surface. */
 export const TOOL_METHODS = [

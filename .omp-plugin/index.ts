@@ -322,24 +322,44 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		{
 			description: "Cycle omp-compact display: compact / live / clear / off",
 			handler: async (ctx) => {
-				const hostSettings = hostSettingsResolver(ctx);
-				await cycleDisplayState({
-					store: settingsStore,
-					bridge: hostSettings
-						? createHostSettingsBridge({
-								api: createSessionSettingsApi(hostSettings),
-							})
-						: undefined,
-					theme: ctx.ui.theme,
-					notify: (level, message) => {
-						try {
-							ctx.ui.notify(message, level);
-						} catch {
-							// Headless/RPC notify is a no-op; the settings are
-							// already persisted, so a silent sink is harmless.
-						}
-					},
-				});
+				// Stock awaits extension *command* handlers inside a try/catch
+				// (`session/agent-session.ts` `#tryExecuteExtensionCommand`) but
+				// calls *shortcut* handlers without awaiting
+				// (`modes/controllers/input-controller.ts`
+				// `registerExtensionShortcuts`), so its surrounding try/catch
+				// only sees synchronous throws. An async rejection from here
+				// would escape to the process-level `unhandledRejection` hook
+				// and take the host down — the cycle is decorative, so it
+				// fails open with a warning instead.
+				try {
+					const hostSettings = hostSettingsResolver(ctx);
+					await cycleDisplayState({
+						store: settingsStore,
+						bridge: hostSettings
+							? createHostSettingsBridge({
+									api: createSessionSettingsApi(hostSettings),
+								})
+							: undefined,
+						theme: ctx.ui.theme,
+						notify: (level, message) => {
+							try {
+								ctx.ui.notify(message, level);
+							} catch {
+								// Headless/RPC notify is a no-op; the settings are
+								// already persisted, so a silent sink is harmless.
+							}
+						},
+					});
+				} catch (error) {
+					try {
+						ctx.ui.notify(
+							`omp-compact: display cycle failed: ${error instanceof Error ? error.message : String(error)}`,
+							"warning",
+						);
+					} catch {
+						// Nothing left to report through; never rethrow.
+					}
+				}
 			},
 		},
 	);

@@ -75,6 +75,13 @@ export interface CompactToolView {
 	isError: boolean;
 	isPartial: boolean;
 	tick?: number;
+	/**
+	 * Wall clock of the settling tool result; undefined while in flight.
+	 * Row grammars measuring elapsed time use it as the frame clock so a
+	 * repaint (resize replay, fold re-render) reproduces the committed frame
+	 * instead of aging its content out.
+	 */
+	settledAt?: number;
 	mutationEntries?: readonly (
 		| MutationMessageDetails
 		| LegacyMutationMessageDetails
@@ -516,6 +523,10 @@ export function renderCompactToolRows(
 			args: view.args,
 			isPartial: view.isPartial,
 			tick: view.tick,
+			// Settled blocks render against the settle-time clock so a resize
+			// or fold repaint reproduces the committed cards; in-flight frames
+			// keep the live clock for spinner/age movement.
+			now: view.settledAt,
 			isError: view.isError,
 			result: view.result,
 		};

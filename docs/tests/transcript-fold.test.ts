@@ -80,6 +80,22 @@ class FakeTranscript implements TranscriptHost {
 	readonly replayWidths: number[] = [];
 	replay: HistoryBatch | undefined;
 
+	/** Resize repaint of the trailing rows; renders every child directly. */
+	renderTail(width: number, rows: number): Lines {
+		this.tailWidths.push(width);
+		return this.render(width).slice(0, rows);
+	}
+
+	readonly tailWidths: number[] = [];
+
+	/** Shutdown flush of remaining history (zero capacity). */
+	peekFlushBatch(width: number): HistoryBatch | undefined {
+		this.flushWidths.push(width);
+		return this.batch;
+	}
+
+	readonly flushWidths: number[] = [];
+
 	acknowledgeFinalizedBatch(_id: number): void {}
 
 	canRemoveBlock(_component: unknown): boolean {
@@ -416,5 +432,87 @@ describe("TranscriptFold committed-row gate (D03)", () => {
 		fold.install();
 		expect(fold.hasCommittedRows()).toBe(false);
 		fold.dispose();
+	});
+});
+
+describe("TranscriptFold: every block-rendering entry point replans", () => {
+	// `renderTail` is the terminal's resize repaint and `peekFlushBatch` is
+	// the shutdown flush; both call `entry.component.render(width)` directly
+	// in stock `TranscriptContainer`. Unplanned, a carrier answers with rows
+	// measured for the previous width while its folded members render their
+	// native cards again — duplicated tool cards in the resized scrollback and
+	// in the last history the user keeps after quitting.
+	test("renderTail plans at the requested width and restores on dispose", () => {
+		const transcript = new FakeTranscript();
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		const block = new FakeBlock();
+		transcript.addChild(block);
+
+		expect(Object.hasOwn(transcript, "renderTail")).toBe(true);
+		expect(transcript.renderTail?.(80, 10)).toEqual(["native-block"]);
+		// Planning happened at the repaint width: the block is fold-owned.
+		expect(Object.hasOwn(block, "render")).toBe(true);
+		expect(transcript.tailWidths).toEqual([80]);
+
+		fold.dispose();
+		expect(Object.hasOwn(transcript, "renderTail")).toBe(false);
+		expect(transcript.renderTail).toBe(FakeTranscript.prototype.renderTail);
+	});
+
+	test("peekFlushBatch plans, counts as committed history, and restores", () => {
+		const transcript = new FakeTranscript();
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		const block = new FakeBlock();
+		transcript.addChild(block);
+
+		expect(Object.hasOwn(transcript, "peekFlushBatch")).toBe(true);
+		expect(fold.hasCommittedRows()).toBe(false);
+		transcript.batch = { id: 7, rows: ["retired"] };
+		expect(transcript.peekFlushBatch?.(80)).toEqual({
+			id: 7,
+			rows: ["retired"],
+		});
+		expect(Object.hasOwn(block, "render")).toBe(true);
+		expect(transcript.flushWidths).toEqual([80]);
+		// History left the transcript: the projection must not claim the
+		// terminal is still clean.
+		expect(fold.hasCommittedRows()).toBe(true);
+
+		fold.dispose();
+		expect(Object.hasOwn(transcript, "peekFlushBatch")).toBe(false);
+	});
+
+	test("a host without the resize/flush entry points installs and disposes cleanly", () => {
+		const transcript = new FakeTranscript();
+		Reflect.deleteProperty(FakeTranscript.prototype, "renderTail");
+		Reflect.deleteProperty(FakeTranscript.prototype, "peekFlushBatch");
+		try {
+			const fold = new TranscriptFold(transcript, callbacks());
+			expect(() => fold.install()).not.toThrow();
+			expect(Object.hasOwn(transcript, "renderTail")).toBe(false);
+			expect(Object.hasOwn(transcript, "peekFlushBatch")).toBe(false);
+			transcript.addChild(new FakeBlock());
+			expect(transcript.render(80)).toEqual(["native-block"]);
+			fold.dispose();
+		} finally {
+			Object.defineProperty(FakeTranscript.prototype, "renderTail", {
+				configurable: true,
+				writable: true,
+				value: function (this: FakeTranscript, width: number, rows: number) {
+					this.tailWidths.push(width);
+					return this.render(width).slice(0, rows);
+				},
+			});
+			Object.defineProperty(FakeTranscript.prototype, "peekFlushBatch", {
+				configurable: true,
+				writable: true,
+				value: function (this: FakeTranscript, width: number) {
+					this.flushWidths.push(width);
+					return this.batch;
+				},
+			});
+		}
 	});
 });

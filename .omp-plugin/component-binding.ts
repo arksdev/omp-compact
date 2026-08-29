@@ -37,6 +37,7 @@ import {
 	updateResultPayload,
 	updateResultToolCallId,
 } from "./host-adapter";
+import { isPayloadWithinBudget } from "./hydration-bounds";
 import { objectRecord } from "./object-record";
 import type { GroupState, ToolState } from "./runtime-session-state";
 import type { RenderableBlock } from "./transcript-fold";
@@ -718,7 +719,13 @@ export class ComponentBinding {
 					// refresh and its tick are evidence mutations that must
 					// never rewrite a settled view.
 					if (this.#stateMutable(state)) {
-						state.args = updateArgsPayload(args);
+						// Same retained-payload budget RuntimeSessionState
+						// applies to every args/result write of its own: the
+						// host hands this layer raw event args, so without
+						// the gate a later updateArgs reintroduces exactly
+						// the oversized payload startState already refused.
+						const payload = updateArgsPayload(args);
+						state.args = isPayloadWithinBudget(payload) ? payload : undefined;
 						state.version++;
 					}
 				}
@@ -753,8 +760,14 @@ export class ComponentBinding {
 		if (name === "updateResult") {
 			if (!this.#stateMutable(state)) return "bound";
 			const result = updateResultPayload(args);
-			state.result = result;
+			// Same retained-payload budget as the args writes and as every
+			// session-layer result write: an oversized result observed through
+			// the host callback would otherwise be retained for the lifetime
+			// of a state that outlives its component across a rebuild.
+			state.result = isPayloadWithinBudget(result) ? result : undefined;
 			state.isPartial = updateResultIsPartial(args);
+			// isError is derived from the raw payload, so an oversized error
+			// result still settles as an error even though its body is dropped.
 			state.isError = state.isError || objectRecord(result).isError === true;
 			if (state.isPartial) this.#delegates.markPending(state);
 			else this.#delegates.unmarkPending(state);
@@ -1047,7 +1060,9 @@ export class ComponentBinding {
 		state.id = realId;
 		state.entry.id = realId;
 		state.entry.toolCallId = realId;
-		state.args = args;
+		// Migration carries the observed payload onto the real id; same
+		// retained-payload budget as every other args write.
+		state.args = isPayloadWithinBudget(args) ? args : undefined;
 		this.#states.set(realId, state);
 		return "bound";
 	}

@@ -114,6 +114,8 @@ export interface RebuildLifecycleAccess {
 		| undefined;
 	/** True after `dispose`; hydration refuses to run on a disposed session. */
 	readonly disposed: boolean;
+	/** Settle-time clock seam, shared with the session's live settle paths. */
+	now(): number;
 	/** Create a new logical ledger (run sequence) with its frozen mode. */
 	createLedger(prefix: string): TurnLedger;
 	/** Finalize a ledger with its frozen mode; idempotent per ledger. */
@@ -406,6 +408,12 @@ export class RebuildLifecycle {
 							// branch, not in ToolState.
 							if (isPayloadWithinBudget(message)) state.result = message;
 							state.isPartial = false;
+							// Freeze the frame clock: a hydrated settled row must
+							// repaint identically. `settledAt` is a render clock,
+							// never persisted and never shown as a claim, so the
+							// hydration moment is the honest stamp — the row's
+							// visible timestamps still come from its evidence.
+							state.settledAt ??= access.now();
 							access.pendingStates.delete(state);
 							state.isError = message.isError === true;
 							state.entry.state = state.isError ? "error" : "success";

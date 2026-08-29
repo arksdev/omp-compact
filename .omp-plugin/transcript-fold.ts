@@ -1,8 +1,4 @@
-import {
-	BLOCK_FOLD_METHODS,
-	TRANSCRIPT_FOLD_METHODS,
-	TRANSCRIPT_FOLD_OPTIONAL_METHODS,
-} from "./host-adapter";
+import { BLOCK_FOLD_METHODS, TRANSCRIPT_FOLD_METHODS } from "./host-adapter";
 import { DescriptorPatch } from "./patch-kit";
 
 type Lines = readonly string[];
@@ -45,6 +41,17 @@ export interface TranscriptHost extends RenderableBlock {
 	 * through `peekFinalizedBatch` alone.
 	 */
 	peekReplayBatch?(width: number): HistoryBatch | undefined;
+	/**
+	 * Resize repaint of the trailing rows. Renders every entry's component at
+	 * the new width, so the fold replans through it. Optional: older hosts
+	 * repaint through `render`/`renderViewport` alone.
+	 */
+	renderTail?(width: number, maxRows: number): Lines;
+	/**
+	 * Shutdown flush of the remaining history (zero capacity). Renders blocks
+	 * like `peekFinalizedBatch`, so the fold replans through it too.
+	 */
+	peekFlushBatch?(width: number): HistoryBatch | undefined;
 	acknowledgeFinalizedBatch(id: number): void;
 	canRemoveBlock(component: unknown): boolean;
 	blockStates(): readonly BlockState[];
@@ -404,6 +411,10 @@ export class TranscriptFold {
 					},
 				},
 			};
+			// Optional entry points are patched only when this instance really
+			// has them (`TRANSCRIPT_FOLD_OPTIONAL_METHODS` records the full
+			// version-dependent set): defining a method the host never had
+			// would invent a capability the rest of the adapter probes for.
 			const patched: string[] = [...TRANSCRIPT_FOLD_METHODS];
 			const hostReplayBatch = this.#transcript.peekReplayBatch;
 			if (typeof hostReplayBatch === "function") {
@@ -420,7 +431,43 @@ export class TranscriptFold {
 						return hostReplayBatch.call(this.#transcript, width);
 					},
 				};
-				patched.push(...TRANSCRIPT_FOLD_OPTIONAL_METHODS);
+				patched.push("peekReplayBatch");
+			}
+			const hostRenderTail = this.#transcript.renderTail;
+			if (typeof hostRenderTail === "function") {
+				// The terminal repaints the trailing rows on resize, and
+				// `renderTail` renders every entry's component directly at the
+				// new width. Without a replan at that width a carrier answers
+				// with rows measured for the old one and its folded members
+				// render their native cards again.
+				wrappers.renderTail = {
+					configurable: true,
+					writable: true,
+					value: (width: number, maxRows: number): Lines => {
+						this.#plan(width);
+						return hostRenderTail.call(this.#transcript, width, maxRows);
+					},
+				};
+				patched.push("renderTail");
+			}
+			const hostFlushBatch = this.#transcript.peekFlushBatch;
+			if (typeof hostFlushBatch === "function") {
+				// Shutdown flush: same block-rendering path as
+				// `peekFinalizedBatch` with zero capacity, so the last history
+				// the user keeps must come from a planned fold rather than a
+				// stale one. Capacity is fixed at 0 by the host, so the
+				// retirement-room adjustment does not apply here.
+				wrappers.peekFlushBatch = {
+					configurable: true,
+					writable: true,
+					value: (width: number): HistoryBatch | undefined => {
+						this.#plan(width);
+						const batch = hostFlushBatch.call(this.#transcript, width);
+						if (batch !== undefined) this.#emittedHistory = true;
+						return batch;
+					},
+				};
+				patched.push("peekFlushBatch");
 			}
 			this.#transcriptPatch = new DescriptorPatch(this.#transcript, patched);
 			this.#transcriptPatch.install(wrappers);

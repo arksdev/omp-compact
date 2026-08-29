@@ -88,21 +88,54 @@ function isGitRecordDetails(value: unknown): value is GitRecordDetails {
 	);
 }
 
+/**
+ * Accepts the two shapes the plugin itself persists under
+ * `MUTATION_MESSAGE_TYPE`:
+ * - a counted mutation (`exact: true` with bounded `added`/`removed`);
+ * - a count-less delete (`exact: false`, no counts), written by `deleteEntry`
+ *   in `audit-diff.ts` (reached through `completeEditMutations`) when the path
+ *   is real but the exact pre-image is unavailable. The path is genuine
+ *   evidence, so the row is shown without invented stats — rejecting it here
+ *   would silently drop the only record of a delete on every rebuild and
+ *   branch hydration while the live session still shows it.
+ *
+ * Counts are required exactly when the entry claims exactness, so no
+ * `exact: true` aggregate can ever be assembled from unbounded or missing
+ * numbers, and `state.entry.mutation.exact` stays false while a count-less
+ * entry is present.
+ */
 export function isMutationMessageDetails(
 	value: unknown,
-): value is MutationMessageDetails {
+): value is
+	| MutationMessageDetails
+	| (LegacyMutationMessageDetails & { toolCallId: string }) {
 	if (!value || typeof value !== "object") return false;
 	const details = value as Partial<MutationMessageDetails>;
-	return (
-		details.version === 1 &&
-		isBoundedString(details.toolCallId, MAX_TOOL_CALL_ID_LENGTH) &&
-		(details.toolName === "write" ||
+	if (
+		!isBoundedString(details.toolCallId, MAX_TOOL_CALL_ID_LENGTH) ||
+		!(
+			details.toolName === "write" ||
 			details.toolName === "edit" ||
-			details.toolName === "delete") &&
-		isBoundedString(details.path, MAX_EVIDENCE_PATH_LENGTH) &&
-		isBoundedCount(details.added, MAX_MUTATION_COUNT) &&
-		isBoundedCount(details.removed, MAX_MUTATION_COUNT) &&
-		details.exact === true
+			details.toolName === "delete"
+		) ||
+		!isBoundedString(details.path, MAX_EVIDENCE_PATH_LENGTH)
+	)
+		return false;
+	if (details.exact === true)
+		return (
+			details.version === 1 &&
+			isBoundedCount(details.added, MAX_MUTATION_COUNT) &&
+			isBoundedCount(details.removed, MAX_MUTATION_COUNT)
+		);
+	// Count-less delete exactly as `deleteEntry` writes it: no `version`, no
+	// numbers. A partially counted inexact entry is not a shape the plugin
+	// produces, so it stays rejected rather than hydrating half a claim.
+	return (
+		details.exact === false &&
+		details.toolName === "delete" &&
+		details.version === undefined &&
+		details.added === undefined &&
+		details.removed === undefined
 	);
 }
 

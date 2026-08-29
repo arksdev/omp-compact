@@ -6,6 +6,6 @@
  * and fall back to this.
  */
 export function defaultWarn(message: string): void {
-	// eslint-disable-next-line no-console
+	// The one intentional console write in the plugin: this *is* the sink.
 	console.warn(`[omp-compact] ${message}`);
 }

@@ -4,6 +4,7 @@ import {
 	type BindingDelegates,
 	ComponentBinding,
 } from "../../.omp-plugin/component-binding";
+import { MAX_PAYLOAD_BYTES } from "../../.omp-plugin/hydration-bounds";
 import type { ToolState } from "../../.omp-plugin/runtime-session-state";
 import type { RenderableBlock } from "../../.omp-plugin/transcript-fold";
 import { type LedgerEntry, TurnLedger } from "../../.omp-plugin/turn-ledger";
@@ -1858,5 +1859,88 @@ describe("ComponentBinding: bindByObservedId collision hardening", () => {
 		expect(binding.bindByObservedId("", provisional)).toBe("bound");
 		expect(provisional.component).toBe(groupComponent);
 		expect(group.ledger).toBe(provisional.ledger);
+	});
+});
+
+describe("ComponentBinding: retained-payload budget", () => {
+	// RuntimeSessionState gates every args/result write with
+	// isPayloadWithinBudget ("live and hydrate share one retained-payload
+	// budget"). The host reaches this layer with raw event args, so an
+	// unbounded updateArgs assignment here would reintroduce exactly the
+	// oversized payload startState already refused, and a state preserved
+	// across a rebuild would outlive its component still holding it.
+	test("observeToolMethod drops an over-budget updateArgs payload but keeps the binding", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-big", toolName: "write" });
+		states.set("call-big", state);
+
+		const huge = { content: "x".repeat(MAX_PAYLOAD_BYTES + 1) };
+		expect(
+			binding.observeToolMethod(component, "updateArgs", [huge, "call-big"]),
+		).toBe("bound");
+
+		// Row survives (binding intact); oversized payload does not.
+		expect(binding.componentState(component)).toBe(state);
+		expect(state.args).toBeUndefined();
+
+		// An in-budget refresh still lands.
+		const ok = { path: "/tmp/small" };
+		expect(
+			binding.observeToolMethod(component, "updateArgs", [ok, "call-big"]),
+		).toBe("bound");
+		expect(state.args).toEqual(ok);
+	});
+
+	test("provisional-to-real migration drops an over-budget payload but keeps identity", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const provisional = makeState({ id: "", toolName: "write" });
+		states.set("", provisional);
+		expect(binding.bind(component, provisional)).toBe("bound");
+
+		const huge = { content: "y".repeat(MAX_PAYLOAD_BYTES + 1) };
+		expect(
+			binding.observeToolMethod(component, "updateArgs", [huge, "real-id"]),
+		).toBe("bound");
+
+		expect(provisional.id).toBe("real-id");
+		expect(states.get("real-id")).toBe(provisional);
+		expect(provisional.args).toBeUndefined();
+	});
+
+	// Same budget on the result side: `updateResult` is a stock callback
+	// delivered for every tool card, so an unbounded write here retains a
+	// giant payload for the lifetime of a state that can outlive its
+	// component across a rebuild.
+	test("observeToolMethod drops an over-budget result but still settles the row", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const state = makeState({ id: "call-res", toolName: "bash" });
+		states.set("call-res", state);
+		expect(binding.bind(component, state)).toBe("bound");
+
+		const huge = {
+			content: [{ type: "text", text: "z".repeat(MAX_PAYLOAD_BYTES + 1) }],
+			isError: true,
+		};
+		expect(
+			binding.observeToolMethod(component, "updateResult", [huge, false]),
+		).toBe("bound");
+
+		// Payload dropped...
+		expect(state.result).toBeUndefined();
+		// ...but the row still settles, and the error verdict derived from the
+		// raw payload survives: dropping the body must not turn a failure into
+		// a success.
+		expect(state.isPartial).toBe(false);
+		expect(state.isError).toBe(true);
+
+		// An in-budget result still lands.
+		const ok = { content: [{ type: "text", text: "fine" }] };
+		expect(
+			binding.observeToolMethod(component, "updateResult", [ok, false]),
+		).toBe("bound");
+		expect(state.result).toEqual(ok);
 	});
 });

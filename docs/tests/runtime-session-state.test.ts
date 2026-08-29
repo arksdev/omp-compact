@@ -2393,6 +2393,82 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 		expect(isMutationMessageDetails({ ...base, version: 2 })).toBe(false);
 	});
 
+	// `deleteEntry` persists a count-less delete row (no `version`, no counts)
+	// whenever the path is real but the exact pre-image is not: the path is
+	// genuine evidence, the count is never invented. The validator gates
+	// rebuild and branch hydration, so rejecting that shape silently dropped
+	// the only record of a delete on every rebuild while the live session
+	// still showed it.
+	test("count-less delete evidence hydrates; partial claims stay rejected", () => {
+		const countLess = {
+			toolCallId: "d1",
+			toolName: "delete",
+			path: "/tmp/gone.txt",
+			exact: false,
+		};
+		expect(isMutationMessageDetails(countLess)).toBe(true);
+		expect(
+			isMutationMessageDetails({
+				...countLess,
+				path: "p".repeat(MAX_EVIDENCE_PATH_LENGTH + 1),
+			}),
+		).toBe(false);
+		// Half a claim is not a shape the plugin writes: an inexact entry
+		// carrying counts, or an inexact write/edit, stays out.
+		expect(isMutationMessageDetails({ ...countLess, removed: 4 })).toBe(false);
+		expect(isMutationMessageDetails({ ...countLess, added: 0 })).toBe(false);
+		expect(isMutationMessageDetails({ ...countLess, toolName: "write" })).toBe(
+			false,
+		);
+		expect(isMutationMessageDetails({ ...countLess, version: 1 })).toBe(false);
+	});
+
+	test("a hydrated count-less delete shows the row and demotes the aggregate", () => {
+		const session = makeSession();
+		session.beginRun();
+		const state = mustStart(session, {
+			toolCallId: "d2",
+			toolName: "delete",
+			args: { path: "/tmp/gone.txt" },
+		});
+
+		session.setMutations("d2", [
+			{
+				toolCallId: "d2",
+				toolName: "delete",
+				path: "/tmp/gone.txt",
+				exact: false,
+			},
+		]);
+
+		// The row is real evidence and is kept...
+		expect(state.mutations).toHaveLength(1);
+		expect(state.entry.retention).toBe("mutation");
+		// ...but the aggregate never claims a count it does not have.
+		expect(state.entry.mutation).toEqual({
+			added: 0,
+			removed: 0,
+			exact: false,
+		});
+
+		// A counted mutation alongside it keeps its numbers and stays inexact
+		// overall, since one entry's count is unknown.
+		session.setMutations("d2", [
+			{
+				toolCallId: "d2",
+				toolName: "delete",
+				path: "/tmp/gone.txt",
+				exact: false,
+			},
+			mutationDetails("d2", 3, 2),
+		]);
+		expect(state.entry.mutation).toEqual({
+			added: 3,
+			removed: 2,
+			exact: false,
+		});
+	});
+
 	test("git evidence validator bounds fields at limit and over limit", () => {
 		const base: GitMessageDetails = {
 			version: 1,
@@ -2632,5 +2708,284 @@ describe("RuntimeSessionState: forEachPending and somePending (no allocation)", 
 			state.version++;
 		});
 		expect(session.state("c1")?.version).toBe(before + 1);
+	});
+});
+
+describe("RuntimeSessionState: cross-run toolCallId reuse", () => {
+	// Exact-id absorption is a rebuild/replay affordance. On a live start it
+	// is wrong: a host/provider reusing an id in a later run would attach the
+	// new execution to the finished run's ledger, which holds no entry for
+	// it — the new run undercounts its actions while the old row keeps
+	// mutating with later evidence.
+	test("a live start with an id from a finished run allocates a fresh state and entry", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = mustStart(session, {
+			toolCallId: "reused-id",
+			toolName: "bash",
+			args: { command: "first run" },
+		});
+		session.finishTool({
+			toolCallId: "reused-id",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+			isPartial: false,
+		});
+		const firstLedger = first.ledger;
+		session.finishFull();
+
+		// New logical run, same id.
+		session.beginRun();
+		const second = mustStart(session, {
+			toolCallId: "reused-id",
+			toolName: "bash",
+			args: { command: "second run" },
+		});
+
+		expect(second).not.toBe(first);
+		expect(second.ledger).not.toBe(firstLedger);
+		expect(second.args).toEqual({ command: "second run" });
+		// The new run's ledger owns an entry for this call.
+		expect(second.ledger.entries.some((e) => e.id === "reused-id")).toBe(true);
+		// The finished run keeps its own evidence untouched.
+		expect(first.args).toEqual({ command: "first run" });
+		expect(first.entry.state).toBe("success");
+
+		// A settling result now routes to the new state only.
+		session.finishTool({
+			toolCallId: "reused-id",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "second" }] },
+			isError: true,
+			isPartial: false,
+		});
+		expect(second.isError).toBe(true);
+		expect(first.isError).toBe(false);
+	});
+
+	test("same-run repeat start still absorbs into the existing state", () => {
+		const session = makeSession();
+		session.beginRun();
+		const first = mustStart(session, {
+			toolCallId: "same-run",
+			toolName: "bash",
+			args: { command: "one" },
+		});
+		const again = mustStart(session, {
+			toolCallId: "same-run",
+			toolName: "bash",
+			args: { command: "two" },
+		});
+		expect(again).toBe(first);
+		expect(
+			first.ledger.entries.filter((e) => e.id === "same-run"),
+		).toHaveLength(1);
+	});
+});
+
+describe("RuntimeSessionState: settle-time frame clock", () => {
+	// Elapsed-time row grammars (vibe worker cards and their TTLs) must render
+	// a finalized block identically on every repaint, so the settling result
+	// stamps the clock once instead of letting each paint re-measure.
+	test("finishTool stamps settledAt once from the injected clock", () => {
+		let clock = 5_000;
+		const session = new RuntimeSessionState({
+			placeStatsCarrier: insertTranscriptChildAt,
+			now: () => clock,
+		});
+		session.beginRun();
+		const state = mustStart(session, {
+			toolCallId: "vibe-1",
+			toolName: "vibe_wait",
+			args: { session: "worker-a" },
+		});
+		expect(state.settledAt).toBeUndefined();
+
+		session.finishTool({
+			toolCallId: "vibe-1",
+			toolName: "vibe_wait",
+			result: { content: [{ type: "text", text: "settled" }] },
+			isError: false,
+			isPartial: false,
+		});
+		expect(state.settledAt).toBe(5_000);
+
+		// A late duplicate end does not re-stamp: the committed frame is fixed.
+		clock = 9_999;
+		session.finishTool({
+			toolCallId: "vibe-1",
+			toolName: "vibe_wait",
+			result: { content: [{ type: "text", text: "again" }] },
+			isError: false,
+			isPartial: false,
+		});
+		expect(state.settledAt).toBe(5_000);
+	});
+
+	// Stock can drop `tool_execution_end` after `agent_end` parks the claim, so
+	// finalization settles the visual state instead. That is still a settle:
+	// leaving the clock live there let a repaint age a vibe card's TTL'd
+	// settlement content out of committed history — the exact defect the
+	// frame clock exists to prevent, on the sibling path.
+	test("finalization settles the frame clock when no end event arrives", () => {
+		let clock = 7_000;
+		const session = new RuntimeSessionState({
+			placeStatsCarrier: insertTranscriptChildAt,
+			now: () => clock,
+		});
+		session.beginRun();
+		const dropped = mustStart(session, {
+			toolCallId: "vibe-dropped",
+			toolName: "vibe_wait",
+			args: { session: "worker-b" },
+		});
+		const settled = mustStart(session, {
+			toolCallId: "vibe-settled",
+			toolName: "vibe_wait",
+			args: { session: "worker-c" },
+		});
+		session.finishTool({
+			toolCallId: "vibe-settled",
+			toolName: "vibe_wait",
+			result: { content: [{ type: "text", text: "done" }] },
+			isError: false,
+			isPartial: false,
+		});
+		expect(settled.settledAt).toBe(7_000);
+		expect(dropped.settledAt).toBeUndefined();
+
+		// The end event never arrives; finalization settles the row.
+		clock = 8_500;
+		session.finishFull();
+		expect(dropped.isPartial).toBe(false);
+		expect(dropped.settledAt).toBe(8_500);
+		// The already-settled row keeps its original stamp: a committed frame
+		// is never re-aged.
+		expect(settled.settledAt).toBe(7_000);
+		// Finalization still refuses to claim an outcome it never observed.
+		expect(dropped.entry.state).toBe("running");
+	});
+
+	// The binding observes host `updateResult(..., false)` calls the plugin's
+	// own listeners never see as terminal: a parked background task settles
+	// exactly that way (`event-controller.ts` `#handleToolExecutionUpdate`
+	// delivers `isTerminal` as a non-partial update) while the plugin's
+	// `tool_execution_update` listener always reports `isPartial: true`. Those
+	// rows must freeze their frame clock too.
+	test("a component-observed settle stamps the frame clock", () => {
+		let clock = 3_000;
+		const session = new RuntimeSessionState({
+			placeStatsCarrier: insertTranscriptChildAt,
+			now: () => clock,
+		});
+		session.beginRun();
+		const state = mustStart(session, {
+			toolCallId: "bg-task",
+			toolName: "task",
+			args: { prompt: "background" },
+		});
+		expect(state.settledAt).toBeUndefined();
+
+		// The host settles the card through the component callback only.
+		const component = new FakeToolComponent();
+		expect(session.binding.bind(component, state)).toBe("bound");
+		clock = 4_200;
+		expect(
+			session.binding.observeToolMethod(component, "updateResult", [
+				{ content: [{ type: "text", text: "done" }] },
+				false,
+				"bg-task",
+			]),
+		).toBe("bound");
+
+		expect(state.isPartial).toBe(false);
+		expect(state.settledAt).toBe(4_200);
+
+		// A later partial re-open does not clear the stamp, and a second
+		// settle does not move it.
+		clock = 9_000;
+		session.binding.observeToolMethod(component, "setArgsComplete", []);
+		session.binding.observeToolMethod(component, "updateResult", [
+			{ content: [{ type: "text", text: "again" }] },
+			false,
+			"bg-task",
+		]);
+		expect(state.settledAt).toBe(4_200);
+	});
+
+	// The hydrate walk is the fourth settle path. It stamps through the same
+	// injectable seam as the live ones, so a replayed settled row's frame is
+	// pinned to a value a test can assert rather than to wall-clock time.
+	test("hydrateBranch stamps replayed settled rows from the injected clock", () => {
+		const session = new RuntimeSessionState({
+			placeStatsCarrier: insertTranscriptChildAt,
+			now: () => 6_400,
+		});
+		expect(
+			session.hydrateBranch([
+				{ type: "message", message: { role: "user", content: [] } },
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "replayed",
+								name: "read",
+								arguments: { path: "/a" },
+							},
+						],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						toolCallId: "replayed",
+						content: [],
+						isError: false,
+					},
+				},
+			]),
+		).toBe(true);
+		expect(session.state("replayed")?.settledAt).toBe(6_400);
+	});
+
+	// The drain of historical pending states deliberately does NOT stamp: those
+	// rows never settled, so they keep the live clock. The invariant that makes
+	// the missing stamp correct is that they stay partial — a stamped-but-partial
+	// row would freeze a spinner at its hydration moment.
+	test("a replayed unpaired tool call stays partial and unstamped", () => {
+		const session = new RuntimeSessionState({
+			placeStatsCarrier: insertTranscriptChildAt,
+			now: () => 6_400,
+		});
+		expect(
+			session.hydrateBranch([
+				{ type: "message", message: { role: "user", content: [] } },
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "unpaired",
+								name: "bash",
+								arguments: { command: "sleep 1" },
+							},
+						],
+					},
+				},
+			]),
+		).toBe(true);
+		const state = session.state("unpaired");
+		expect(state?.isPartial).toBe(true);
+		expect(state?.settledAt).toBeUndefined();
+		// Drained from the pending set even though it never settled: a
+		// historical segment owns no spinner.
+		expect(pendingStates(session)).toEqual([]);
 	});
 });

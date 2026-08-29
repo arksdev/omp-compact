@@ -525,11 +525,17 @@ export function renderCompactVibeRows(
 	// Operation: wait
 	if (op === "wait") {
 		const isWaiting = details?.wait?.waiting === true || isPartial;
-		const settledRecords: Record<string, "completed" | "failed" | "cancelled"> =
-			{};
+		// Prototype-free: worker ids come from agent-supplied spawn names, so
+		// a worker named `constructor`/`toString` would otherwise inherit a
+		// truthy Object.prototype member and render a false "turn cancelled —
+		// result delivered" card for a worker that never settled.
+		const settledRecords = new Map<
+			string,
+			"completed" | "failed" | "cancelled"
+		>();
 		if (details?.wait?.settled) {
 			for (const s of details.wait.settled) {
-				settledRecords[s.id] = s.status;
+				settledRecords.set(s.id, s.status);
 			}
 		}
 
@@ -560,7 +566,7 @@ export function renderCompactVibeRows(
 				}
 			} else {
 				for (const screen of details.screens) {
-					const settledStatus = settledRecords[screen.id];
+					const settledStatus = settledRecords.get(screen.id);
 					if (!settledStatus) continue;
 
 					// Check TTL for settled outcomes

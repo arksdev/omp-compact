@@ -109,6 +109,15 @@ export interface ToolState {
 	entry: LedgerEntry;
 	mutations: (MutationMessageDetails | LegacyMutationMessageDetails)[];
 	git?: GitMessageDetails;
+	/**
+	 * Wall clock of the settling `tool_execution_end`, undefined while the
+	 * call is still in flight. Row grammars whose output depends on elapsed
+	 * time (vibe worker cards and their TTLs) use it as the frame clock, so a
+	 * finalized block renders identically no matter when it is repainted —
+	 * a resize or fold replay must not age settlement evidence out of
+	 * committed scrollback.
+	 */
+	settledAt?: number;
 	version: number;
 }
 
@@ -175,6 +184,9 @@ export interface SessionStateOptions {
 	 * state is read here instead of guessed from the native presentation.
 	 */
 	getToolsExpanded?: () => boolean;
+
+	/** Injectable clock for deterministic tests. */
+	now?: () => number;
 }
 
 /**
@@ -224,6 +236,7 @@ export class RuntimeSessionState {
 		| undefined;
 
 	readonly #getToolsExpanded: (() => boolean) | undefined;
+	readonly #now: () => number;
 	/** Component ↔ state associations (see ComponentBinding). */
 	readonly binding: ComponentBinding;
 	/** Rebuild/branch-hydration lifecycle (see rebuild-lifecycle.ts). */
@@ -270,12 +283,26 @@ export class RuntimeSessionState {
 		this.#displayPathsSource = options.displayPaths;
 		this.#statsRenderer = options.statsRenderer;
 		this.#getToolsExpanded = options.getToolsExpanded;
+		this.#now = options.now ?? Date.now;
 		this.#placeStatsCarrier = options.placeStatsCarrier;
 		this.binding = new ComponentBinding(this.#states, {
 			markPending: (state) => {
 				this.#pendingStates.add(state);
 			},
-			unmarkPending: (state) => this.#pendingStates.delete(state),
+			unmarkPending: (state) => {
+				// A row leaving the pending set is a settle, wherever it comes
+				// from. The binding observes host `updateResult(..., false)`
+				// calls that the plugin's own event listeners never see as
+				// terminal — a parked background task settles exactly that way
+				// (`event-controller.ts` `#handleToolExecutionUpdate`, where
+				// `isTerminal` is delivered as a non-partial update) while the
+				// `tool_execution_update` listener always reports
+				// `isPartial: true`. Stamping here keeps the frame clock frozen
+				// for those rows too, so their TTL'd content cannot age out of
+				// committed history on a repaint.
+				state.settledAt ??= this.#now();
+				return this.#pendingStates.delete(state);
+			},
 			// The observed component callbacks share the exact event-stream
 			// freeze: a finalized or deferred-terminal ledger's states must
 			// not be rewritten by late updateResult/setArgsComplete
@@ -339,6 +366,7 @@ export class RuntimeSessionState {
 			get disposed(): boolean {
 				return session.#disposed;
 			},
+			now: () => this.#now(),
 			createLedger: (prefix) => session.#createLedger(prefix),
 			finalizeLedger: (ledger, event) => session.finalizeLedger(ledger, event),
 			stateForLedger: (input, ledger) => session.stateForLedger(input, ledger),
@@ -601,6 +629,16 @@ export class RuntimeSessionState {
 	 * event-controller streams `""` then migrates through `updateArgs`);
 	 * exact-ID precedence for in-budget ids is unchanged. Hydration already
 	 * filters before `stateForLedger`; this is the live entry counterpart.
+	 *
+	 * Exact-id absorption is a rebuild/replay affordance: there the state
+	 * map legitimately holds the preserved *active* run's states while the
+	 * walk replays a branch ledger. A live start is different — a state
+	 * whose ledger is not the working one means the host/provider reused a
+	 * toolCallId across logical runs. Absorbing it would attach this
+	 * execution to the finished run's ledger (which records no entry for
+	 * it), so the new run undercounts its actions while the old row mutates
+	 * with later evidence. Retire that stale claim first and let the fresh
+	 * run allocate its own state and ledger entry.
 	 */
 	startState(input: ToolStartInput): ToolState | undefined {
 		if (
@@ -609,7 +647,13 @@ export class RuntimeSessionState {
 		) {
 			return undefined;
 		}
-		const state = this.stateForLedger(input, this.ensureLedger());
+		const ledger = this.ensureLedger();
+		const stale = this.#states.get(input.toolCallId);
+		if (stale && stale.ledger !== ledger) {
+			this.#states.delete(input.toolCallId);
+			this.#pendingStates.delete(stale);
+		}
+		const state = this.stateForLedger(input, ledger);
 		// stateForLedger already applied the retained-payload budget; keep
 		// the live refresh on the same rule so a second start with huge
 		// args cannot reintroduce the payload.
@@ -698,6 +742,10 @@ export class RuntimeSessionState {
 			? input.result
 			: undefined;
 		state.isPartial = false;
+		// Freeze the frame clock at settle time. Elapsed-time row grammars
+		// must not re-measure against a later repaint (resize replay, fold
+		// re-render) or their TTL'd evidence disappears from history.
+		state.settledAt ??= this.#now();
 		this.#pendingStates.delete(state);
 		state.isError =
 			input.isError || objectRecord(input.result).isError === true;
@@ -828,6 +876,9 @@ export class RuntimeSessionState {
 	 * Settle the visual flags only:
 	 * - `isPartial = false` and drop from `#pendingStates` for every state
 	 *   on this ledger (evidence rows can render; spinner stops).
+	 * - Freeze the frame clock too: this is a settle, so elapsed-time row
+	 *   grammars must stop re-measuring against paint time or a repaint
+	 *   ages their TTL'd content out of committed history.
 	 * - Do **not** fabricate a settled result or promote `entry.state` to
 	 *   success/error here. `finishTool` (allowed during the deferred
 	 *   window for known ids) and audit `setMutations` already promote
@@ -840,6 +891,7 @@ export class RuntimeSessionState {
 		for (const state of this.#states.values()) {
 			if (state.ledger !== ledger) continue;
 			state.isPartial = false;
+			state.settledAt ??= this.#now();
 			this.#pendingStates.delete(state);
 		}
 	}
@@ -970,19 +1022,6 @@ export class RuntimeSessionState {
 			if (predicate(state)) return true;
 		}
 		return false;
-	}
-
-	markPending(state: ToolState): void {
-		this.#pendingStates.add(state);
-	}
-
-	/** True when the state was pending. */
-	unmarkPending(state: ToolState): boolean {
-		return this.#pendingStates.delete(state);
-	}
-
-	clearPending(): void {
-		this.#pendingStates.clear();
 	}
 
 	/**

@@ -1677,3 +1677,99 @@ describe("pendingFrame", () => {
 		expect(pendingFrame(theme, 1)).toBe("•");
 	});
 });
+
+describe("vibe-cards settlement evidence integrity", () => {
+	// A worker id is an agent-supplied spawn name, so it can collide with
+	// Object.prototype members. Keyed by a bare object literal, `constructor`
+	// used to resolve to a truthy inherited function, pass the `!settled`
+	// guard, miss both TTL checks, and fall through to the cancelled branch:
+	// a running worker presented as "turn cancelled — result delivered".
+	test("worker named after an Object.prototype member is not reported as settled", () => {
+		for (const hostileId of [
+			"constructor",
+			"toString",
+			"valueOf",
+			"hasOwnProperty",
+		]) {
+			const rows = vibeCardsModule.renderCompactVibeRows(
+				{
+					op: "wait",
+					isPartial: false,
+					tick: 0,
+					now: 9_100,
+					details: {
+						op: "wait",
+						screens: [
+							routineSnapshot({
+								id: hostileId,
+								state: "running",
+								lastActivity: "still working",
+								lastActivityAt: 9_000,
+							}),
+						],
+						wait: { settled: [], stillRunning: [], timedOut: false },
+					},
+				},
+				fakeTheme(),
+			);
+
+			const text = rows.map((row) => stripAnsi(row)).join("\n");
+			expect(text).not.toContain("turn cancelled");
+			expect(text).not.toContain("result delivered");
+		}
+	});
+
+	// TTLs are measured against the frame clock. Production passes the tool's
+	// settle time, so repainting a finalized block (resize replay, fold
+	// re-render) must reproduce the same card instead of aging the only
+	// record of a failed worker out of committed scrollback.
+	test("settled failure card survives repaint long after its TTL window", () => {
+		const settledAt = 9_100;
+		const view = (now: number): CompactVibeView => ({
+			op: "wait",
+			isPartial: false,
+			tick: 0,
+			now,
+			details: {
+				op: "wait",
+				screens: [
+					routineSnapshot({
+						id: "worker-f",
+						state: "idle",
+						lastActivity: "boom",
+						lastActivityAt: settledAt,
+					}),
+				],
+				wait: {
+					settled: [{ id: "worker-f", jobId: "job-f", status: "failed" }],
+					stillRunning: [],
+					timedOut: false,
+				},
+			},
+		});
+
+		const live = vibeCardsModule.renderCompactVibeRows(
+			view(settledAt),
+			fakeTheme(),
+		);
+		expect(live.map((row) => stripAnsi(row)).join("\n")).toContain(
+			"turn failed — result delivered",
+		);
+
+		// Same frozen clock an hour later: identical rows.
+		const repaint = vibeCardsModule.renderCompactVibeRows(
+			view(settledAt),
+			fakeTheme(),
+		);
+		expect(repaint).toEqual(live);
+
+		// Contrast: measuring against paint-time wall clock loses the card.
+		const aged = vibeCardsModule.renderCompactVibeRows(
+			view(settledAt + 3_600_000),
+			fakeTheme(),
+		);
+		expect(aged.map((row) => stripAnsi(row)).join("\n")).not.toContain(
+			"turn failed",
+		);
+	});
+});
