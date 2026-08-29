@@ -18,6 +18,10 @@
 - При восстановлении более ранней сессии код завершения команды больше не берётся из текста, который эта команда напечатала.
 - Если хост не предоставляет одну из поверхностей, которые регистрирует плагин, пропускается только эта возможность, а не загрузка всего плагина.
 
+### Изменено
+
+- Плагин проверен на OMP 18.0.10 и теперь собирается против него. Требования к версии OMP не изменились: минимально поддерживаемая — 18.0.1. Дописывать ничего не пришлось: журнал и карточка инструмента в 18.0.9 и 18.0.10 остались в точности прежними. Единственное смежное изменение — повтор хода после ошибки: OMP теперь проигрывает заново тот же набор инструментов и убирает старую карточку перед новой, а плагин умеет это поглощать.
+
 ---
 
 ## 1.2.4 — 28 августа 2026
@@ -325,6 +329,10 @@ In plain words — what changed for a person working in OMP with this plugin.
 - Reminder rows with checkboxes are no longer mangled when the simplified symbol set is in use.
 - When restoring an earlier session, a command's exit status is no longer taken from the text the command printed.
 - If the host does not provide one of the surfaces the plugin registers, that single feature is skipped instead of the whole plugin failing to load.
+
+### Changed
+
+- The plugin is verified on OMP 18.0.10 and now builds against it. OMP version requirements are unchanged: the minimum supported release is still 18.0.1. Nothing needed adding: the transcript and the tool card are byte-identical in 18.0.9 and 18.0.10. The only adjacent change is repeating a failed turn: OMP now replays the same tool batch and removes the stale prior-turn card before the fresh one, which the plugin already absorbs.
 
 ---
 

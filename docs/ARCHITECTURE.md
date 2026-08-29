@@ -691,7 +691,7 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `HostAdapter1731.hostVersion` (`18.0.8`) records the
+  `HostAdapter1731.hostVersion` (`18.0.10`) records the
   **verified** critical private-surface contract the adapter was written
   against; the class name keeps the historical `1731` suffix. Comments that
   cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
@@ -699,11 +699,11 @@ The host-supplied agent directory and the live session `Settings` object sit
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.0.8.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.0.10.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.0.8 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.0.10 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -725,12 +725,15 @@ The host-supplied agent directory and the live session `Settings` object sit
   fingerprint moved, a build for 18.0.0 finds no transcript host from 18.0.1
   on and vice versa: the plugin stays fully native instead of guessing, which
   is why the public floor moved with that rewrite. Every release from 18.0.2
-  through 18.0.8 left the whole critical surface untouched — the container
+  through 18.0.10 left the whole critical surface untouched — the container
   only exported its own `trimBlankEdges` helper, the inline tool card gained
   styling plus a trimmed-height check before degrading under a squeezed
-  allocation, the transcript gained an append-only surface, and 18.0.7/18.0.8
+  allocation, the transcript gained an append-only surface, 18.0.7/18.0.8
   left the container and the tool card byte-identical while adding the stock
-  usage row's own prompt→yield delta — so the floor stays at `>=18.0.1` while
+  usage row's own prompt→yield delta, and 18.0.9/18.0.10 left them
+  byte-identical too, with 18.0.10 adding only a retry-replay path (reused
+  `toolCallId`s evict the stale prior-turn card), the `syncRetryHintRow`
+  hint row and an `f5` default for `app.retry` — so the floor stays at `>=18.0.1` while
   the gate pin follows the newest release.
 
 - **Rows retire, blocks fill the screen.** The container retires history by

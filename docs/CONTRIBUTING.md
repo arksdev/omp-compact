@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.0.8 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.0.10 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -39,7 +39,7 @@ OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test
 
 Treat the current command output as authoritative: the gate must come back with zero failures.
 
-There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.0.8. Bare `bun test …` without that env leaves every stock-host-dependent test (including the host-adapter canaries) reported as skipped.
+There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.0.10. Bare `bun test …` without that env leaves every stock-host-dependent test (including the host-adapter canaries) reported as skipped.
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -541,7 +541,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.0.8
+4. Manual smoke test on OMP 18.0.10
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -594,6 +594,11 @@ Then `diff -u` scoped per file. All paths are relative to
    changes.
 6. `src/config/keybindings.ts` and `src/config/settings-schema.ts` — the plugin reads both
    (display-cycle shortcut validation, host-settings bridge).
+7. `src/extensibility/extensions/runner.ts` (the `#RESERVED_SHORTCUTS` copy in
+   `.omp-plugin/display-cycle.ts`) and `src/session/shake-types.ts` (the
+   `formatShakeSummary` anchor in `.omp-plugin/post-turn-shake.ts`) — the
+   plugin carries copies of these host internals; confirm each new tree is
+   byte-identical before the provenance comments move with the pin.
 
 **Isolated verification.** Create `runtime/omp-<version>/` mirroring an existing copy
 (`runtime/omp-17.3.1/`): `package.json` (candidate version), `.gitignore`,
@@ -626,11 +631,13 @@ historical pending rows intentionally does not stamp.
 - Root `package.json` devDependency and `bun.lock` (via `bun install`).
 - `HostAdapter1731.hostVersion` in `.omp-plugin/host-adapter.ts`.
 - The version story comment block in `.omp-plugin/host-surface.ts`.
-- The `18.0.8` assertions in `docs/tests/host-adapter.test.ts` and
+- The `18.0.10` assertions in `docs/tests/host-adapter.test.ts` and
   `docs/tests/marketplace.test.ts`.
 - `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`.
 - Prose pins in `docs/CONTRIBUTING.md`, `docs/ARCHITECTURE.md`,
   `docs/FULL-DOCUMENTATION.md`, `README.md`, `README.en.md`.
+- The provenance comments in `.omp-plugin/display-cycle.ts` and
+  `.omp-plugin/post-turn-shake.ts` (after the re-check above).
 
 ---
 
