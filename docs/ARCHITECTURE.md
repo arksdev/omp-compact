@@ -234,8 +234,6 @@ The per-component restore runs from one shared list, so a new patch kind cannot 
 
 ## Decision Flow
 
-## Decision Flow
-
 ### Render Decision (render-decision.ts)
 
 Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
@@ -473,8 +471,6 @@ The status line colors only the mode name (theme role `success`); `off` is inten
 
 ## Lifecycle Diagrams
 
-## Lifecycle Diagrams
-
 ### Normal Run
 
 ```
@@ -637,15 +633,20 @@ Host-invariant failures still trigger complete rollback:
 Before installing patches:
 
 ```typescript
-function isRenderableBlock(component: unknown): boolean {
-    return (
-        component !== null &&
-        typeof component === 'object' &&
-        typeof (component as any).render === 'function' &&
-        (component as any).lines !== undefined
-    );
+// transcript-fold.ts
+function isRenderableBlock(value: unknown): value is RenderableBlock {
+	return Boolean(
+		value &&
+			typeof value === "object" &&
+			typeof (value as RenderableBlock).render === "function",
+	);
 }
 ```
+
+A callable `render` is the whole requirement, matching `RenderableBlock`
+(`render(width): Lines`). No stock leaf exposes a `lines` property, so
+demanding one would reject every component and fall back to native
+everywhere.
 
 **If check fails:** Installation rolls back, native renderer used.
 

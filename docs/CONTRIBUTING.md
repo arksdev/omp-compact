@@ -259,10 +259,12 @@ describe("classifyAgentEnd", () => {
 - Git hash extraction
 - Stats aggregation
 
-**Not required (yet):**
-- Integration tests (full lifecycle)
-- Runtime adapter with real TUI components
-- Concurrent rebuild scenarios
+**Also required, and already extensive:**
+- Integration tests against the real pinned host — `index.integration.test.ts` boots the plugin into a live stock session; `run-stats.integration.test.ts` covers the stats and presentation seams.
+- Runtime adapter against real TUI components — the whole integration suite patches genuine `ToolExecutionComponent`, `ReadToolGroupComponent` and `TranscriptContainer` instances, and `host-patch-surface.test.ts` fails when the methods those patches need disappear or when a scraped leaf drifts.
+- Concurrent rebuild scenarios — generation staleness, two quick clears, and mid-rebuild switches are covered in the integration suite.
+
+A change that touches more than one module needs an integration test, as the coverage standard below states.
 
 ### Test Coverage Standards
 

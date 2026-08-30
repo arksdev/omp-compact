@@ -87,6 +87,7 @@ the pinned value instead of claiming a change the environment forbids.
 | **stats.received** | `true` | Output token usage |
 | **stats.cache** | `true` | Cached tokens, their share, and cache writes |
 | **stats.time** | `true` | Wall time duration |
+| **stats.clock** | `true` | Local completion time as `hh:mm`, appended after the bracketed segments. Needs a row to ride on: with every other stats field off, nothing renders |
 | **host.recapEnabled** | `true` | Mirror and save OMP `recap.enabled`; takes effect immediately |
 | **host.thinkingBlocksVisible** | `true` | Inverse of OMP `hideThinkingBlock`; restart OMP after changing |
 
