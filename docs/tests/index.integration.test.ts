@@ -6438,6 +6438,51 @@ stockTest(
 	},
 );
 
+stockTest(
+	"a git tool call whose command is not a string produces no git evidence",
+	async () => {
+		// Two independent barriers keep host-shaped args out of persisted
+		// evidence: the start-side type check before startSync, and
+		// pendingGitFrom on the end side. Either one alone suffices, which is
+		// why weakening just one keeps this test green — the contract under
+		// test is that no coercing path exists at all, so the payload below
+		// is one whose String() form would parse as a real commit.
+		const booted = await bootWithMode("live");
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			// Structurally present, wrong type — and its String() form would
+			// parse as a git commit, so a guard that coerces instead of
+			// checking the type persists evidence from a payload the host
+			// never promised.
+			{ command: { toString: () => "git commit -m 'Nope'" } },
+			"git-malformed",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "git-malformed",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "[main abc1234] Nope" }] },
+			isError: false,
+		});
+		addAnswer(booted, "malformed git done");
+		await finishRun(booted, "malformed git done");
+
+		// The run completes and the answer renders: the guard fails open.
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"malformed git done",
+		);
+		// No git evidence, and no commit summary invented from the output.
+		expect(
+			booted.appendedEntries.filter(
+				(entry) => entry.customType === "omp-compact-git",
+			),
+		).toHaveLength(0);
+		expect(visibleRows(booted.transcript).join("\n")).not.toContain("abc1234");
+		await shutdown(booted);
+	},
+);
+
 // ---------------------------------------------------------------------------
 // Multi-response run evidence (D01/D02): one logical run spans several
 // assistant-response groups (toolUse continuations) inside a single
@@ -6891,6 +6936,77 @@ function bootWithStats(
 		...extra,
 	});
 }
+
+stockTest(
+	"a failing stats append warns once across runs, never per run",
+	async () => {
+		// Stats are decoration: a persistence failure must not abort the run,
+		// and it must not turn into a notification per run either. The value
+		// under test is the deduplication — a broken host seam would
+		// otherwise emit one warning for every completed run for the whole
+		// session.
+		//
+		// appendEntry is failed only for the stats type: mutation and git
+		// evidence are deliberately fail-closed, and a blanket throw would
+		// exercise those paths instead of this one.
+		let transcript: TranscriptInstance | undefined;
+		const booted = await bootPlugin(
+			(root, host) => {
+				transcript = new host.TranscriptContainer();
+				root.addChild(transcript);
+			},
+			"/tmp",
+			[],
+			false,
+			{
+				...DEFAULT_SETTINGS,
+				mode: "live",
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: true, clock: false },
+			},
+			{
+				piMutate: (pi) => {
+					const original = pi.appendEntry as (
+						customType: string,
+						data?: unknown,
+					) => void;
+					pi.appendEntry = (customType: string, data?: unknown) => {
+						if (customType === "omp-compact-stats") {
+							throw new Error("stats sink unavailable");
+						}
+						original(customType, data);
+					};
+				},
+			},
+		);
+		if (!transcript) throw new Error("transcript missing");
+		const withTranscript = { ...booted, transcript };
+
+		for (const [index, answer] of ["first", "second"].entries()) {
+			await beginRun(withTranscript);
+			addAnswer(withTranscript, answer);
+			await completeAnswer(
+				withTranscript,
+				answer,
+				{ input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+				1_700_000_000_500 + index,
+			);
+		}
+
+		// The runs still complete and the answers still render.
+		const rows = visibleRows(transcript).join("\n");
+		expect(rows).toContain("first");
+		expect(rows).toContain("second");
+		// No stats evidence survived, and the pending entry was dropped
+		// rather than left to place a row without persisted evidence.
+		expect(statsEntries(booted)).toHaveLength(0);
+		// Exactly one warning for two failures: the point of the warn-once.
+		const warnings = booted.notifications.filter((message) =>
+			message.includes("decorative-stats-failed"),
+		);
+		expect(warnings).toHaveLength(1);
+		await shutdown(booted);
+	},
+);
 
 stockTest(
 	"stats wiring: message_end usage, action dedup and one evidence entry",
@@ -7411,6 +7527,29 @@ stockTest(
 		await commandDone;
 		expect(await Bun.file(pluginConfigPath()).text()).toBe(before);
 		expect(booted.notifications).not.toContain("omp-compact settings saved");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"the settings command refuses to open a dialog in a headless session",
+	async () => {
+		// A subagent or RPC session has no interactive terminal. Opening the
+		// dialog there would await a result nobody can produce, hanging the
+		// command; the plugin must decline and say why instead.
+		const booted = await bootWithTranscript();
+		const handler = booted.commandHandlers.get("compact-settings");
+		expect(handler).toBeDefined();
+		const before = await Bun.file(pluginConfigPath()).text();
+		// Same context, hasUI false: the ui seam stays live so the refusal
+		// path is exercised, not a missing-notify fallback.
+		await handler?.("", { ...booted.context, hasUI: false });
+		expect(booted.dialogs).toHaveLength(0);
+		expect(booted.notifications).toContain(
+			"omp-compact settings require an interactive terminal",
+		);
+		// Declining is not a save: the config file is untouched.
+		expect(await Bun.file(pluginConfigPath()).text()).toBe(before);
 		await shutdown(booted);
 	},
 );
@@ -10009,6 +10148,53 @@ stockTest(
 		expect(rows).toContain("• read src/last.ts");
 		expect(rows).not.toContain("● Read");
 		expect(rows).toContain(answer);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"session_compact arms the collapsed-rebuild permit for the post-summary tail",
+	async () => {
+		// Stock emits session_compact after a successful LLM compaction, then
+		// rebuilds only the post-summary tail (display.collapseCompacted
+		// default true) while getBranch() still walks the full path. Suffix
+		// alignment is what binds that shorter visible tail to the newest
+		// branch states, and this event is one of only two things that arm it.
+		//
+		// The fixture must NOT boot through a path that already arms the
+		// restore override, or the permit would be untested: no
+		// session_before_switch, no session_tree, and the branch is installed
+		// after boot so the cold-launch arming does not cover the tail either.
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		harness.branch.current = [
+			...committedSingleToolBranch("printf old", "bash-old", "old done"),
+			...committedSingleToolBranch("printf new", "bash-new", "new done"),
+		];
+		await dispatch(booted, { type: "session_compact" });
+		booted.transcript.clear();
+		// Only the newest of the two branch tool states comes back, exactly
+		// as stock reconstructs a collapsed history.
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf new" },
+			"bash-new",
+		);
+		rebuilt.render = () => ["native-fallback"];
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-new",
+		);
+		await flushMicrotasks();
+
+		const rows = visibleRows(booted.transcript).join("\n");
+		// Bound through the permit: the live policy filters the routine row.
+		// Without the permit the counts differ, pairing bails, and the native
+		// fallback stays on screen.
+		expect(rows).not.toContain("printf new");
+		expect(rows).not.toContain("native-fallback");
 		await shutdown(booted);
 	},
 );
