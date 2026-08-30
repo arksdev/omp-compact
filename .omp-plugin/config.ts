@@ -228,11 +228,9 @@ export function resolveConfigPath(
 	// Rejected PI_CONFIG_DIR falls back to the stock ".omp" root silently.
 	const configRootRaw = env.PI_CONFIG_DIR;
 	const configRoot =
-		configRootRaw && isPathInsideHome(configRootRaw, home)
-			? isAbsolute(configRootRaw)
-				? resolve(configRootRaw)
-				: join(home, configRootRaw)
-			: join(home, ".omp");
+		(configRootRaw
+			? resolveConfigRootInsideHome(configRootRaw, home)
+			: undefined) ?? join(home, ".omp");
 	const profile = sanitizeProfileToken(env.PI_PROFILE);
 	const agentBase = profile
 		? join(configRoot, "profiles", profile, "agent")
@@ -258,17 +256,23 @@ function sanitizeProfileToken(profile: string | undefined): string | undefined {
 }
 
 /**
- * True when `candidate` resolves to a path at or under `home`. Relative
- * candidates are resolved against `home` (so `PI_CONFIG_DIR=.omp` stays the
- * historical `~/…` layout). Absolute candidates must still live under home.
+ * The resolved path when `candidate` lands at or under `home`, else
+ * `undefined`. Relative candidates resolve against `home` (so
+ * `PI_CONFIG_DIR=.omp` stays the historical `~/…` layout). Absolute
+ * candidates must still live under home. Returning the path rather than a
+ * flag keeps the caller from repeating the resolution it just validated —
+ * the same shape as `resolveAcceptedExplicitConfigPath` below.
  */
-function isPathInsideHome(candidate: string, home: string): boolean {
-	if (candidate === "") return false;
+function resolveConfigRootInsideHome(
+	candidate: string,
+	home: string,
+): string | undefined {
+	if (candidate === "") return undefined;
 	const homeResolved = resolve(home);
 	const resolved = isAbsolute(candidate)
 		? resolve(candidate)
 		: resolve(homeResolved, candidate);
-	return isPathInsideRoot(resolved, homeResolved);
+	return isPathInsideRoot(resolved, homeResolved) ? resolved : undefined;
 }
 
 /**
