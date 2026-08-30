@@ -1,5 +1,5 @@
-import { beforeAll, expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import {
@@ -15,6 +15,18 @@ import {
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;
 const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
+
+/** Mode config files this process wrote under the shared stock temp dir. */
+const generatedConfigs = new Set<string>();
+
+afterAll(async () => {
+	await Promise.all(
+		[...generatedConfigs].map((path) =>
+			rm(path, { force: true }).catch(() => {}),
+		),
+	);
+	generatedConfigs.clear();
+});
 
 interface AdapterModule {
 	RuntimeAdapter: new (options: {
@@ -160,7 +172,14 @@ async function bootAdapter(options?: {
 	};
 	let modePolicy: unknown;
 	if (options?.mode && options.mode !== "live") {
-		const configPath = join(stockTempDir(), `config-${options.mode}.json`);
+		// Pid in the name: a fixed `config-compact.json` is shared with every
+		// concurrent `bun test` process, so one run would rewrite another's
+		// config between its store read and its policy run.
+		const configPath = join(
+			stockTempDir(),
+			`config-${options.mode}-${process.pid}.json`,
+		);
+		generatedConfigs.add(configPath);
 		await writeFile(
 			configPath,
 			JSON.stringify({

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import {
 	chmod,
 	mkdir,
@@ -25,9 +25,27 @@ import {
 } from "../../.omp-plugin/config";
 import { registerDisplayCycleShortcut } from "../../.omp-plugin/host-api";
 
+/**
+ * Temp roots this file created. Most tests remove their own directory; this
+ * registry closes the paths that return early or assert on a thrown error
+ * before reaching their `rm`.
+ */
+const generatedDirs = new Set<string>();
+
 async function tempDir(): Promise<string> {
-	return mkdtemp(join(tmpdir(), "omp-compact-config-"));
+	const dir = await mkdtemp(join(tmpdir(), "omp-compact-config-"));
+	generatedDirs.add(dir);
+	return dir;
 }
+
+afterAll(async () => {
+	await Promise.all(
+		[...generatedDirs].map((dir) =>
+			rm(dir, { recursive: true, force: true }).catch(() => {}),
+		),
+	);
+	generatedDirs.clear();
+});
 
 function storeAt(dir: string) {
 	const warnings: string[] = [];

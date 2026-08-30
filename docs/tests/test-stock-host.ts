@@ -20,7 +20,7 @@
  *
  * Test scaffolding only — no production code is imported at module load.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -153,6 +153,15 @@ export function stockSettingsPath(fileName: string): string {
 	return join(stockTempDir(), fileName);
 }
 
+/**
+ * Files this process generated under `stockTempDir()`, so a suite can drop
+ * exactly its own output. The directory itself is shared: `bun test` runs
+ * several files per process and several processes per machine, and fixed
+ * names like `config-compact.json` are written by other suites — removing
+ * the directory would delete a sibling's live config mid-run.
+ */
+const generatedSettings = new Set<string>();
+
 /** Writes an isolated boot-settings JSON file (mkdir -p implied). */
 export function writeStockSettings(
 	settings: unknown,
@@ -161,7 +170,19 @@ export function writeStockSettings(
 	const path = stockSettingsPath(fileName);
 	mkdirSync(dirname(path), { recursive: true });
 	writeFileSync(path, JSON.stringify(settings, null, 2));
+	generatedSettings.add(path);
 	return path;
+}
+
+/**
+ * Removes the settings files this process wrote through
+ * `writeStockSettings`. Call from an `afterAll` in the test file itself:
+ * a hook registered here would bind to whichever file imported this module
+ * first and fire once for the whole process, leaving the rest behind.
+ */
+export function cleanupStockSettings(): void {
+	for (const path of generatedSettings) rmSync(path, { force: true });
+	generatedSettings.clear();
 }
 
 /**

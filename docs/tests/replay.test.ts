@@ -15,11 +15,19 @@
  * `OMP_REPLAY_MANIFEST` JSON, never from this repo):
  *   OMP_REPLAY_MANIFEST=/path/to/manifest.json bun run docs/tests/replay/extract.ts
  */
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { type ReplayFixture, replayFixture } from "./replay/harness";
+import { cleanupStockSettings } from "./test-stock-host";
+
+// The harness writes one settings file per replayed fixture; drop them here
+// because a hook inside the harness module would fire once per process, not
+// once per test file.
+afterAll(() => {
+	cleanupStockSettings();
+});
 
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;

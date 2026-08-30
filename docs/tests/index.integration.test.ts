@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +12,7 @@ import {
 	type Renderable,
 	type ToolExecutionInstance,
 	type TranscriptInstance,
+	cleanupStockSettings,
 	writeStockSettings,
 } from "./test-stock-host";
 
@@ -28,8 +29,17 @@ let bootCounter = 0;
 // The settings file of the most recent boot, so tests that read the persisted
 // JSON after a dialog save resolve the same path the boot wrote.
 let lastBootSettingsPath: string | undefined;
+/**
+ * Temp roots this process created. Individual tests still remove their own
+ * fixture dirs; this registry only guarantees nothing survives the run.
+ * `mkdtemp` names are unique per boot, so nothing here is ever reused and an
+ * already-removed path is a no-op under `force`.
+ */
+const generatedDirs = new Set<string>();
 function bootTempDir(prefix = "omp-compact-boot-"): string {
-	return mkdtempSync(join(tmpdir(), `${prefix}${process.pid}-`));
+	const dir = mkdtempSync(join(tmpdir(), `${prefix}${process.pid}-`));
+	generatedDirs.add(dir);
+	return dir;
 }
 /**
  * Per-process fixture root for tests that pass an explicit cwd. The same
@@ -39,8 +49,23 @@ function bootTempDir(prefix = "omp-compact-boot-"): string {
  * evidence row.
  */
 function fixtureDir(name: string): string {
-	return join(tmpdir(), `omp-compact-fx-${process.pid}-${name}`);
+	const dir = join(tmpdir(), `omp-compact-fx-${process.pid}-${name}`);
+	generatedDirs.add(dir);
+	return dir;
 }
+
+// Hooks live in the test file, not in test-stock-host: a hook registered in
+// an imported module binds to whichever test file loaded it first and fires
+// once for the whole process, leaving every other file's output behind.
+afterAll(async () => {
+	await Promise.all(
+		[...generatedDirs].map((dir) =>
+			rm(dir, { recursive: true, force: true }).catch(() => {}),
+		),
+	);
+	generatedDirs.clear();
+	cleanupStockSettings();
+});
 /** Plain-CSI Down arrow, as a terminal delivers it to `handleInput`. */
 const KEY_DOWN = "\u001b[B";
 
