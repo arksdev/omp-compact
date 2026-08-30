@@ -2,7 +2,7 @@ import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
 
 import type { DisplayPathOptions } from "./display-path";
 import {
-	HostAdapter1731,
+	StockHostAdapter,
 	isBackgroundCompletionBlock,
 	isBashExecutionComponent,
 	isEvalExecutionComponent,
@@ -179,7 +179,7 @@ function isCompactCustomMessage(value: unknown): value is RenderableBlock {
  * timers, UI render requests and the C rebuild boundary.
  */
 export class RuntimeAdapter {
-	readonly #host: HostAdapter1731;
+	readonly #host: StockHostAdapter;
 	readonly #ui: AdapterUI;
 	readonly #timers: TimerContext | undefined;
 	readonly #warn: ((message: string) => void) | undefined;
@@ -212,7 +212,7 @@ export class RuntimeAdapter {
 	readonly #onDisabled: (() => void) | undefined;
 
 	constructor(options: RuntimeAdapterOptions) {
-		this.#host = new HostAdapter1731(options.root);
+		this.#host = new StockHostAdapter(options.root);
 		this.#ui = options.ui;
 		this.#timers = options.timers;
 		this.#warn = options.warn;
@@ -957,7 +957,7 @@ export class RuntimeAdapter {
 	}
 
 	// Discovery recursion: depth tracking and cycle detection are the
-	// responsibility of HostAdapter.observeTree, not this orchestration
+	// responsibility of StockHostAdapter.observeTree, not this orchestration
 	// layer. The adapter fails closed on any discovery exception.
 	#observeTree(value: unknown, depth: number): void {
 		if (this.#transcript) return;

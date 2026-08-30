@@ -9,16 +9,13 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `HostAdapter1731.hostVersion` (`"18.0.11"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.0.11"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
- * positions). The class name keeps the historical `1731` suffix from the
- * first verified critical-surface contract; renaming is deferred while
- * probes (not the class name) decide live behavior. Comments that cite
- * 17.3.1/17.3.4 mark leaf fingerprints whose shapes were confirmed on
- * those hosts (todo reminder, skill, late diagnostics, user bash/eval).
- * Neither string is a runtime gate: every decision is a capability probe
- * on the live instance.
+ * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
+ * whose shapes were confirmed on those hosts (todo reminder, skill,
+ * late diagnostics, user bash/eval). Neither string is a runtime gate:
+ * every decision is a capability probe on the live instance.
  *
  * `package.json` `engines.omp` sets the public floor to `>=18.0.1`,
  * the release that rewrote the transcript container; support for older

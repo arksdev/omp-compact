@@ -249,7 +249,7 @@ export function insertTranscriptChildAt(
  * `hostVersion` documents the verified critical-surface contract (see the
  * host-surface.ts module header). It is never read for dispatch — probes decide.
  */
-export class HostAdapter1731 {
+export class StockHostAdapter {
 	/**
 	 * Verified host release for critical private surfaces (tool / read-group
 	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays

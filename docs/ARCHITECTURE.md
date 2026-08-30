@@ -695,10 +695,9 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `HostAdapter1731.hostVersion` (`18.0.11`) records the
+  `StockHostAdapter.hostVersion` (`18.0.11`) records the
   **verified** critical private-surface contract the adapter was written
-  against; the class name keeps the historical `1731` suffix. Comments that
-  cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
+  against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
   hosts. Neither string is a runtime gate — every decision is a live
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-	HostAdapter1731,
+	StockHostAdapter,
 	insertTranscriptChildAt,
 	isBackgroundCompletionBlock,
 	isBashExecutionComponent,
@@ -717,7 +717,7 @@ describe("stats carrier placement", () => {
 		const transcript = new FakeTranscript();
 		const first = { id: "first" };
 		const second = { id: "second" };
-		const host = new HostAdapter1731(undefined);
+		const host = new StockHostAdapter(undefined);
 		expect(host.insertTranscriptChildAt(transcript, 0, first)).toBe(true);
 		expect(insertTranscriptChildAt(transcript, 1, second)).toBe(true);
 		expect(insertTranscriptChildAt({ children: [] }, 0, {})).toBe(false);
@@ -813,7 +813,7 @@ describe("capability fingerprints", () => {
 		});
 		expect(tuiCapabilities({})).toEqual({ resetDisplay: false });
 		expect(tuiCapabilities(null)).toEqual({ resetDisplay: false });
-		const host = new HostAdapter1731({ resetDisplay() {} });
+		const host = new StockHostAdapter({ resetDisplay() {} });
 		expect(host.tuiCapabilities()).toEqual({ resetDisplay: true });
 		expect(host.tuiCapabilities().resetDisplay).toBe(true);
 	});
@@ -839,7 +839,7 @@ describe("capability fingerprints", () => {
 	});
 
 	test("the host release pin targets OMP 18.0.11", () => {
-		expect(HostAdapter1731.hostVersion).toBe("18.0.11");
+		expect(StockHostAdapter.hostVersion).toBe("18.0.11");
 	});
 });
 
@@ -926,12 +926,12 @@ describe("OMP 17.4.0 argument positions", () => {
 		}
 	});
 });
-describe("HostAdapter1731 discovery", () => {
+describe("StockHostAdapter discovery", () => {
 	test("collectTranscriptCandidates finds nested transcripts", () => {
 		const transcript = new FakeTranscript();
 		const nested = container([transcript]);
 		const root = container([nested]);
-		expect(new HostAdapter1731(root).collectTranscriptCandidates()).toEqual([
+		expect(new StockHostAdapter(root).collectTranscriptCandidates()).toEqual([
 			transcript,
 		]);
 	});
@@ -940,7 +940,7 @@ describe("HostAdapter1731 discovery", () => {
 		const first = new FakeTranscript();
 		const second = new FakeTranscript();
 		expect(
-			new HostAdapter1731(
+			new StockHostAdapter(
 				container([first, second]),
 			).collectTranscriptCandidates(),
 		).toEqual([first, second]);
@@ -950,7 +950,7 @@ describe("HostAdapter1731 discovery", () => {
 		(cyclic.children as unknown[]).push(root);
 		const transcript = new FakeTranscript();
 		(root.children as unknown[]).push(transcript);
-		expect(new HostAdapter1731(root).collectTranscriptCandidates()).toEqual([
+		expect(new StockHostAdapter(root).collectTranscriptCandidates()).toEqual([
 			transcript,
 		]);
 	});
@@ -960,17 +960,19 @@ describe("HostAdapter1731 discovery", () => {
 		// transcript at depth 11 is found
 		let nested = container([transcript]);
 		for (let index = 0; index < 10; index++) nested = container([nested]);
-		expect(new HostAdapter1731(nested).collectTranscriptCandidates()).toEqual([
+		expect(new StockHostAdapter(nested).collectTranscriptCandidates()).toEqual([
 			transcript,
 		]);
 		// transcript at depth 12 is found
 		const atBoundary = container([nested]);
 		expect(
-			new HostAdapter1731(atBoundary).collectTranscriptCandidates(),
+			new StockHostAdapter(atBoundary).collectTranscriptCandidates(),
 		).toEqual([transcript]);
 		// transcript at depth 13 is not found
 		const deep = container([atBoundary]);
-		expect(new HostAdapter1731(deep).collectTranscriptCandidates()).toEqual([]);
+		expect(new StockHostAdapter(deep).collectTranscriptCandidates()).toEqual(
+			[],
+		);
 	});
 
 	test("observeTree reports containers, stops at the first transcript, bounds depth", () => {
@@ -979,7 +981,7 @@ describe("HostAdapter1731 discovery", () => {
 		const root = container([nested]);
 		const seenContainers: unknown[] = [];
 		const seenTranscripts: unknown[] = [];
-		const host = new HostAdapter1731(root);
+		const host = new StockHostAdapter(root);
 		const found = host.observeTree(
 			root,
 			0,
@@ -1023,10 +1025,10 @@ describe("HostAdapter1731 discovery", () => {
 	});
 });
 
-describe("HostAdapter1731 exact-instance patching", () => {
+describe("StockHostAdapter exact-instance patching", () => {
 	test("patchAddChild wraps addChild and restores it", () => {
 		const transcript = new FakeTranscript();
-		const host = new HostAdapter1731(transcript);
+		const host = new StockHostAdapter(transcript);
 		const added: unknown[] = [];
 		const patch = host.patchAddChild(transcript, (child) => added.push(child));
 		expect(Object.hasOwn(transcript, "addChild")).toBe(true);
@@ -1040,7 +1042,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	});
 
 	test("patchAddChild rejects non-extensible transcripts and missing addChild", () => {
-		const host = new HostAdapter1731({});
+		const host = new StockHostAdapter({});
 		expect(() =>
 			host.patchAddChild(Object.freeze(new FakeTranscript()), () => {}),
 		).toThrow("unpatchable transcript");
@@ -1063,7 +1065,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	test("patchDiscoveryContainer wraps addChild and rejects unpatchable containers", () => {
 		const target = container([]);
 		const originalAddChild = target.addChild;
-		const host = new HostAdapter1731(target);
+		const host = new StockHostAdapter(target);
 		const added: unknown[] = [];
 		const patch = host.patchDiscoveryContainer(target, (child) =>
 			added.push(child),
@@ -1088,7 +1090,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 
 	test("patchToolComponent runs onBefore before the native method and restores", () => {
 		const component = new ToolComponent();
-		const host = new HostAdapter1731(component);
+		const host = new StockHostAdapter(component);
 		const before: Array<[string, unknown[]]> = [];
 		const patch = host.patchToolComponent(component, (name, args) =>
 			before.push([name, args]),
@@ -1102,7 +1104,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	});
 
 	test("patchToolComponent rejects missing methods and rolls back mid-install failures", () => {
-		const host = new HostAdapter1731({});
+		const host = new StockHostAdapter({});
 		const partial = {
 			render() {},
 			updateArgs() {},
@@ -1135,7 +1137,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 
 	test("patchReadGroup wraps methods and rejects incompatible groups", () => {
 		const group = new ReadGroup();
-		const host = new HostAdapter1731(group);
+		const host = new StockHostAdapter(group);
 		const before: Array<[string, unknown[]]> = [];
 		const patch = host.patchReadGroup(group, (name, args) =>
 			before.push([name, args]),
@@ -1167,7 +1169,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 			transcript.children.length = 0;
 		};
 		const nativeClear = transcript.clear;
-		const host = new HostAdapter1731(transcript);
+		const host = new StockHostAdapter(transcript);
 		let cleared = 0;
 		const beforeLengths: number[] = [];
 		const patch = host.patchClear(transcript, () => {
@@ -1188,7 +1190,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	});
 
 	test("patchClear rejects non-extensible transcripts and missing clear", () => {
-		const host = new HostAdapter1731({});
+		const host = new StockHostAdapter({});
 		expect(() =>
 			host.patchClear(Object.freeze(new FakeTranscript()), () => {}),
 		).toThrow("unpatchable transcript");
@@ -1219,7 +1221,7 @@ describe("HostAdapter1731 exact-instance patching", () => {
 			configurable: false,
 			writable: true,
 		});
-		const host = new HostAdapter1731(transcript);
+		const host = new StockHostAdapter(transcript);
 		expect(() => host.patchClear(transcript, () => {})).toThrow(TypeError);
 		expect(Object.getOwnPropertyDescriptor(transcript, "clear")?.value).toBe(
 			nativeClear,
@@ -1232,11 +1234,11 @@ describe("HostAdapter1731 exact-instance patching", () => {
 	test("resetDisplay invokes the exact root capability and reports absence", () => {
 		let calls = 0;
 		const root = { resetDisplay: () => calls++ };
-		expect(new HostAdapter1731(root).resetDisplay()).toBe(true);
+		expect(new StockHostAdapter(root).resetDisplay()).toBe(true);
 		expect(calls).toBe(1);
-		expect(new HostAdapter1731({}).resetDisplay()).toBe(false);
-		expect(new HostAdapter1731(null).resetDisplay()).toBe(false);
-		expect(new HostAdapter1731(undefined).resetDisplay()).toBe(false);
+		expect(new StockHostAdapter({}).resetDisplay()).toBe(false);
+		expect(new StockHostAdapter(null).resetDisplay()).toBe(false);
+		expect(new StockHostAdapter(undefined).resetDisplay()).toBe(false);
 	});
 });
 

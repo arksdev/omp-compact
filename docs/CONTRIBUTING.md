@@ -557,7 +557,7 @@ The repository pins stock OMP through two independent numbers (see
 `context/host-pin-versus-public-floor.md`):
 
 - **Gate pin** — `devDependencies["@oh-my-pi/pi-coding-agent"]` in the root
-  `package.json` plus `HostAdapter1731.hostVersion` in `.omp-plugin/host-adapter.ts`.
+  `package.json` plus `StockHostAdapter.hostVersion` in `.omp-plugin/host-adapter.ts`.
   It records the release on which the plugin's critical private surfaces were verified.
 - **Public floor** — `engines.omp` in the root `package.json`. It records the release
   below which the plugin cannot recognise the host at all.
@@ -643,7 +643,7 @@ historical pending rows intentionally does not stamp.
 **Pin-move edit list** (when the decision is to raise the gate pin):
 
 - Root `package.json` devDependency and `bun.lock` (via `bun install`).
-- `HostAdapter1731.hostVersion` in `.omp-plugin/host-adapter.ts`.
+- `StockHostAdapter.hostVersion` in `.omp-plugin/host-adapter.ts`.
 - The version story comment block in `.omp-plugin/host-surface.ts`.
 - The `18.0.11` assertions in `docs/tests/host-adapter.test.ts` and
   `docs/tests/marketplace.test.ts`.
