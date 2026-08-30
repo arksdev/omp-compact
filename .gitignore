@@ -40,6 +40,9 @@ omp-replay-manifest.json
 # Local code-review plan artifact
 /code-review/
 
+# Local tech-debt task backlog (not part of the plugin repository)
+/tech_debt/
+
 # Local decision records; public project decisions belong in documentation.
 /context/
 /docs/PRD-tool-presentation.md
