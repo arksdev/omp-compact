@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `HostAdapter1731.hostVersion` (`"18.0.10"`) is the **verified contract**
+ * `HostAdapter1731.hostVersion` (`"18.0.11"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). The class name keeps the historical `1731` suffix from the
@@ -53,16 +53,19 @@
  * retires cross-run entries by call id), so no plugin change was needed.
  * `syncRetryHintRow()` (the F5-to-retry hint row) and `app.retry` gaining
  * `f5` as a default key are stock chrome the plugin neither renders nor
- * registers against.
+ * registers against. 18.0.11 left the container, the tool card and the
+ * read group byte-identical too: the release's only container change is
+ * an additive `resetStableEmission()` on the thinking-toggle path, a
+ * ledger reset the plugin neither calls nor receives.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.0.10 (root `node_modules` plus the isolated
- * `runtime/omp-18.0.10/` copy); 18.0.9 was not installed locally — the
- * fingerprint facts above come from the 18.0.8 → 18.0.10 diff.
+ * The gate pin is 18.0.11 (root `node_modules` plus the isolated
+ * `runtime/omp-18.0.11/` copy). The fingerprint facts above come from
+ * the diff on the code-review/host-18.0.11-diff.md surface diff.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify
@@ -71,7 +74,7 @@
  * content extraction fails.
  *
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.0.10 pin and resolved via live capability probes on the instance;
+ * the 18.0.11 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.

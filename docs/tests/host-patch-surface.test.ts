@@ -46,7 +46,7 @@ const stockTest = binary ? test : test.skip;
  * for the patched surface, so a host bump must either keep the surface
  * identical or trip here — before the defects reach a session.
  */
-const VERIFIED_HOST_VERSION = "18.0.10";
+const VERIFIED_HOST_VERSION = "18.0.11";
 
 /**
  * Method arity measured on the live host.

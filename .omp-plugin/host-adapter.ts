@@ -256,7 +256,7 @@ export class HostAdapter1731 {
 	 * independent release metadata. See host-surface.ts module header
 	 * "Version story".
 	 */
-	static readonly hostVersion = "18.0.10";
+	static readonly hostVersion = "18.0.11";
 
 	readonly #root: unknown;
 
