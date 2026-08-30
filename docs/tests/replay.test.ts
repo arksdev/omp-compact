@@ -5,7 +5,7 @@
  * event stream derived from a real OMP session (see `docs/tests/replay/extract.ts` and
  * each fixture's `meta` for provenance). Each test boots the plugin through
  * the stock runtime host modules, replays the fixture events in order
- * through the same seams as `index.integration.test.ts`, and asserts the
+ * through the same seams as the `integration-*.test.ts` suites, and asserts the
  * observable final projection: the transcript rows and the persisted
  * carrier entries (`appendedEntries`), in order.
  *

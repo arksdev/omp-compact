@@ -260,7 +260,7 @@ describe("classifyAgentEnd", () => {
 - Stats aggregation
 
 **Also required, and already extensive:**
-- Integration tests against the real pinned host — `index.integration.test.ts` boots the plugin into a live stock session, `run-stats.integration.test.ts` covers the stats seam, and `presentation-patches.integration.test.ts` covers the leaf overrides.
+- Integration tests against the real pinned host — twenty `integration-*.test.ts` suites boot the plugin into a live stock session, one per seam (`integration-transcript-rebuild`, `integration-auto-shake`, `integration-audit-mutations`, and so on) over the shared `integration-harness.ts`; `run-stats.integration.test.ts` covers the stats seam and `presentation-patches.integration.test.ts` the leaf overrides.
 - Runtime adapter against real TUI components — the whole integration suite patches genuine `ToolExecutionComponent`, `ReadToolGroupComponent` and `TranscriptContainer` instances, and `host-patch-surface.test.ts` fails when the methods those patches need disappear or when a scraped leaf drifts.
 - Concurrent rebuild scenarios — generation staleness, two quick clears, and mid-rebuild switches are covered in the integration suite.
 
