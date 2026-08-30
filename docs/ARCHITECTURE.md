@@ -675,10 +675,13 @@ The host-supplied agent directory and the live session `Settings` object sit
   `<agentDir>/omp-compact/config.json` (`config.ts`); the host-YAML pre-image
   for settings rollback is read from `<getAgentDir()>/config.y{a}ml`
   (`host-settings.ts`). Both locations are host-controlled.
-- **Still bounded.** YAML pre-image reads keep byte and nesting-depth budgets
-  (`MAX_HOST_SETTINGS_YAML_BYTES` / `MAX_HOST_SETTINGS_YAML_DEPTH`); an
-  unreadable or over-budget pre-image fails the host-settings update closed
-  before any `set()`/`flush()`.
+- **Still bounded.** YAML pre-image reads keep a byte budget
+  (`MAX_HOST_SETTINGS_YAML_BYTES`); an unreadable or over-budget pre-image
+  fails the host-settings update closed before any `set()`/`flush()`. Depth
+  needs no separate budget: indentation makes block nesting grow
+  quadratically, so 64 KiB already caps it, and flow nesting deep enough to
+  exhaust the parser raises a `RangeError` that the same fail-closed catch
+  turns into a rejection.
 - **Why confinement was rejected.** Gating the host agent dir to home/cwd
   would silently fall through to stock defaults and drop the user's settings
   (containers, system prefixes, harness temp dirs are legitimate overrides).

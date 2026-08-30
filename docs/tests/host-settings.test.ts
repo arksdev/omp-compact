@@ -7,12 +7,10 @@ import {
 	createHostSettingsBridge,
 	createSessionSettingsApi,
 	createSessionSettingsResolver,
-	yamlNestingDepth,
 	type HostSettingPath,
 	type HostSettingsApi,
 	HostSettingsApplyError,
 	MAX_HOST_SETTINGS_YAML_BYTES,
-	MAX_HOST_SETTINGS_YAML_DEPTH,
 	type PersistentPreImage,
 	type SessionSettingsLike,
 } from "../../.omp-plugin/host-settings";
@@ -1116,26 +1114,26 @@ describe("createSessionSettingsApi", () => {
 		}
 	});
 
-	test("persistent() rejects over-deep profile YAML (fail-closed seam)", async () => {
+	test("persistent() rejects unparseable deep profile YAML (fail-closed seam)", async () => {
 		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
 		try {
-			// Depth budget matches config.ts MAX_CONFIG_DEPTH. Nest one level
-			// past it so the pre-parse gate rejects before YAML.parse.
-			let body = "leaf: true\n";
-			for (let depth = 0; depth < MAX_HOST_SETTINGS_YAML_DEPTH + 1; depth++) {
-				body = `a:\n${body
-					.split("\n")
-					.map((line) => (line.length > 0 ? `  ${line}` : line))
-					.join("\n")}`;
-			}
-			await writeFile(join(agentDir, "config.yml"), body);
+			// Flow nesting deep enough to exhaust the parser's own recursion,
+			// while staying well inside the byte budget. There is no depth
+			// pre-scan: the parser raises RangeError and this seam must turn
+			// that into the same fail-closed rejection as any invalid YAML,
+			// rather than letting it escape and abort the process.
+			const depth = 5000;
+			await writeFile(
+				join(agentDir, "config.yml"),
+				`deep: ${"[".repeat(depth)}1${"]".repeat(depth)}\n`,
+			);
 			const api = createSessionSettingsApi({
 				getAgentDir: () => agentDir,
 				get: () => undefined,
 				set: () => {},
 				flush: async () => {},
 			});
-			await expect(api.persistent()).rejects.toThrow(/depth/i);
+			await expect(api.persistent()).rejects.toThrow(/not valid YAML/i);
 		} finally {
 			await rm(agentDir, { recursive: true, force: true });
 		}
@@ -1210,331 +1208,12 @@ describe("createSessionSettingsApi", () => {
 	});
 });
 
-describe("yamlNestingDepth robustness", () => {
-	/**
-	 * Multi-line literal block scalar with deeply indented continuation lines.
-	 * The indentation inside a | region is content, not nesting.
-	 */
-	test("literal block scalar | ignores deeply indented content", () => {
-		const yaml = `version: 1
-system_prompt: |
-  Example output format:
-                                    deeply indented continuation line here
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * Folded style (>) treats the same content as |.
-	 */
-	test("folded block scalar > ignores deeply indented content", () => {
-		const yaml = `version: 1
-system_prompt: >
-  Example output format:
-                                    deeply indented continuation line here
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * Chomping/indentation indicators must be recognized as part of the header.
-	 */
-	test("chomping indicators |- , >- preserve indent handling", () => {
-		const yaml1 = `version: 1
-system_prompt: |-
-                          Indented literal block content
-recap:
-  enabled: true
-`;
-		const yaml2 = `version: 1
-system_prompt: >-
-                           Folded block content here
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml1)).toBe(1);
-		expect(yamlNestingDepth(yaml2)).toBe(1);
-	});
-
-	/**
-	 * Explicit indentation indicator must work.
-	 */
-	test("indentation indicator |4 must recognize header properly", () => {
-		const yaml = `version: 1
-system_prompt: |4
-                   Indented literal block content
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * A trailing comment after the indicator must not hide the header.
-	 */
-	test("block scalar header with trailing comment is recognized", () => {
-		const yaml = `version: 1
-system_prompt: | # literal block
-                                    deeply indented content
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * A block sequence entry (`- |`) opens the same kind of region.
-	 */
-	test("block sequence entry - | opens a region", () => {
-		const yaml = `version: 1
-prompts:
-  - |
-                                    deeply indented content
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * `|` and `#` inside a double-quoted scalar are content, not a header.
-	 */
-	test("| and # inside a double-quoted scalar are not a header", () => {
-		const yaml = `version: 1
-title: "a | b # c"
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * Same for a single-quoted scalar.
-	 */
-	test("| and # inside a single-quoted scalar are not a header", () => {
-		const yaml = `version: 1
-name: 'x | y # z'
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * Even a colon before the pipe (which alone would look like a header)
-	 * is protected when it sits inside a quoted scalar.
-	 */
-	test("colon-pipe inside a double-quoted scalar is not a header", () => {
-		const yaml = `version: 1
-title: "a: | # c"
-  nested:
-    deep: true
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(2);
-	});
-
-	/**
-	 * Same for a single-quoted scalar.
-	 */
-	test("colon-pipe inside a single-quoted scalar is not a header", () => {
-		const yaml = `version: 1
-name: 'x: | # z'
-  nested:
-    deep: true
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(2);
-	});
-
-	/**
-	 * A quoted key with an escaped quote is still a header after the
-	 * balanced quotes.
-	 */
-	test("quoted key with escaped quote before | is a header", () => {
-		const yaml = `version: 1
-"a\\" b": |
-  content
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * Multi-line double-quoted scalar: quote state persists across newlines.
-	 * Continuation lines containing { and [ must not count toward flow depth.
-	 */
-	test("multi-line double-quoted scalar continues quote state", () => {
-		const yaml = `version: 1
-prompt: "Line one
-  Line two with { nested } structure
-    Line three with [ arrays ]
-      Deep continuation"
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * Multi-line single-quoted scalar: '' escape must work across newlines.
-	 */
-	test("multi-line single-quoted scalar continues quote state", () => {
-		const yaml = `version: 1
-prompt: 'Line one
-  Line two with { nested } structure
-    Line three with [ arrays ]
-      Deep continuation'
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * A block scalar holding a deeply indented JSON example: the braces and
-	 * brackets inside the region are literal content, not flow structure.
-	 */
-	test("block scalar holding an indented JSON example stays flat", () => {
-		const yaml = `version: 1
-system_prompt: |
-                                    {
-                                      "role": "assistant",
-                                      "content": "deep { and [ braces",
-                                      "nested": {
-                                        "array": [1, 2, 3]
-                                      }
-                                    }
-recap:
-  enabled: false
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * CRLF line endings are one line break each: block scalar content stays
-	 * in the region instead of ending it early.
-	 */
-	test("CRLF line endings inside a block scalar stay in the region", () => {
-		const yaml = `version: 1
-system_prompt: |
-  Example output format:
-                                    deeply indented continuation line here
-recap:
-  enabled: true
-`.replaceAll("\n", "\r\n");
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * CRLF line endings inside a multi-line quoted scalar keep the quote
-	 * open and the continuation indentation non-structural.
-	 */
-	test("CRLF line endings inside a multi-line quoted scalar", () => {
-		const yaml = `version: 1
-prompt: "Line one
-      Deep continuation with { brace"
-recap:
-  enabled: true
-`.replaceAll("\n", "\r\n");
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
-	/**
-	 * A block scalar region must correctly end when indentation returns to
-	 * parent level. Genuine over-deep structure after it must still be
-	 * rejected (the scan returns the depth; the caller enforces the budget).
-	 */
-	test("block scalar ends properly and genuine nesting beyond is rejected", () => {
-		const yaml = `version: 1
-system_prompt: |
-  This is a short prompt
-very_deep_nesting:
-  level1:
-    level2:
-      level3:
-        level4:
-          level5:
-            level6:
-              level7:
-                level8:
-                  level9:
-                    level10:
-                      level11:
-                        level12:
-                          level13:
-                            level14:
-                              level15:
-                                level16:
-                                  level17: invalid
-`;
-		expect(yamlNestingDepth(yaml)).toBeGreaterThan(
-			MAX_HOST_SETTINGS_YAML_DEPTH,
-		);
-	});
-
-	/**
-	 * Over-deep block mapping nesting must still be caught even without blocks.
-	 */
-	test("genuinely over-deep block-mapping nesting is still rejected", () => {
-		const yaml = `a1:
-  a2:
-    a3:
-      a4:
-        a5:
-          a6:
-            a7:
-              a8:
-                a9:
-                  a10:
-                    a11:
-                      a12:
-                        a13:
-                          a14:
-                            a15:
-                              a16:
-                                a17:
-                                  a18: invalid
-`;
-		expect(yamlNestingDepth(yaml)).toBeGreaterThan(
-			MAX_HOST_SETTINGS_YAML_DEPTH,
-		);
-	});
-
-	/**
-	 * Over-deep flow nesting must still be caught.
-	 */
-	test("genuinely over-deep flow nesting {{ is still rejected", () => {
-		const yaml = `{"a":{"b":{"c":{"d":{"e":{"f":{"g":{"h":{"i":{"j":{"k":{"l":{"m":{"n":{"o":{"p":{"q":"too deep"}}}}}}}}}}}}}}}}}}`;
-		expect(yamlNestingDepth(yaml)).toBeGreaterThan(
-			MAX_HOST_SETTINGS_YAML_DEPTH,
-		);
-	});
-
-	/**
-	 * Blank lines inside a block scalar region must stay in the region.
-	 */
-	test("blank lines inside block scalar stay within region", () => {
-		const yaml = `version: 1
-system_prompt: |
-  Start of prompt
-  
-  Middle of prompt with   lots of   spaces
-  
-  End of prompt
-recap:
-  enabled: true
-`;
-		expect(yamlNestingDepth(yaml)).toBe(1);
-	});
-
+/**
+ * Block scalars through the real `persistent()` seam. These outlived the
+ * removed depth pre-scan because they assert the parser's own contract: an
+ * indented continuation line inside a `|` region is content, not nesting.
+ */
+describe("host settings YAML block scalars", () => {
 	/**
 	 * The real persistent() seam accepts a multi-line system prompt with
 	 * indented example content instead of rejecting it as over-deep.
