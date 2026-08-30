@@ -450,11 +450,6 @@ export class RuntimeSessionState {
 		return this.#displayPaths;
 	}
 
-	/** The transcript the stats placement targets; undefined pre-install. */
-	get transcript(): TranscriptHost | undefined {
-		return this.#transcript;
-	}
-
 	attachTranscript(transcript: TranscriptHost | undefined): void {
 		this.#transcript = transcript;
 	}
