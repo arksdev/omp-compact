@@ -19,6 +19,15 @@ export function createKeyedQueue<K>(): <T>(
 		const current = new Promise<void>((resolve) => {
 			release = resolve;
 		});
+		// Both `catch` handlers are unreachable, and deliberately kept. A tail
+		// is `previous.catch(…).then(() => current)`, and `current` resolves
+		// from the `finally` below, so no tail this function stores can ever
+		// reject — by induction the first `previous` is `Promise.resolve()`.
+		// The handlers state the invariant the chain depends on: were a
+		// rejecting link ever introduced, they are what keeps a failed
+		// operation from poisoning every later one on the same key. This is
+		// why the module reports 5 of 7 functions covered; the failure path
+		// itself is covered, through the operation's own rejection.
 		const tail = previous.catch(() => undefined).then(() => current);
 		queues.set(key, tail);
 		await previous.catch(() => undefined);
