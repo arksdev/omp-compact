@@ -1016,7 +1016,7 @@ describe("ComponentBinding: order fallbacks", () => {
 		binding.createGroup(groupComponent, false);
 		const read = makeState({ id: "read-1", toolName: "read" });
 		states.set("read-1", read);
-		binding.addHydratedReadLedger(read.ledger);
+		binding.addHydratedReadSegment(read.ledger, [read.id]);
 		expect(binding.bindHydrated(true)).toBe(true);
 		expect(read.component).toBe(groupComponent);
 		expect(binding.groupState(groupComponent)?.ledger).toBe(read.ledger);
@@ -1059,8 +1059,8 @@ describe("ComponentBinding: order fallbacks", () => {
 		if (read0 === undefined || read1 === undefined)
 			throw new Error("expected two read fixtures");
 		for (const read of reads) states.set(read.id, read);
-		binding.addHydratedReadLedger(read0.ledger);
-		binding.addHydratedReadLedger(read1.ledger);
+		binding.addHydratedReadSegment(read0.ledger, [read0.id]);
+		binding.addHydratedReadSegment(read1.ledger, [read1.id]);
 		// The initial-replay owner claimed BOTH ledgers' read states; its
 		// own ledger ends on the last claim (L2), matching its suffix slot
 		// at index 1. The fresh rebuild group ordinals into L1's slot where
@@ -1113,10 +1113,10 @@ describe("ComponentBinding: order fallbacks", () => {
 		)
 			throw new Error("expected four read fixtures");
 		for (const read of reads) states.set(read.id, read);
-		binding.addHydratedReadLedger(read0.ledger);
-		binding.addHydratedReadLedger(read1.ledger);
-		binding.addHydratedReadLedger(read2.ledger);
-		binding.addHydratedReadLedger(read3.ledger);
+		binding.addHydratedReadSegment(read0.ledger, [read0.id]);
+		binding.addHydratedReadSegment(read1.ledger, [read1.id]);
+		binding.addHydratedReadSegment(read2.ledger, [read2.id]);
+		binding.addHydratedReadSegment(read3.ledger, [read3.id]);
 		binding.observeReadMethod(staleMid1, staleMid1Component, "updateArgs", [
 			{ path: "/a" },
 			"stale-1",
@@ -1158,8 +1158,8 @@ describe("ComponentBinding: order fallbacks", () => {
 		const last = makeState({ id: "read-2", toolName: "read" });
 		states.set("read-1", first);
 		states.set("read-2", last);
-		binding.addHydratedReadLedger(first.ledger);
-		binding.addHydratedReadLedger(last.ledger);
+		binding.addHydratedReadSegment(first.ledger, [first.id]);
+		binding.addHydratedReadSegment(last.ledger, [last.id]);
 		expect(binding.bindHydrated(true)).toBe(true);
 		expect(binding.groupState(groupComponent)?.ledger).toBe(last.ledger);
 		expect(first.component).toBeUndefined();
@@ -1196,9 +1196,9 @@ describe("ComponentBinding: order fallbacks", () => {
 		states.set("read-1", first);
 		states.set("read-2", mid);
 		states.set("read-3", last);
-		binding.addHydratedReadLedger(first.ledger);
-		binding.addHydratedReadLedger(mid.ledger);
-		binding.addHydratedReadLedger(last.ledger);
+		binding.addHydratedReadSegment(first.ledger, [first.id]);
+		binding.addHydratedReadSegment(mid.ledger, [mid.id]);
+		binding.addHydratedReadSegment(last.ledger, [last.id]);
 		expect(binding.bindHydrated(true)).toBe(true);
 		expect(binding.groupState(midGroupComponent)?.ledger).toBe(mid.ledger);
 		expect(binding.groupState(tailGroupComponent)?.ledger).toBe(last.ledger);
@@ -1474,7 +1474,9 @@ describe("ComponentBinding: reset", () => {
 			"read-1",
 		]);
 		binding.registerUnboundComponent(new FakeToolComponent());
-		binding.addHydratedReadLedger(new TurnLedger("replay-1"));
+		// Opaque queue filler: reset must clear the segment queue whether or
+		// not the entry ever resolves, so the ids need not exist.
+		binding.addHydratedReadSegment(new TurnLedger("replay-1"), ["replay-read"]);
 		binding.reset();
 		expect(binding.componentState(component)).toBeUndefined();
 		expect(binding.groupState(groupComponent)).toBeUndefined();

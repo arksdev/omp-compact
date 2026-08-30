@@ -66,12 +66,11 @@ export interface BindingDelegates {
  * One contiguous run of read states queued for read-group pairing. The
  * rebuild/hydration walk emits one entry per maximal run (same ledger, no
  * interleaved non-read); `stateIds` are the exact state ids of the run in
- * chronological order. `stateIds === undefined` is the legacy ledger-level
- * queue shape, resolved at pair time to the ledger's unbound read states.
+ * chronological order.
  */
 interface HydratedReadSegment {
 	ledger: TurnLedger;
-	stateIds: readonly string[] | undefined;
+	stateIds: readonly string[];
 }
 
 /**
@@ -93,9 +92,6 @@ export class ComponentBinding {
 	 * interleaves a non-read (read, bash, read). Pairing claims only the
 	 * segment's exact state ids, so a later segment of the same ledger is
 	 * never starved by the first group claiming the whole ledger.
-	 * `stateIds === undefined` is the legacy ledger-level queue shape,
-	 * resolved at pair time to the ledger's unbound read states — kept
-	 * only for unit tests that queue one read state per ledger.
 	 */
 	#hydratedReadSegments: HydratedReadSegment[] = [];
 	/**
@@ -175,17 +171,6 @@ export class ComponentBinding {
 	/** Ledgers queued for read-group pairing (replay/rebuild hydration). */
 	hydratedReadLedgers(): readonly TurnLedger[] {
 		return this.#hydratedReadSegments.map((segment) => segment.ledger);
-	}
-
-	/**
-	 * Queue a replayed read ledger for group pairing (chronological).
-	 * Legacy ledger-level shape: the segment's ids resolve at pair time to
-	 * every unbound read state of the ledger. Production walks queue exact
-	 * segment ids through `addHydratedReadSegment`; this form exists only
-	 * for unit tests that queue one read state per ledger.
-	 */
-	addHydratedReadLedger(ledger: TurnLedger): void {
-		this.#hydratedReadSegments.push({ ledger, stateIds: undefined });
 	}
 
 	/**
@@ -560,26 +545,17 @@ export class ComponentBinding {
 
 	/**
 	 * Pair a reconstructed read group with a hydrated read segment: the
-	 * group claims every unbound `read` state of the segment's exact ids
-	 * (legacy ledger-level entries resolve to the ledger's unbound read
-	 * states), and its observed set is replaced by the claimed state ids
-	 * so the replay mapping is complete. A segment whose states are all
-	 * claimed elsewhere must not be marked on the group — a zero-claim
+	 * group claims every unbound `read` state of the segment's exact ids,
+	 * and its observed set is replaced by the claimed state ids so the
+	 * replay mapping is complete. A segment whose states are all claimed
+	 * elsewhere must not be marked on the group — a zero-claim
 	 * ledger-marked group would render zero rows (the output-reset
 	 * regression) — the group stays unbound and renders native.
 	 */
 	#assignReadSegment(group: GroupState, segment: HydratedReadSegment): boolean {
 		group.ledger = segment.ledger;
 		const claimed: string[] = [];
-		const ids =
-			segment.stateIds ??
-			[...this.#states.values()]
-				.filter(
-					(state) =>
-						state.toolName === "read" && state.ledger === segment.ledger,
-				)
-				.map((state) => state.id);
-		for (const id of ids) {
+		for (const id of segment.stateIds) {
 			const state = this.#states.get(id);
 			if (
 				state?.toolName === "read" &&
