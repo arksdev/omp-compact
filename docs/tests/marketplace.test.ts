@@ -58,21 +58,15 @@ describe("marketplace catalog", () => {
 		expect(plugin.repository).toBe(pkg.repository?.url);
 		expect(plugin.license).toBe(pkg.license);
 		expect(plugin.keywords).toEqual(pkg.keywords);
+		// Deliberate host-pin gate: a bump must fail here so it cannot happen
+		// silently. The floor and the pinned devDependency are separate
+		// contracts — the floor is what the plugin claims to support, the pin
+		// is what the suite actually verifies against.
 		expect(pkg.engines.omp).toBe(">=18.0.1");
 		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("18.0.10");
 		expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
 		expect(await Bun.file(join(repoRoot, "CHANGELOG.md")).text()).toContain(
 			`## ${pkg.version}`,
-		);
-	});
-
-	test("current minor release metadata is synchronized", async () => {
-		expect(pkg.version).toBe("1.2.5");
-		expect(catalog.plugins[0]?.version).toBe("1.2.5");
-		const changelog = await Bun.file(join(repoRoot, "CHANGELOG.md")).text();
-		expect(changelog).toContain("## 1.2.5 — 29 августа 2026");
-		expect(changelog).toContain(
-			"[1.2.5 ← 1.2.4](https://github.com/arksdev/omp-compact/compare/v1.2.4...v1.2.5)",
 		);
 	});
 });

@@ -7162,49 +7162,10 @@ stockTest("stats wiring: message_end without usage is ignored", async () => {
 	await shutdown(booted);
 });
 
-stockTest("stats wiring: zero-valued usage is counted once", async () => {
-	const booted = await bootWithStats();
-	await beginRun(booted);
-	addAnswer(booted, "zero");
-	await completeAnswer(
-		booted,
-		"zero",
-		{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		1_700_000_000_360,
-	);
-	const stats = statsEntries(booted);
-	expect(stats).toHaveLength(1);
-	expect(stats[0]?.data).toMatchObject({
-		messages: 1,
-		sent: 0,
-		received: 0,
-		cacheRead: 0,
-	});
-	await shutdown(booted);
-});
-
-stockTest("stats wiring: duplicate completion counts once", async () => {
-	const booted = await bootWithStats();
-	await beginRun(booted);
-	addAnswer(booted, "dup");
-	const message = assistantWithUsage(
-		"dup",
-		{ input: 100, output: 50, cacheRead: 200, cacheWrite: 30 },
-		1_700_000_000_370,
-	);
-	await dispatch(booted, { type: "message_end", message });
-	// the same settled completion redelivered at the subscription boundary
-	await dispatch(booted, { type: "message_end", message });
-	await finishRun(booted, "dup");
-	const stats = statsEntries(booted);
-	expect(stats).toHaveLength(1);
-	expect(stats[0]?.data).toMatchObject({
-		messages: 1,
-		sent: 100,
-		received: 50,
-	});
-	await shutdown(booted);
-});
+// Zero-valued usage and duplicate-completion dedup are pure RunStats
+// arithmetic, covered exactly at that seam by run-stats.test.ts:216 and
+// :232. Re-asserting them through a booted host added no wiring evidence
+// the test above does not already give.
 
 stockTest(
 	"stats wiring: no-tool clear answer still persists and renders the row",
