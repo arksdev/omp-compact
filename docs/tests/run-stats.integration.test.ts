@@ -14,7 +14,6 @@ import {
 
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;
-const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 /** Mode config files this process wrote under the shared stock temp dir. */
 const generatedConfigs = new Set<string>();
@@ -239,7 +238,7 @@ async function bootAdapter(options?: {
 function visibleRows(component: Renderable, width = 120): string[] {
 	return component
 		.render(width)
-		.map((line) => line.replace(ansiPattern, "").trimEnd())
+		.map((line) => Bun.stripANSI(line).trimEnd())
 		.filter((line) => line.trim().length > 0);
 }
 
@@ -673,7 +672,7 @@ class UnrecognizedTtsrLike {
 }
 
 function stripAnsi(value: string): string {
-	return value.replace(ansiPattern, "");
+	return Bun.stripANSI(value);
 }
 
 stockTest(

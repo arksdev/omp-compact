@@ -18,7 +18,6 @@ import {
 
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;
-const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 // Per-boot unique dir/file names: every boot runs its own working directory
 // and its own settings file, so parallel test files (bun runs them as
@@ -405,14 +404,12 @@ function assistant(text: string, stopReason = "stop"): Record<string, unknown> {
 function visibleRows(component: Renderable, width = 120): string[] {
 	return component
 		.render(width)
-		.map((line) => line.replace(ansiPattern, "").trimEnd())
+		.map((line) => Bun.stripANSI(line).trimEnd())
 		.filter((line) => line.trim().length > 0);
 }
 
 function screenRows(component: Renderable, width = 120): string[] {
-	return component
-		.render(width)
-		.map((line) => line.replace(ansiPattern, "").trimEnd());
+	return component.render(width).map((line) => Bun.stripANSI(line).trimEnd());
 }
 
 async function bootWithTranscript(
@@ -2646,7 +2643,7 @@ stockTest("native read group remains live, neutral, then filters", async () => {
 	});
 	group.updateArgs({ path: "src/b.ts" }, "read-2");
 	const liveRaw = booted.transcript.render(120).join("\n");
-	const live = liveRaw.replace(ansiPattern, "");
+	const live = Bun.stripANSI(liveRaw);
 	expect(live).toContain("src/a.ts");
 	expect(live).toContain("src/b.ts");
 	expect(liveRaw).not.toContain(booted.host.getTheme().getFgAnsi("accent"));
@@ -4247,7 +4244,7 @@ stockTest(
 		expect(
 			component
 				.render(120)
-				.map((line) => line.replace(ansiPattern, ""))
+				.map((line) => Bun.stripANSI(line))
 				.join("\n"),
 		).toContain("printf native");
 		expect(visibleRows(booted.transcript).join("\n")).toContain(
@@ -6566,7 +6563,7 @@ stockTest(
 		expect(transcript.peekFinalizedBatch(120, capacity)).toBeUndefined();
 		const tail = transcript
 			.renderViewport(120, capacity, { tick: 0, now: 0 })
-			.map((line) => line.replace(ansiPattern, "").trimEnd());
+			.map((line) => Bun.stripANSI(line).trimEnd());
 		expect(tail.filter((line) => line.trim().length === 0)).toEqual([]);
 		expect(tail.length).toBe(capacity);
 		// The newest rows win the screen, and they are the compact projection.
@@ -6615,7 +6612,7 @@ stockTest(
 		// Hidden rows retire as nothing, so history holds only what `clear`
 		// shows: the run's summary line and the answer.
 		const retired = history
-			.map((line) => line.replace(ansiPattern, "").trimEnd())
+			.map((line) => Bun.stripANSI(line).trimEnd())
 			.filter((line) => line.trim().length > 0);
 		expect(retired).toEqual([
 			"[ 20 actions · 0 prompt · 0 received · 0s ]",
@@ -6623,7 +6620,7 @@ stockTest(
 		]);
 		const tail = transcript
 			.renderViewport(120, capacity, { tick: 0, now: 0 })
-			.map((line) => line.replace(ansiPattern, "").trimEnd());
+			.map((line) => Bun.stripANSI(line).trimEnd());
 		expect(tail.filter((line) => line.trim().length === 0)).toEqual([]);
 		await shutdown(booted);
 	},
@@ -6653,7 +6650,7 @@ stockTest(
 		}
 		const plain = (rows: readonly string[]): string[] =>
 			rows
-				.map((line) => line.replace(ansiPattern, "").trimEnd())
+				.map((line) => Bun.stripANSI(line).trimEnd())
 				.filter((line) => line.trim().length > 0);
 		const printed = [
 			...plain(history),
@@ -7443,7 +7440,7 @@ stockTest(
 		const dialog = await waitForDialog(mount);
 		// Host rows render n/a (no live main-session Settings instance): they
 		// must never claim success when unavailable.
-		const rows = dialog.render(120).map((l) => l.replace(ansiPattern, ""));
+		const rows = dialog.render(120).map((l) => Bun.stripANSI(l));
 		expect(
 			rows.some((l) => l.includes("Recap summary") && l.includes("n/a")),
 		).toBe(true);
@@ -7538,7 +7535,7 @@ stockTest(
 			const commandDone = handler?.("", booted.context);
 			const dialog = await waitForDialog(mount);
 			// The effective snapshot shows the override: Global compact off.
-			const rows = dialog.render(120).map((l) => l.replace(ansiPattern, ""));
+			const rows = dialog.render(120).map((l) => Bun.stripANSI(l));
 			expect(
 				rows.some((l) => l.includes("Global compact") && l.includes("off")),
 			).toBe(true);

@@ -18,8 +18,6 @@ import {
 	writeStockSettings,
 } from "../test-stock-host";
 
-const ansiPattern = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
-
 /** Boot counter for per-boot unique settings filenames. */
 let bootSeq = 0;
 
@@ -217,14 +215,12 @@ export async function dispatch(
 export function visibleRows(component: Renderable, width = 120): string[] {
 	return component
 		.render(width)
-		.map((line) => line.replace(ansiPattern, "").trimEnd())
+		.map((line) => Bun.stripANSI(line).trimEnd())
 		.filter((line) => line.trim().length > 0);
 }
 
 export function screenRows(component: Renderable, width = 120): string[] {
-	return component
-		.render(width)
-		.map((line) => line.replace(ansiPattern, "").trimEnd());
+	return component.render(width).map((line) => Bun.stripANSI(line).trimEnd());
 }
 
 export function toolUi(): Record<string, unknown> {
