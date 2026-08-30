@@ -74,6 +74,32 @@ interface PendingTerminalStats {
 	line: string;
 }
 
+/**
+ * Classes of decorative UI failure that warn once each. Adding a class means
+ * adding it here, not in two places that must agree.
+ */
+type DecorativeWarningKey =
+	| "decorative-stats-failed"
+	| "decorative-scrollback-failed"
+	| "decorative-retire-failed"
+	| "decorative-shake-failed";
+
+/**
+ * The context's UI narrowed to the optional warning sink. `notify` is absent
+ * headless and over RPC, so every caller treats it as optional.
+ */
+type NotifyingUI = ExtensionContext["ui"] & {
+	notify?: (message: string, level: "warning") => void;
+};
+
+/**
+ * The context narrowed to the optional session manager. The host adds it on
+ * the real context; the plugin never assumes it is there.
+ */
+type ContextWithSessionManager = ExtensionContext & {
+	sessionManager?: { getBranch?: () => readonly unknown[] };
+};
+
 const MAX_GIT_RESULT_TEXT = 8_192;
 
 function pendingGitFrom(payload: unknown): PendingGit | undefined {
@@ -424,31 +450,16 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	 * terminal disable signaling, not decorative noise control.
 	 * Cleared on session dispose so a later session may re-signal.
 	 */
-	const decorativeWarned = new Set<
-		| "decorative-stats-failed"
-		| "decorative-scrollback-failed"
-		| "decorative-retire-failed"
-		| "decorative-shake-failed"
-	>();
+	const decorativeWarned = new Set<DecorativeWarningKey>();
 	function warnDecorativeOnce(
-		key:
-			| "decorative-stats-failed"
-			| "decorative-scrollback-failed"
-			| "decorative-retire-failed"
-			| "decorative-shake-failed",
+		key: DecorativeWarningKey,
 		message: string,
 		context?: ExtensionContext,
 	): void {
 		if (decorativeWarned.has(key)) return;
 		decorativeWarned.add(key);
 		try {
-			const notify = (
-				context?.ui as
-					| (ExtensionContext["ui"] & {
-							notify?: (message: string, level: "warning") => void;
-					  })
-					| undefined
-			)?.notify;
+			const notify = (context?.ui as NotifyingUI | undefined)?.notify;
 			if (typeof notify === "function" && context) {
 				notify.call(context.ui, message, "warning");
 				return;
@@ -481,9 +492,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	function warnAdapterFailure(context: ExtensionContext, error: unknown): void {
 		if (adapterFailureWarned) return;
 		adapterFailureWarned = true;
-		const ui = context.ui as ExtensionContext["ui"] & {
-			notify?: (message: string, level: "warning") => void;
-		};
+		const ui = context.ui as NotifyingUI;
 		try {
 			ui.notify?.(`omp-compact disabled: ${String(error)}`, "warning");
 		} catch {
@@ -546,11 +555,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 								clearTimer.call(timerContext, timer),
 						}
 					: undefined;
-			const notify = (
-				context.ui as ExtensionContext["ui"] & {
-					notify?: (message: string, level: "warning") => void;
-				}
-			).notify;
+			const notify = (context.ui as NotifyingUI).notify;
 			candidate = new RuntimeAdapter({
 				root,
 				ui: adapterUI(context, root),
@@ -565,13 +570,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				// a createContext string snapshot and must NOT be read for path
 				// display; displayPaths uses getCwd() instead.
 				getBranch: () => {
-					const manager = (
-						context as ExtensionContext & {
-							sessionManager?: {
-								getBranch?: () => readonly unknown[];
-							};
-						}
-					).sessionManager;
+					const manager = (context as ContextWithSessionManager).sessionManager;
 					if (typeof manager?.getBranch !== "function") return undefined;
 					const branch = manager.getBranch();
 					return Array.isArray(branch) ? branch : undefined;
@@ -751,11 +750,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// adapter (wrappers/timers) even for an instant.
 		await modePolicy.ready();
 		const current = ensureAdapter(context);
-		const sessionManager = (
-			context as ExtensionContext & {
-				sessionManager?: { getBranch?: () => readonly unknown[] };
-			}
-		).sessionManager;
+		const sessionManager = (context as ContextWithSessionManager)
+			.sessionManager;
 		const branch = sessionManager?.getBranch?.();
 		if (Array.isArray(branch)) {
 			// Restore view (upgrade2 item 3): entering an EXISTING session
