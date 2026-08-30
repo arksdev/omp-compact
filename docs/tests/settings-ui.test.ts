@@ -446,6 +446,22 @@ describe("threshold editing", () => {
 		expect(dialog.current.autoShake.thresholdTokens).toBe(25000);
 	});
 
+	test("a long digit paste is capped at the digit limit", () => {
+		// The value is bounded at 10 million, so a 20-digit paste is a paste
+		// accident. The cap keeps the buffer at ten digits; the exact length
+		// matters because an off-by-one in the room calculation would still
+		// look "shorter than pasted".
+		const { dialog } = makeDialog(zeroThreshold);
+		focus(dialog, "Shake threshold");
+		dialog.handleInput(KEY_ENTER);
+		dialog.handleInput("1".repeat(20));
+		expect(renderedValue(dialog, "Shake threshold")).toHaveLength(10);
+		dialog.handleInput(KEY_ENTER);
+		// Ten ones exceed the bound, so the commit is refused and the editor
+		// stays open with the error — the cap is a paste guard, not validation.
+		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
+	});
+
 	test("commit rejects a buffer that is not entirely digits", () => {
 		const { dialog } = makeDialog(zeroThreshold);
 		focus(dialog, "Shake threshold");
@@ -643,6 +659,26 @@ describe("save vs cancel", () => {
 		expect(doneResult?.enabled).toBe(false);
 		expect(doneResult?.mode).toBe(DEFAULT_SETTINGS.mode);
 		expect(doneResult).not.toBe(dialog.current);
+	});
+
+	test("input after the dialog closes cannot touch the draft", () => {
+		// The host detaches the component asynchronously, so a keystroke can
+		// still arrive after `done` fired. Reaching the draft then would mean a
+		// closed dialog changing settings, and a following save would persist
+		// it. Closed through the public path (escape), never by assigning the
+		// private flag, so the guard is what the test exercises.
+		const { dialog, doneResult, saves } = makeDialog();
+		focus(dialog, "Mode");
+		const before = dialog.current;
+		dialog.handleInput(KEY_ESCAPE);
+		expect(doneResult).toBeUndefined();
+		dialog.handleInput(KEY_RIGHT); // would cycle the mode
+		dialog.handleInput(KEY_DOWN); // would move the cursor
+		dialog.handleInput(KEY_SPACE); // would toggle a row
+		dialog.handleInput(KEY_S); // would save
+		expect(dialog.current).toEqual(before);
+		expect(dialog.isDirty).toBe(false);
+		expect(saves).toHaveLength(0);
 	});
 });
 
@@ -2515,6 +2551,44 @@ describe("display cycle: dialog row", () => {
 		dialog.handleInput(KEY_BACKSPACE);
 		dialog.handleInput(KEY_ENTER);
 		expect(dialog.current.displayCycleKey).toBe("alt+c");
+	});
+
+	test("a long paste is capped at the chord length limit", () => {
+		// The cap exists so a stray clipboard paste cannot fill the row: the
+		// longest legal chord is 30 characters. Assert the exact length, not
+		// "shorter than pasted" — an off-by-one in the room calculation would
+		// survive the looser check.
+		const { dialog } = makeDialog();
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		dialog.handleInput("a".repeat(60));
+		expect(renderedValue(dialog, "Cycle shortcut")).toHaveLength(40);
+	});
+
+	test("a paste that would overflow the cap is truncated, not dropped", () => {
+		// Two chunks: the second only partly fits. The remaining room must be
+		// filled rather than the whole chunk rejected.
+		const { dialog } = makeDialog();
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		dialog.handleInput("b".repeat(35));
+		dialog.handleInput("c".repeat(10));
+		const value = renderedValue(dialog, "Cycle shortcut") ?? "";
+		expect(value).toHaveLength(40);
+		expect(value).toBe(`${"b".repeat(35)}${"c".repeat(5)}`);
+	});
+
+	test("a chunk containing non-ASCII is ignored entirely", () => {
+		// Anything outside printable ASCII is either a control sequence or a
+		// paste that cannot spell a chord, so the whole chunk goes — a partial
+		// accept would leave half a paste in the editor.
+		const { dialog } = makeDialog();
+		focus(dialog, "Cycle shortcut");
+		dialog.handleInput(KEY_ENTER);
+		dialog.handleInput("alt+");
+		dialog.handleInput("alt+ф");
+		dialog.handleInput("d\u0000");
+		expect(renderedValue(dialog, "Cycle shortcut")).toBe("alt+");
 	});
 
 	test("a saved chord change reports that it needs a restart", async () => {
