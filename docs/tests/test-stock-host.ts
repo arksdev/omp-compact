@@ -111,6 +111,34 @@ export interface HostModules {
 		addChild(child: unknown): void;
 		render(width: number): readonly string[];
 	};
+	/**
+	 * The six leaves the plugin recovers by scraping instead of patching
+	 * (`render-scrape.ts`), each behind a structural fingerprint in
+	 * `host-surface.ts`. Constructor shapes are the live 18.0.10 ones; a host
+	 * that changes them fails to compile the canary rather than silently
+	 * falling back to native rendering in a session.
+	 */
+	TtsrNotificationComponent: new (
+		rules: readonly unknown[],
+	) => object;
+	TodoReminderComponent: new (
+		todos: readonly unknown[],
+		attempt: number,
+		maxAttempts: number,
+	) => object;
+	BashExecutionComponent: new (
+		command: string,
+		ui: unknown,
+		excludeFromContext?: boolean,
+	) => object;
+	EvalExecutionComponent: new (
+		code: string,
+		ui: unknown,
+		excludeFromContext?: boolean,
+		language?: string,
+	) => object;
+	SkillMessageComponent: new (message: unknown) => object;
+	LateDiagnosticsMessageComponent: new (files: readonly unknown[]) => object;
 	getTheme: () => {
 		fg(color: string, text: string): string;
 		getFgAnsi(color: string): string;
@@ -201,26 +229,41 @@ export async function loadStockPlugin<T = Record<string, unknown>>(
 /** Loads the stock host modules (components/theme/transcript) only. */
 export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 	const root = packageRoot();
-	const [componentModule, themeModule, readGroupModule, transcriptModule] =
-		await Promise.all([
-			import(
-				pathToFileURL(join(root, "src/modes/components/tool-execution.ts")).href
-			),
-			import(pathToFileURL(join(root, "src/modes/theme/theme.ts")).href),
-			import(
-				pathToFileURL(join(root, "src/modes/components/read-tool-group.ts"))
-					.href
-			),
-			import(
-				pathToFileURL(
-					join(root, "src/modes/components/transcript-container.ts"),
-				).href
-			),
-		]);
+	const components = join(root, "src/modes/components");
+	const [
+		componentModule,
+		themeModule,
+		readGroupModule,
+		transcriptModule,
+		ttsrModule,
+		todoReminderModule,
+		bashExecutionModule,
+		evalExecutionModule,
+		skillMessageModule,
+		lateDiagnosticsModule,
+	] = await Promise.all([
+		import(pathToFileURL(join(components, "tool-execution.ts")).href),
+		import(pathToFileURL(join(root, "src/modes/theme/theme.ts")).href),
+		import(pathToFileURL(join(components, "read-tool-group.ts")).href),
+		import(pathToFileURL(join(components, "transcript-container.ts")).href),
+		import(pathToFileURL(join(components, "ttsr-notification.ts")).href),
+		import(pathToFileURL(join(components, "todo-reminder.ts")).href),
+		import(pathToFileURL(join(components, "bash-execution.ts")).href),
+		import(pathToFileURL(join(components, "eval-execution.ts")).href),
+		import(pathToFileURL(join(components, "skill-message.ts")).href),
+		import(pathToFileURL(join(components, "late-diagnostics-message.ts")).href),
+	]);
 	return {
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,
 		ReadToolGroupComponent: readGroupModule.ReadToolGroupComponent,
 		TranscriptContainer: transcriptModule.TranscriptContainer,
+		TtsrNotificationComponent: ttsrModule.TtsrNotificationComponent,
+		TodoReminderComponent: todoReminderModule.TodoReminderComponent,
+		BashExecutionComponent: bashExecutionModule.BashExecutionComponent,
+		EvalExecutionComponent: evalExecutionModule.EvalExecutionComponent,
+		SkillMessageComponent: skillMessageModule.SkillMessageComponent,
+		LateDiagnosticsMessageComponent:
+			lateDiagnosticsModule.LateDiagnosticsMessageComponent,
 		ContainerBase: Object.getPrototypeOf(
 			readGroupModule.ReadToolGroupComponent.prototype,
 		).constructor,

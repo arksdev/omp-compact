@@ -4,6 +4,12 @@ import { pathToFileURL } from "node:url";
 
 import {
 	BLOCK_FOLD_METHODS,
+	isBashExecutionComponent,
+	isEvalExecutionComponent,
+	isLateDiagnosticsMessageComponent,
+	isSkillMessageComponent,
+	isTodoReminderComponent,
+	isTtsrNotificationComponent,
 	READ_GROUP_METHODS,
 	READ_GROUP_PATCH_METHODS,
 	TOOL_METHODS,
@@ -14,6 +20,14 @@ import {
 	TRANSCRIPT_OPTIONAL_METHODS,
 	TUI_OPTIONAL_METHODS,
 } from "../../.omp-plugin/host-surface";
+import {
+	injectRulesFromTtsrComponent,
+	lateDiagnosticsFromComponent,
+	skillMessageFromComponent,
+	todoReminderFromComponent,
+	userBashExecutionFromComponent,
+	userEvalExecutionFromComponent,
+} from "../../.omp-plugin/render-scrape";
 import { loadStockHost, stockHostVersion } from "./test-stock-host";
 
 const binary = process.env.OMP_STOCK_BIN;
@@ -161,6 +175,17 @@ async function liveSurface() {
 	return { host, transcript, tool, readGroup };
 }
 
+/**
+ * Minimal TUI stand-in the execution leaves need. Both constructors take the
+ * live `TUI` and only reach for the render callbacks and the width while
+ * building their frame, so this covers construction without a terminal.
+ */
+const EXECUTION_UI = {
+	terminalWidth: 120,
+	requestRender() {},
+	requestComponentRender() {},
+};
+
 describe("live host patch surface", () => {
 	stockTest("host version drift warns instead of failing", () => {
 		const version = stockHostVersion();
@@ -231,5 +256,120 @@ describe("live host patch surface", () => {
 		expect(tuiModule.TUI, "pi-tui TUI class not found").not.toBeUndefined();
 		if (!tuiModule.TUI) return;
 		expectOptionalSurface(tuiModule.TUI.prototype, TUI_OPTIONAL_METHODS);
+	});
+});
+
+/**
+ * Live scraped-leaf canary.
+ *
+ * Six stock leaves are never patched through a method manifest: the plugin
+ * recognizes them by structural fingerprint (`host-surface.ts` predicates)
+ * and rebuilds their content by reading public children/accessors
+ * (`render-scrape.ts`). Nothing above catches drift in that path — both
+ * halves fail open by design, so a host that renames `getCommand`, drops
+ * `files`, or rewords the todo header simply stops matching and the plugin
+ * silently renders the stock card. The session looks intact; the compact
+ * presentation is gone.
+ *
+ * These tests construct the real components and assert the fingerprint
+ * matches AND the scrape recovers the values that were passed in. A host
+ * bump that changes either half turns red here.
+ *
+ * Expected values come from a probe of the live 18.0.10 host, not from
+ * reading the plugin: `injectRulesFromTtsrComponent` returns the rule name
+ * without a body when the card is collapsed (the body sits behind
+ * `ctrl+o`), and both execution scrapes report `running: true` until
+ * `setComplete` lands.
+ */
+describe("live scraped-leaf canary", () => {
+	stockTest("TTSR inject card: fingerprint and rule recovery", async () => {
+		const host = await loadStockHost();
+		await host.initTheme();
+		const block = new host.TtsrNotificationComponent([
+			{ name: "my-rule", body: "do it" },
+		]);
+		expect(isTtsrNotificationComponent(block)).toBe(true);
+		expect(injectRulesFromTtsrComponent(block)).toEqual([{ name: "my-rule" }]);
+	});
+
+	stockTest("todo reminder: fingerprint and counts recovery", async () => {
+		const host = await loadStockHost();
+		await host.initTheme();
+		const block = new host.TodoReminderComponent(
+			[{ content: "task one", status: "pending" }],
+			1,
+			3,
+		);
+		expect(isTodoReminderComponent(block)).toBe(true);
+		expect(todoReminderFromComponent(block)).toEqual({
+			count: 1,
+			attempt: 1,
+			maxAttempts: 3,
+			items: ["task one"],
+		});
+	});
+
+	stockTest(
+		"user bash execution: fingerprint and command recovery",
+		async () => {
+			const host = await loadStockHost();
+			await host.initTheme();
+			const block = new host.BashExecutionComponent("ls -la", EXECUTION_UI);
+			expect(isBashExecutionComponent(block)).toBe(true);
+			// Mutually exclusive with eval: the two share every method but the
+			// getter, so a collision here would route both leaves to one scraper.
+			expect(isEvalExecutionComponent(block)).toBe(false);
+			expect(userBashExecutionFromComponent(block)).toEqual({
+				kind: "bash",
+				source: "ls -la",
+				running: true,
+			});
+		},
+	);
+
+	stockTest("user eval execution: fingerprint and code recovery", async () => {
+		const host = await loadStockHost();
+		await host.initTheme();
+		const block = new host.EvalExecutionComponent("print(1)", EXECUTION_UI);
+		expect(isEvalExecutionComponent(block)).toBe(true);
+		expect(isBashExecutionComponent(block)).toBe(false);
+		expect(userEvalExecutionFromComponent(block)).toEqual({
+			kind: "python",
+			source: "print(1)",
+			running: true,
+		});
+	});
+
+	stockTest("skill card: fingerprint and details recovery", async () => {
+		const host = await loadStockHost();
+		await host.initTheme();
+		// customType pins the host's SKILL_PROMPT_MESSAGE_TYPE literal
+		// (session/messages.ts): both the predicate and the scrape reject
+		// anything else, so a renamed constant must fail here.
+		const block = new host.SkillMessageComponent({
+			customType: "skill-prompt",
+			details: { name: "pdf", path: "/s/pdf", lineCount: 12 },
+		});
+		expect(isSkillMessageComponent(block)).toBe(true);
+		expect(skillMessageFromComponent(block)).toEqual({
+			name: "pdf",
+			path: "/s/pdf",
+			lineCount: 12,
+		});
+	});
+
+	stockTest("late diagnostics: fingerprint and files recovery", async () => {
+		const host = await loadStockHost();
+		await host.initTheme();
+		const block = new host.LateDiagnosticsMessageComponent([
+			{ summary: "a.ts: 1 error", messages: ["a.ts:1 boom"], errored: true },
+		]);
+		expect(isLateDiagnosticsMessageComponent(block)).toBe(true);
+		expect(lateDiagnosticsFromComponent(block)).toEqual({
+			errored: true,
+			count: 1,
+			summary: "a.ts: 1 error",
+			firstMessage: "a.ts:1 boom",
+		});
 	});
 });
