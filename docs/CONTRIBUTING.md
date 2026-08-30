@@ -39,7 +39,7 @@ OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test
 
 Treat the current command output as authoritative: the gate must come back with zero failures.
 
-There is no CI in this repository (no tracked `.github/workflows`). The release gate is manual: run `bun run check` after `bun install --frozen-lockfile`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.0.10. Bare `bun test …` without that env leaves every stock-host-dependent test (including the host-adapter canaries) reported as skipped.
+CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`): `bun install --frozen-lockfile`, then `bun run check`. The frozen lockfile is the part a local run cannot reproduce — a warm `node_modules` hides a drift between `bun.lock` and `package.json`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.0.10; `host-env-guard.test.ts` fails the run when that variable is missing, because bare `bun test …` without it reports every stock-host-dependent test as skipped and still exits zero.
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 

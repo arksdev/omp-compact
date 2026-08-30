@@ -1,0 +1,25 @@
+name: CI
+
+# The release gate used to be a manual `bun run check` on a developer machine,
+# which cannot see a lockfile drift or a clean-environment install failure.
+# `bun run check` already runs typecheck, lint, format and the whole suite in
+# about seven seconds, so one job covers the gate — no OS matrix, no split
+# jobs, no publish steps whose own failures would dilute the signal.
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      # --frozen-lockfile is the point of running this remotely: it fails when
+      # bun.lock and package.json disagree, which a warm local node_modules
+      # hides.
+      - run: bun install --frozen-lockfile
+      # The `test` script exports OMP_STOCK_BIN, so the stock-host suites
+      # actually execute here; host-env-guard.test.ts fails the run if that
+      # ever stops being true.
+      - run: bun run check

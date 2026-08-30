@@ -42,15 +42,11 @@ describe("public repository layout", () => {
 		);
 	});
 
-	test("does not track internal context or GitHub workflows", async () => {
-		const forbidden = (await trackedFiles()).filter(
-			(path) =>
-				path.startsWith("context/") || path.startsWith(".github/workflows/"),
+	test("does not track the internal decision journal", async () => {
+		const forbidden = (await trackedFiles()).filter((path) =>
+			path.startsWith("context/"),
 		);
-		expect(
-			forbidden,
-			"no tracked path may live under context/ or .github/workflows/",
-		).toEqual([]);
+		expect(forbidden, "no tracked path may live under context/").toEqual([]);
 	});
 
 	test("ships the README demonstration media", async () => {
