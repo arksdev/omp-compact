@@ -845,7 +845,9 @@ export class SettingsDialog implements ComponentLike {
 	 * frame never exceeds `terminalRows`, because the host shows only the
 	 * bottom `height` rows of the composed frame (windowTop = frame.length -
 	 * height, pi-tui tui.ts:2545) — a taller frame would silently cut the
-	 * focused row off the screen.
+	 * focused row off the screen. Below `2 + tail` rows the pinned chrome
+	 * alone overflows, so the window degenerates to the focused row plus
+	 * whatever tail fits.
 	 */
 	private windowed(
 		lines: readonly string[],
@@ -860,6 +862,20 @@ export class SettingsDialog implements ComponentLike {
 		const middleEnd = lines.length - tail;
 		const middleCount = middleEnd - middleStart;
 		if (middleCount <= 0) return [...lines];
+		// Heights too small for the header, one content row and the pinned tail
+		// at once: windowing has nothing left to shrink, and the host drops
+		// rows off the *top* of the composed frame (windowTop = frame.length -
+		// height), so an oversized frame would cut the focused row and leave
+		// the user staring at the help line alone. Emit the focused row and as
+		// much of the tail as fits — the focused row is what the keyboard acts
+		// on, so it outranks the header, the clip markers and the error line.
+		if (terminalRows < 2 + tail) {
+			const focused =
+				focusLine >= middleStart && focusLine < middleEnd
+					? lines[focusLine]
+					: lines[middleStart];
+			return [focused ?? "", ...lines.slice(middleEnd)].slice(0, terminalRows);
+		}
 		const viewport = Math.max(1, terminalRows - 1 - tail);
 		if (middleCount <= viewport) return [...lines];
 		const focusInMiddle =

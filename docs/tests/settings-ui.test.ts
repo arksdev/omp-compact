@@ -1628,7 +1628,9 @@ describe("short-terminal viewport", () => {
 	});
 
 	test("every emitted frame stays within the terminal height", () => {
-		for (const height of [4, 5, 6, 7, 8, 9, 12]) {
+		// 1 and 2 are the degenerate heights: the header plus the pinned help
+		// line already fill two rows, so anything but a hard clamp overflows.
+		for (const height of [1, 2, 3, 4, 5, 6, 7, 8, 9, 12]) {
 			const { dialog } = makeDialog(DEFAULT_SETTINGS, true, () => height);
 			focus(dialog, "Shake threshold");
 			const out = lines(dialog);
@@ -1680,6 +1682,33 @@ describe("short-terminal viewport", () => {
 		const out = lines(dialog);
 		expect(out).toHaveLength(SHORT);
 		expect(out.join("\n")).toContain("disk full");
+	});
+
+	test("a degenerate height keeps the focused row when an error is pinned too", async () => {
+		// With an error the tail is two rows, so the clamp threshold moves from
+		// 3 to 4. The focused row still wins: it is what the next keypress acts
+		// on, so it outranks the header and the error text.
+		for (const height of [1, 2, 3]) {
+			const dialog = new SettingsDialog(
+				{
+					settings: DEFAULT_SETTINGS,
+					onSave: async () => {
+						throw new Error("disk full");
+					},
+					warn: () => {},
+					theme: fakeTheme(),
+					keybindings: noopKeybindings(),
+					getTerminalRows: () => height,
+				},
+				() => {},
+			);
+			dialog.handleInput(KEY_SPACE);
+			dialog.handleInput(KEY_S);
+			await dialog.settled();
+			const out = lines(dialog);
+			expect(out).toHaveLength(height);
+			expect(out[0]).toContain("Global compact");
+		}
 	});
 
 	test("sufficient terminal height renders the full dialog unchanged", () => {
