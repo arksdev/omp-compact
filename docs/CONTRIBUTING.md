@@ -599,12 +599,24 @@ Then `diff -u` scoped per file. All paths are relative to
    `formatShakeSummary` anchor in `.omp-plugin/post-turn-shake.ts`) — the
    plugin carries copies of these host internals; confirm each new tree is
    byte-identical before the provenance comments move with the pin.
+8. `@oh-my-pi/pi-tui/` (in `node_modules/` and `runtime/omp-<new>/node_modules/`) — the
+   host tracks its version, and `TUI_OPTIONAL_METHODS` (`resetDisplay`) plus every
+   width/truncation helper the plugin measures with (`visibleWidth`,
+   `truncateToWidth`) live there. It also carries the Markdown renderer that emits
+   OSC 8 hyperlinks into transcript rows; confirm neither the `TUI` class surface nor
+   the width helpers change (empirical `visibleWidth`/`truncateToWidth` probe with an
+   OSC 8-wrapped string is the 5-minute check).
 
 **Isolated verification.** Create `runtime/omp-<version>/` mirroring an existing copy
 (`runtime/omp-17.3.1/`): `package.json` (candidate version), `.gitignore`,
 `launcher.test.ts` — do not copy `test.md` or `.omp-compact-test/`. Point the `compact`
 script at the repo's plugin entry (`-e ../../.omp-plugin/index.ts`, not the stale
 `../../plugins/omp-compact/index.ts` the old copies carry), then:
+
+Also update the copied `launcher.test.ts` path assertion to match the corrected
+script path — every existing copy carries the stale
+`../../plugins/omp-compact/index.ts` assertion against its own corrected `compact`
+script, so a verbatim mirror ships a failing launcher test.
 
 ```bash
 cd runtime/omp-<version> && bun install

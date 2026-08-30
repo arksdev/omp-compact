@@ -55,7 +55,7 @@ Working… read src/index.ts
 • edit: src/theme.css +2|0
 • delete: src/legacy.ts -3
 • git commit: 1983fsdf34, a4c12de890
-[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ] — 16:33
+[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ] — 16:33
 <assistant answer>
 ```
 

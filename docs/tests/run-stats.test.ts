@@ -106,7 +106,7 @@ function result(overrides: Partial<RunStatsResult> = {}): RunStatsResult {
 		sent: 28_153,
 		received: 1_300,
 		cacheRead: 480_200,
-		cacheWrite: 12_000,
+		cacheWrite: 0,
 		hitRate: 0.9446,
 		durationMs: 4_832_000,
 		hasError: false,
@@ -574,7 +574,7 @@ describe("formatting and rounding", () => {
 			fakeTheme(),
 		);
 		expect(stripAnsi(line)).toBe(
-			"[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ] — 16:33",
+			"[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ] — 16:33",
 		);
 	});
 
@@ -601,7 +601,7 @@ describe("formatting and rounding", () => {
 			fakeTheme(),
 		);
 		expect(stripAnsi(line)).toBe(
-			"[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ]",
+			"[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ]",
 		);
 	});
 
@@ -691,6 +691,142 @@ describe("statsLine field subsets and gating", () => {
 	});
 });
 
+describe("statsLine prompt segment: sent × cache matrix", () => {
+	const noClock = { ...ALL_ON, clock: false };
+
+	test("both on: prompt total with the fresh and cached split", () => {
+		const line = module.statsLine(result(), noClock, fakeTheme());
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ]",
+		);
+	});
+
+	test("sent on, cache off: fresh input only, no cache mention", () => {
+		const line = module.statsLine(
+			result(),
+			{ ...noClock, cache: false },
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 28.2k fresh · 1.3k received · 1h 20m 32s ]",
+		);
+	});
+
+	test("sent off, cache on: cached amount with its share, no prompt total", () => {
+		const line = module.statsLine(
+			result(),
+			{ ...noClock, sent: false },
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 480.2k cached (94%) · 1.3k received · 1h 20m 32s ]",
+		);
+	});
+
+	test("both off: no prompt segment at all", () => {
+		const line = module.statsLine(
+			result(),
+			{ ...noClock, sent: false, cache: false },
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe("[ 27 actions · 1.3k received · 1h 20m 32s ]");
+	});
+
+	test("cold run: zero cacheRead keeps the segment as total with (0 cached)", () => {
+		const line = module.statsLine(
+			result({ sent: 54_610, received: 11_100, cacheRead: 0, hitRate: 0 }),
+			noClock,
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 54.6k prompt (0 cached) · 11.1k received · 1h 20m 32s ]",
+		);
+	});
+
+	test("zero fresh with positive cacheRead renders the cached-only split", () => {
+		const line = module.statsLine(
+			result({ sent: 0, cacheRead: 1_349_467, hitRate: 1 }),
+			noClock,
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 1.3M prompt (1.3M cached) · 1.3k received · 1h 20m 32s ]",
+		);
+	});
+
+	test("all-zero run keeps the segment as 0 prompt, never divides by zero", () => {
+		const line = module.statsLine(
+			result({ sent: 0, received: 0, cacheRead: 0, hitRate: 0 }),
+			noClock,
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 0 prompt · 0 received · 1h 20m 32s ]",
+		);
+	});
+
+	test("cache-only zero case keeps the segment as 0 cached (0%)", () => {
+		const line = module.statsLine(
+			result({ sent: 0, cacheRead: 0, hitRate: 0 }),
+			{ ...noClock, sent: false },
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 0 cached (0%) · 1.3k received · 1h 20m 32s ]",
+		);
+	});
+
+	test("sent-only zero case keeps the segment as 0 fresh", () => {
+		const line = module.statsLine(
+			result({ sent: 0 }),
+			{ ...noClock, cache: false },
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 0 fresh · 1.3k received · 1h 20m 32s ]",
+		);
+	});
+
+	test("provider cache creations join the prompt tally as written", () => {
+		// Real recorded run: Anthropic-family cacheWrite of almost a million
+		// tokens — the split must close against the total (1.3M + 5.4M +
+		// 950k = 7.7M) instead of silently dropping the third bucket.
+		const line = module.statsLine(
+			result({
+				actions: 84,
+				sent: 1_335_596,
+				received: 107_275,
+				cacheRead: 5_376_523,
+				cacheWrite: 950_005,
+				hitRate: 0.8010172346467636,
+				durationMs: 2_136_502,
+			}),
+			noClock,
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 84 actions · 7.7M prompt (1.3M fresh · 5.4M cached · 950k written) · 107.3k received · 35m 37s ]",
+		);
+	});
+
+	test("cold run with cache creations keeps the annotation and the write", () => {
+		const line = module.statsLine(
+			result({
+				sent: 54_610,
+				received: 11_100,
+				cacheRead: 0,
+				cacheWrite: 950_005,
+				hitRate: 0,
+			}),
+			noClock,
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 1M prompt (0 cached · 950k written) · 11.1k received · 1h 20m 32s ]",
+		);
+	});
+});
+
 describe("statsLine coloring", () => {
 	test("clean run uses the fixed green separators, dim values and brackets", () => {
 		const line = module.statsLine(
@@ -715,7 +851,7 @@ describe("statsLine coloring", () => {
 		expect(line).toContain(WARNING_SEP);
 		expect(line).not.toContain(GREEN_SEP);
 		expect(stripAnsi(line)).toBe(
-			`[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ] — ${module.formatClock(result().completedAt)}`,
+			`[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ] — ${module.formatClock(result().completedAt)}`,
 		);
 	});
 });
@@ -892,8 +1028,11 @@ describe("persisted evidence", () => {
 	});
 
 	test("cacheWrite survives in evidence but never as a hit", () => {
-		const evidence = module.evidenceFromResult(result(), "r1");
-		expect(evidence.cacheWrite).toBe(12_000);
+		const evidence = module.evidenceFromResult(
+			result({ cacheWrite: 950_005 }),
+			"r1",
+		);
+		expect(evidence.cacheWrite).toBe(950_005);
 		expect(evidence.hitRate).toBeCloseTo(0.9446, 4);
 	});
 
@@ -954,7 +1093,7 @@ describe("transcript carrier", () => {
 
 	test("carrier renders the line and truncates at narrow widths", () => {
 		const line =
-			"[ 27 actions · 28.2k sent · 1.3k received · 94% cache (480.2k hit) · 1h 20m 32s ]";
+			"[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ]";
 		const carrier = module.createStatsCarrier(line);
 		expect(carrier.render(120)).toEqual([line]);
 		const narrow = carrier.render(20);
@@ -972,7 +1111,7 @@ describe("statsMessageComponent", () => {
 		expect(component).toBeDefined();
 		const rows = component?.render(120) ?? [];
 		expect(Bun.stripANSI(rows.join("\n"))).toContain("27 actions");
-		expect(Bun.stripANSI(rows.join("\n"))).toContain("28.2k sent");
+		expect(Bun.stripANSI(rows.join("\n"))).toContain("28.2k fresh");
 		expect(
 			module.statsMessageComponent(undefined, fakeTheme()),
 		).toBeUndefined();

@@ -288,7 +288,18 @@ export function formatClock(completedAt: number): string {
 
 /**
  * Render the configurable terminal stats row:
- * `[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ] — 16:33`
+ * `[ 84 actions · 7.7M prompt (1.3M fresh · 5.4M cached · 950k written) · 107.3k received · 35m 37s ] — 16:33`
+ * The prompt is the disjoint union of the provider's prompt-side buckets —
+ * fresh input, cache reads and cache creations (`sent + cacheRead +
+ * cacheWrite`, no double counting; Google never reports cache creations,
+ * Anthropic-family does): with both toggles on it renders `P prompt
+ * (F fresh · C cached · W written)`; `sent` alone renders the fresh count,
+ * `cache` alone the cached count with its share, both off render nothing.
+ * When the provider reports no creations, `W written` is absent and the
+ * split falls back to two parts.
+ * Degenerate splits drop the redundant half: a cold run renders `P prompt
+ * (0 cached)`, a fully cached prompt `P prompt (C cached)`, an all-zero run
+ * just `0 prompt`.
  * Values and brackets stay dim neutral; the `·` separators are
  * `#A4D734` on a clean run and theme warning otherwise. Segments follow the
  * `stats` settings; `stats.enabled === false` or an all-disabled field set
@@ -305,14 +316,41 @@ export function statsLine(
 	if (!stats.enabled) return "";
 	const segments: string[] = [];
 	if (stats.actions) segments.push(`${result.actions} actions`);
-	if (stats.sent) segments.push(`${formatTokens(result.sent)} sent`);
-	if (stats.received)
-		segments.push(`${formatTokens(result.received)} received`);
-	if (stats.cache) {
+	if (stats.sent && stats.cache) {
+		// The three prompt-side buckets are disjoint, so the merged segment
+		// keeps a cache figure from reading as larger than the sent one.
+		// Degenerate splits drop the half that would merely echo the total;
+		// cache creations render only when the provider reported them
+		// (Google never does) or every row would carry dead width.
+		const written =
+			result.cacheWrite > 0
+				? ` · ${formatTokens(result.cacheWrite)} written`
+				: "";
+		const total = `${formatTokens(
+			result.sent + result.cacheRead + result.cacheWrite,
+		)} prompt`;
+		if (result.cacheRead === 0) {
+			segments.push(
+				result.sent === 0 ? total : `${total} (0 cached${written})`,
+			);
+		} else if (result.sent === 0) {
+			segments.push(
+				`${total} (${formatTokens(result.cacheRead)} cached${written})`,
+			);
+		} else {
+			segments.push(
+				`${total} (${formatTokens(result.sent)} fresh · ${formatTokens(result.cacheRead)} cached${written})`,
+			);
+		}
+	} else if (stats.sent) {
+		segments.push(`${formatTokens(result.sent)} fresh`);
+	} else if (stats.cache) {
 		// cacheWrite is tracked separately and never counted as a hit.
 		const percent = Math.round(result.hitRate * 100);
-		segments.push(`${percent}% cache (${formatTokens(result.cacheRead)} hit)`);
+		segments.push(`${formatTokens(result.cacheRead)} cached (${percent}%)`);
 	}
+	if (stats.received)
+		segments.push(`${formatTokens(result.received)} received`);
 	if (stats.time) segments.push(formatDuration(result.durationMs));
 	if (segments.length === 0) return "";
 	const separator = result.hasError

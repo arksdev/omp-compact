@@ -135,7 +135,7 @@ agent_start
 • write: src/app.ts +17|0
 • edit: src/theme.css +2|0
 • git commit: 1983fsdf34, a4c12de890
-[ 27 actions · 28.2k sent · 1.3k received · 95% cache (480.2k hit) · 1h 20m 32s ] — 16:33
+[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ] — 16:33
 <assistant answer>
 ```
 
@@ -228,15 +228,15 @@ compact → live → clear → off → compact
 | `Shake threshold` / `autoShake.thresholdTokens` | `120000` | Минимальный current context usage; `0` означает каждый eligible run. |
 | `Run statistics` / `stats.enabled` | `true` | Включает terminal stats row. |
 | `Actions` / `stats.actions` | `true` | Число distinct tool executions, включая failures и unmapped tools. |
-| `Sent tokens` / `stats.sent` | `true` | Сумма `usage.input` уникальных assistant completions. |
+| `Fresh input` / `stats.sent` | `true` | Сумма `usage.input` уникальных assistant completions — свежие, некэшированные токены входа. |
 | `Received tokens` / `stats.received` | `true` | Сумма `usage.output`. |
-| `Cache stats` / `stats.cache` | `true` | `cacheRead / (sent + cacheRead)` и число cache-hit tokens. |
+| `Cached tokens` / `stats.cache` | `true` | `cacheRead / (sent + cacheRead)` и число кэш-токенов; вместе с свежими и записями кэша даёт полный prompt. |
 | `Time` / `stats.time` | `true` | Wall time от `agent_start` до terminal `agent_end`. |
 | `Add local time` / `stats.clock` | `true` | Локальное время завершения ответа (`hh:mm`) справа от строки, за скобками. Берётся из момента terminal `agent_end`, поэтому restored history показывает время самого ответа, а не время перерисовки. |
 | `Recap summary` / `host.recapEnabled` | fallback `true` | Показывает live `recap.enabled`, если host settings доступны; меняет его только при save. |
 | `Thinking blocks` / `host.thinkingBlocksVisible` | fallback `true` | Показывает inverse live `hideThinkingBlock`; меняет при save и требует restart OMP. |
 
-Stats агрегируется по уникальным finalized assistant messages, а не по tool calls: один model response с несколькими tools не задваивает usage. `cacheWrite` учитывается в persisted evidence, но не считается cache hit и не выводится отдельным сегментом. Если хотя бы один tool завершился ошибкой, separators stats row используют warning color; иначе `#A4D734`.
+Stats агрегируется по уникальным finalized assistant messages, а не по tool calls: один model response с несколькими tools не задваивает usage. `cacheWrite` учитывается в persisted evidence, не считается cache hit и не выводится отдельным сегментом — но при ненулевом значении входит в полный prompt как третья часть разбивки: `7.7M prompt (1.3M fresh · 5.4M cached · 950k written)`. Если хотя бы один tool завершился ошибкой, separators stats row используют warning color; иначе `#A4D734`.
 
 ### Config file
 

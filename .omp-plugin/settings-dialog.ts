@@ -105,9 +105,10 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	"autoShake.thresholdTokens": "Shakes once the run passes this many tokens",
 	"stats.enabled": "Shows one usage row per completed run",
 	"stats.actions": "Action counts in the usage row",
-	"stats.sent": "Sent tokens in the usage row",
+	"stats.sent": "Fresh (uncached) input tokens in the usage row",
 	"stats.received": "Received tokens in the usage row",
-	"stats.cache": "Cache hits in the usage row",
+	"stats.cache":
+		"Cached tokens, share, and writes; fresh + cached + written = full prompt",
 	"stats.time": "Run time in the usage row",
 	"stats.clock": "Local time of the answer, beside the usage row",
 	"host.recapEnabled": "Stock recap summary visibility",
@@ -358,11 +359,11 @@ export class SettingsDialog implements ComponentLike {
 					id === "stats.actions"
 						? "Actions"
 						: id === "stats.sent"
-							? "Sent tokens"
+							? "Fresh input"
 							: id === "stats.received"
 								? "Received tokens"
 								: id === "stats.cache"
-									? "Cache stats"
+									? "Cached tokens"
 									: id === "stats.time"
 										? "Time"
 										: "Add local time";

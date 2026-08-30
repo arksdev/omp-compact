@@ -83,9 +83,9 @@ the pinned value instead of claiming a change the environment forbids.
 | **autoShake.thresholdTokens** | `120000` | Minimum context usage for auto-shake; `0` means every eligible run |
 | **stats.enabled** | `true` | Show one-line stats summary |
 | **stats.actions** | `true` | Count of tool executions |
-| **stats.sent** | `true` | Input token usage |
+| **stats.sent** | `true` | Fresh (uncached) input tokens |
 | **stats.received** | `true` | Output token usage |
-| **stats.cache** | `true` | Cache hit % and count |
+| **stats.cache** | `true` | Cached tokens, their share, and cache writes |
 | **stats.time** | `true` | Wall time duration |
 | **host.recapEnabled** | `true` | Mirror and save OMP `recap.enabled`; takes effect immediately |
 | **host.thinkingBlocksVisible** | `true` | Inverse of OMP `hideThinkingBlock`; restart OMP after changing |

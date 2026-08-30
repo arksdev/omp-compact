@@ -33,7 +33,7 @@
 		"✗ bash: rm /repo/host-docs/example.md /repo/host/count-omp.sh && echo \"deleted\" && ls /abs/truncated… · exit 2 · 0.1s ·…",
 		"• todo",
 		"• bash: git status --porcelain; echo \"---\"; git log --oneline -1 · 0.8s",
-		"[ 31 actions · 54.6k sent · 11.1k received · 93% cache (720.5k hit) · 0s ]",
+		"[ 31 actions · 775.1k prompt (54.6k fresh · 720.5k cached) · 11.1k received · 0s ]",
 		"<answer 1>"
 	],
 	"carriers": [

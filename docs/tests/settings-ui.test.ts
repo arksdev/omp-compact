@@ -75,9 +75,9 @@ const FOCUSABLE_LABELS = [
 	"Shake threshold",
 	"Run statistics",
 	"Actions",
-	"Sent tokens",
+	"Fresh input",
 	"Received tokens",
-	"Cache stats",
+	"Cached tokens",
 	"Time",
 	"Add local time",
 	"Recap summary",
@@ -318,8 +318,8 @@ describe("keyboard navigation", () => {
 
 	test("focus on a stats child retreats to the parent when children collapse", () => {
 		const { dialog } = makeDialog();
-		focus(dialog, "Sent tokens");
-		expect(focusedRow(dialog)).toContain("Sent tokens");
+		focus(dialog, "Fresh input");
+		expect(focusedRow(dialog)).toContain("Fresh input");
 		dialog.current.stats.enabled = false;
 		// The focused row itself disappeared; land on the toggle that owns the
 		// collapsed subtree rather than an unrelated neighbour.
@@ -335,7 +335,7 @@ describe("keyboard navigation", () => {
 		dialog.handleInput(KEY_SPACE);
 		expect(dialog.current.stats.actions).toBe(false);
 		expect(dialog.isDirty).toBe(true);
-		focus(dialog, "Sent tokens");
+		focus(dialog, "Fresh input");
 		dialog.handleInput(KEY_SPACE);
 		expect(dialog.current.stats.sent).toBe(false);
 	});
@@ -1579,9 +1579,9 @@ describe("menu labels and layout", () => {
 			"Shake threshold",
 			"Run statistics",
 			"Actions",
-			"Sent tokens",
+			"Fresh input",
 			"Received tokens",
-			"Cache stats",
+			"Cached tokens",
 			"Time",
 			"Recap summary",
 			"Thinking blocks",

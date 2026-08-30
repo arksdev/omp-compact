@@ -6548,7 +6548,7 @@ stockTest(
 			.map((line) => line.replace(ansiPattern, "").trimEnd())
 			.filter((line) => line.trim().length > 0);
 		expect(retired).toEqual([
-			"[ 20 actions · 0 sent · 0 received · 0% cache (0 hit) · 0s ]",
+			"[ 20 actions · 0 prompt · 0 received · 0s ]",
 			"first answer",
 		]);
 		const tail = transcript
@@ -6594,7 +6594,7 @@ stockTest(
 				{ length: 24 },
 				(_, index) => `• bash: printf done-${index}`,
 			),
-			"[ 24 actions · 0 sent · 0 received · 0% cache (0 hit) · 0s ]",
+			"[ 24 actions · 0 prompt · 0 received · 0s ]",
 			"an answer",
 			"• bash: printf open-0",
 			"• bash: printf open-1",
@@ -6614,11 +6614,11 @@ stockTest(
 			"• read src/b.ts",
 			"• read src/c.ts",
 			"• bash: printf late",
-			"[ 6 actions · 0 sent · 0 received · 0% cache (0 hit) · 0s ]",
+			"[ 6 actions · 0 prompt · 0 received · 0s ]",
 			"final answer",
 		];
 		const EXPECTED_FILTERED_ROWS = [
-			"[ 6 actions · 0 sent · 0 received · 0% cache (0 hit) · 0s ]",
+			"[ 6 actions · 0 prompt · 0 received · 0s ]",
 			"final answer",
 		];
 		for (const mode of ["live", "compact", "clear"] as const) {
@@ -6945,7 +6945,7 @@ stockTest(
 			messages: 1,
 		});
 		expect(
-			visibleRows(booted.transcript).some((row) => row.includes("13 sent")),
+			visibleRows(booted.transcript).some((row) => row.includes("13 fresh")),
 		).toBe(false);
 		// A new agent_start may arrive before the async terminal projection.
 		// It must not erase or reclassify run A's already-durable evidence.
@@ -6955,7 +6955,7 @@ stockTest(
 		await terminal;
 		expect(statsEntries(booted)).toHaveLength(1);
 		expect(
-			visibleRows(booted.transcript).some((row) => row.includes("13 sent")),
+			visibleRows(booted.transcript).some((row) => row.includes("13 fresh")),
 		).toBe(true);
 		await shutdown(booted);
 	},

@@ -1,6 +1,6 @@
 {
 	"rows": [
-		"[ 16 actions · 3.2k sent · 1.9k received · 99% cache (386.3k hit) · 0s ]",
+		"[ 16 actions · 389.5k prompt (3.2k fresh · 386.3k cached) · 1.9k received · 0s ]",
 		"<answer 4>"
 	],
 	"carriers": [

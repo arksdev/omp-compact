@@ -303,7 +303,7 @@ stockTest(
 		expect(finishRun(booted, "done")).toBe("filtered");
 		expect(booted.finalizedRuns).toEqual(["omp-compact-run-1"]);
 		const line =
-			"[ 1 actions · 100 sent · 50 received · 67% cache (200 hit) · 1h 20m 32s ]";
+			"[ 1 actions · 300 prompt (100 fresh · 200 cached) · 50 received · 1h 20m 32s ]";
 		expect(booted.adapter.ledgerActions("omp-compact-run-1")).toBe(1);
 		expect(booted.adapter.ledgerHasError("omp-compact-run-1")).toBe(false);
 		expect(booted.adapter.showStats("omp-compact-run-1", line)).toBe(true);
@@ -326,7 +326,7 @@ stockTest(
 		addAnswer(booted, "plain answer");
 		expect(finishRun(booted, "plain answer")).toBe("filtered");
 		const line =
-			"[ 0 actions · 100 sent · 50 received · 67% cache (200 hit) · 32s ]";
+			"[ 0 actions · 300 prompt (100 fresh · 200 cached) · 50 received · 32s ]";
 		expect(booted.adapter.showStats("omp-compact-run-1", line)).toBe(true);
 		const rows = visibleRows(booted.transcript);
 		expect(rows.indexOf(line)).toBeLessThan(rows.indexOf("plain answer"));
@@ -373,7 +373,7 @@ stockTest(
 		addAnswer(booted, "clear done");
 		expect(finishRun(booted, "clear done")).toBe("filtered");
 		const line =
-			"[ 1 actions · 100 sent · 50 received · 67% cache (200 hit) · 1h 20m 32s ]";
+			"[ 1 actions · 300 prompt (100 fresh · 200 cached) · 50 received · 1h 20m 32s ]";
 		expect(booted.adapter.showStats("omp-compact-run-1", line)).toBe(true);
 		const rows = visibleRows(booted.transcript);
 		expect(rows).not.toContain("• bash: bun test");
@@ -401,7 +401,7 @@ stockTest(
 		// so the row renders after the retained compact tool log.
 		expect(booted.finalizedRuns).toEqual(["omp-compact-run-1"]);
 		const line =
-			"[ 1 actions · 100 sent · 50 received · 67% cache (200 hit) · 1h 20m 32s ]";
+			"[ 1 actions · 300 prompt (100 fresh · 200 cached) · 50 received · 1h 20m 32s ]";
 		expect(booted.adapter.showStats("omp-compact-run-1", line)).toBe(true);
 		const rows = visibleRows(booted.transcript);
 		expect(rows).toContain("• bash: bun test");
@@ -454,7 +454,7 @@ stockTest(
 		const booted = await bootAdapter({
 			statsRenderer: (value) => {
 				const e = value as typeof evidence;
-				return `[ ${e.actions} actions · ${e.sent} sent · ${e.received} received · ${Math.round(e.hitRate * 100)}% cache (${e.cacheRead} hit) · 1h 20m 32s ]`;
+				return `[ ${e.actions} actions · ${e.sent + e.cacheRead} prompt (${e.sent} fresh · ${e.cacheRead} cached) · ${e.received} received · 1h 20m 32s ]`;
 			},
 		});
 		const branch = [
@@ -511,7 +511,7 @@ stockTest(
 		addAnswer(booted, "replayed done");
 		booted.adapter.hydrateBranch(branch);
 		const line =
-			"[ 1 actions · 100 sent · 50 received · 67% cache (200 hit) · 1h 20m 32s ]";
+			"[ 1 actions · 300 prompt (100 fresh · 200 cached) · 50 received · 1h 20m 32s ]";
 		const rows = visibleRows(booted.transcript);
 		expect(rows.indexOf(line)).toBeGreaterThan(
 			rows.indexOf("• bash: bun test"),
@@ -543,7 +543,7 @@ stockTest(
 		const booted = await bootAdapter({
 			statsRenderer: (value) => {
 				const e = value as typeof evidence;
-				return `[ ${e.actions} actions · ${e.sent} sent · ${e.received} received · 67% cache (${e.cacheRead} hit) · 32s ]`;
+				return `[ ${e.actions} actions · ${e.sent + e.cacheRead} prompt (${e.sent} fresh · ${e.cacheRead} cached) · ${e.received} received · 32s ]`;
 			},
 		});
 		const branch = [
@@ -561,7 +561,7 @@ stockTest(
 		addAnswer(booted, "replayed plain");
 		booted.adapter.hydrateBranch(branch);
 		const line =
-			"[ 0 actions · 100 sent · 50 received · 67% cache (200 hit) · 32s ]";
+			"[ 0 actions · 300 prompt (100 fresh · 200 cached) · 50 received · 32s ]";
 		const rows = visibleRows(booted.transcript);
 		expect(rows.indexOf(line)).toBeLessThan(rows.indexOf("replayed plain"));
 		expect(rows.filter((row) => row === line)).toHaveLength(1);
@@ -585,7 +585,10 @@ stockTest(
 		await booted.adapter.dispose();
 		// disposed: no new rows, no crashes, transcript still renders
 		expect(
-			booted.adapter.showStats("omp-compact-run-1", "[ 0 actions · 100 sent ]"),
+			booted.adapter.showStats(
+				"omp-compact-run-1",
+				"[ 0 actions · 100 fresh ]",
+			),
 		).toBe(false);
 		expect(() => booted.transcript.render(120)).not.toThrow();
 		// Idle install never arms the spinner; dispose still clears if armed.
