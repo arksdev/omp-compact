@@ -1627,6 +1627,100 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		expect(session.binding.componentState(component)).toBeUndefined();
 	});
 
+	test("commitRebuild consumes the collapsed-rebuild permit so subsequent rebuilds fail open", async () => {
+		const store = fakeModeStore({
+			...DEFAULT_SETTINGS,
+			mode: "live",
+			enabled: true,
+		});
+		const policy = new ModePolicy(store);
+		policy.prime();
+		await policy.ready();
+		policy.armCollapsedRebuild();
+
+		const session = new RuntimeSessionState({
+			placeStatsCarrier: insertTranscriptChildAt,
+			modePolicy: policy,
+		});
+		const branch: unknown[] = [
+			{ type: "message", message: { role: "user", content: [] } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "bash-old",
+							name: "bash",
+							arguments: { command: "printf old" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "bash-old",
+					toolName: "bash",
+					content: [{ type: "text", text: "old" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("old done") },
+			{ type: "message", message: { role: "user", content: [] } },
+			{
+				type: "message",
+				message: {
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "bash-new",
+							name: "bash",
+							arguments: { command: "printf new" },
+						},
+					],
+					stopReason: "toolUse",
+				},
+			},
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "bash-new",
+					toolName: "bash",
+					content: [{ type: "text", text: "new" }],
+					isError: false,
+				},
+			},
+			{ type: "message", message: assistant("new done") },
+		];
+
+		// First rebuild: the armed permit suffix-aligns the collapsed single-card tail.
+		const firstSnapshot = session.beginRebuild();
+		const firstTail = new FakeToolComponent();
+		session.binding.registerUnboundComponent(firstTail);
+		const firstOutcome = session.commitRebuild(firstSnapshot, {
+			branchEntries: branch,
+		});
+		expect(firstOutcome.mapped).toBe(true);
+		expect(session.binding.componentState(firstTail)).toBeDefined();
+
+		// Second rebuild without re-arming: the one-shot permit was consumed by
+		// settlement. Suffix alignment must not guess across unequal cardinalities.
+		const secondSnapshot = session.beginRebuild();
+		const secondTail = new FakeToolComponent();
+		session.binding.registerUnboundComponent(secondTail);
+		const secondOutcome = session.commitRebuild(secondSnapshot, {
+			branchEntries: branch,
+		});
+		expect(secondOutcome.mapped).toBe(false);
+		expect(session.binding.componentState(secondTail)).toBeUndefined();
+	});
+
 	test("terminal retirement drops raw payloads but preserves filtered projection", () => {
 		const session = makeSession();
 		session.beginRun();
