@@ -352,13 +352,21 @@ export function completeEditMutations(
 
 Conservative parsing of already-executed Bash results. No hidden probes.
 
-### Hash Extraction (messages.ts)
+### Commit Summary Extraction (git-records.ts)
 
 ```typescript
-function extractCommitHash(output: string): string | undefined {
-    // Match patterns like "[main a1b2c3d] commit message"
-    const match = output.match(/\[[\w\-\/]+\s+([0-9a-f]{7,40})\]/);
-    return match?.[1];
+function commitSummary(
+	resultText: string,
+): { hash: string; subject: string } | undefined {
+	// Scans up to 8 lines within MAX_RESULT_SCAN_LENGTH (8192 bytes)
+	// Matches COMMIT_SUMMARY_LINE banner: [branch (root-commit) hash] subject
+	// Fails closed if multiple banner-shaped lines appear (ambiguous hook output)
+	const match = COMMIT_SUMMARY_LINE.exec(line);
+	if (!match) return undefined;
+	const hash = match[1];
+	const subject = match[2];
+	if (hash === undefined || subject === undefined) return undefined;
+	return { hash, subject: oneLine(subject) };
 }
 ```
 
@@ -386,30 +394,28 @@ interface TerminalProjection {
 ### Bounded Parsing (config.ts)
 
 ```typescript
-function parseBoundedJson(text: string, warn: (msg: string) => void): unknown {
-    if (text.length > MAX_CONFIG_BYTES) {
-        warn('Config file too large');
-        return undefined;
-    }
+type BoundedParseResult =
+	| { readonly ok: true; readonly raw: unknown }
+	| { readonly ok: false; readonly reason: string };
 
-    const parsed = JSON.parse(text);
-
-    function checkDepth(value: unknown, depth: number): boolean {
-        if (depth > MAX_CONFIG_DEPTH) return false;
-        if (typeof value === 'object' && value !== null) {
-            for (const v of Object.values(value)) {
-                if (!checkDepth(v, depth + 1)) return false;
-            }
-        }
-        return true;
-    }
-
-    if (!checkDepth(parsed, 0)) {
-        warn('Config nesting too deep');
-        return undefined;
-    }
-
-    return parsed;
+function parseBoundedJson(
+	text: string,
+	warn: (message: string) => void,
+): BoundedParseResult {
+	if (Buffer.byteLength(text, "utf8") > MAX_CONFIG_BYTES) {
+		const reason = `config JSON is oversized (max ${MAX_CONFIG_BYTES} bytes)`;
+		warn(`${reason}; using defaults`);
+		return { ok: false, reason };
+	}
+	// Linear scan counts bytes and nesting depth before JSON.parse without allocating
+	// depth > MAX_CONFIG_DEPTH or depth < 0 returns { ok: false, reason }
+	try {
+		return { ok: true, raw: JSON.parse(text) as unknown };
+	} catch {
+		const reason = "config JSON is malformed";
+		warn(`${reason}; using defaults`);
+		return { ok: false, reason };
+	}
 }
 ```
 
@@ -419,17 +425,16 @@ function parseBoundedJson(text: string, warn: (msg: string) => void): unknown {
 - Invalid fields → defaults
 - One warning per load
 
-### Atomic Update Queue (config.ts)
+### Atomic Update Queue (keyed-queue.ts, config.ts)
 
 ```typescript
-const updateQueues = new Map<string, Promise<void>>();
+export function createKeyedQueue<K>(): <T>(
+	key: K,
+	operation: () => Promise<T>,
+) => Promise<T>;
 
-async function withUpdateQueue<T>(path: string, op: () => Promise<T>): Promise<T> {
-    const queue = updateQueues.get(path) ?? Promise.resolve();
-    const next = queue.then(op, op);
-    updateQueues.set(path, next.then(() => {}, () => {}));
-    return next;
-}
+// Instantiated per namespace in config.ts and save-flow.ts:
+const withUpdateQueue = createKeyedQueue<string>();
 ```
 
 **Concurrent update flow (same process):**
