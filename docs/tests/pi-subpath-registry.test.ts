@@ -545,9 +545,14 @@ describe("value imports in plugin source stay on the registry surface", () => {
 		const registry = await loadRegistry();
 		const uses = await scanPiValueImports(PLUGIN_SOURCE_DIR, ".omp-plugin");
 		const violations = uses.filter((use) => !registry.has(use.specifier));
-		expect(violations.map((use) => violationMessage(use, registry))).toEqual(
-			[],
-		);
+		// Fail with the joined messages rather than an array assert: Bun
+		// truncates the array diff at ~768 chars, so an empty-array assert
+		// would drop the specifier names on a future flake. One violation is
+		// one failure either way; throwing keeps every name in the error text.
+		const messages = violations.map((use) => violationMessage(use, registry));
+		if (messages.length > 0) {
+			throw new Error(messages.join("\n"));
+		}
 	});
 });
 
