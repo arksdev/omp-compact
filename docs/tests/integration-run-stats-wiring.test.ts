@@ -105,6 +105,77 @@ stockTest(
 );
 
 stockTest(
+	"persistMutation propagates appendEntry failure while persistStats swallows",
+	async () => {
+		let transcript: TranscriptInstance | undefined;
+		const booted = await bootPlugin(
+			(root, host) => {
+				transcript = new host.TranscriptContainer();
+				root.addChild(transcript);
+			},
+			"/tmp",
+			[],
+			false,
+			{
+				...DEFAULT_SETTINGS,
+				mode: "live",
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: true, clock: false },
+			},
+			{
+				piMutate: (pi) => {
+					const original = pi.appendEntry as (
+						customType: string,
+						data?: unknown,
+					) => void;
+					pi.appendEntry = (customType: string, data?: unknown) => {
+						if (customType === "omp-compact-write") {
+							throw new Error("mutation sink unavailable");
+						}
+						if (customType === "omp-compact-stats") {
+							throw new Error("stats sink unavailable");
+						}
+						original(customType, data);
+					};
+				},
+			},
+		);
+		if (!transcript) throw new Error("transcript missing");
+		const withTranscript = { ...booted, transcript };
+
+		await beginRun(withTranscript);
+		await addTool(withTranscript, "edit", { path: "/tmp/a.ts" }, "edit-1");
+
+		// Critical history data: failing appendEntry throws into host event dispatch (fail-closed)
+		await expect(
+			dispatch(withTranscript, {
+				type: "tool_execution_end",
+				toolCallId: "edit-1",
+				toolName: "edit",
+				result: {
+					details: {
+						path: "/tmp/a.ts",
+						diff: "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n",
+					},
+				},
+			}),
+		).rejects.toThrow("mutation sink unavailable");
+
+		// Decorative stats: failing appendEntry must NOT throw (fail-open)
+		addAnswer(withTranscript, "done");
+		await expect(
+			completeAnswer(
+				withTranscript,
+				"done",
+				{ input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+				1_700_000_000_500,
+			),
+		).resolves.toBeUndefined();
+
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"stats wiring: message_end usage, action dedup and one evidence entry",
 	async () => {
 		const booted = await bootWithStats();
