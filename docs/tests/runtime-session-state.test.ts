@@ -1607,6 +1607,26 @@ describe("RuntimeSessionState: rebuild lifecycle", () => {
 		expect(session.binding.unboundComponents()).toEqual([]);
 	});
 
+	test("commitRebuild closes the identity window so late components never identity-bind", () => {
+		const session = makeSession();
+		session.beginRun();
+		const activeState = mustStart(session, {
+			toolCallId: "active-1",
+			toolName: "bash",
+			args: {},
+		});
+		const component = new FakeToolComponent();
+		session.binding.bind(component, activeState);
+		const snapshot = session.beginRebuild();
+
+		session.commitRebuild(snapshot, { branchEntries: [] });
+
+		// A component re-added after settlement is outside the synchronous
+		// repopulation window and must not bind by preserved identity.
+		session.binding.registerUnboundComponent(component);
+		expect(session.binding.componentState(component)).toBeUndefined();
+	});
+
 	test("terminal retirement drops raw payloads but preserves filtered projection", () => {
 		const session = makeSession();
 		session.beginRun();
