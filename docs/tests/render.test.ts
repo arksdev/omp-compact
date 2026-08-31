@@ -982,6 +982,18 @@ describe("sanitizeOneLine", () => {
 		// Byte-for-byte on the surviving astral characters (no U+FFFD).
 		expect([...sanitizeOneLine(input)]).toEqual(["o", "k", "🚀", "中", "😀"]);
 	});
+
+	test("strips OSC hyperlinks and non-SGR CSI sequences cleanly", () => {
+		const oscHyperlink =
+			"before \x1b]8;;https://example.com/path\x1b\\hyperlink text\x1b]8;;\x1b\\ after";
+		expect(sanitizeOneLine(oscHyperlink)).toBe("before hyperlink text after");
+
+		const oscBel = "prefix \x1b]0;terminal-title\x07content suffix";
+		expect(sanitizeOneLine(oscBel)).toBe("prefix content suffix");
+
+		const nonSgrCsi = "start \x1b[2J\x1b[10;20Hmiddle\x1b[K end";
+		expect(sanitizeOneLine(nonSgrCsi)).toBe("start middle end");
+	});
 });
 
 describe("shared display control class", () => {
@@ -1673,6 +1685,29 @@ describe("inject rule rows", () => {
 		expect(renderModule.injectRulesFromTtsrComponent(tree)).toEqual([
 			{ name: "alpha", body: "first body" },
 			{ name: "beta", body: "second body" },
+		]);
+	});
+
+	test("extractor preserves TAB/LF/CR in multi-line rule body while stripping non-SGR escapes", () => {
+		const tree = {
+			children: [
+				{ getText: () => "⚠ Injecting rule: multi-line-rule  ↺" },
+				{
+					children: [
+						{
+							getText: () =>
+								"step 1:\tuse \x1b]8;;https://omp.test\x1b\\link\x1b]8;;\x1b\\\nstep 2:\tclean \x1b[2Kbuffer\nstep 3:\tdone",
+						},
+						{ getText: () => " (ctrl+o to expand)" },
+					],
+				},
+			],
+		};
+		expect(renderModule.injectRulesFromTtsrComponent(tree)).toEqual([
+			{
+				name: "multi-line-rule",
+				body: "step 1:\tuse link\nstep 2:\tclean buffer\nstep 3:\tdone",
+			},
 		]);
 	});
 
