@@ -1754,6 +1754,29 @@ describe("short-terminal viewport", () => {
 		expect(full).toHaveLength(23);
 		expect(full.join("\n")).not.toContain("…");
 	});
+
+	test("non-positive or non-finite terminal height renders the full frame", () => {
+		const full = lines(makeDialog().dialog);
+		expect(full).toHaveLength(23);
+
+		for (const degenerate of [0, -1, Number.NaN]) {
+			const dialog = makeDialog(
+				DEFAULT_SETTINGS,
+				true,
+				() => degenerate,
+			).dialog;
+			const rendered = lines(dialog);
+			expect(rendered).toEqual(full);
+			expect(rendered).toHaveLength(23);
+		}
+
+		const undefinedRows = makeDialog(
+			DEFAULT_SETTINGS,
+			true,
+			() => undefined,
+		).dialog;
+		expect(lines(undefinedRows)).toEqual(full);
+	});
 });
 
 describe("threshold display", () => {
