@@ -41,8 +41,9 @@ const MAX_RECORD_LENGTH = 240;
 const MAX_RESULT_SCAN_LENGTH = 2_048;
 
 /**
- * Tokenize a deliberately small, non-evaluating shell grammar. Shell syntax
- * that could expand or add a command is rejected rather than interpreted.
+ * Tokenize a deliberately small, non-evaluating shell grammar. Only `&&` and
+ * `;` are accepted as command separators; other shell syntax that could expand
+ * or add a command is rejected rather than interpreted.
  */
 function tokenizeCommands(source: string): string[][] | undefined {
 	if (!source || source.length > MAX_COMMAND_LENGTH) return undefined;
@@ -180,8 +181,14 @@ function tokenizeCommands(source: string): string[][] | undefined {
 			continue;
 		}
 
+		if (character === ";") {
+			if (!finishCommand(index)) return undefined;
+			index++;
+			rawStart = index;
+			continue;
+		}
+
 		if (
-			character === ";" ||
 			character === "|" ||
 			character === "<" ||
 			character === ">" ||
@@ -344,11 +351,12 @@ function parseGitInvocationTokens(
 }
 
 /**
- * Parse every `&&`-joined segment of one bounded, non-evaluating shell
- * command. A leading `cd <path> &&` is shell bookkeeping, not an invocation;
- * every other segment must itself be a proven simple Git invocation. Any
- * other shell text (echo, pipes, control flow, …) fails the whole chain
- * closed so arbitrary compound shell is never turned into a Git audit.
+ * Parse every `&&`- or `;`-joined segment of one bounded, non-evaluating shell
+ * command. A leading `cd <path> &&` or `cd <path>;` is shell bookkeeping, not
+ * an invocation; every other segment must itself be a proven simple Git
+ * invocation. Any other shell text (echo, pipes, control flow, …) fails the
+ * whole chain closed so arbitrary compound shell is never turned into a Git
+ * audit.
  */
 function parseGitChain(command: string): GitChain | undefined {
 	const commands = tokenizeCommands(command);
@@ -369,8 +377,9 @@ function parseGitChain(command: string): GitChain | undefined {
 }
 
 /**
- * Recognize every proven Git invocation of one shell-simple command, in
- * command order. The parser intentionally has no execution path.
+ * Recognize every proven Git invocation of one shell-simple command joined by
+ * `&&` or `;`, in command order. The parser intentionally has no execution
+ * path.
  */
 export function recognizeGitCommands(
 	command: string,

@@ -296,9 +296,12 @@ describe("Multiple Git invocations in one Bash call", () => {
 			recognizeGitCommands("cd repo && git status && echo done"),
 		).toBeUndefined();
 		expect(recognizeGitCommands("cd a && cd b && git status")).toBeUndefined();
-		expect(recognizeGitCommands("git status ; git diff")).toBeUndefined();
 		expect(recognizeGitCommands("git status | cat")).toBeUndefined();
 		expect(recognizeGitCommands("git status || echo hi")).toBeUndefined();
+		expect(recognizeGitCommands("git status; echo done")).toBeUndefined();
+		expect(recognizeGitCommands("git status;")).toBeUndefined();
+		expect(recognizeGitCommands("; git status")).toBeUndefined();
+		expect(recognizeGitCommands("git status;; git diff")).toBeUndefined();
 	});
 
 	test("fails closed for failed multi-Git chains", () => {
@@ -329,6 +332,62 @@ describe("Multiple Git invocations in one Bash call", () => {
 			"git commit cc33dd x",
 			"git push",
 		]);
+	});
+
+	test("recognizes a ;-joined Git chain in command order", () => {
+		expect(
+			recognizeGitCommands(
+				"git status --porcelain; git diff -- Cargo.toml Cargo.lock",
+			),
+		).toEqual([
+			{ subcommand: "status", gated: false },
+			{ subcommand: "diff", gated: false },
+		]);
+	});
+
+	test("formats a ;-joined status/diff chain into two rows like its && twin", () => {
+		const records = formatGitRecords({
+			command: "git status --porcelain; git diff -- Cargo.toml Cargo.lock",
+			resultText:
+				" M Cargo.toml\n M Cargo.lock\n@@ -1,2 +1,3 @@\n toml\n+# modified\n",
+			isError: false,
+		});
+		expect(records?.map((record) => record.text)).toEqual([
+			"git status --porcelain",
+			"git diff -- Cargo.toml Cargo.lock",
+		]);
+		expect(records?.map((record) => record.subcommand)).toEqual([
+			"status",
+			"diff",
+		]);
+	});
+
+	test("a chain mixing ; and && keeps all three segments in command order", () => {
+		expect(
+			recognizeGitCommands("git add a; git commit -m x && git push"),
+		).toEqual([
+			{ subcommand: "add", gated: false },
+			{ subcommand: "commit", gated: false },
+			{ subcommand: "push", gated: false },
+		]);
+	});
+
+	test("cd-gates a ;-joined segment exactly like its && twin", () => {
+		expect(recognizeGitCommands("cd repo; git status")).toEqual([
+			{ subcommand: "status", gated: true },
+		]);
+	});
+
+	test("recognizes a previously-rejected ; chain as a positive case", () => {
+		expect(recognizeGitCommands("git status ; git diff")).toEqual([
+			{ subcommand: "status", gated: false },
+			{ subcommand: "diff", gated: false },
+		]);
+		expect(
+			recognizeGitCommands("git status ; git diff")?.map(
+				(record) => record.subcommand,
+			),
+		).toEqual(["status", "diff"]);
 	});
 });
 

@@ -79,6 +79,59 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+stockTest(
+	"semicolon-joined Git Bash calls leave one aggregate commit summary after the answer",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "git add src/a.ts; git commit -m 'Add a'" },
+			"git-compound-semicolon",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "git-compound-semicolon",
+			toolName: "bash",
+			result: {
+				content: [
+					{ type: "text", text: "[main abc1234] Add a\n 1 file changed" },
+				],
+				details: { exitCode: 0 },
+			},
+			isError: false,
+		});
+		addAnswer(booted, "committed");
+		await finishRun(booted, "committed");
+		const rows = visibleRows(booted.transcript);
+		const completed = rows.join("\n");
+		expect(completed).not.toContain("git add src/a.ts");
+		expect(completed).not.toContain("git commit abc1234 Add a");
+		expect(completed).toContain("git commit: abc1234");
+		expect(rows.filter((row) => row.includes("git commit:")).length).toBe(1);
+		expect(booted.sentMessages).toEqual([]);
+		expect(booted.appendedEntries[0]).toMatchObject({
+			customType: "omp-compact-git",
+			data: {
+				toolCallId: "git-compound-semicolon",
+				subcommand: "add",
+				text: "git add src/a.ts",
+				isError: false,
+			},
+		});
+		expect(
+			(booted.appendedEntries[0]?.data as { records?: unknown[] })?.records,
+		).toEqual([
+			{ subcommand: "add", text: "git add src/a.ts", isError: false },
+			{
+				subcommand: "commit",
+				text: "git commit abc1234 Add a",
+				isError: false,
+			},
+		]);
+		await shutdown(booted);
+	},
+);
 
 stockTest(
 	"failed compound and cd-gated Git calls create no retained rows",
