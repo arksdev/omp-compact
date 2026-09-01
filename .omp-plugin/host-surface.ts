@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `StockHostAdapter.hostVersion` (`"18.0.11"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.1.1"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
@@ -54,24 +54,45 @@
  * read group byte-identical too: the release's only container change is
  * an additive `resetStableEmission()` on the thinking-toggle path, a
  * ledger reset the plugin neither calls nor receives.
+ * 18.1.0 and 18.1.1 left the read group byte-identical and the tool card
+ * semantically unchanged: the four callbacks the binding observes
+ * (`updateArgs`, `updateResult`, `setArgsComplete`, `setExpanded`) keep
+ * identical signatures, and that file's only addition is a pure
+ * `toolRenderName()` helper resolving an aliased wire name to its renderer
+ * key. The container's additions — `rerenderOfferedBatch()`,
+ * `getChildStartRow()` and a pinned-frontier warning — are frame recovery, a
+ * deep-link row map and log bookkeeping; the six methods the fold wraps keep
+ * their contracts. The release's transcript-side work is the new fullscreen
+ * navigation surface (`rewind-selector.ts` replacing
+ * `user-message-selector.ts`, plus `transcript-outline.ts`), which rewinds
+ * through the same `truncateTranscriptFromMessage()`/`renderInitialMessages()`
+ * pair the fold already observes; `/copy` moved onto that selector but still
+ * harvests `SessionMessageEntry.message` rather than live component renders,
+ * and `/usage` left the transcript for a fullscreen overlay this plugin
+ * neither renders nor filters. Shortcuts are still called without `await` and
+ * commands still awaited inside `try/catch`, both now wrapped in
+ * `runScoped()`. The one new finalization path,
+ * `#finalizeAbandonedPostToolSegments()`, finalizes abandoned post-tool
+ * assistant blocks rather than tool rows, so it correctly does not stamp
+ * `settledAt`.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.0.11 (root `node_modules` plus the isolated
- * `runtime/omp-18.0.11/` copy). The fingerprint facts above come from
- * the diff on the code-review/host-18.0.11-diff.md surface diff.
+ * The gate pin is 18.1.1 (root `node_modules` plus the isolated
+ * `runtime/omp-18.1.1/` copy). The fingerprint facts above come from
+ * the surface audit in `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md` and the
+ * per-file semantic diff in `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify
  * into tool/read-group paths. User bash/eval and skill-card fingerprints do not
  * require the activity method; their compact rows still fail open to native when
  * content extraction fails.
- *
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.0.11 pin and resolved via live capability probes on the instance;
+ * the 18.1.1 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.
