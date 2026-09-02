@@ -136,7 +136,7 @@ function readInertSubstitution(
 	if (source[cursor] !== ")") return undefined;
 	const commands = tokenizeCommands(source.slice(start + 2, cursor), depth + 1);
 	const tokens = commands?.length === 1 ? commands[0] : undefined;
-	if (!tokens || tokens.length !== 2) return undefined;
+	if (tokens?.length !== 2) return undefined;
 	const argument = tokens[1];
 	if (argument === undefined) return undefined;
 	const end = cursor + 1;
