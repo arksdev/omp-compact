@@ -40,12 +40,129 @@ const MAX_TOKEN_LENGTH = 4_096;
 const MAX_RECORD_LENGTH = 240;
 const MAX_RESULT_SCAN_LENGTH = 2_048;
 
+const MAX_SUBSTITUTION_DEPTH = 1;
+
+function isBlank(character: string | undefined): boolean {
+	return (
+		character === undefined ||
+		character === " " ||
+		character === "\t" ||
+		character === "\f" ||
+		character === "\v" ||
+		character === "\n" ||
+		character === "\r"
+	);
+}
+
+/**
+ * Decode the backslash escapes `printf` applies to its format string. Only
+ * escapes that stand for one literal character are accepted; anything else
+ * (`\0NNN`, `\xHH`, `\c`, …) fails recognition closed rather than guessing
+ * what the shell wrote.
+ */
+function decodePrintfEscapes(value: string): string | undefined {
+	if (!value.includes("\\")) return value;
+	const parts: string[] = [];
+	let start = 0;
+	for (let index = 0; index < value.length; index++) {
+		if (value[index] !== "\\") continue;
+		let literal: string;
+		switch (value[index + 1]) {
+			case "n":
+				literal = "\n";
+				break;
+			case "t":
+				literal = "\t";
+				break;
+			case "r":
+				literal = "\r";
+				break;
+			case "\\":
+				literal = "\\";
+				break;
+			default:
+				return undefined;
+		}
+		parts.push(value.slice(start, index), literal);
+		index++;
+		start = index + 1;
+	}
+	parts.push(value.slice(start));
+	return parts.join("");
+}
+
+interface InertSubstitution {
+	value: string;
+	/** Offset just past the closing paren. */
+	end: number;
+}
+
+/**
+ * Read a `"$( … )"` substitution that provably produces text without running
+ * anything of consequence: one `printf` or `echo` with a single literal
+ * argument, the form an agent writes for a commit message with a body. The
+ * inner source goes through this same tokenizer, so pipes, redirects,
+ * backticks and further substitutions fail there; the depth bound stops the
+ * recursion one level in. A `printf` conversion (`%s`) is refused as well —
+ * resolving it needs the operands this parser must not evaluate.
+ */
+function readInertSubstitution(
+	source: string,
+	start: number,
+	depth: number,
+): InertSubstitution | undefined {
+	if (depth >= MAX_SUBSTITUTION_DEPTH) return undefined;
+	let cursor = start + 2;
+	let quote: string | undefined;
+	while (cursor < source.length) {
+		const character = source[cursor];
+		if (character === "\n" || character === "\r") return undefined;
+		if (quote !== undefined) {
+			if (character === quote) quote = undefined;
+			cursor++;
+			continue;
+		}
+		if (character === "'" || character === '"') {
+			quote = character;
+			cursor++;
+			continue;
+		}
+		// A nested paren or an unquoted backslash needs shell semantics this
+		// scan does not have.
+		if (character === "(" || character === "\\") return undefined;
+		if (character === ")") break;
+		cursor++;
+	}
+	if (source[cursor] !== ")") return undefined;
+	const commands = tokenizeCommands(source.slice(start + 2, cursor), depth + 1);
+	const tokens = commands?.length === 1 ? commands[0] : undefined;
+	if (!tokens || tokens.length !== 2) return undefined;
+	const argument = tokens[1];
+	if (argument === undefined) return undefined;
+	const end = cursor + 1;
+	if (tokens[0] === "printf") {
+		if (argument.includes("%")) return undefined;
+		const value = decodePrintfEscapes(argument);
+		return value === undefined ? undefined : { value, end };
+	}
+	if (tokens[0] === "echo") {
+		// Flags change what echo writes, and shells disagree about whether it
+		// decodes escapes at all.
+		if (argument.startsWith("-") || argument.includes("\\")) return undefined;
+		return { value: argument, end };
+	}
+	return undefined;
+}
+
 /**
  * Tokenize a deliberately small, non-evaluating shell grammar. Only `&&` and
  * `;` are accepted as command separators; other shell syntax that could expand
- * or add a command is rejected rather than interpreted.
+ * or add a command is rejected rather than interpreted. The two exceptions are
+ * text the grammar can carry without evaluating anything: a brace list inside
+ * a word (`src/{a,b}` — kept verbatim, never expanded) and a double-quoted
+ * substitution that only prints its own argument (see readInertSubstitution).
  */
-function tokenizeCommands(source: string): string[][] | undefined {
+function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 	if (!source || source.length > MAX_COMMAND_LENGTH) return undefined;
 
 	const commands: string[][] = [];
@@ -133,7 +250,18 @@ function tokenizeCommands(source: string): string[][] | undefined {
 				}
 
 				if (quote === '"') {
-					if (quoted === "$" || quoted === "`") return undefined;
+					if (quoted === "$") {
+						if (source[index + 1] !== "(") return undefined;
+						const inert = readInertSubstitution(source, index, depth);
+						if (!inert) return undefined;
+						if (quotedStart < index)
+							appendLiteral(source.slice(quotedStart, index));
+						appendLiteral(inert.value);
+						index = inert.end;
+						quotedStart = index;
+						continue;
+					}
+					if (quoted === "`") return undefined;
 					if (quoted === "\\") {
 						const escaped = source[index + 1];
 						if (!escaped || escaped === "\n" || escaped === "\r")
@@ -185,6 +313,24 @@ function tokenizeCommands(source: string): string[][] | undefined {
 			if (!finishCommand(index)) return undefined;
 			index++;
 			rawStart = index;
+			continue;
+		}
+
+		// A brace list inside a word (`src/hud/{a,b}`) is expansion the parser
+		// keeps verbatim: it cannot add a command, and the row shows exactly
+		// what was typed. A brace command GROUP (`{ list; }`) would change the
+		// command boundaries, so an opening brace followed by blank space, or
+		// a closing brace at command position, still fails the parse closed.
+		if (character === "{" && !isBlank(source[index + 1])) {
+			if (!tokenStarted) {
+				tokenStarted = true;
+				rawStart = index;
+			}
+			index++;
+			continue;
+		}
+		if (character === "}" && tokenStarted) {
+			index++;
 			continue;
 		}
 
@@ -568,6 +714,72 @@ function commitSummary(
 const COMMIT_SUMMARY_LINE =
 	/^\[(?:detached HEAD|[^\]\s~^:?*\\[\p{Cc}]+)(?:\s\(root-commit\))?\s([\da-f]{4,64})\]\s*(.*)$/iu;
 
+const LINE_BREAK = /[\n\r]/u;
+
+/**
+ * The subject `git commit` writes for one recognized invocation: the first
+ * line of its `-m`/`--message` value. Messages that live outside the command
+ * (`-F file`, an editor session) have no subject here.
+ */
+function commitMessageSubject(segment: GitSegment): string | undefined {
+	const tokens = segment.tokens;
+	for (
+		let index = segment.subcommandIndex + 1;
+		index < tokens.length;
+		index++
+	) {
+		const token = tokens[index];
+		if (token === undefined || !token.startsWith("-")) continue;
+		// Everything past `--` is a pathspec, message flags included.
+		if (token === "--") return undefined;
+		let value: string | undefined;
+		if (token.startsWith("--message=")) value = token.slice(10);
+		else if (token === "--message") value = tokens[index + 1];
+		else if (token.startsWith("--")) continue;
+		else if (token.length > 2 && token.startsWith("-m")) value = token.slice(2);
+		// A single-dash cluster ending in `m` takes the next word: `-m`, `-qm`.
+		else if (token.endsWith("m")) value = tokens[index + 1];
+		else continue;
+		if (value === undefined) return undefined;
+		const breakIndex = value.search(LINE_BREAK);
+		return (
+			oneLine(breakIndex < 0 ? value : value.slice(0, breakIndex)) || undefined
+		);
+	}
+	return undefined;
+}
+
+/** A `git log --oneline` line: abbreviated hash plus the commit subject. */
+const ONELINE_LOG_LINE = /^([\da-f]{4,64})\s+(.+)$/iu;
+
+/**
+ * `git commit -q` prints no banner, so the hash it created can only come from
+ * a later invocation of the same call. A `git log` right after the commit
+ * prints HEAD first, and HEAD after a successful commit IS that commit — a
+ * successful call proves every segment ran. The hash is therefore taken only
+ * when the leading line of the capture carries one together with exactly the
+ * committed subject. A `git log` anywhere before the commit could have printed
+ * the pre-commit HEAD under that same subject (an amend, a retried commit), so
+ * its presence fails the proof closed.
+ */
+function quietCommitHash(
+	segments: readonly GitSegment[],
+	commitIndex: number,
+	resultText: string,
+): { hash: string; subject: string } | undefined {
+	const commit = segments[commitIndex];
+	if (!commit || segments[commitIndex + 1]?.subcommand !== "log")
+		return undefined;
+	for (let index = 0; index < commitIndex; index++)
+		if (segments[index]?.subcommand === "log") return undefined;
+	const subject = commitMessageSubject(commit);
+	if (subject === undefined) return undefined;
+	const match = ONELINE_LOG_LINE.exec(firstResultLine(resultText));
+	const hash = match?.[1];
+	if (hash === undefined || match?.[2] !== subject) return undefined;
+	return { hash, subject };
+}
+
 /**
  * Produce bounded, display-safe Git rows for every proven invocation of one
  * Bash call, in command order, using only the already captured command and
@@ -579,8 +791,9 @@ const COMMIT_SUMMARY_LINE =
  *   failed); cd-gated commands and compounds fail closed rather than guess
  *   which segment the shell stopped at.
  * - Output evidence goes only to the single commit of a chain (via its
- *   `[branch hash] subject` summary) or the final bare segment — a commit
- *   summary line is never attributed to a non-commit invocation.
+ *   `[branch hash] subject` summary, or a following `git log` when `-q`
+ *   suppressed that summary) or the final bare segment — a commit summary
+ *   line is never attributed to a non-commit invocation.
  */
 export function formatGitRecords(
 	evidence: GitEvidence,
@@ -620,6 +833,7 @@ export function formatGitRecords(
 	// commit segments the evidence cannot be attributed to a specific one.
 	const soleCommit =
 		commitSegments.length === 1 ? commitSegments[0] : undefined;
+	const soleCommitIndex = soleCommit ? segments.indexOf(soleCommit) : -1;
 	const last = segments[segments.length - 1];
 
 	const records: GitRecordResult[] = [];
@@ -627,7 +841,9 @@ export function formatGitRecords(
 		const rendered = renderInvocation(segment);
 		let text = rendered;
 		if (segment === soleCommit) {
-			const summary = commitSummary(evidence.resultText);
+			const summary =
+				commitSummary(evidence.resultText) ??
+				quietCommitHash(segments, soleCommitIndex, evidence.resultText);
 			if (summary) {
 				text = appendDetail(`git commit ${summary.hash}`, summary.subject);
 			}

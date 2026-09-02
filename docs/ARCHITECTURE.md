@@ -370,6 +370,19 @@ function commitSummary(
 }
 ```
 
+**Quiet commits** (`git commit -q`) print no banner. The hash then comes from a
+`git log` invoked immediately after the commit in the same chain: `git log`
+prints HEAD first, HEAD after a successful commit is that commit, and the
+attribution is taken only when the leading captured line carries a hash plus
+exactly the committed subject. A `git log` before the commit fails the proof
+closed — it may have printed the pre-commit HEAD.
+
+**Accepted shell text:** `&&`/`;` separators, one leading `cd <path> &&`, brace
+lists inside a word (`src/{a,b}`, kept verbatim and never expanded), and a
+double-quoted `$(printf …)`/`$(echo …)` carrying one literal argument. Every
+other construct that could expand or add a command fails the whole chain
+closed.
+
 **Recognized commands:**
 - `git commit` (with hash extraction)
 - `git status`, `add`, `push`, `switch`, `rebase` (during work only)

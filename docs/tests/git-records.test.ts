@@ -625,3 +625,181 @@ describe("commit summary banner recognition", () => {
 		).toBe("git commit 82e797a wip");
 	});
 });
+
+describe("commit messages built by an inert substitution", () => {
+	const quietChain =
+		"cd /repo && git add src/a.rs && git commit -q -m \"$(printf 'fix: turn the spinner from the wall clock\\n\\nThe phase came from the dictation timer.')\" && git log --oneline -1";
+
+	test("recognizes the quiet commit chain written for a message with a body", () => {
+		expect(recognizeGitCommands(quietChain)).toEqual([
+			{ subcommand: "add", gated: true },
+			{ subcommand: "commit", gated: false },
+			{ subcommand: "log", gated: false },
+		]);
+	});
+
+	test("renders a substituted message as one collapsed line", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -m \"$(printf 'fix: subject\\n\\nbody text')\"",
+				resultText: "",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -m fix: subject body text");
+	});
+
+	test("a banner still owns the hash of a substituted message", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -m \"$(printf 'fix: subject\\n\\nbody')\"",
+				resultText: "[main abc1234] fix: subject\n 1 file changed",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit abc1234 fix: subject");
+	});
+
+	test("rejects every substitution that could run another command", () => {
+		for (const command of [
+			'git commit -m "$(git rev-parse HEAD)"',
+			'git commit -m "$(cat message.txt)"',
+			"git commit -m \"$(printf '%s' subject)\"",
+			"git commit -m \"$(printf 'a' 'b')\"",
+			'git commit -m "$(echo -e bad)"',
+			"git commit -m \"$(printf 'a\\qb')\"",
+			'git commit -m "$(printf "$(printf \'x\')")"',
+			"git commit -m \"$(printf 'x'\"",
+			"git commit -m $(printf 'x')",
+		])
+			expect(recognizeGitCommands(command)).toBeUndefined();
+	});
+
+	test("a single-quoted substitution stays the literal text shell passes", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -m '$(printf x)'",
+				resultText: "",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -m $(printf x)");
+	});
+});
+
+describe("brace-expanded pathspecs", () => {
+	test("recognizes a brace list inside a pathspec word", () => {
+		expect(
+			recognizeGitCommands(
+				"git add src/hud/{scene.rs,panel.rs} && git commit -m x",
+			),
+		).toEqual([
+			{ subcommand: "add", gated: false },
+			{ subcommand: "commit", gated: false },
+		]);
+	});
+
+	test("renders the brace list verbatim instead of expanding it", () => {
+		expect(
+			formatGitRecords({
+				command: "git add src/hud/{scene.rs,panel.rs}",
+				resultText: "",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git add src/hud/{scene.rs,panel.rs}");
+	});
+
+	test("a brace command group is still rejected", () => {
+		expect(recognizeGitCommands("{ git status; }")).toBeUndefined();
+		expect(recognizeGitCommands("git status; }")).toBeUndefined();
+		expect(recognizeGitCommands("git add a && { git commit -m x; }")).toBe(
+			undefined,
+		);
+	});
+});
+
+describe("quiet commit hash attribution", () => {
+	test("a git log right after a quiet commit proves its hash", () => {
+		const rows = formatGitRecords({
+			command:
+				"cd /repo && git add src/a.rs && git commit -q -m \"$(printf 'fix: turn the spinner from the wall clock\\n\\nbody')\" && git log --oneline -1",
+			resultText:
+				"3f52b2f fix: turn the spinner from the wall clock\n\n\nWall time: 0.20 seconds",
+			isError: false,
+		});
+		expect(rows?.map((row) => row.text)).toEqual([
+			"git add src/a.rs",
+			"git commit 3f52b2f fix: turn the spinner from the wall clock",
+			"git log --oneline -1",
+		]);
+	});
+
+	test("clustered and inline message flags carry the same proof", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -qm 'fix: a' && git log --oneline -1",
+				resultText: "3f52b2f fix: a",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit 3f52b2f fix: a");
+		expect(
+			formatGitRecords({
+				command: "git commit --message='fix: a' && git log --oneline -1",
+				resultText: "3f52b2f fix: a",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit 3f52b2f fix: a");
+	});
+
+	test("a subject mismatch attributes nothing", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -q -m 'fix: a' && git log --oneline -1",
+				resultText: "3f52b2f fix: b",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -q -m fix: a");
+	});
+
+	test("a log before the commit never lends its hash", () => {
+		// The pre-commit HEAD can carry the same subject after an amend or a
+		// retried commit, and its line comes first in the capture.
+		expect(
+			formatGitRecords({
+				command:
+					"git log --oneline -1 && git commit -q -m 'fix: a' && git log --oneline -1",
+				resultText: "3f52b2f fix: a",
+				isError: false,
+			})?.[1]?.text,
+		).toBe("git commit -q -m fix: a");
+	});
+
+	test("a quiet commit without a following log stays hashless", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -q -m 'fix: a' && git status --porcelain",
+				resultText: " M src/a.rs",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -q -m fix: a");
+	});
+
+	test("an older commit with the same subject cannot lend its hash", () => {
+		// HEAD is the first line of git log output: when the leading
+		// hash-shaped line is not the new commit, nothing is attributed.
+		expect(
+			formatGitRecords({
+				command: "git commit -q -m 'fix: a' && git log --oneline -3",
+				resultText: "0000abc other subject\n3f52b2f fix: a",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -q -m fix: a");
+	});
+
+	test("a commit without a message flag stays hashless", () => {
+		expect(
+			formatGitRecords({
+				command: "git commit -q -F message.txt && git log --oneline -1",
+				resultText: "3f52b2f fix: a",
+				isError: false,
+			})?.[0]?.text,
+		).toBe("git commit -q -F message.txt");
+	});
+});

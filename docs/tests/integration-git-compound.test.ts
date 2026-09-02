@@ -439,3 +439,54 @@ stockTest(
 		await rm(cwd, { recursive: true, force: true });
 	},
 );
+
+stockTest(
+	"a quiet commit with a substituted message keeps its aggregate summary",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{
+				command:
+					"cd /repo && git add src/hud/{scene.rs,panel.rs} && git commit -q -m \"$(printf 'fix: turn the spinner from the wall clock\\n\\nThe phase came from the dictation timer.')\" && git log --oneline -1",
+			},
+			"git-quiet-commit",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "git-quiet-commit",
+			toolName: "bash",
+			result: {
+				content: [
+					{
+						type: "text",
+						text: "3f52b2f fix: turn the spinner from the wall clock\n",
+					},
+				],
+				details: { exitCode: 0 },
+			},
+			isError: false,
+		});
+		addAnswer(booted, "committed");
+		await finishRun(booted, "committed");
+		const rows = visibleRows(booted.transcript);
+		expect(rows.join("\n")).toContain("git commit: 3f52b2f");
+		expect(
+			(booted.appendedEntries[0]?.data as { records?: unknown[] })?.records,
+		).toEqual([
+			{
+				subcommand: "add",
+				text: "git add src/hud/{scene.rs,panel.rs}",
+				isError: false,
+			},
+			{
+				subcommand: "commit",
+				text: "git commit 3f52b2f fix: turn the spinner from the wall clock",
+				isError: false,
+			},
+			{ subcommand: "log", text: "git log --oneline -1", isError: false },
+		]);
+		await shutdown(booted);
+	},
+);
