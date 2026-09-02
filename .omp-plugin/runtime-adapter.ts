@@ -383,16 +383,22 @@ export class RuntimeAdapter {
 		//   Stream previews set executionStarted=false; tryBindByOrder prefers
 		//   started states so a stale late message_update cannot poison the
 		//   next run's equal-cardinality order binding.
-		// - native-live never early-allocates here, and neither do reads that
-		//   collapse into ReadToolGroup (the group owns their rows). A read
-		//   whose target is an internal URL owns a full tool card instead, so
-		//   it MUST early-allocate: stock creates that card and streams args
-		//   into it (carrying the real toolCallId) before tool_execution_start
-		//   arrives. Without a state to claim by id, the card waited for
-		//   equal-cardinality order pairing, which crossed it with the
-		//   neighbouring bash preview state — and the next id-carrying
-		//   updateArgs then reported ambiguous ownership and quarantined both
-		//   cards to native for the rest of the run.
+		// - a call the plugin never presents compactly (no rule at all, or the
+		//   native-live route) still owns a card stock creates in message
+		//   order, and its state is allocated anyway a moment later by
+		//   tool_execution_start. Skipping it here allocated the states in a
+		//   different order than stock created the cards, so equal-cardinality
+		//   order pairing crossed them (an MCP card ← the bash state) and the
+		//   next id-carrying updateArgs reported ambiguous ownership,
+		//   quarantining both cards to native framed chrome for the rest of
+		//   the run. Allocating in call order keeps both sequences aligned;
+		//   the render decision keeps a native-route row native.
+		// - reads that collapse into ReadToolGroup are the one skip left: the
+		//   group owns their rows and pairs through its own observed ids. A
+		//   read whose target is an internal URL owns a full tool card
+		//   instead, so it MUST early-allocate: stock creates that card and
+		//   streams args into it (carrying the real toolCallId) before
+		//   tool_execution_start arrives.
 		if (ledger?.phase !== "working") return;
 		const contents = objectRecord(message).content;
 		if (!Array.isArray(contents)) return;
@@ -410,10 +416,8 @@ export class RuntimeAdapter {
 			if (!state) {
 				const rule = resolveToolRule(call.name);
 				if (
-					!rule ||
-					rule.route === "native-live" ||
-					(rule.route === "read-group" &&
-						readArgsCollapseIntoGroup(call.arguments))
+					rule?.route === "read-group" &&
+					readArgsCollapseIntoGroup(call.arguments)
 				) {
 					continue;
 				}

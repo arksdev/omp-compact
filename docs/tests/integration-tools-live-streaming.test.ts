@@ -976,3 +976,79 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+
+stockTest(
+	"an unruled tool streamed beside bash keeps the bash row compact",
+	async () => {
+		// Same shape as the read-beside-bash case, with the sibling that has no
+		// presentation rule at all (an MCP tool). Stream allocation skips it by
+		// design — it renders native — but its card is still a transcript child,
+		// so it must not enter order pairing and cross with the bash preview
+		// state the way the unallocated read card did.
+		const command = "printenv HOME";
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const mcpCard = addToolComponent(
+			booted,
+			"mcp__figma_get_screenshot",
+			{ nodeId: "1:2" },
+			"stream-mcp",
+		);
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stream-mcp",
+						name: "mcp__figma_get_screenshot",
+						arguments: { nodeId: "1:2" },
+					},
+					{
+						type: "toolCall",
+						id: "stream-bash",
+						name: "bash",
+						arguments: { command },
+					},
+				],
+			},
+		});
+		mcpCard.updateArgs({ nodeId: "1:2" }, "stream-mcp");
+		const bashCard = addToolComponent(
+			booted,
+			"bash",
+			{ command },
+			"stream-bash",
+		);
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "stream-mcp",
+			toolName: "mcp__figma_get_screenshot",
+			args: { nodeId: "1:2" },
+		});
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "stream-bash",
+			toolName: "bash",
+			args: { command },
+		});
+		mcpCard.updateArgs({ nodeId: "1:2" }, "stream-mcp");
+		bashCard.updateArgs({ command }, "stream-bash");
+		const working = visibleRows(booted.transcript).join("\n");
+		expect(working).toContain("bash:");
+		expect(working).toContain(command);
+		await finishTool(booted, bashCard, {
+			toolCallId: "stream-bash",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "/Users/admin\n" }],
+				details: { wallTimeMs: 80, timeoutSeconds: 300, exitCode: 0 },
+			},
+			isError: false,
+		});
+		const done = visibleRows(booted.transcript).join("\n");
+		expect(done).toContain(`bash: ${command}`);
+		await shutdown(booted);
+	},
+);
