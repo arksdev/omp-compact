@@ -804,6 +804,32 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		modePolicy.armCollapsedRebuild();
 	});
 
+	listen("auto_compaction_end", async (event) => {
+		// Auto-shake elides heavy tool-result content in place and stock
+		// rebuilds the whole transcript from committed messages (both on
+		// success and on the fallback path that reclaimed tokens before
+		// handing off to another method). It writes no compaction entry, so
+		// `session_compact` never fires for it. Unarmed, that rebuild binds
+		// only while the replayed tool components match the branch's tool
+		// states exactly — a long session, where reads re-collapse into one
+		// group and pending/background tools are kept live by the replay,
+		// misses that count and drops every visible card to native chrome for
+		// the rest of the session (reopening the session renders compact,
+		// which is what makes it look mode-related). A shake never rewrites
+		// the branch, so the visible transcript stays a faithful replay of it
+		// and suffix alignment is exactly the right pairing.
+		//
+		// The cancelled and benign-skip paths rebuild nothing, so they must
+		// not leave a permit behind for the next unrelated clear. Other
+		// actions either land a compaction entry (`session_compact` arms
+		// them) or fail without rebuilding.
+		if (event.action !== "shake") return;
+		if (event.aborted || event.skipped) return;
+		await modePolicy.ready();
+		if (!modePolicy.enabled) return;
+		modePolicy.armCollapsedRebuild();
+	});
+
 	listen("session_tree", async (event) => {
 		// Committed `/tree` navigation (and equivalent navigateTree callers):
 		// stock emits `session_tree` only AFTER the leaf move lands and BEFORE

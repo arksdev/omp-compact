@@ -1444,6 +1444,97 @@ stockTest(
 	},
 );
 
+stockTest(
+	"auto-shake arms the collapsed-rebuild permit for the replayed tail",
+	async () => {
+		// An auto-shake elides heavy tool results in place and stock then calls
+		// rebuildChatFromMessages (event-controller: rebuild on success, and on
+		// the fallback path that still reclaimed tokens). No compaction entry is
+		// written, so `session_compact` never fires — the rebuild used to land
+		// unarmed. Whenever the replayed transcript carries fewer tool
+		// components than the branch has tool states (reads re-collapsing into
+		// one group, a background/pending tool kept live by the replay), exact
+		// pairing bails, suffix alignment stays locked, and every visible card
+		// keeps its native chrome until the session is reopened — the whole
+		// history goes native mid-session while `--resume` renders it compact.
+		//
+		// Same fixture contract as the session_compact permit test: no
+		// session_before_switch, no session_tree, branch installed after boot,
+		// so nothing else arms the pairing.
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		harness.branch.current = [
+			...committedSingleToolBranch("printf old", "bash-old", "old done"),
+			...committedSingleToolBranch("printf new", "bash-new", "new done"),
+		];
+		await dispatch(booted, {
+			type: "auto_compaction_end",
+			action: "shake",
+			result: undefined,
+			aborted: false,
+			willRetry: false,
+		});
+		booted.transcript.clear();
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf new" },
+			"bash-new",
+		);
+		rebuilt.render = () => ["native-fallback"];
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-new",
+		);
+		await flushMicrotasks();
+
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).not.toContain("printf new");
+		expect(rows).not.toContain("native-fallback");
+		await shutdown(booted);
+	},
+);
+
+stockTest("an aborted auto-shake arms nothing", async () => {
+	// The cancelled and benign-skip paths never rebuild the transcript, so
+	// arming there would leave a stale permit for whatever clear comes next
+	// (a live /clear, the next run's own rebuild) and let suffix alignment
+	// rewrite rows it never proved ownership of.
+	const harness = rebuildHarness();
+	const booted = await bootForRebuild("live", harness);
+	harness.branch.current = [
+		...committedSingleToolBranch("printf old", "bash-old", "old done"),
+		...committedSingleToolBranch("printf new", "bash-new", "new done"),
+	];
+	await dispatch(booted, {
+		type: "auto_compaction_end",
+		action: "shake",
+		result: undefined,
+		aborted: true,
+		willRetry: false,
+	});
+	booted.transcript.clear();
+	const rebuilt = addToolComponent(
+		booted,
+		"bash",
+		{ command: "printf new" },
+		"bash-new",
+	);
+	rebuilt.render = () => ["native-fallback"];
+	rebuilt.updateResult(
+		{ content: [{ type: "text", text: "ok" }] },
+		false,
+		"bash-new",
+	);
+	await flushMicrotasks();
+
+	expect(visibleRows(booted.transcript).join("\n")).toContain(
+		"native-fallback",
+	);
+	await shutdown(booted);
+});
+
 stockTest("two quick clears replay only the latest generation", async () => {
 	const booted = await bootForRebuild("compact");
 	await beginRun(booted);
