@@ -13,6 +13,7 @@ import {
 	isToolComponent,
 	isTranscriptHost,
 	isTtsrNotificationComponent,
+	readArgsCollapseIntoGroup,
 	transcriptCapabilities,
 } from "./host-adapter";
 import {
@@ -382,7 +383,16 @@ export class RuntimeAdapter {
 		//   Stream previews set executionStarted=false; tryBindByOrder prefers
 		//   started states so a stale late message_update cannot poison the
 		//   next run's equal-cardinality order binding.
-		// - read-group and native-live never early-allocate here.
+		// - native-live never early-allocates here, and neither do reads that
+		//   collapse into ReadToolGroup (the group owns their rows). A read
+		//   whose target is an internal URL owns a full tool card instead, so
+		//   it MUST early-allocate: stock creates that card and streams args
+		//   into it (carrying the real toolCallId) before tool_execution_start
+		//   arrives. Without a state to claim by id, the card waited for
+		//   equal-cardinality order pairing, which crossed it with the
+		//   neighbouring bash preview state — and the next id-carrying
+		//   updateArgs then reported ambiguous ownership and quarantined both
+		//   cards to native for the rest of the run.
 		if (ledger?.phase !== "working") return;
 		const contents = objectRecord(message).content;
 		if (!Array.isArray(contents)) return;
@@ -402,7 +412,8 @@ export class RuntimeAdapter {
 				if (
 					!rule ||
 					rule.route === "native-live" ||
-					rule.route === "read-group"
+					(rule.route === "read-group" &&
+						readArgsCollapseIntoGroup(call.arguments))
 				) {
 					continue;
 				}

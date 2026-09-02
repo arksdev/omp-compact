@@ -879,3 +879,100 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+
+stockTest(
+	"streamed full-card read beside bash keeps both rows compact",
+	async () => {
+		// Production sequence traced from OMP 18.1.2 for one assistant
+		// message holding `read skill://…` + `bash`: stock creates the read
+		// card first, then streams args into it carrying the read id, then
+		// creates the bash card, and only afterwards fans both
+		// tool_execution_start events. Skipping stream allocation for every
+		// read left the read card without a state while the bash preview
+		// state existed, so equal-cardinality order pairing crossed the two
+		// (read card ← bash state) and the next id-carrying updateArgs
+		// reported ambiguous ownership, quarantining both cards to native
+		// framed chrome for the whole run.
+		const readPath = "skill://keep-the-why-distilled";
+		const command = "printenv HOME";
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const readCard = addToolComponent(
+			booted,
+			"read",
+			{ path: readPath },
+			"stream-read",
+		);
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "stream-read",
+						name: "read",
+						arguments: { path: readPath },
+					},
+					{
+						type: "toolCall",
+						id: "stream-bash",
+						name: "bash",
+						arguments: { command },
+					},
+				],
+			},
+		});
+		readCard.updateArgs({ path: readPath }, "stream-read");
+		const bashCard = addToolComponent(
+			booted,
+			"bash",
+			{ command },
+			"stream-bash",
+		);
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "stream-read",
+			toolName: "read",
+			args: { path: readPath },
+		});
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "stream-bash",
+			toolName: "bash",
+			args: { command },
+		});
+		readCard.updateArgs({ path: readPath }, "stream-read");
+		bashCard.updateArgs({ command }, "stream-bash");
+		const working = visibleRows(booted.transcript).join("\n");
+		expect(working).toContain(readPath);
+		expect(working).toContain("bash:");
+		expect(working).toContain(command);
+		expect(working).not.toContain("╭");
+		await finishTool(booted, readCard, {
+			toolCallId: "stream-read",
+			toolName: "read",
+			result: {
+				content: [{ type: "text", text: "name: keep-the-why-distilled\n" }],
+				details: {},
+			},
+			isError: false,
+		});
+		await finishTool(booted, bashCard, {
+			toolCallId: "stream-bash",
+			toolName: "bash",
+			result: {
+				content: [{ type: "text", text: "/Users/admin\n" }],
+				details: { wallTimeMs: 80, timeoutSeconds: 300, exitCode: 0 },
+			},
+			isError: false,
+		});
+		const done = visibleRows(booted.transcript).join("\n");
+		expect(done).toContain(`read ${readPath}`);
+		expect(done).toContain(`bash: ${command}`);
+		expect(done).not.toContain("╭");
+		expect(done).not.toContain("├─── Output");
+		expect(done).not.toContain("⟦Wall:");
+		await shutdown(booted);
+	},
+);
