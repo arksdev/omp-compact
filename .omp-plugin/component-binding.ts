@@ -41,6 +41,7 @@ import { isPayloadWithinBudget } from "./hydration-bounds";
 import { objectRecord } from "./object-record";
 import type { GroupState, ToolState } from "./runtime-session-state";
 import type { RenderableBlock } from "./transcript-fold";
+import { traceNative } from "./trace";
 import type { TurnLedger } from "./turn-ledger";
 
 export type BindingStatus = "bound" | "ambiguous" | "incompatible" | "unmapped";
@@ -292,7 +293,11 @@ export class ComponentBinding {
 	 * Rebuild retirement (`reset` / `preserveActive`) clears claims as
 	 * usual; re-observation after rebuild is a fresh attempt.
 	 */
-	releaseToNative(component: RenderableBlock): void {
+	releaseToNative(
+		component: RenderableBlock,
+		reason = "binding conflict",
+	): void {
+		traceNative(() => `native fail-open: ${reason}`);
 		if (this.#componentStates.has(component))
 			this.#componentStates.delete(component);
 		const unboundIdx = this.#unboundComponents.indexOf(component);
@@ -347,7 +352,13 @@ export class ComponentBinding {
 		if (unboundStates.length === 0) return "unmapped";
 		// Proven equal cardinality only — unequal counts are ambiguous and
 		// must not guess (a lone component against two starts, or vice versa).
-		if (unboundStates.length !== components.length) return "unmapped";
+		if (unboundStates.length !== components.length) {
+			traceNative(
+				() =>
+					`order pairing declined: ${String(components.length)} unbound card(s) vs ${String(unboundStates.length)} started state(s) [${unboundStates.map((state) => state.toolName).join(", ")}]`,
+			);
+			return "unmapped";
+		}
 		// Snapshot the queue: bind() splices each success out of
 		// `#unboundComponents`, so walking the live array would skip entries.
 		const paired = components.slice() as RenderableBlock[];
@@ -395,6 +406,12 @@ export class ComponentBinding {
 		// Drain both queues unconditionally: components and segments that
 		// could not be paired stay native. Segments not cleared would corrupt
 		// the next hydration's cardinality check.
+		if (unresolvedStates || unresolvedGroups) {
+			traceNative(
+				() =>
+					`rebuild pairing left ${String(this.#unboundComponents.length)} card(s) and ${String([...this.#groups].filter((group) => group.ledger === undefined).length)} read group(s) native`,
+			);
+		}
 		this.#unboundComponents.length = 0;
 		this.#observedToolIds.clear();
 		this.#hydratedReadSegments.length = 0;

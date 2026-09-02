@@ -1052,3 +1052,91 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+
+stockTest(
+	"a read card stock defers past a started sibling still binds by id",
+	async () => {
+		// Real session shape (2026-09-02, project ~/.omp): one assistant message
+		// carrying `read ssh://` then `bash orca --help`. Stock refuses to create
+		// the read's component until its path parses (event-controller.ts:1218 —
+		// "Creating either component now would lock the read into the wrong
+		// shape"), so the bash card exists and its execution has already started
+		// when the read card finally arrives. Card order therefore diverges from
+		// call order, and equal-cardinality order pairing would hand the read
+		// card the bash state, whose id-carrying updateArgs then reports
+		// ambiguous ownership and quarantines both cards to native chrome.
+		const command = "orca --help 2>&1 | cut -c1-2000";
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		// Args still streaming: the read has no parseable target yet.
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "defer-read", name: "read", arguments: {} },
+					{
+						type: "toolCall",
+						id: "defer-bash",
+						name: "bash",
+						arguments: { command },
+					},
+				],
+			},
+		});
+		const bashCard = addToolComponent(
+			booted,
+			"bash",
+			{ command },
+			"defer-bash",
+		);
+		bashCard.render = () => ["native-fallback-bash"];
+		bashCard.updateArgs({ command }, "defer-bash");
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "defer-bash",
+			toolName: "bash",
+			args: { command },
+		});
+		// The read's path lands, so stock now creates its full card.
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "defer-read",
+						name: "read",
+						arguments: { path: "ssh://" },
+					},
+					{
+						type: "toolCall",
+						id: "defer-bash",
+						name: "bash",
+						arguments: { command },
+					},
+				],
+			},
+		});
+		const readCard = addToolComponent(
+			booted,
+			"read",
+			{ path: "ssh://" },
+			"defer-read",
+		);
+		readCard.render = () => ["native-fallback-read"];
+		readCard.updateArgs({ path: "ssh://" }, "defer-read");
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "defer-read",
+			toolName: "read",
+			args: { path: "ssh://" },
+		});
+		const working = visibleRows(booted.transcript).join("\n");
+		expect(working).toContain("bash:");
+		expect(working).not.toContain("native-fallback-bash");
+		expect(working).not.toContain("native-fallback-read");
+		await shutdown(booted);
+	},
+);

@@ -134,6 +134,18 @@ Bidirectional map between TUI components and plugin state records.
 3. **Deferred binding** — hydrated branch, no toolCallId yet, bind by order via `tryBindByOrder()`
 4. **Observed-id claim** — a rebuilt card announces its real `toolCallId` through `updateResult(result, isPartial, id)` before the branch walk recreates its state; the id waits in `#observedToolIds` and is claimed by `#bindObservedToolIds()` at the head of hydration pairing. Exact ownership, so it needs no order/suffix permit and covers rebuild triggers stock exposes no event for (`/shake`, a cancelled submission, a dropped prompt, an extension repaint). Cards whose result never replays with an id — pending, background, collapsed read groups — still depend on the permit paths.
 
+**Fail-open diagnostics (trace.ts):**
+
+Every fail-open path is reversible and silent by design, which makes a
+framed card in a compact session unattributable after the fact: the
+session transcript records tool calls and results, never pairing
+decisions. `OMP_COMPACT_TRACE=1` prints one stderr line per fail-open —
+order pairing declined (with card/state counts and the state tool names),
+rebuild pairing leftovers, `releaseToNative` with its caller-supplied
+reason, and one line per component that renders native unbound. The
+message is a thunk, so a disabled trace neither formats nor allocates;
+never make a decision depend on the flag.
+
 **Read-group all-or-nothing invariant:**
 
 A stock read group is one native card. Compact rows are built only from

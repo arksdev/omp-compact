@@ -146,10 +146,13 @@ the pinned value instead of claiming a change the environment forbids.
 | `OMP_COMPACT_MODE` | `off` | Legacy hard-disable |
 | `OMP_COMPACT_SHAKE` | `1` / `0` | Override auto-shake |
 | `OMP_COMPACT_CONFIG` | path | Override config file path |
+| `OMP_COMPACT_TRACE` | `1` | Log every native fail-open to stderr |
 
 **Precedence:** Env vars override config file. Menu saves don't write env vars to JSON.
 
 `OMP_COMPACT_SHAKE` overrides only the enabled flag. The threshold still comes from JSON. Auto-shake uses `shake("elide")`; it does not produce a compaction summary or provide a fallback after a context limit has already been exceeded.
+
+`OMP_COMPACT_TRACE=1` explains framed stock cards inside a compact session. A framed card always means the plugin could not prove which tool call owns that component, and nothing in the session transcript records that decision, so the trace names the branch instead: `order pairing declined: 1 unbound card(s) vs 2 started state(s) [read, bash]`, `rebuild pairing left 1 card(s) and 0 read group(s) native`, `native fail-open: ambiguous id ownership on a tool card (updateResult)`, and one `unbound card rendered native` per card. Unset by default; the message is never built while off.
 
 The two `host.*` values are mirrors of stock OMP settings. Saving them through `/compact-settings` writes OMP's live `session.settings` first, then updates plugin JSON. `omp-compact` does not manage Browser Relay or Collab Relay settings.
 

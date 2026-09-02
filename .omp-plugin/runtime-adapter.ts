@@ -71,6 +71,7 @@ import {
 	type TranscriptHost,
 } from "./transcript-fold";
 import { classifyAgentEnd, type TurnLedger } from "./turn-ledger";
+import { traceNative } from "./trace";
 
 // Re-exported for index.ts and the test surface: the input contracts are
 // session-state concepts now, the adapter is their event-driven facade.
@@ -211,6 +212,11 @@ export class RuntimeAdapter {
 	readonly #getBranch: (() => readonly unknown[] | undefined) | undefined;
 	readonly #onRunFinalized: ((runId: string) => void) | undefined;
 	readonly #onDisabled: (() => void) | undefined;
+	/**
+	 * Components whose unbound native render was already traced, so the
+	 * `OMP_COMPACT_TRACE` line fires once per card instead of once per frame.
+	 */
+	readonly #tracedNative = new WeakSet<object>();
 
 	constructor(options: RuntimeAdapterOptions) {
 		this.#host = new StockHostAdapter(options.root);
@@ -868,6 +874,16 @@ export class RuntimeAdapter {
 			if (decision.kind === "empty") return EMPTY_LINES;
 			return nativeRender(width);
 		}
+		// Last stop: a patched surface with no binding at all. This is the
+		// branch a framed card in a compact session usually comes from, and it
+		// renders on every frame, so the trace fires once per component.
+		if (this.#patches.components.has(block) && !this.#tracedNative.has(block)) {
+			this.#tracedNative.add(block);
+			traceNative(
+				() =>
+					`unbound card rendered native: no state owns this component (${String(this.#session.binding.unboundComponents().length)} card(s) waiting)`,
+			);
+		}
 		return nativeRender(width);
 	}
 
@@ -1453,7 +1469,10 @@ export class RuntimeAdapter {
 				// host-invariant failures (unpatchable core, multiple
 				// transcripts, capability skew).
 				if (status === "ambiguous") {
-					this.#quarantineComponent(component);
+					this.#quarantineComponent(
+						component,
+						`ambiguous id ownership on a tool card (${name})`,
+					);
 					return;
 				}
 				// Binding (or re-binding) can attach a component to a working
@@ -1491,7 +1510,10 @@ export class RuntimeAdapter {
 					// Same containment as tool components: ambiguous id
 					// ownership quarantines this group only.
 					if (status === "ambiguous") {
-						this.#quarantineComponent(component);
+						this.#quarantineComponent(
+							component,
+							`ambiguous id ownership on a read group (${name})`,
+						);
 						return;
 					}
 					this.#ensureSpinner();
@@ -1516,8 +1538,8 @@ export class RuntimeAdapter {
 	 * `#renderBlock` falls through to native — without disposing the
 	 * session. A later rebuild re-observes from scratch.
 	 */
-	#quarantineComponent(component: RenderableBlock): void {
-		this.#session.binding.releaseToNative(component);
+	#quarantineComponent(component: RenderableBlock, reason: string): void {
+		this.#session.binding.releaseToNative(component, reason);
 		const patch = this.#patches.components.get(component);
 		if (patch) {
 			try {
