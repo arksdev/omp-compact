@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `StockHostAdapter.hostVersion` (`"18.1.1"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.1.3"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
@@ -75,16 +75,39 @@
  * `#finalizeAbandonedPostToolSegments()`, finalizes abandoned post-tool
  * assistant blocks rather than tool rows, so it correctly does not stamp
  * `settledAt`.
+ * 18.1.2 and 18.1.3 left the container, the tool card, the read group,
+ * `ui-helpers.ts` and the event controller byte-identical, and the set of
+ * `rebuildChatFromMessages()` call sites is unchanged. Three release facts
+ * touch this plugin's world without changing its contracts. Esc-esc rewind on
+ * a user message stopped forking a child session (`session.branch()`) and now
+ * navigates the session tree in place, but it still finishes through the
+ * `truncateTranscriptFromMessage()`/`renderInitialMessages()` pair the fold
+ * observes, and `doubleEscapeAction` gained a `"tree"` value beside `rewind`
+ * and `none`. The new `session/inline-edit-recovery.ts`
+ * (`edit.recoverInlineEdits`, default on) turns a plain-text sloppy edit
+ * payload into a real `toolCall` block, but only in an assistant message that
+ * carries no tool call of its own, so a recovered card is created through the
+ * ordinary tool path and never competes for stream state with a sibling call.
+ * The plugin loader now skips a `~/.omp/plugins/node_modules` directory that no
+ * `package.json` dependency entry claims; linked (symlinked) plugin directories
+ * stay exempt, which is what keeps a development checkout loadable.
+ * `@oh-my-pi/pi-tui` moved to 18.1.3 with Herdr-pane detection and DECRQM
+ * `status` plumbing only: the `TUI` method set is identical and
+ * `visibleWidth`/`truncateToWidth` are byte-identical (probed with an OSC
+ * 8-wrapped string — width 5, truncation keeps the escape).
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.1.1 (root `node_modules` plus the isolated
- * `runtime/omp-18.1.1/` copy). The fingerprint facts above come from
- * the surface audit in `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md` and the
- * per-file semantic diff in `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`.
+ * The gate pin is 18.1.3 (root `node_modules`). No isolated
+ * `runtime/omp-18.1.3/` install exists: the root tree moved first and
+ * `runtime/omp-18.1.1/` is kept as the diff baseline. The fingerprint facts
+ * above come from the surface audit in
+ * `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md`, the per-file semantic diff in
+ * `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`, and the pin-move record in
+ * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify
@@ -92,7 +115,7 @@
  * require the activity method; their compact rows still fail open to native when
  * content extraction fails.
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.1.1 pin and resolved via live capability probes on the instance;
+ * the 18.1.3 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.
