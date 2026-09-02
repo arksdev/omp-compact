@@ -838,8 +838,8 @@ describe("capability fingerprints", () => {
 		expect(leafCapabilities(undefined).render).toBe(false);
 	});
 
-	test("the host release pin targets OMP 18.1.3", () => {
-		expect(StockHostAdapter.hostVersion).toBe("18.1.3");
+	test("the host release pin targets OMP 18.1.4", () => {
+		expect(StockHostAdapter.hostVersion).toBe("18.1.4");
 	});
 });
 
@@ -1242,7 +1242,7 @@ describe("StockHostAdapter exact-instance patching", () => {
 	});
 });
 
-stockTest("stock 18.1.3 host capability canary", async () => {
+stockTest("stock 18.1.4 host capability canary", async () => {
 	const host = await loadStockHost();
 	const transcript = new host.TranscriptContainer();
 	await host.initTheme();
@@ -1284,11 +1284,11 @@ stockTest("stock 18.1.3 host capability canary", async () => {
 	expect(isBackgroundCompletionBlock(tool)).toBe(false);
 	expect(isBackgroundCompletionBlock(readGroup)).toBe(false);
 	// Version last: a pin mismatch must not blind the seam probes above.
-	expect(stockHostVersion()).toBe("18.1.3");
+	expect(stockHostVersion()).toBe("18.1.4");
 });
 
 stockTest(
-	"stock 18.1.3 transcript forwards activity visibility to new children",
+	"stock 18.1.4 transcript forwards activity visibility to new children",
 	async () => {
 		const host = await loadStockHost();
 		const transcript = new host.TranscriptContainer();

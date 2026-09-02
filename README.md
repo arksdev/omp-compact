@@ -279,7 +279,7 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 ## Совместимость и документация
 
-Поддерживаемый диапазон — **OMP 18.0.1 и выше**. Release gate закреплён на stock OMP 18.1.3; будущие версии считаются совместимыми, пока не изменят private TUI shape. При таком изменении capability checks fail-open возвращают native rendering — укажите версию OMP и reproduction в GitHub issue.
+Поддерживаемый диапазон — **OMP 18.0.1 и выше**. Release gate закреплён на stock OMP 18.1.4; будущие версии считаются совместимыми, пока не изменят private TUI shape. При таком изменении capability checks fail-open возвращают native rendering — укажите версию OMP и reproduction в GitHub issue.
 
 - [Полная документация](docs/FULL-DOCUMENTATION.md)
 - [Конфигурация](docs/CONFIGURATION.md)

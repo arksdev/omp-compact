@@ -714,18 +714,18 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `StockHostAdapter.hostVersion` (`18.1.3`) records the
+  `StockHostAdapter.hostVersion` (`18.1.4`) records the
   **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
   hosts. Neither string is a runtime gate — every decision is a live
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.1.3.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.1.4.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.1.3 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.1.4 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -747,7 +747,7 @@ The host-supplied agent directory and the live session `Settings` object sit
   fingerprint moved, a build for 18.0.0 finds no transcript host from 18.0.1
   on and vice versa: the plugin stays fully native instead of guessing, which
   is why the public floor moved with that rewrite. Every release from 18.0.2
-  through 18.1.3 left the whole critical surface untouched — the container
+  through 18.1.4 left the whole critical surface untouched — the container
   only exported its own `trimBlankEdges` helper, the inline tool card gained
   styling plus a trimmed-height check before degrading under a squeezed
   allocation, the transcript gained an append-only surface, 18.0.7/18.0.8
@@ -758,7 +758,12 @@ The host-supplied agent directory and the live session `Settings` object sit
   hint row and an `f5` default for `app.retry`, while 18.0.11 through 18.1.3
   left the read group byte-identical and the tool card semantically unchanged,
   added only frame-recovery and row-map helpers to the container, and left the
-  `rebuildChatFromMessages()` call-site set intact — so the floor stays at
+  `rebuildChatFromMessages()` call-site set intact. 18.1.4 shipped
+  `@oh-my-pi/pi-coding-agent/src` and `@oh-my-pi/pi-tui/src` byte-identical to
+  18.1.3 — 1729 and 50 files, `diff -rq` clean — moving only the model catalog
+  (`gemini-3.8-flash` across five providers, ten refreshed entries) and the
+  provider compat rules (`{rev}` revision templating), neither of which this
+  plugin reads — so the floor stays at
   `>=18.0.1` while the gate pin follows the newest release.
 
 - **Rows retire, blocks fill the screen.** The container retires history by

@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `StockHostAdapter.hostVersion` (`"18.1.3"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.1.4"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
@@ -75,7 +75,7 @@
  * `#finalizeAbandonedPostToolSegments()`, finalizes abandoned post-tool
  * assistant blocks rather than tool rows, so it correctly does not stamp
  * `settledAt`.
- * 18.1.2 and 18.1.3 left the container, the tool card, the read group,
+ * 18.1.2 through 18.1.4 left the container, the tool card, the read group,
  * `ui-helpers.ts` and the event controller byte-identical, and the set of
  * `rebuildChatFromMessages()` call sites is unchanged. Three release facts
  * touch this plugin's world without changing its contracts. Esc-esc rewind on
@@ -94,20 +94,25 @@
  * `@oh-my-pi/pi-tui` moved to 18.1.3 with Herdr-pane detection and DECRQM
  * `status` plumbing only: the `TUI` method set is identical and
  * `visibleWidth`/`truncateToWidth` are byte-identical (probed with an OSC
- * 8-wrapped string — width 5, truncation keeps the escape).
+ * 8-wrapped string — width 5, truncation keeps the escape). 18.1.4 shipped
+ * `@oh-my-pi/pi-coding-agent/src` and `@oh-my-pi/pi-tui/src` byte-identical to
+ * 18.1.3 (1729 and 50 files, `diff -rq` clean): the release moved the model
+ * catalog and the provider compat rules, which this plugin never reads.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.1.3 (root `node_modules`). No isolated
- * `runtime/omp-18.1.3/` install exists: the root tree moved first and
- * `runtime/omp-18.1.1/` is kept as the diff baseline. The fingerprint facts
- * above come from the surface audit in
+ * The gate pin is 18.1.4 (root `node_modules`). No isolated
+ * `runtime/omp-18.1.4/` install exists: the root tree moved first and
+ * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3 sources
+ * snapshotted under `runtime/omp-18.1.3/` for the same reason. The fingerprint
+ * facts above come from the surface audit in
  * `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md`, the per-file semantic diff in
- * `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`, and the pin-move record in
- * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md`.
+ * `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`, and the pin-move records in
+ * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md` and
+ * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify
@@ -115,7 +120,7 @@
  * require the activity method; their compact rows still fail open to native when
  * content extraction fails.
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.1.3 pin and resolved via live capability probes on the instance;
+ * the 18.1.4 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.

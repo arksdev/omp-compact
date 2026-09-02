@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.1.3 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.1.4 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -39,7 +39,7 @@ OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test
 
 Treat the current command output as authoritative: the gate must come back with zero failures.
 
-CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`): `bun install --frozen-lockfile`, then `bun run check`. The frozen lockfile is the part a local run cannot reproduce — a warm `node_modules` hides a drift between `bun.lock` and `package.json`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.1.3; `host-env-guard.test.ts` fails the run when that variable is missing, because bare `bun test …` without it reports every stock-host-dependent test as skipped and still exits zero.
+CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`): `bun install --frozen-lockfile`, then `bun run check`. The frozen lockfile is the part a local run cannot reproduce — a warm `node_modules` hides a drift between `bun.lock` and `package.json`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.1.4; `host-env-guard.test.ts` fails the run when that variable is missing, because bare `bun test …` without it reports every stock-host-dependent test as skipped and still exits zero.
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -543,7 +543,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.1.3
+4. Manual smoke test on OMP 18.1.4
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -608,6 +608,17 @@ Then `diff -u` scoped per file. All paths are relative to
    OSC 8 hyperlinks into transcript rows; confirm neither the `TUI` class surface nor
    the width helpers change (empirical `visibleWidth`/`truncateToWidth` probe with an
    OSC 8-wrapped string is the 5-minute check).
+9. `src/modes/components/tool-execution.ts` + the rebuild call sites — the two
+   ordering contracts the binding layer now proves ownership with. A rebuilt
+   card MUST still receive its real id through
+   `updateResult(result, isPartial, toolCallId)` (claimed by
+   `#bindObservedToolIds()`), and the host MUST still create one card per tool
+   call in message order (the stream pre-allocation in
+   `observeAssistantMessage` reserves state in that same order). If either
+   moves, a collapsed history rebuild or a native-route sibling silently
+   returns the whole visible history to framed chrome — the integration tests
+   `"a manual shake rebuild binds the collapsed tail"` and `"an unruled tool
+   streamed beside bash keeps the bash row compact"` are the canaries.
 
 **Isolated verification.** Create `runtime/omp-<version>/` mirroring an existing copy
 (`runtime/omp-17.3.1/`): `package.json` (candidate version), `.gitignore`,
