@@ -619,6 +619,19 @@ Then `diff -u` scoped per file. All paths are relative to
    returns the whole visible history to framed chrome — the integration tests
    `"a manual shake rebuild binds the collapsed tail"` and `"an unruled tool
    streamed beside bash keeps the bash row compact"` are the canaries.
+10. `src/modes/components/read-tool-group.ts` (`readArgsCollapseIntoGroup`,
+   `readArgsHaveTarget`) + `src/internal-urls/router.ts` — the read shape rule the
+   plugin mirrors in `host-surface.ts` (`FULL_CARD_READ_SCHEME`). Re-derive the
+   scheme list from the handlers the host registers, and confirm stock still
+   defers a read only until its args carry a target: the plugin evaluates the
+   same rule on a different streaming snapshot, so a changed condition moves the
+   group/full-card boundary. Both disagreement directions are repaired inside the
+   binding layer (a claimed read is marked group presentation; an unobserved
+   marked read is a second-chance order candidate), so the failure mode of drift
+   is a framed card for one execution window rather than a crossed pairing —
+   `"a read the host renders as a full card keeps its sibling compact"` and
+   `"a read whose stream snapshot looked collapsible is not crossed with its
+   sibling"` are the canaries, and `OMP_COMPACT_TRACE=1` names the branch.
 
 **Isolated verification.** Create `runtime/omp-<version>/` mirroring an existing copy
 (`runtime/omp-17.3.1/`): `package.json` (candidate version), `.gitignore`,

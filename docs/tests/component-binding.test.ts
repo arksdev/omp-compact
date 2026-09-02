@@ -878,15 +878,42 @@ describe("ComponentBinding: order fallbacks", () => {
 		expect(state.component).toBeUndefined();
 	});
 
-	test("tryBindByOrder never binds group-presentation reads positionally", () => {
+	test("tryBindByOrder never binds a read a group has observed", () => {
+		const { binding, states } = makeBinding();
+		const component = new FakeToolComponent();
+		const groupComponent = new FakeReadGroup();
+		const group = binding.createGroup(groupComponent, false);
+		const read = makeState({ id: "read-1", toolName: "read" });
+		states.set("read-1", read);
+		binding.markGroupPresentationRead("read-1");
+		// The group announced this id through the host surface, so it owns the
+		// row: the state must never pair with a tool card positionally, even
+		// when the cardinality would match.
+		binding.observeReadMethod(group, groupComponent, "updateArgs", [
+			{ path: "/a" },
+			"read-1",
+		]);
+		read.component = undefined;
+		binding.registerUnboundComponent(component);
+		expect(binding.tryBindByOrder(read.ledger)).toBe("unmapped");
+		expect(read.component).toBeUndefined();
+	});
+
+	test("tryBindByOrder pairs a collapsing read no group ever claimed", () => {
+		// Drift repair: stock resolves a read's shape through its own router
+		// (an RPC host registers schemes at runtime), so it can build a full
+		// tool card for a read the plugin booked as a group row. No group
+		// observes that id, and stock announces a real group during
+		// message_update — before any tool_execution_start — so an unobserved
+		// read at pairing time proves the card is its own.
 		const { binding, states } = makeBinding();
 		const component = new FakeToolComponent();
 		const read = makeState({ id: "read-1", toolName: "read" });
 		states.set("read-1", read);
 		binding.markGroupPresentationRead("read-1");
 		binding.registerUnboundComponent(component);
-		expect(binding.tryBindByOrder(read.ledger)).toBe("unmapped");
-		expect(read.component).toBeUndefined();
+		expect(binding.tryBindByOrder(read.ledger)).toBe("bound");
+		expect(read.component).toBe(component);
 	});
 
 	test("tryBindByOrder candidate filter matches the full predicate set", () => {

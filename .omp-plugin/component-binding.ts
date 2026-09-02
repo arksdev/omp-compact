@@ -331,6 +331,17 @@ export class ComponentBinding {
 		const components = this.#unboundComponents;
 		if (components.length === 0) return "unmapped";
 		const unboundStates: ToolState[] = [];
+		// Reads the plugin expected the group to own, which no group has
+		// claimed or even observed. Stock decides a read's shape from its own
+		// streaming snapshot and from a router whose schemes an RPC host
+		// extends at runtime, so the mirror in host-surface.ts can believe a
+		// read collapses while stock built it a full card. That card is then
+		// one unbound component more than the candidate set explains, order
+		// pairing declines, and the card sits framed for the whole execution
+		// window. Stock creates and announces a real group during
+		// message_update, before any tool_execution_start, so an unobserved
+		// read at pairing time is evidence enough that no group wants it.
+		const orphanedReads: ToolState[] = [];
 		for (const state of this.#states.values()) {
 			if (state.component || state.ledger !== ledger) continue;
 			// Stream-only message_update previews bind via exact-ID
@@ -338,16 +349,29 @@ export class ComponentBinding {
 			// tool_execution_start so anonymous cards and stale stream
 			// leftovers cannot claim a genuine start (or each other).
 			if (!state.executionStarted) continue;
+			if (this.#rebuildBacklog.has(state)) continue;
 			// Group-presentation reads bind only through read-group pairing.
 			// Full-card internal-URL reads (`skill://`, `agent://`, …) stay
 			// eligible so they pair like ordinary tools.
 			if (
-				(state.toolName === "read" &&
-					this.#groupPresentationReads.has(state.id)) ||
-				this.#rebuildBacklog.has(state)
-			)
+				state.toolName === "read" &&
+				this.#groupPresentationReads.has(state.id)
+			) {
+				if (!this.#observedByGroup(state.id)) orphanedReads.push(state);
 				continue;
+			}
 			unboundStates.push(state);
+		}
+		if (
+			unboundStates.length !== components.length &&
+			orphanedReads.length > 0 &&
+			unboundStates.length + orphanedReads.length === components.length
+		) {
+			// Insertion order is call order (every call reserves its state in
+			// the message pass), so merging by `seq` restores stock's card
+			// sequence.
+			unboundStates.push(...orphanedReads);
+			unboundStates.sort((left, right) => left.seq - right.seq);
 		}
 		if (unboundStates.length === 0) return "unmapped";
 		// Proven equal cardinality only — unequal counts are ambiguous and
@@ -370,6 +394,14 @@ export class ComponentBinding {
 			if (this.bind(component, state) === "bound") bound = true;
 		}
 		return bound ? "bound" : "unmapped";
+	}
+
+	/** Whether any live group announced this id through the host surface. */
+	#observedByGroup(toolCallId: string): boolean {
+		for (const group of this.#groups) {
+			if (group.observedIds.has(toolCallId)) return true;
+		}
+		return false;
 	}
 
 	/**
@@ -868,6 +900,11 @@ export class ComponentBinding {
 			if (state?.toolName === "read" && !state.component) {
 				group.ledger = state.ledger;
 				state.component = component;
+				// The host's shape decision is authoritative: a read the
+				// plugin's mirror had classified as a full card belongs to
+				// this group, so it must stop competing for tool cards in
+				// order pairing.
+				this.#groupPresentationReads.add(state.id);
 			}
 		} else if (name === "renameEntry") {
 			const { oldId, newId } = renameEntryIds(args);

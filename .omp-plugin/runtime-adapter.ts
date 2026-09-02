@@ -13,7 +13,6 @@ import {
 	isToolComponent,
 	isTranscriptHost,
 	isTtsrNotificationComponent,
-	readArgsCollapseIntoGroup,
 	transcriptCapabilities,
 } from "./host-adapter";
 import {
@@ -399,12 +398,18 @@ export class RuntimeAdapter {
 		//   quarantining both cards to native framed chrome for the rest of
 		//   the run. Allocating in call order keeps both sequences aligned;
 		//   the render decision keeps a native-route row native.
-		// - reads that collapse into ReadToolGroup are the one skip left: the
-		//   group owns their rows and pairs through its own observed ids. A
-		//   read whose target is an internal URL owns a full tool card
-		//   instead, so it MUST early-allocate: stock creates that card and
-		//   streams args into it (carrying the real toolCallId) before
-		//   tool_execution_start arrives.
+		// - a read is allocated like every other call, in call order. Its
+		//   shape (group row vs full card) is stock's decision, taken from
+		//   whichever streaming snapshot stock saw first
+		//   (event-controller.ts:1219), and the plugin's mirror of that rule
+		//   works from a different snapshot and a fixed scheme list — an RPC
+		//   host registers schemes the list cannot know. Skipping the
+		//   allocation on a guess allocated the state later than a sibling
+		//   that appeared after it, so equal-cardinality order pairing
+		//   crossed the cards and the next id-carrying call quarantined both
+		//   to native chrome. `stateForLedger` marks a collapsing read as
+		//   group presentation instead, which is what keeps it out of order
+		//   pairing — a missing state never was the mechanism.
 		if (ledger?.phase !== "working") return;
 		const contents = objectRecord(message).content;
 		if (!Array.isArray(contents)) return;
@@ -420,13 +425,6 @@ export class RuntimeAdapter {
 			}
 			let state = this.#session.state(call.id);
 			if (!state) {
-				const rule = resolveToolRule(call.name);
-				if (
-					rule?.route === "read-group" &&
-					readArgsCollapseIntoGroup(call.arguments)
-				) {
-					continue;
-				}
 				state = this.#session.startState({
 					toolCallId: call.id,
 					toolName: call.name,

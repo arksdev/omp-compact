@@ -134,6 +134,30 @@ Bidirectional map between TUI components and plugin state records.
 3. **Deferred binding** — hydrated branch, no toolCallId yet, bind by order via `tryBindByOrder()`
 4. **Observed-id claim** — a rebuilt card announces its real `toolCallId` through `updateResult(result, isPartial, id)` before the branch walk recreates its state; the id waits in `#observedToolIds` and is claimed by `#bindObservedToolIds()` at the head of hydration pairing. Exact ownership, so it needs no order/suffix permit and covers rebuild triggers stock exposes no event for (`/shake`, a cancelled submission, a dropped prompt, an extension repaint). Cards whose result never replays with an id — pending, background, collapsed read groups — still depend on the permit paths.
 
+**Read shape is stock's decision, never the plugin's guess:**
+
+Stock routes a read either into `ReadToolGroupComponent` or into a full
+`ToolExecutionComponent`, deciding with `InternalUrlRouter.canHandle` on
+the first streaming snapshot whose args carry a target
+(`event-controller.ts:1219`); later deltas find the id in `pendingTools`
+and never revise the shape. The plugin cannot reach that router from the
+extension process — importing it would resolve a second module instance
+with no registered handlers — so `host-surface.ts` mirrors the rule with
+a scheme list, and an RPC host (an IDE embedding omp) registers protocol
+handlers at runtime that no list can know.
+
+Therefore the guess must never control allocation: `observeAssistantMessage`
+reserves a state for **every** streamed call in call order, and
+`stateForLedger` marks a collapsing read as group presentation, which is
+what keeps it out of order pairing. Two repairs close the disagreement:
+`observeReadMethod` marks any read a group claims (stock grouped a read the
+mirror called a full card), and `tryBindByOrder` admits a marked read that
+no group has observed as a second-chance candidate when that makes the
+cardinality exact (stock built a card for a read the mirror expected to
+collapse). Stock creates and announces a real group during `message_update`,
+before any `tool_execution_start`, so an unobserved read at pairing time is
+evidence no group wants it.
+
 **Fail-open diagnostics (trace.ts):**
 
 Every fail-open path is reversible and silent by design, which makes a

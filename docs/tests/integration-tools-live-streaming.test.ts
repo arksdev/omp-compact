@@ -1140,3 +1140,166 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+
+stockTest(
+	"a read the host renders as a full card keeps its sibling compact",
+	async () => {
+		// Stock decides a read's shape with `InternalUrlRouter.canHandle`
+		// (read-tool-group.ts `readArgsCollapseIntoGroup`). The plugin cannot
+		// reach that router from the extension process, so host-surface.ts
+		// mirrors the rule with a fixed scheme list — and an RPC host (an IDE
+		// embedding omp) registers protocol handlers at runtime that no list
+		// can know. When stock resolves a scheme the mirror does not carry,
+		// stock builds a full ToolExecutionComponent for a read the plugin
+		// booked as a group row: one unbound card more than the candidate set
+		// explains. Order pairing then declined and both cards sat framed for
+		// the whole execution window.
+		const command = "orca --help 2>&1 | cut -c1-2000";
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "drift-read",
+						name: "read",
+						arguments: { path: "foo://bar" },
+					},
+					{
+						type: "toolCall",
+						id: "drift-bash",
+						name: "bash",
+						arguments: { command },
+					},
+				],
+			},
+		});
+		// Stock's cards, created in call order.
+		const readCard = addToolComponent(
+			booted,
+			"read",
+			{ path: "foo://bar" },
+			"drift-read",
+		);
+		readCard.render = () => ["native-fallback-read"];
+		const bashCard = addToolComponent(
+			booted,
+			"bash",
+			{ command },
+			"drift-bash",
+		);
+		bashCard.render = () => ["native-fallback-bash"];
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "drift-read",
+			toolName: "read",
+			args: { path: "foo://bar" },
+		});
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "drift-bash",
+			toolName: "bash",
+			args: { command },
+		});
+		// No id-carrying call has run yet: this is the execution window the
+		// user sees while the tools run.
+		const working = visibleRows(booted.transcript).join("\n");
+		expect(working).not.toContain("native-fallback-read");
+		expect(working).not.toContain("native-fallback-bash");
+		expect(working).toContain("read foo://bar");
+		expect(working).toContain(`bash: ${command}`);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a read whose stream snapshot looked collapsible is not crossed with its sibling",
+	async () => {
+		// The plugin sees every message_update delta while stock coalesces
+		// them (~33 ms), so the snapshot the plugin evaluates can be older
+		// than the one stock locked the read's shape on
+		// (event-controller.ts:1219 defers only until the args carry a
+		// target). A partial `"ss"` reads as collapsible, the complete
+		// `"ssh://"` owns a full card. Booking the state only once the
+		// snapshot says "full card" allocated it after the sibling that
+		// appeared later, so equal-cardinality order pairing crossed the two
+		// cards and the first id-carrying call quarantined both to native.
+		const command = "orca --help 2>&1 | cut -c1-2000";
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "skew-read",
+						name: "read",
+						arguments: { path: "ss" },
+					},
+					{
+						type: "toolCall",
+						id: "skew-bash",
+						name: "bash",
+						arguments: { command },
+					},
+				],
+			},
+		});
+		const readCard = addToolComponent(
+			booted,
+			"read",
+			{ path: "ssh://" },
+			"skew-read",
+		);
+		readCard.render = () => ["native-fallback-read"];
+		const bashCard = addToolComponent(booted, "bash", { command }, "skew-bash");
+		bashCard.render = () => ["native-fallback-bash"];
+		await dispatch(booted, {
+			type: "message_update",
+			message: {
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: "skew-read",
+						name: "read",
+						arguments: { path: "ssh://" },
+					},
+					{
+						type: "toolCall",
+						id: "skew-bash",
+						name: "bash",
+						arguments: { command },
+					},
+				],
+			},
+		});
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "skew-read",
+			toolName: "read",
+			args: { path: "ssh://" },
+		});
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "skew-bash",
+			toolName: "bash",
+			args: { command },
+		});
+		// Stock re-announces the ids on the next cumulative delta; a crossed
+		// pairing turns that into ambiguous ownership and quarantines both.
+		readCard.updateArgs({ path: "ssh://" }, "skew-read");
+		bashCard.updateArgs({ command }, "skew-bash");
+		const working = visibleRows(booted.transcript).join("\n");
+		expect(working).not.toContain("native-fallback-read");
+		expect(working).not.toContain("native-fallback-bash");
+		expect(working).toContain("read ssh://");
+		expect(working).toContain(`bash: ${command}`);
+		await shutdown(booted);
+	},
+);
