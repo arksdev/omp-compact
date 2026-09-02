@@ -132,6 +132,18 @@ export class ComponentBinding {
 	 * treat them like any other tool. Cleared with association reset.
 	 */
 	#groupPresentationReads = new Set<string>();
+	/**
+	 * Real toolCallIds announced by still-unbound tool components through
+	 * `updateResult(result, isPartial, id)` before their state existed. A
+	 * host rebuild adds each card and replays its result immediately, while
+	 * the branch walk that recreates the states runs one microtask later —
+	 * without this the exact id is lost and pairing falls back to the
+	 * cardinality proofs a collapsed history cannot satisfy. Bounded by the
+	 * same drains as the component queue (`bindHydrated`,
+	 * `discardUnboundComponents`, association reset), so a stale id can
+	 * never claim a later generation's state.
+	 */
+	#observedToolIds = new Map<object, string>();
 
 	constructor(states: Map<string, ToolState>, delegates: BindingDelegates) {
 		this.#states = states;
@@ -230,6 +242,7 @@ export class ComponentBinding {
 	 */
 	discardUnboundComponents(): void {
 		this.#unboundComponents.length = 0;
+		this.#observedToolIds.clear();
 		this.#preservedActive = undefined;
 		this.#rebuildBacklog.clear();
 	}
@@ -383,6 +396,7 @@ export class ComponentBinding {
 		// could not be paired stay native. Segments not cleared would corrupt
 		// the next hydration's cardinality check.
 		this.#unboundComponents.length = 0;
+		this.#observedToolIds.clear();
 		this.#hydratedReadSegments.length = 0;
 		return mapped;
 	}
@@ -399,6 +413,7 @@ export class ComponentBinding {
 	 * the branch — so a backlog state is never a single-pair guess.
 	 */
 	#pairToolComponents(allowOrder: boolean, restoredArmed: boolean): void {
+		this.#bindObservedToolIds();
 		const toolStates = [...this.#states.values()].filter(
 			(state) =>
 				!state.component &&
@@ -438,6 +453,32 @@ export class ComponentBinding {
 				const state = toolStates[offset + index];
 				if (component && state) this.bind(component, state);
 			}
+		}
+	}
+	/**
+	 * Exact-ID pass of `#pairToolComponents`. Stock rebuilds a completed
+	 * card by constructing it with a discarded `_toolCallId` and replaying
+	 * `updateResult(result, isPartial, id)`; that id lands before the
+	 * branch walk recreates the state, so it waits in `#observedToolIds`
+	 * and is claimed here. Exact ownership, so it binds without the
+	 * order/suffix permits — every rebuild reaches this path, including the
+	 * triggers stock exposes no event for (`/shake`, a cancelled
+	 * submission, a dropped prompt, an extension-driven repaint).
+	 * Group-presentation reads stay on the group path exclusively.
+	 */
+	#bindObservedToolIds(): void {
+		if (this.#observedToolIds.size === 0) return;
+		for (const component of [...this.#unboundComponents]) {
+			const id = this.#observedToolIds.get(component);
+			if (id === undefined) continue;
+			const state = this.#states.get(id);
+			if (!state || state.component) continue;
+			if (
+				state.toolName === "read" &&
+				this.#groupPresentationReads.has(state.id)
+			)
+				continue;
+			this.bind(component, state);
 		}
 	}
 
@@ -728,6 +769,11 @@ export class ComponentBinding {
 				) {
 					const bindStatus = this.bind(component, candidate);
 					if (bindStatus !== "bound") return bindStatus;
+				} else if (!candidate) {
+					// The rebuild walk has not recreated this state yet:
+					// keep the exact id so hydration pairing claims it
+					// instead of proving cardinality it cannot satisfy.
+					this.#observedToolIds.set(component, id);
 				}
 			}
 		}
@@ -987,6 +1033,7 @@ export class ComponentBinding {
 		this.#unboundComponents.length = 0;
 		this.#hydratedReadSegments.length = 0;
 		this.#groupPresentationReads.clear();
+		this.#observedToolIds.clear();
 		for (const state of this.#states.values()) state.component = undefined;
 	}
 

@@ -1427,11 +1427,10 @@ stockTest(
 			"bash-new",
 		);
 		rebuilt.render = () => ["native-fallback"];
-		rebuilt.updateResult(
-			{ content: [{ type: "text", text: "ok" }] },
-			false,
-			"bash-new",
-		);
+		// No toolCallId on the replay: the exact-ID pass must not be able to
+		// resolve this card, so only the permit's suffix alignment can bind
+		// it (a pending/background card replays exactly like this).
+		rebuilt.updateResult({ content: [{ type: "text", text: "ok" }] }, false);
 		await flushMicrotasks();
 
 		const rows = visibleRows(booted.transcript).join("\n");
@@ -1482,11 +1481,9 @@ stockTest(
 			"bash-new",
 		);
 		rebuilt.render = () => ["native-fallback"];
-		rebuilt.updateResult(
-			{ content: [{ type: "text", text: "ok" }] },
-			false,
-			"bash-new",
-		);
+		// Same id-less replay as the session_compact permit test: the permit
+		// is the only thing that can bind this card.
+		rebuilt.updateResult({ content: [{ type: "text", text: "ok" }] }, false);
 		await flushMicrotasks();
 
 		const rows = visibleRows(booted.transcript).join("\n");
@@ -1495,6 +1492,41 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+
+stockTest("a manual shake rebuild binds the collapsed tail", async () => {
+	// `/shake` reclaims tokens through session.shake(), which emits no
+	// extension event at all (session-maintenance.ts: rewriteEntries +
+	// replaceMessages, no emit), then command-controller rebuilds the
+	// transcript. Nothing arms the suffix permit on that path, so the
+	// replayed tail must bind on the exact ids stock replays through
+	// updateResult — the same shape the auto-shake test covers, minus the
+	// event.
+	const harness = rebuildHarness();
+	const booted = await bootForRebuild("live", harness);
+	harness.branch.current = [
+		...committedSingleToolBranch("printf old", "bash-old", "old done"),
+		...committedSingleToolBranch("printf new", "bash-new", "new done"),
+	];
+	booted.transcript.clear();
+	const rebuilt = addToolComponent(
+		booted,
+		"bash",
+		{ command: "printf new" },
+		"bash-new",
+	);
+	rebuilt.render = () => ["native-fallback"];
+	rebuilt.updateResult(
+		{ content: [{ type: "text", text: "ok" }] },
+		false,
+		"bash-new",
+	);
+	await flushMicrotasks();
+
+	const rows = visibleRows(booted.transcript).join("\n");
+	expect(rows).not.toContain("printf new");
+	expect(rows).not.toContain("native-fallback");
+	await shutdown(booted);
+});
 
 stockTest("an aborted auto-shake arms nothing", async () => {
 	// The cancelled and benign-skip paths never rebuild the transcript, so
@@ -1522,11 +1554,9 @@ stockTest("an aborted auto-shake arms nothing", async () => {
 		"bash-new",
 	);
 	rebuilt.render = () => ["native-fallback"];
-	rebuilt.updateResult(
-		{ content: [{ type: "text", text: "ok" }] },
-		false,
-		"bash-new",
-	);
+	// Id-less replay: with no exact evidence, suffix alignment is the only
+	// route left and it must stay locked.
+	rebuilt.updateResult({ content: [{ type: "text", text: "ok" }] }, false);
 	await flushMicrotasks();
 
 	expect(visibleRows(booted.transcript).join("\n")).toContain(

@@ -132,6 +132,7 @@ Bidirectional map between TUI components and plugin state records.
 1. **Exact binding** — `toolCallId` known, direct map via `#componentStates`
 2. **Group discovery** — read group with `observedIds`, tracked via `#groupStates`
 3. **Deferred binding** — hydrated branch, no toolCallId yet, bind by order via `tryBindByOrder()`
+4. **Observed-id claim** — a rebuilt card announces its real `toolCallId` through `updateResult(result, isPartial, id)` before the branch walk recreates its state; the id waits in `#observedToolIds` and is claimed by `#bindObservedToolIds()` at the head of hydration pairing. Exact ownership, so it needs no order/suffix permit and covers rebuild triggers stock exposes no event for (`/shake`, a cancelled submission, a dropped prompt, an extension repaint). Cards whose result never replays with an id — pending, background, collapsed read groups — still depend on the permit paths.
 
 **Read-group all-or-nothing invariant:**
 
