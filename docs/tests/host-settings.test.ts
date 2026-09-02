@@ -1114,15 +1114,37 @@ describe("createSessionSettingsApi", () => {
 		}
 	});
 
-	test("persistent() rejects unparseable deep profile YAML (fail-closed seam)", async () => {
+	test("persistent() rejects unparseable profile YAML (fail-closed seam)", async () => {
 		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
 		try {
-			// Flow nesting deep enough to exhaust the parser's own recursion,
-			// while staying well inside the byte budget. There is no depth
-			// pre-scan: the parser raises RangeError and this seam must turn
-			// that into the same fail-closed rejection as any invalid YAML,
-			// rather than letting it escape and abort the process.
-			const depth = 5000;
+			// An unterminated flow sequence is a parse error on every parser
+			// version, so this is the unconditional guard: whatever YAML.parse
+			// throws must surface as the seam's fail-closed rejection instead of
+			// escaping into the apply path.
+			await writeFile(join(agentDir, "config.yml"), "deep: [1, 2\n");
+			const api = createSessionSettingsApi({
+				getAgentDir: () => agentDir,
+				get: () => undefined,
+				set: () => {},
+				flush: async () => {},
+			});
+			await expect(api.persistent()).rejects.toThrow(/not valid YAML/i);
+		} finally {
+			await rm(agentDir, { recursive: true, force: true });
+		}
+	});
+
+	test("persistent() maps a parser stack overflow to the same rejection", async () => {
+		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-"));
+		try {
+			// Flow nesting at the deepest the byte budget allows. Whether this
+			// exhausts the parser's recursion is a parser-version property —
+			// Bun 1.3.14 raises RangeError, a newer parser may accept it — so
+			// the assertion pins the contract instead of the depth: a rejection
+			// MUST be the seam's mapped error, never a raw RangeError leaking
+			// through. A magic depth here made CI red on a newer Bun while the
+			// seam itself was correct.
+			const depth = 32_000;
 			await writeFile(
 				join(agentDir, "config.yml"),
 				`deep: ${"[".repeat(depth)}1${"]".repeat(depth)}\n`,
@@ -1133,7 +1155,15 @@ describe("createSessionSettingsApi", () => {
 				set: () => {},
 				flush: async () => {},
 			});
-			await expect(api.persistent()).rejects.toThrow(/not valid YAML/i);
+			let rejection: unknown;
+			try {
+				await api.persistent();
+			} catch (error) {
+				rejection = error;
+			}
+			if (rejection !== undefined) {
+				expect((rejection as Error).message).toMatch(/not valid YAML/i);
+			}
 		} finally {
 			await rm(agentDir, { recursive: true, force: true });
 		}

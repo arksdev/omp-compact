@@ -207,9 +207,11 @@ export const MAX_HOST_SETTINGS_YAML_BYTES = 65_536;
  *
  * Depth needs no separate gate. The byte budget already bounds block
  * nesting: indentation grows quadratically, so 64 KiB caps block depth
- * near 250. Flow nesting deep enough to exhaust the parser's stack throws
- * a plain `RangeError`, which the parse below turns into the same
- * fail-closed rejection as any other invalid YAML.
+ * near 250. Flow nesting deep enough to exhaust the parser's stack throws a
+ * plain `RangeError` — the depth at which that happens is a parser-version
+ * property, Bun 1.3.14 raises at 5000 brackets — and the parse below turns
+ * any throw, whatever its class, into the same fail-closed rejection as
+ * invalid YAML.
  */
 function assertHostSettingsYamlWithinBudget(
 	content: string,
