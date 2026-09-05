@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `StockHostAdapter.hostVersion` (`"18.1.4"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.1.10"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
@@ -98,21 +98,42 @@
  * `@oh-my-pi/pi-coding-agent/src` and `@oh-my-pi/pi-tui/src` byte-identical to
  * 18.1.3 (1729 and 50 files, `diff -rq` clean): the release moved the model
  * catalog and the provider compat rules, which this plugin never reads.
+ * 18.1.10 is the first pin move since 18.1.1 whose sources are **not**
+ * byte-identical — 356 changed paths in `pi-coding-agent/src`, 5 in
+ * `pi-tui/src`, 72 files added or removed. The release moved the edit engine
+ * into `@oh-my-pi/pi-natives` (`EditSession`, native streaming previews) and
+ * added agent reactions, assistant link targets and a workpool. Of the
+ * thirteen files this plugin's contracts read, `transcript-container.ts`,
+ * `read-tool-group.ts`, `config/keybindings.ts`, `session/shake-types.ts` and
+ * `internal-urls/router.ts` are byte-identical; the six that changed keep
+ * every contract. `updateResult(result, isPartial, toolCallId)` still carries
+ * the id (the impl renames it `_toolCallId` and ignores it, exactly as
+ * before), `rebuildChatFromMessages()` still has 18 call sites and still
+ * replays results with the real id, the read deferral rule is unchanged
+ * (`readArgsHaveTarget` then `readArgsCollapseIntoGroup`), tool cards are
+ * still created in call order, and `session.shake()` still emits no event.
+ * `runner.ts` changed only by renaming a type parameter (`TResult` → `R`);
+ * `#RESERVED_SHORTCUTS` and `formatShakeSummary` are identical. The tool card
+ * gained `updateStreamPreview(update)` fed by a new `tool_stream_update`
+ * event, which drives native edit-diff previews inside the card — below the
+ * row this plugin renders itself, and not a patched method.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.1.4 (root `node_modules`). No isolated
- * `runtime/omp-18.1.4/` install exists: the root tree moved first and
- * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3 sources
- * snapshotted under `runtime/omp-18.1.3/` for the same reason. The fingerprint
+ * The gate pin is 18.1.10 (root `node_modules`). No isolated
+ * `runtime/omp-18.1.10/` install exists: the root tree moved first and
+ * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3 and
+ * 18.1.4 sources snapshotted under `runtime/omp-18.1.3/` and
+ * `runtime/omp-18.1.4/` for the same reason. The fingerprint
  * facts above come from the surface audit in
  * `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md`, the per-file semantic diff in
  * `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`, and the pin-move records in
- * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md` and
- * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md`.
+ * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md`,
+ * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md` and
+ * `runtime/omp-18.1.10/PIN-MOVE-18.1.10.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify

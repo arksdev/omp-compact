@@ -750,18 +750,18 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `StockHostAdapter.hostVersion` (`18.1.4`) records the
+  `StockHostAdapter.hostVersion` (`18.1.10`) records the
   **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
   hosts. Neither string is a runtime gate — every decision is a live
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.1.4.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.1.10.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.1.4 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.1.10 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -799,7 +799,21 @@ The host-supplied agent directory and the live session `Settings` object sit
   18.1.3 — 1729 and 50 files, `diff -rq` clean — moving only the model catalog
   (`gemini-3.8-flash` across five providers, ten refreshed entries) and the
   provider compat rules (`{rev}` revision templating), neither of which this
-  plugin reads — so the floor stays at
+  plugin reads. 18.1.10 is the first move since 18.1.1 that is not
+  byte-identical: 356 changed paths in `pi-coding-agent/src`, 5 in
+  `pi-tui/src`, 72 files added or removed, because the edit engine moved into
+  `@oh-my-pi/pi-natives` (`EditSession` streaming previews reaching the card
+  through a new `tool_stream_update` event and `updateStreamPreview`) and the
+  release added agent reactions, assistant link targets and a workpool. The
+  container, the read group, `keybindings.ts`, `shake-types.ts` and the
+  internal-URL router stayed byte-identical; the tool card, the event
+  controller, `ui-helpers.ts`, `agent-session.ts`, `input-controller.ts`,
+  `settings-schema.ts` and `session-maintenance.ts` changed while keeping every
+  contract this plugin depends on — the id still rides
+  `updateResult(result, isPartial, toolCallId)`, `rebuildChatFromMessages()`
+  still has 18 call sites replaying the real id, cards are still created in
+  call order, the read deferral rule is unchanged, and `session.shake()` still
+  emits nothing. So the floor stays at
   `>=18.0.1` while the gate pin follows the newest release.
 
 - **Rows retire, blocks fill the screen.** The container retires history by

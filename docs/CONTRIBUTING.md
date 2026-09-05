@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.1.4 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.1.10 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -39,7 +39,7 @@ OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test
 
 Treat the current command output as authoritative: the gate must come back with zero failures.
 
-CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`): `bun install --frozen-lockfile`, then `bun run check`. The frozen lockfile is the part a local run cannot reproduce — a warm `node_modules` hides a drift between `bun.lock` and `package.json`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.1.4; `host-env-guard.test.ts` fails the run when that variable is missing, because bare `bun test …` without it reports every stock-host-dependent test as skipped and still exits zero.
+CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`): `bun install --frozen-lockfile`, then `bun run check`. The frozen lockfile is the part a local run cannot reproduce — a warm `node_modules` hides a drift between `bun.lock` and `package.json`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.1.10; `host-env-guard.test.ts` fails the run when that variable is missing, because bare `bun test …` without it reports every stock-host-dependent test as skipped and still exits zero.
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -543,7 +543,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.1.4
+4. Manual smoke test on OMP 18.1.10
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -567,13 +567,28 @@ and leaves the floor alone. Only a change inside `TRANSCRIPT_CRITICAL_METHODS` �
 the tool/read-group shapes (`TOOL_METHODS` / `READ_GROUP_METHODS`) — is a reason to move
 the floor.
 
-**Diff checklist.** `node_modules` is not version-controlled, so compare the two
-installed trees directly:
+**Diff checklist.** `node_modules` is not version-controlled, so snapshot the
+outgoing tree **before** `bun install`, then compare. Snapshot all of
+`@oh-my-pi/*`, not only the two primary packages: one `diff -rq` then answers
+every question, and the plugin imports four of them. For
+`pi-natives-darwin-arm64` (156 MB of prebuilt binaries) keep an md5 manifest
+instead of the files.
 
 ```bash
-diff -rq node_modules/@oh-my-pi/pi-coding-agent/src \
-  runtime/omp-<new>/node_modules/@oh-my-pi/pi-coding-agent/src
+B=runtime/omp-<old>/node_modules/@oh-my-pi
+for p in $(ls node_modules/@oh-my-pi); do
+  mkdir -p $B/$p && cp -R node_modules/@oh-my-pi/$p/src $B/$p/src 2>/dev/null
+  cp node_modules/@oh-my-pi/$p/package.json $B/$p/
+done                                    # ~48 MB, ~2700 files
+
+diff -rq $B/pi-coding-agent/src node_modules/@oh-my-pi/pi-coding-agent/src
+diff -rq $B/pi-tui/src node_modules/@oh-my-pi/pi-tui/src
 ```
+
+Byte-identical trees settle the whole checklist at once, and that was true for
+every move from 18.0.2 through 18.1.4. It is not the normal case: 18.1.10
+changed 356 paths. When the trees differ, walk the ten items below by file and
+probe anything the plugin calls.
 
 Then `diff -u` scoped per file. All paths are relative to
 `node_modules/@oh-my-pi/pi-coding-agent/`:
