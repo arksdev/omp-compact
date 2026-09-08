@@ -8,7 +8,7 @@
 
 ## Совместимость
 
-Поддерживаемый диапазон: **OMP 18.0.1 и выше**. Автоматический release gate и manual smoke закреплены на stock OMP 18.1.10; будущие версии считаются совместимыми, пока не меняют private TUI shape, от которого зависит presentation adapter.
+Поддерживаемый диапазон: **OMP 18.0.1 и выше**. Автоматический release gate и manual smoke закреплены на stock OMP 18.1.14; будущие версии считаются совместимыми, пока не меняют private TUI shape, от которого зависит presentation adapter.
 
 Перед установкой wrappers плагин проверяет capabilities живой сессии. Если новая версия OMP меняет shape несовместимым образом, установка wrappers откатывается целиком, OMP продолжает показывать штатный интерфейс, а плагин выводит одно предупреждение. Укажите exact OMP version и reproduction в GitHub issue, чтобы новый format можно было добавить в compatibility adapter.
 
@@ -25,7 +25,7 @@ omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Требуется OMP 18.0.1 или новее. Stock 18.1.10 остаётся pinned development/release host; newer hosts проходят runtime capability checks и fail-open при несовместимой private TUI shape.
+Требуется OMP 18.0.1 или новее. Stock 18.1.14 остаётся pinned development/release host; newer hosts проходят runtime capability checks и fail-open при несовместимой private TUI shape.
 
 ### Из Git checkout на один запуск
 
@@ -441,7 +441,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `tool-rule-describers.ts` | Pure describer-поведение правил: describe/resultMeta, текстовые устройства и hub launch-зеркало. |
 | `runtime-adapter.ts` | Public lifecycle façade, exact-instance wrappers and terminal replay seam. |
 | `presentation-patches.ts` | Exact-instance descriptor-patch registries и их двух-scope teardown (detach для per-component, dispose-only для transcript/discovery). |
-| `host-adapter.ts` | Pinned 18.1.10 capability probes и transactional descriptor patches; re-exports the host-surface sheet so existing importers keep their path. |
+| `host-adapter.ts` | Pinned 18.1.14 capability probes и transactional descriptor patches; re-exports the host-surface sheet so existing importers keep their path. |
 | `host-surface.ts` | Pinned stock host surface sheet: method-name manifests, component fingerprints и argument-position decoders. |
 | `component-binding.ts` | Exact-ID/proven-order component mapping and native fail-open statuses. |
 | `runtime-session-state.ts` | Ledgers, terminal projections and bounded payload retirement. |

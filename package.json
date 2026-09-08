@@ -41,7 +41,7 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.11",
-		"@oh-my-pi/pi-coding-agent": "18.1.10",
+		"@oh-my-pi/pi-coding-agent": "18.1.14",
 		"@types/bun": "1.4.0",
 		"typescript": "6.0.3"
 	},

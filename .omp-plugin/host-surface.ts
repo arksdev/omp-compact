@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `StockHostAdapter.hostVersion` (`"18.1.10"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.1.14"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
@@ -117,23 +117,39 @@
  * gained `updateStreamPreview(update)` fed by a new `tool_stream_update`
  * event, which drives native edit-diff previews inside the card — below the
  * row this plugin renders itself, and not a patched method.
+ * 18.1.14 crosses 18.1.11-18.1.13 and is a small move: 54 changed paths in
+ * `pi-coding-agent/src`, 5 in `pi-tui/src`, two files added
+ * (`utils/tool-schema.ts`, `edit/hashline-compact.md`), none removed. Of the
+ * files this plugin's contracts read, `transcript-container.ts`,
+ * `tool-execution.ts`, `read-tool-group.ts`, `tool-activity.ts`,
+ * `event-controller.ts`, `read-renderer.ts`, `internal-urls/router.ts`,
+ * `shake-types.ts`, `session-maintenance.ts`, `runner.ts` and `composer.ts`
+ * are byte-identical, and both modules the plugin imports by path
+ * (`extensions/runner.ts`, `vibe/runtime.ts`) are unchanged. The release
+ * reserves paste delivery (`PasteTarget.beginPaste`), arms an inline `/loop`
+ * body only once dispatch confirms it was forwarded, and defers idle
+ * compaction while an async wake is pending — none of which touches the
+ * presentation surface. The five changed `modes/components` files are
+ * dialogs and selectors (`ask-dialog`, `copy-selector`, `hook-editor`,
+ * `rewind-selector`, `transcript-outline`), outside the patched set.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.1.10 (root `node_modules`). No isolated
- * `runtime/omp-18.1.10/` install exists: the root tree moved first and
- * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3 and
- * 18.1.4 sources snapshotted under `runtime/omp-18.1.3/` and
- * `runtime/omp-18.1.4/` for the same reason. The fingerprint
- * facts above come from the surface audit in
+ * The gate pin is 18.1.14 (root `node_modules`), verified from an isolated
+ * `runtime/omp-18.1.14/` install before the root tree moved.
+ * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3,
+ * 18.1.4 and 18.1.10 sources snapshotted under `runtime/omp-18.1.3/`,
+ * `runtime/omp-18.1.4/` and `runtime/omp-18.1.10/` for the same reason. The
+ * fingerprint facts above come from the surface audit in
  * `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md`, the per-file semantic diff in
  * `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`, and the pin-move records in
  * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md`,
- * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md` and
- * `runtime/omp-18.1.10/PIN-MOVE-18.1.10.md`.
+ * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md`,
+ * `runtime/omp-18.1.10/PIN-MOVE-18.1.10.md` and
+ * `runtime/omp-18.1.14/PIN-MOVE-18.1.14.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify

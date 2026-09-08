@@ -750,18 +750,18 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `StockHostAdapter.hostVersion` (`18.1.10`) records the
+  `StockHostAdapter.hostVersion` (`18.1.14`) records the
   **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
   hosts. Neither string is a runtime gate — every decision is a live
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.1.10.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.1.14.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.1.10 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.1.14 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -813,7 +813,14 @@ The host-supplied agent directory and the live session `Settings` object sit
   `updateResult(result, isPartial, toolCallId)`, `rebuildChatFromMessages()`
   still has 18 call sites replaying the real id, cards are still created in
   call order, the read deferral rule is unchanged, and `session.shake()` still
-  emits nothing. So the floor stays at
+  emits nothing. 18.1.14 crosses 18.1.11-18.1.13 in 54 changed paths, adding
+  two files and removing none: the container, the tool card, the read group,
+  the event controller, the internal-URL router, `shake-types.ts`,
+  `session-maintenance.ts`, `composer.ts` and both modules the plugin imports
+  by path are byte-identical. It reserves paste delivery, arms an inline
+  `/loop` body only after dispatch confirms the prompt was forwarded, and
+  defers idle compaction while an async wake is pending. Compatibility is
+  judged by changed files, never by diff size. So the floor stays at
   `>=18.0.1` while the gate pin follows the newest release.
 
 - **Rows retire, blocks fill the screen.** The container retires history by
