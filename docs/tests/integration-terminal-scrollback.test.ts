@@ -5,6 +5,7 @@ import {
 	assistant,
 	beginRun,
 	bootForRebuild,
+	bootWithMode,
 	bootWithStats,
 	type CommittedSeamTranscript,
 	cleanupGeneratedDirs,
@@ -328,6 +329,147 @@ stockTest(
 		const rows = visibleRows(booted.transcript);
 		expect(rows.some((row) => row.includes("1 actions"))).toBe(true);
 		expect(rows).toContain("nocap done");
+		await shutdown(booted);
+	},
+);
+
+// ---------------------------------------------------------------------------
+// Mid-run publication: a settled call whose row is identical in every terminal
+// phase its run can reach cannot change any more, so the carrier publishes it
+// into terminal scrollback while the agent keeps working. Without it a single
+// long turn holds every row in the mutable viewport: the screen shows the rows
+// that fit and the session has no scrollback at all until the turn ends.
+// ---------------------------------------------------------------------------
+
+/** Publishes and retires everything the container currently offers. */
+function drainHistory(
+	transcript: TranscriptInstance,
+	width = 120,
+	capacity = 1,
+): string[] {
+	const host = transcript as CommittedSeamTranscript;
+	const rows: string[] = [];
+	for (let frame = 0; frame < 200; frame++) {
+		const batch = host.peekFinalizedBatch?.(width, capacity);
+		if (!batch) break;
+		rows.push(...batch.rows);
+		host.acknowledgeFinalizedBatch?.(batch.id);
+	}
+	return rows
+		.map((row) => Bun.stripANSI(row).trimEnd())
+		.filter((row) => row.trim().length > 0);
+}
+
+stockTest(
+	"a long compact run publishes its settled rows while the agent still works",
+	async () => {
+		const booted = await bootWithMode("compact");
+		await beginRun(booted);
+		for (const index of [1, 2, 3]) {
+			const id = `midrun-${String(index)}`;
+			const call = await addTool(
+				booted,
+				"bash",
+				{ command: `printf step${String(index)}` },
+				id,
+			);
+			await finishTool(booted, call, {
+				toolCallId: id,
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "ok" }] },
+				isError: false,
+			});
+		}
+		const openRun = visibleRows(booted.transcript);
+		expect(openRun.length).toBe(3);
+
+		// The run is still open, so the terminal takes the rows that can no
+		// longer change — verbatim, and without committing the blocks.
+		const published = drainHistory(booted.transcript);
+		expect(published.length).toBeGreaterThan(0);
+		expect(published).toEqual(openRun.slice(0, published.length));
+		expect(booted.transcript.blockStates?.()).not.toContain("committed");
+
+		// Publication is one-way, so the rest of the run must not restate or
+		// rewrite the rows the terminal already holds.
+		const late = await addTool(
+			booted,
+			"bash",
+			{ command: "printf step4" },
+			"midrun-4",
+		);
+		await finishTool(booted, late, {
+			toolCallId: "midrun-4",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "done");
+		await finishRun(booted, "done");
+		// The run settles by appending — the stats row and the answer land
+		// after the published head, never in place of it.
+		expect(visibleRows(booted.transcript)).toEqual([
+			...openRun,
+			"• bash: printf step4",
+			"[ 4 actions · 0 prompt · 0 received · 0s ]",
+			"done",
+		]);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a long live run publishes its settled rows, then still collapses them",
+	async () => {
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		const transcript = booted.transcript;
+
+		// The user's own prompt, so the test covers what a reader reaches for
+		// mid-turn: not just this turn's rows, but everything above them.
+		const prompt = new booted.ContainerBase();
+		prompt.addChild({ render: () => ["> my earlier prompt"] });
+		transcript.addChild(prompt);
+
+		await beginRun(booted);
+		for (const index of [1, 2, 3]) {
+			const id = `live-midrun-${String(index)}`;
+			const call = await addTool(
+				booted,
+				"bash",
+				{ command: `printf live${String(index)}` },
+				id,
+			);
+			await finishTool(booted, call, {
+				toolCallId: id,
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "ok" }] },
+				isError: false,
+			});
+		}
+		const openRun = visibleRows(transcript);
+		expect(openRun).toContain("> my earlier prompt");
+
+		// The turn is still open, and the terminal takes what it can already
+		// keep. Retention collapses these rows later, which is legal because
+		// the replay below forgets the emission ledger and erases native
+		// history before repainting — the pairing stock itself performs.
+		const published = drainHistory(transcript);
+		expect(published).toContain("> my earlier prompt");
+		// The turn's own settled rows must reach the terminal too, not just the
+		// block above them: that is the difference between a session you can
+		// scroll mid-turn and one that truncates at the screen edge.
+		expect(published).toContain("• bash: printf live1");
+		expect(published).toEqual(openRun.slice(0, published.length));
+
+		addAnswer(booted, "live done");
+		await finishRun(booted, "live done");
+		expect(harness.resetCalls).toBeGreaterThan(0);
+		const settled = visibleRows(transcript);
+		expect(settled[0]).toBe("> my earlier prompt");
+		expect(settled[1]).toMatch(/^\[ 3 actions · /);
+		expect(settled.at(-1)).toBe("live done");
+		expect(settled.some((row) => row.includes("printf live"))).toBe(false);
 		await shutdown(booted);
 	},
 );

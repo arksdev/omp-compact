@@ -828,15 +828,54 @@ The host-supplied agent directory and the live session `Settings` object sit
   height it prints each live block's first row, and a folded member has none.
   Folding shrinks rows without shrinking blocks, so the fold does two things.
   It reports the live tail's own height (minus one row) as the room for a
-  history batch while blocks outnumber rows, which keeps retirement making
-  progress every frame instead of stalling as soon as the rows happen to fit.
-  And when the fold itself is the reason the count is inflated, it answers for
-  the frame: blocks that render nothing take no row, the rest render whole, and
-  the newest rows win the screen. An open run is never settled, so retirement
-  alone could never rescue a single long turn holding more blocks than the
-  screen has rows. The live boundary comes from `canRemoveBlock`, which also
-  excludes a batch already offered but not yet acknowledged, so no row is
-  painted twice.
+  history batch while blocks outnumber rows *and* the rows still fit the
+  screen, which keeps retirement making progress instead of stalling as soon
+  as the rows happen to fit; once the live rows reach the screen height the
+  honest room is that height, so publication and retirement stop with exactly
+  one screenful in the viewport instead of handing the whole run over. And
+  when the fold itself is the reason the count is inflated, it answers for
+  the frame: blocks that render nothing take no row, the rest render their
+  unpublished tail, and the newest rows win the screen. The live boundary
+  comes from `canRemoveBlock`, which also excludes a batch already offered
+  but not yet acknowledged; a block that published part of its rows answers
+  false there too, so the fold keeps it live by its published-row count and
+  no row is painted twice.
+
+- **A carrier publishes what its run can no longer change.** A run still open
+  is never settled, so retirement alone could never rescue a single long turn:
+  every block stayed live, the fold's replacement frame was the whole session
+  the user could see, and the terminal had no scrollback behind it until the
+  turn ended. So the carrier declares itself append-only and publishes its
+  settled members — one key per member, whole members only, `m0`, `m1`, … —
+  and the container streams them into native scrollback one per frame, exactly
+  as it does for a streamed answer. Publication is not restricted by mode, and
+  the reason is worth stating because it looks like it should be: `live` and
+  `clear` do collapse routine rows into the stats line and the aggregate
+  commit summary at the terminal projection, so a published row does have to
+  disappear later. Stock retracts it. `resetStableEmission()` forgets the
+  emission ledger and the paired scrollback-clearing `resetDisplay()` rewrites
+  the rows it forgot — the pairing stock performs itself on its
+  thinking-visibility toggle, and the one `replayCurrentPresentation` performs
+  here. Withholding publication instead cost the whole session its history:
+  retirement runs from the frontier, so one live block at the head of an open
+  turn kept the earlier turns and the user's own prompt off the scrollback
+  until the turn ended. `clear` is excluded for a different reason — it
+  renders no rows to publish, and an empty publication would freeze the
+  container's stable prefix. Beyond the mode, the block's own risks stay: the
+  working and `full` decisions must agree (an expanded card renders native
+  while working), a read a group presents can still move into that group's
+  block, a write/edit audit publishes mutation rows after the call returned,
+  and a partial or background result is stock's own call. The three
+  publication members are declared before the block joins the transcript —
+  the container captures a block's presentation mode inside `addChild` — and
+  are never taken back, because a release to native, a quarantine or a
+  rollback would otherwise leave the container calling a method that no
+  longer exists; with no role they report nothing published, which renders
+  exactly like a mutable block. They are deliberately *not* part of the
+  restorable fold patch, and nothing else is declared that early: `render`
+  and `seal` belong to the surface the adapter classifies a block by, so
+  installing them before the adapter has seen the block would make a card
+  match a different kind.
 
 - **History leaves by two doors, and the replay gate must know both.** The
   container writes rows above the viewport either by retiring a settled block

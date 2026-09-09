@@ -305,6 +305,25 @@ export function decideToolRender(input: ToolRenderInput): ToolRenderDecision {
 	};
 }
 
+/**
+ * Whether two decisions render the same row. Used to prove a settled row is
+ * already the row its run will finalize with, which is what lets it retire
+ * into terminal scrollback before the run ends.
+ */
+export function sameToolRender(
+	left: ToolRenderDecision,
+	right: ToolRenderDecision,
+): boolean {
+	if (left.kind !== right.kind) return false;
+	if (left.kind !== "tool-rows" || right.kind !== "tool-rows") return true;
+	return (
+		left.filtered === right.filtered &&
+		left.summary === right.summary &&
+		left.summaryOnly === right.summaryOnly &&
+		left.includeGit === right.includeGit
+	);
+}
+
 // Rules evaluated top-to-bottom; first match wins. The all-or-nothing
 // `completelyMapped` gate is first on purpose: partial compact binding is
 // forbidden (see ReadGroupRenderInput.completelyMapped). Clear mode and

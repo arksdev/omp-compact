@@ -53,12 +53,15 @@ import {
 	decideBackgroundCompletionRender,
 	decideReadGroupRender,
 	decideToolRender,
+	sameToolRender,
+	type ToolRenderDecision,
 } from "./render-decision";
 import type { RunStatsEvidence } from "./run-stats";
 import {
 	type AgentEndInput,
 	type RebuildSnapshot,
 	RuntimeSessionState,
+	type TerminalProjection,
 	type ToolResultInput,
 	type ToolStartInput,
 	type ToolState,
@@ -69,7 +72,11 @@ import {
 	TranscriptFold,
 	type TranscriptHost,
 } from "./transcript-fold";
-import { classifyAgentEnd, type TurnLedger } from "./turn-ledger";
+import {
+	classifyAgentEnd,
+	type LedgerPhase,
+	type TurnLedger,
+} from "./turn-ledger";
 import { traceNative } from "./trace";
 
 // Re-exported for index.ts and the test surface: the input contracts are
@@ -333,8 +340,20 @@ export class RuntimeAdapter {
 			// open (fresh containers have no stale segments to retire).
 			const transcript = this.#transcript as {
 				invalidate?: () => void;
+				resetStableEmission?: () => void;
 			};
 			if (typeof transcript.invalidate === "function") transcript.invalidate();
+			// Forget the append-only emission ledger too. A carrier publishes
+			// its settled rows one at a time while its turn is still open, so
+			// by this point the terminal already holds rows this projection is
+			// about to render differently — or not at all, where `live` and
+			// `clear` collapse them into the stats line. The host pairs these
+			// two calls itself on its thinking-visibility toggle, and states
+			// the requirement outright: the emitted rows this forgets still
+			// sit in native history until the clear rewrites them. Optional:
+			// hosts without publication have no ledger to forget.
+			if (typeof transcript.resetStableEmission === "function")
+				transcript.resetStableEmission();
 			this.#host.resetDisplay();
 			return true;
 		} catch {
@@ -724,6 +743,8 @@ export class RuntimeAdapter {
 				isFinalized: (block, nativeFinalized) =>
 					this.#isFinalized(block, nativeFinalized),
 				isTerminal: (block) => this.#isTerminal(block),
+				isRetirable: (block, nativeFinalized) =>
+					this.#isRetirable(block, nativeFinalized),
 			});
 		}
 		// Idempotent: the fold re-patches the transcript instance after a
@@ -739,29 +760,12 @@ export class RuntimeAdapter {
 	): readonly string[] {
 		const state = this.#session.binding.componentState(block);
 		if (state) {
-			const rule = resolveToolRule(state.toolName);
-			const runMode = this.#session.modeFor(state.ledger);
 			const phase = state.ledger.phase;
-			const filtered = phase === "filtered";
-			const projection = filtered
-				? this.#session.terminalProjection(state.ledger)
-				: undefined;
-			const decision = decideToolRender({
-				route: rule?.route,
-				mode: runMode.mode,
-				retainGitLive: runMode.retainGitLive,
-				compactSuppressedBySettings:
-					!runMode.compactVibeRows && isVibeToolName(state.toolName),
-				phase,
-				expanded: state.expanded,
-				compactOnExpand: rule?.compactOnExpand === true,
-				isPartial: state.isPartial,
-				streamCollapse: rule?.audit === "write" || rule?.audit === "edit",
-				hasMutations: state.mutations.length > 0,
-				hasGit: state.git !== undefined,
-				hashesLength: projection?.hashes.length ?? 0,
-				isAnchor: projection?.anchor === state,
-			});
+			const projection =
+				phase === "filtered"
+					? this.#session.terminalProjection(state.ledger)
+					: undefined;
+			const decision = this.#toolDecision(state, phase, projection);
 			if (decision.kind === "native") return nativeRender(width);
 			if (decision.kind === "empty") return EMPTY_LINES;
 			const theme = this.#ui.theme;
@@ -885,6 +889,37 @@ export class RuntimeAdapter {
 		return nativeRender(width);
 	}
 
+	/**
+	 * Presentation decision for one bound tool state under a given phase.
+	 * Shared by the renderer (the state's real phase) and the mid-run
+	 * retirement proof (the phase its run will finalize with), so the two can
+	 * never disagree about what a row is going to look like.
+	 */
+	#toolDecision(
+		state: ToolState,
+		phase: LedgerPhase,
+		projection: TerminalProjection | undefined,
+	): ToolRenderDecision {
+		const rule = resolveToolRule(state.toolName);
+		const runMode = this.#session.modeFor(state.ledger);
+		return decideToolRender({
+			route: rule?.route,
+			mode: runMode.mode,
+			retainGitLive: runMode.retainGitLive,
+			compactSuppressedBySettings:
+				!runMode.compactVibeRows && isVibeToolName(state.toolName),
+			phase,
+			expanded: state.expanded,
+			compactOnExpand: rule?.compactOnExpand === true,
+			isPartial: state.isPartial,
+			streamCollapse: rule?.audit === "write" || rule?.audit === "edit",
+			hasMutations: state.mutations.length > 0,
+			hasGit: state.git !== undefined,
+			hashesLength: projection?.hashes.length ?? 0,
+			isAnchor: projection?.anchor === state,
+		});
+	}
+
 	#isFinalized(
 		block: RenderableBlock,
 		nativeFinalized: (() => boolean) | undefined,
@@ -900,6 +935,68 @@ export class RuntimeAdapter {
 		if (this.#session.backgroundCompletionLedger(block)?.phase === "working")
 			return false;
 		return nativeFinalized?.() ?? true;
+	}
+
+	/**
+	 * Whether a settled call's rows may be published into native scrollback
+	 * while its run keeps going.
+	 *
+	 * The gate used to be `compact` alone, on the grounds that terminal bytes
+	 * cannot be retracted while `live` and `clear` still collapse routine
+	 * rows into the stats line at the terminal projection. Stock retracts
+	 * them: `resetStableEmission()` forgets the emission ledger and the
+	 * paired scrollback-clearing `resetDisplay()` rewrites the rows it
+	 * forgot, which is exactly what `replayCurrentPresentation` now does and
+	 * what stock itself does on its thinking-visibility toggle. Withholding
+	 * publication instead locked the whole session out of its own history:
+	 * retirement runs from the frontier, so one live block at the head of an
+	 * open turn keeps the earlier turns and the user's own prompt off the
+	 * scrollback until the turn ends.
+	 *
+	 * `clear` is excluded because it renders no rows to publish, and an empty
+	 * publication would freeze the container's stable prefix. The block's own
+	 * risks stay: an expanded card renders native while working and compact
+	 * once full (the phase pair below disagrees), a read a group presents can
+	 * still move into that group's block, and a partial or background result
+	 * is stock's own call — `nativeFinalized` answers it.
+	 */
+	#settledMidRun(
+		state: ToolState,
+		nativeFinalized: (() => boolean) | undefined,
+	): boolean {
+		if (this.#session.modeFor(state.ledger).mode === "clear") return false;
+		if (this.#session.binding.isGroupPresentationRead(state.id)) return false;
+		// A write/edit audit publishes its mutation rows after the call
+		// returned — `endWrite` runs inside the lifecycle the `agent_end`
+		// drain awaits — so the row can still grow once stock already calls
+		// the block final.
+		const audit = resolveToolRule(state.toolName)?.audit;
+		if (audit === "write" || audit === "edit") return false;
+		// Neither phase below consults the terminal projection: `full` keeps
+		// every row as it is, so the aggregate summary the projection carries
+		// belongs to `filtered` alone — the phase this mode cannot reach.
+		if (
+			!sameToolRender(
+				this.#toolDecision(state, "working", undefined),
+				this.#toolDecision(state, "full", undefined),
+			)
+		)
+			return false;
+		return nativeFinalized?.() ?? true;
+	}
+
+	/**
+	 * Whether the fold may publish this block's rows while its run is still
+	 * open. Only a live run qualifies: a finished run retires whole through
+	 * its own settle path, unchanged.
+	 */
+	#isRetirable(
+		block: RenderableBlock,
+		nativeFinalized: (() => boolean) | undefined,
+	): boolean {
+		const state = this.#session.binding.componentState(block);
+		if (state?.ledger.phase !== "working") return false;
+		return this.#settledMidRun(state, nativeFinalized);
 	}
 
 	#isTerminal(block: RenderableBlock): boolean {
@@ -1016,13 +1113,22 @@ export class RuntimeAdapter {
 		this.#transcript = transcript;
 		this.#session.attachTranscript(transcript);
 		this.#patches.restoreDiscovery();
-		const addChildPatch = this.#host.patchAddChild(transcript, (child) => {
-			try {
-				this.#observeTranscriptChild(child);
-			} catch (error) {
-				this.#rollback(`omp-compact disabled: ${String(error)}`);
-			}
-		});
+		const addChildPatch = this.#host.patchAddChild(
+			transcript,
+			(child) => {
+				try {
+					this.#observeTranscriptChild(child);
+				} catch (error) {
+					this.#rollback(`omp-compact disabled: ${String(error)}`);
+				}
+			},
+			// The container freezes a block's presentation mode inside
+			// `addChild`, so the fold declares its publication surface one step
+			// earlier than every other observation. Best effort by design: a
+			// block the fold cannot patch is the plan's business, and the plan
+			// reports that skew exactly once.
+			(child) => this.#fold?.observeChild(child),
+		);
 		// The exact transcript `clear` is the rebuild boundary. The
 		// wrapper runs the rebuild prologue before the native clear exactly
 		// once; stock then synchronously repopulates through addChild, and

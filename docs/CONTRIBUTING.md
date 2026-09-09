@@ -649,6 +649,18 @@ Then `diff -u` scoped per file. All paths are relative to
    `"a read the host renders as a full card keeps its sibling compact"` and
    `"a read whose stream snapshot looked collapsible is not crossed with its
    sibling"` are the canaries, and `OMP_COMPACT_TRACE=1` names the branch.
+11. `src/modes/components/transcript-container.ts` — the append-only publication
+   contract (`transcriptBlockMode`, `getTranscriptStableRows`,
+   `renderTranscriptStableRows`, `emittedStableRows`, `canRemoveBlock`). The
+   fold's carrier publishes a long compact turn's settled rows into native
+   scrollback through it, so confirm the container still captures a block's
+   presentation mode inside `addChild` (the declaration must land before the
+   child joins the transcript), still verifies a published prefix by rendered
+   rows, and still reports emitted counts per block in transcript order. A
+   changed capture point or a retracted contract means one long turn stops
+   growing the terminal's history — `"a long compact run publishes its settled
+   rows while the agent still works"` and `"a long compact run publishes its
+   settled head and keeps the newest rows on screen"` are the canaries.
 
 **Isolated verification.** Create `runtime/omp-<version>/` mirroring an existing copy
 (`runtime/omp-17.3.1/`): `package.json` (candidate version), `.gitignore`,

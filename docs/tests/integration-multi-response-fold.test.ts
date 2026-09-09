@@ -52,27 +52,75 @@ async function foldedRun(
 }
 
 stockTest(
-	"a run holding more blocks than the screen has rows renders compact rows, not blanks",
+	"a long compact run publishes its settled head and keeps the newest rows on screen",
 	async () => {
 		const booted = await bootWithMode("compact");
 		await beginRun(booted);
-		// One open run, 24 mapped tools: 24 transcript blocks, of which only
-		// the carrier renders anything.
+		// One open run, 24 mapped tools: 24 transcript blocks, each settled.
 		await foldedRun(booted, "open", 24);
 		const transcript = booted.transcript;
 		const capacity = 8;
 		expect(transcript.children.length).toBeGreaterThan(capacity);
-		// The run is still open, so nothing may retire: the viewport has to
-		// cope with more blocks than rows on its own.
-		expect(transcript.peekFinalizedBatch(120, capacity)).toBeUndefined();
+		const projection = visibleRows(transcript);
+		expect(projection.length).toBe(24);
+		// Compact rows never change at settle, so the head cannot change any
+		// more: the terminal takes it while the run keeps going.
+		const published: string[] = [];
+		for (let frame = 0; frame < 100; frame++) {
+			const batch = transcript.peekFinalizedBatch(120, capacity);
+			if (!batch) break;
+			published.push(...batch.rows);
+			transcript.acknowledgeFinalizedBatch?.(batch.id);
+		}
+		const scrollback = published
+			.map((line) => Bun.stripANSI(line).trimEnd())
+			.filter((line) => line.trim().length > 0);
+		expect(scrollback.length).toBeGreaterThan(0);
+		const tail = transcript
+			.renderViewport(120, capacity, { tick: 0, now: 0 })
+			.map((line) => Bun.stripANSI(line).trimEnd());
+		// Nothing is lost, nothing is repeated, and no slot is blank.
+		expect(tail.filter((line) => line.trim().length === 0)).toEqual([]);
+		expect(tail.length).toBeLessThanOrEqual(capacity);
+		expect([...scrollback, ...tail]).toEqual(projection);
+		expect(tail.at(-1)).toBe("• bash: printf open-23");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a live run holding more blocks than the screen has rows renders compact rows, not blanks",
+	async () => {
+		// A run with more blocks than the screen has rows publishes its settled
+		// head into scrollback, so the reader can scroll mid-turn. Whatever it
+		// hands over, the viewport still has to render the compact tail — never
+		// blanks, and never fewer rows than the screen holds.
+		const booted = await bootWithMode("live");
+		await beginRun(booted);
+		await foldedRun(booted, "open", 24);
+		const transcript = booted.transcript;
+		const capacity = 8;
+		expect(transcript.children.length).toBeGreaterThan(capacity);
+		const published: string[] = [];
+		for (let frame = 0; frame < 200; frame++) {
+			const batch = transcript.peekFinalizedBatch(120, capacity);
+			if (!batch) break;
+			published.push(...batch.rows);
+			transcript.acknowledgeFinalizedBatch?.(batch.id);
+		}
+		const scrollback = published
+			.map((line) => Bun.stripANSI(line).trimEnd())
+			.filter((line) => line.trim().length > 0);
+		expect(scrollback.at(0)).toBe("• bash: printf open-0");
 		const tail = transcript
 			.renderViewport(120, capacity, { tick: 0, now: 0 })
 			.map((line) => Bun.stripANSI(line).trimEnd());
 		expect(tail.filter((line) => line.trim().length === 0)).toEqual([]);
 		expect(tail.length).toBe(capacity);
 		// The newest rows win the screen, and they are the compact projection.
-		expect(tail.at(0)).toBe("• bash: printf open-16");
 		expect(tail.at(-1)).toBe("• bash: printf open-23");
+		// Every row is reachable exactly once: scrollback then screen.
+		expect([...scrollback, ...tail]).toEqual(visibleRows(transcript));
 		await shutdown(booted);
 	},
 );

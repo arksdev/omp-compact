@@ -126,6 +126,9 @@ function callbacks(): FoldCallbacks {
 		render: (_block, width, nativeRender) => nativeRender(width),
 		isFinalized: () => true,
 		isTerminal: () => true,
+		// Default: no block is history mid-run, so these tests keep exercising
+		// the whole-run grouping the fold has always planned.
+		isRetirable: () => false,
 	};
 }
 

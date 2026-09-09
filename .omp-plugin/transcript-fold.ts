@@ -1,4 +1,8 @@
-import { BLOCK_FOLD_METHODS, TRANSCRIPT_FOLD_METHODS } from "./host-adapter";
+import {
+	BLOCK_FOLD_METHODS,
+	BLOCK_PUBLICATION_MEMBERS,
+	TRANSCRIPT_FOLD_METHODS,
+} from "./host-adapter";
 import { DescriptorPatch } from "./patch-kit";
 
 type Lines = readonly string[];
@@ -20,6 +24,11 @@ export interface HistoryBatch {
 }
 
 export type BlockState = "active" | "settled" | "committed";
+
+/** Width-independent identity of one published row group (18.0.1 contract). */
+export interface StableRow {
+	readonly key: string;
+}
 
 export interface TranscriptHost extends RenderableBlock {
 	children: unknown[];
@@ -55,6 +64,12 @@ export interface TranscriptHost extends RenderableBlock {
 	acknowledgeFinalizedBatch(id: number): void;
 	canRemoveBlock(component: unknown): boolean;
 	blockStates(): readonly BlockState[];
+	/**
+	 * Published row counts per block, in transcript order. Optional: only
+	 * hosts with append-only publication report them, and the fold's own
+	 * viewport needs them so a published row is never painted twice.
+	 */
+	emittedStableRows?(): readonly number[];
 }
 
 interface NativeBlockMethods {
@@ -81,6 +96,16 @@ export interface FoldCallbacks {
 		nativeFinalized: (() => boolean) | undefined,
 	): boolean;
 	isTerminal(block: RenderableBlock): boolean;
+	/**
+	 * Whether the block's rows can no longer change, while its run keeps
+	 * going. Those rows are history already: the carrier publishes them into
+	 * native scrollback so one long turn still grows the terminal's history
+	 * instead of holding every row in the mutable viewport.
+	 */
+	isRetirable(
+		block: RenderableBlock,
+		nativeFinalized: (() => boolean) | undefined,
+	): boolean;
 }
 
 interface FoldRun {
@@ -88,6 +113,12 @@ interface FoldRun {
 	closed: boolean;
 	width: number;
 	rows: Lines;
+	/**
+	 * Published leading members, one key each. Monotonic by contract: a key
+	 * once published names bytes the terminal may already own, so the list
+	 * only ever grows.
+	 */
+	stable: readonly StableRow[];
 }
 
 interface FoldRole {
@@ -101,6 +132,7 @@ interface BlockPatch {
 }
 
 const EMPTY_LINES: Lines = Object.freeze([]);
+const EMPTY_STABLE_ROWS: readonly StableRow[] = Object.freeze([]);
 // Cross-module-instance marker: a plugin may be both user-linked and loaded
 // explicitly with `-e`. The fold mutates only this exact transcript instance,
 // but duplicate module copies must still observe the same ownership key.
@@ -223,8 +255,10 @@ export class TranscriptFold {
 	 * height minus one row makes the container retire its settled prefix
 	 * into terminal history. Live blocks drop back below the height, the
 	 * fallback never engages, and the retired rows are exactly the folded
-	 * projection the container itself renders. Runs still open are never
-	 * settled, so retirement stops before them.
+	 * projection the container itself renders. A run still open retires
+	 * nothing this way — its carrier is not settled — but the same pressure
+	 * lets the carrier publish the rows that can no longer change, one member
+	 * per frame (see `#stableRows`).
 	 */
 	#retirementRoom(width: number, capacity: number): number {
 		const states = this.#transcript.blockStates();
@@ -234,6 +268,11 @@ export class TranscriptFold {
 		const liveRows =
 			this.#hostLiveRows?.call(this.#transcript, width) ??
 			this.#transcript.liveRowCount(width);
+		// A screenful or more of live rows is pressure the container already
+		// acts on, and the honest room keeps exactly that screenful on screen.
+		// Reporting less would hand the whole run to the terminal and leave the
+		// viewport empty while the agent is still working.
+		if (liveRows >= capacity) return capacity;
 		return Math.max(0, Math.min(capacity, liveRows - 1));
 	}
 
@@ -242,15 +281,14 @@ export class TranscriptFold {
 	 *
 	 * That fallback keys on block count: once live blocks outnumber the
 	 * transcript height it prints each block's first row, and a folded member
-	 * renders nothing, so its slot becomes an empty string. Retirement fixes
-	 * the settled prefix (see `#retirementRoom`), but a run still open is
-	 * never settled — one long turn holding more blocks than the screen has
-	 * rows would still paint the viewport with blanks.
+	 * renders nothing, so its slot becomes an empty string. Publication and
+	 * retirement shrink the rows a carrier still owns, never the block count,
+	 * so one long turn would still paint the viewport with blanks.
 	 *
 	 * So when the fold is the reason the count is inflated, the fold answers
 	 * for the frame: blocks that render nothing take no row, the rest render
-	 * whole, and the newest rows win the screen. Sessions the fold does not
-	 * touch keep the host's own fallback.
+	 * their unpublished tail, and the newest rows win the screen. Sessions the
+	 * fold does not touch keep the host's own fallback.
 	 */
 	#silentViewport(
 		width: number,
@@ -276,7 +314,9 @@ export class TranscriptFold {
 				UNBOUNDED_ROWS,
 				frame,
 			);
-			const block = trimBlankEdges(child.render(width));
+			// Rows the terminal already owns must not be painted again: the
+			// container reports how many of a carrier's members it published.
+			const block = trimBlankEdges(this.#unpublishedRows(child, index, width));
 			if (block.length === 0) continue;
 			if (chunks.length > 0) {
 				chunks.push(SEPARATOR);
@@ -294,6 +334,25 @@ export class TranscriptFold {
 	}
 
 	/**
+	 * A block's rows minus the ones the container already published into
+	 * native scrollback. Only a carrier publishes, and it publishes whole
+	 * members, so the offset is the row count of its published prefix.
+	 */
+	#unpublishedRows(
+		block: RenderableBlock,
+		index: number,
+		width: number,
+	): Lines {
+		const rows = block.render(width);
+		const role = this.#roles.get(block);
+		if (!role?.carrier) return rows;
+		const published = this.#transcript.emittedStableRows?.()[index] ?? 0;
+		if (published === 0) return rows;
+		const skip = this.#renderMembers(role.run, width, 0, published).length;
+		return skip >= rows.length ? EMPTY_LINES : rows.slice(skip);
+	}
+
+	/**
 	 * First child of the mutable live tail.
 	 *
 	 * Committed blocks are terminal history, and a batch already offered for
@@ -301,21 +360,36 @@ export class TranscriptFold {
 	 * is exactly that boundary — false below it, true above — so one probe
 	 * settles the common case and a bisection finds the seam while a batch
 	 * awaits its acknowledgement.
+	 *
+	 * A block that published part of its rows also answers false there, and
+	 * that one is still live: its unpublished tail is the newest thing on
+	 * screen. Published rows are counted per block, so the two cases separate
+	 * cleanly.
 	 */
 	#liveStart(children: readonly unknown[]): number {
 		const states = this.#transcript.blockStates();
+		const emitted = this.#transcript.emittedStableRows?.();
 		let start = 0;
 		while (start < children.length && states[start] === "committed") start++;
 		if (start >= children.length) return children.length;
-		if (this.#transcript.canRemoveBlock(children[start])) return start;
+		if (this.#isLive(children, emitted, start)) return start;
 		let low = start + 1;
 		let high = children.length;
 		while (low < high) {
 			const mid = (low + high) >>> 1;
-			if (this.#transcript.canRemoveBlock(children[mid])) high = mid;
+			if (this.#isLive(children, emitted, mid)) high = mid;
 			else low = mid + 1;
 		}
 		return low;
+	}
+
+	#isLive(
+		children: readonly unknown[],
+		emitted: readonly number[] | undefined,
+		index: number,
+	): boolean {
+		if ((emitted?.[index] ?? 0) > 0) return true;
+		return this.#transcript.canRemoveBlock(children[index]);
 	}
 
 	/** Whether the live tail holds a block the fold renders as nothing. */
@@ -335,6 +409,26 @@ export class TranscriptFold {
 			if (this.#renderRun(role.run, width).length === 0) return true;
 		}
 		return false;
+	}
+
+	/**
+	 * Patch a block the moment it joins the transcript.
+	 *
+	 * The container captures a block's presentation mode when it first syncs
+	 * the child, and a bare `blockStates()` call is enough to do that — well
+	 * before any render, so before the first plan. A block the plan patches
+	 * later would already be recorded `mutable` and could never publish its
+	 * settled rows into scrollback. Roles are still the plan's business: with
+	 * no role yet, the wrappers answer exactly as they did before.
+	 */
+	observeChild(child: unknown): void {
+		if (!this.#installed) return;
+		if (!this.#callbacks.isFoldable(child)) return;
+		// Best effort: a block that cannot take the declaration simply never
+		// publishes, and the plan reports real capability skew on its own.
+		try {
+			this.#declarePublication(child as RenderableBlock);
+		} catch {}
 	}
 
 	install(): void {
@@ -530,9 +624,17 @@ export class TranscriptFold {
 		return this.#callbacks.isFinalized(block, native.finalized?.bind(block));
 	}
 
-	#renderRun(run: FoldRun, width: number): Lines {
+	/**
+	 * Rows of the members in `[from, to)`, each trimmed of the blank edges a
+	 * block pads itself with. The full-run call is what a carrier renders, so
+	 * every partial range is a row-exact slice of it — which is what the
+	 * append-only publication contract requires of a published prefix.
+	 */
+	#renderMembers(run: FoldRun, width: number, from: number, to: number): Lines {
 		const rows: string[] = [];
-		for (const member of run.members) {
+		for (let position = from; position < to; position++) {
+			const member = run.members[position];
+			if (!member) continue;
 			const raw = this.#renderBlock(member, width);
 			let lead = 0;
 			while (lead < raw.length && !NON_BLANK.test(raw[lead] ?? "")) lead++;
@@ -540,6 +642,11 @@ export class TranscriptFold {
 			while (end > lead && !NON_BLANK.test(raw[end - 1] ?? "")) end--;
 			for (let index = lead; index < end; index++) rows.push(raw[index] ?? "");
 		}
+		return rows;
+	}
+
+	#renderRun(run: FoldRun, width: number): Lines {
+		const rows = this.#renderMembers(run, width, 0, run.members.length);
 		if (
 			run.width === width &&
 			run.rows.length === rows.length &&
@@ -550,6 +657,31 @@ export class TranscriptFold {
 		run.width = width;
 		run.rows = rows;
 		return rows;
+	}
+
+	/**
+	 * Published prefix of a run: its leading members whose rows can no longer
+	 * change. One key per member, so the identity stays width-independent
+	 * even for a member that renders several rows, and the list only grows —
+	 * a key already published names bytes the terminal may own.
+	 */
+	#stableRows(run: FoldRun): readonly StableRow[] {
+		let count = 0;
+		for (const member of run.members) {
+			if (
+				!this.#callbacks.isRetirable(
+					member,
+					this.#native(member).finalized?.bind(member),
+				)
+			)
+				break;
+			count++;
+		}
+		if (count <= run.stable.length) return run.stable;
+		const keys = [...run.stable];
+		while (keys.length < count) keys.push({ key: `m${String(keys.length)}` });
+		run.stable = keys;
+		return run.stable;
 	}
 
 	#installBlock(block: RenderableBlock): void {
@@ -618,6 +750,53 @@ export class TranscriptFold {
 		const patch = new DescriptorPatch(block, BLOCK_FOLD_METHODS);
 		patch.install(wrappers);
 		this.#patches.set(block, { patch, native });
+		this.#declarePublication(block);
+	}
+
+	/**
+	 * Declare the append-only publication members once, and never take them
+	 * back.
+	 *
+	 * The container captures a block's presentation mode the first time it
+	 * syncs the child — inside `addChild` — and then keeps calling these for
+	 * the block's whole life. So the declaration lands before the block joins
+	 * the transcript, and it survives everything the fold does afterwards: a
+	 * release to native, a quarantine, a rollback. With no role they report
+	 * nothing published, which renders exactly like a mutable block.
+	 *
+	 * Only these three members are declared this early. The rest of the fold
+	 * patch waits for the plan, because `render` and `seal` are part of the
+	 * surface the adapter classifies a block by: adding them before the
+	 * adapter has seen the block would make a card match a different kind.
+	 */
+	#declarePublication(block: RenderableBlock): void {
+		if (BLOCK_PUBLICATION_MEMBERS[0] in block) return;
+		const fold = this;
+		Object.defineProperties(block, {
+			transcriptBlockMode: {
+				configurable: true,
+				writable: true,
+				value: "appendOnly",
+			},
+			getTranscriptStableRows: {
+				configurable: true,
+				writable: true,
+				value(this: RenderableBlock): readonly StableRow[] {
+					const role = fold.#roles.get(this);
+					if (!role?.carrier) return EMPTY_STABLE_ROWS;
+					return fold.#stableRows(role.run);
+				},
+			},
+			renderTranscriptStableRows: {
+				configurable: true,
+				writable: true,
+				value(this: RenderableBlock, count: number, width: number): Lines {
+					const role = fold.#roles.get(this);
+					if (!role?.carrier) return EMPTY_LINES;
+					return fold.#renderMembers(role.run, width, 0, count);
+				},
+			},
+		});
 	}
 
 	#restoreBlock(block: RenderableBlock): void {
@@ -683,6 +862,7 @@ export class TranscriptFold {
 					closed: false,
 					width: -1,
 					rows: EMPTY_LINES,
+					stable: EMPTY_STABLE_ROWS,
 				};
 				this.#runs.set(carrier, run);
 			} else if (!this.#sameMembers(run.members, children, index, end)) {

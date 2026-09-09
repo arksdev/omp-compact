@@ -34,6 +34,7 @@ import type { RenderableBlock, TranscriptHost } from "./transcript-fold";
 // importers resolve the same names and types from the same path.
 export {
 	BLOCK_FOLD_METHODS,
+	BLOCK_PUBLICATION_MEMBERS,
 	READ_GROUP_METHODS,
 	READ_GROUP_PATCH_METHODS,
 	TOOL_METHODS,
@@ -345,18 +346,21 @@ export class StockHostAdapter {
 	}
 
 	/**
-	 * Build a wrapper descriptor for `addChild` that calls the original
-	 * then `onChildAdded`. Used by both transcript and discovery-container
-	 * patching; the observer must not throw (rollback policy is the caller's).
+	 * Build a wrapper descriptor for `addChild` that calls `onChildAdding`,
+	 * then the original, then `onChildAdded`. Used by both transcript and
+	 * discovery-container patching; observers must not throw (rollback policy
+	 * is the caller's).
 	 */
 	#makeAddChildWrapper(
 		original: (...args: unknown[]) => unknown,
 		onChildAdded: (child: unknown) => void,
+		onChildAdding?: (child: unknown) => void,
 	): PropertyDescriptor {
 		return {
 			configurable: true,
 			writable: true,
 			value(this: object, child: unknown, ...rest: unknown[]): unknown {
+				onChildAdding?.(child);
 				const result = original.call(this, child, ...rest);
 				onChildAdded(child);
 				return result;
@@ -365,14 +369,21 @@ export class StockHostAdapter {
 	}
 
 	/**
-	 * Exact-instance transcript `addChild` wrapper: calls the original,
-	 * then `onChildAdded(child)`. The observer must not throw; rollback
-	 * policy is the caller's. Throws (transactionally clean) when the
-	 * transcript is unpatchable.
+	 * Exact-instance transcript `addChild` wrapper: calls `onChildAdding`,
+	 * the original, then `onChildAdded(child)`.
+	 *
+	 * The pre-hook exists because the stock container captures a block's
+	 * presentation mode inside `addChild` itself, so a declaration installed
+	 * afterwards would arrive one step too late and the block would count as
+	 * mutable for its whole life.
+	 *
+	 * Observers must not throw; rollback policy is the caller's. Throws
+	 * (transactionally clean) when the transcript is unpatchable.
 	 */
 	patchAddChild(
 		transcript: TranscriptHost,
 		onChildAdded: (child: unknown) => void,
+		onChildAdding?: (child: unknown) => void,
 	): DescriptorPatch {
 		if (!Object.isExtensible(transcript))
 			throw new Error("unpatchable transcript");
@@ -380,7 +391,11 @@ export class StockHostAdapter {
 		if (!original) throw new Error("transcript addChild missing");
 		const patch = new DescriptorPatch(transcript, [ADD_CHILD]);
 		patch.install({
-			[ADD_CHILD]: this.#makeAddChildWrapper(original, onChildAdded),
+			[ADD_CHILD]: this.#makeAddChildWrapper(
+				original,
+				onChildAdded,
+				onChildAdding,
+			),
 		});
 		return patch;
 	}

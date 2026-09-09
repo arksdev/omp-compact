@@ -282,6 +282,23 @@ export const BLOCK_FOLD_METHODS = [
 ] as const;
 
 /**
+ * Append-only publication members the fold declares on a folded block.
+ *
+ * Deliberately outside {@link BLOCK_FOLD_METHODS}: the container captures a
+ * block's presentation mode once, when it first syncs the child, and keeps
+ * calling these for the block's whole life. Restoring them with the rest of
+ * the fold patch — a release to native, a quarantine, a rollback — would
+ * leave the container calling a method that no longer exists. They stay
+ * declared instead, and report nothing published whenever the fold owns
+ * nothing.
+ */
+export const BLOCK_PUBLICATION_MEMBERS = [
+	"transcriptBlockMode",
+	"getTranscriptStableRows",
+	"renderTranscriptStableRows",
+] as const;
+
+/**
  * Exact TUI methods the rebuild phase consumes. Optional: consumed only
  * with native fail-open when absent.
  */
