@@ -132,24 +132,43 @@
  * presentation surface. The five changed `modes/components` files are
  * dialogs and selectors (`ask-dialog`, `copy-selector`, `hook-editor`,
  * `rewind-selector`, `transcript-outline`), outside the patched set.
+ * 18.1.15 is smaller still: 46 changed paths in `pi-coding-agent/src`, one in
+ * `pi-tui/src`, nothing added or removed. Every file this plugin's contracts
+ * read is byte-identical — the container, the tool card, the read group, the
+ * activity component, the event controller, the read renderer, the
+ * internal-URL router, `shake-types.ts`, `session-maintenance.ts`,
+ * `input-controller.ts` and `composer.ts` — as are both modules the plugin
+ * imports by path. `pi-tui/src/tui.ts` did change, and it matters here
+ * because the mid-turn history publication depends on it: the release adds an
+ * in-place resize transaction for Warp (which re-reports its size on
+ * alt-buffer toggles, so borrowing the alt screen there self-sustains into a
+ * flicker loop) behind `PI_TUI_RESIZE_IN_PLACE`. `resetDisplay()` is
+ * unchanged and still the sole `\x1b[3J` emitter, so the scrollback-clearing
+ * replay that lets a published row be retracted is intact. The rest of the
+ * release is the advisor note budget, headless-browser tab freezing and idle
+ * close (`browser.freezeOnTurnEnd`, `browser.idleCloseSec`,
+ * `advisor.maxNotesPerUpdate`), and a pooled-turn yield contract in
+ * `agent-session.ts`. The four changed `modes/components` files are the
+ * advisor config, model browser, model hub and usage dashboard.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.1.14 (root `node_modules`), verified from an isolated
- * `runtime/omp-18.1.14/` install before the root tree moved.
+ * The gate pin is 18.1.15 (root `node_modules`), verified from an isolated
+ * `runtime/omp-18.1.15/` install before the root tree moved.
  * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3,
- * 18.1.4 and 18.1.10 sources snapshotted under `runtime/omp-18.1.3/`,
- * `runtime/omp-18.1.4/` and `runtime/omp-18.1.10/` for the same reason. The
- * fingerprint facts above come from the surface audit in
+ * 18.1.4, 18.1.10 and 18.1.14 sources snapshotted under `runtime/omp-18.1.3/`,
+ * `runtime/omp-18.1.4/`, `runtime/omp-18.1.10/` and `runtime/omp-18.1.14/` for
+ * the same reason. The fingerprint facts above come from the surface audit in
  * `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md`, the per-file semantic diff in
  * `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`, and the pin-move records in
  * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md`,
  * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md`,
- * `runtime/omp-18.1.10/PIN-MOVE-18.1.10.md` and
- * `runtime/omp-18.1.14/PIN-MOVE-18.1.14.md`.
+ * `runtime/omp-18.1.10/PIN-MOVE-18.1.10.md`,
+ * `runtime/omp-18.1.14/PIN-MOVE-18.1.14.md` and
+ * `runtime/omp-18.1.15/PIN-MOVE-18.1.15.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify
