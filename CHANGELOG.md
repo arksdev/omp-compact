@@ -19,7 +19,23 @@
 
 ---
 
-## 1.2.7 — 3 сентября 2026
+## 1.2.8 — 11 сентября 2026
+
+### Исправлено
+
+- История снова доступна во время работы агента. Пока идёт один длинный ход, строки завершённых вызовов уходят в обычную прокрутку терминала — вместе с предыдущими ходами и вашим собственным запросом. Раньше весь ход держался в живой области, и один незавершённый блок в его начале запирал всё, что выше: видно было только то, что уместилось на экране, а проскроллить к прошлым записям удавалось лишь после конца хода. Это была регрессия перехода на транскрипт OMP 18.0.1: там построчный учёт живой области заменили состоянием целого блока, а условие «строка ещё может измениться» осталось прежним. Сворачивание строк в конце хода сохранилось во всех режимах.
+
+### Изменено
+
+- Хост-пин переехал с 18.1.15 на 18.1.17. Изменено 77 путей агента и три файла `pi-tui`; добавлены экспериментальное управление контекстом через заметки, автосохранение планов, условия `/loop` и Vim-режим редактора, ничего не удалено. Критическая поверхность плагина не сдвинулась: контейнер транскрипта, карточка инструмента, группа чтений, composer, роутер, keybindings и скопированные внутренние контракты побайтово те же; 13 проб методов и их arity прошли. В `pi-tui` отдельно проверен отзыв опубликованной истории: `resetDisplay()` сохранил arity 0 и единственный `\x1b[3J`. Из-за исчерпанного лимита провайдера живой smoke дошёл только до запуска TUI; путь прокрутки проверен двумя интеграционными canary-тестами против реального контейнера 18.1.17.
+
+### Fixed
+
+- Open-turn history is reachable again. While one long turn runs, settled call rows retire into normal terminal scrollback — together with earlier turns and your own prompt. Previously the whole turn was held live, and one unfinished block at its head locked everything above it: only the rows fitting the screen were visible, and past entries were scrollable only after the turn ended. This was a regression of the 18.0.1 transcript migration, where per-row live accounting was replaced with whole-block state while the "row may still change" condition stayed. End-of-turn collapsing is preserved in every mode.
+
+### Changed
+
+- Host pin moved from 18.1.15 to 18.1.17. 77 agent paths and three `pi-tui` files changed; notes-backed experimental context management, plan autosave, `/loop` conditions and Vim editing added, nothing removed. The plugin's critical surface did not move: transcript container, tool card, read group, composer, router, keybindings and copied internal contracts are byte-identical; 13 method and arity probes passed. The published-history retraction was checked separately in `pi-tui`: `resetDisplay()` keeps arity 0 and the single `\x1b[3J`. Provider quota exhaustion limited the live smoke to TUI startup; the scroll path is covered by two integration canary tests against the real 18.1.17 container.
 
 ### Исправлено
 
