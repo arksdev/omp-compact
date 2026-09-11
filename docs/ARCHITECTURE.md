@@ -750,18 +750,18 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `StockHostAdapter.hostVersion` (`18.1.15`) records the
+  `StockHostAdapter.hostVersion` (`18.1.17`) records the
   **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
   hosts. Neither string is a runtime gate — every decision is a live
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.1.15.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.1.17.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.1.15 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.1.17 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -826,9 +826,16 @@ The host-supplied agent directory and the live session `Settings` object sit
   release adds an in-place resize transaction for Warp behind
   `PI_TUI_RESIZE_IN_PLACE`, while `resetDisplay()` is unchanged and remains the
   sole `\x1b[3J` emitter, so the scrollback-clearing replay still retracts a
-  published row. Compatibility is judged by changed files, never by diff size.
-  So the floor stays at `>=18.0.1` while the gate pin follows the newest
-  release.
+  published row. 18.1.17 crosses 18.1.16 in 77 changed agent paths. It adds
+  notes-backed experimental context management, plan autosave, loop conditions
+  and Vim editing, but leaves the container, composer, tool card, read group,
+  activity component, router, keybindings and copied host internals
+  byte-identical. The changed event controller only refreshes the idle
+  compaction timer; stock read output now sanitizes display lines. `pi-tui`
+  adds Vim/editor history and cursor-shape support while keeping
+  `resetDisplay()` at arity zero and the sole `\x1b[3J` scrollback erase intact.
+  Compatibility is judged by changed files, never by diff size. So the floor
+  stays at `>=18.0.1` while the gate pin follows the newest release.
 
 - **Rows retire, blocks fill the screen.** The container retires history by
   rows, but its pressure fallback keys on block count: past the transcript

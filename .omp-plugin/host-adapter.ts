@@ -257,7 +257,7 @@ export class StockHostAdapter {
 	 * independent release metadata. See host-surface.ts module header
 	 * "Version story".
 	 */
-	static readonly hostVersion = "18.1.15";
+	static readonly hostVersion = "18.1.17";
 
 	readonly #root: unknown;
 
