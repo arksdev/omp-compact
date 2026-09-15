@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `StockHostAdapter.hostVersion` (`"18.1.17"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.2.0"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
@@ -163,16 +163,24 @@
  * are byte-identical, `resetDisplay()` keeps arity zero, and `tui.ts` still
  * has exactly one `\x1b[3J` saved-scrollback erase. All 13 patch-surface
  * probes keep their measured arities.
+ * 18.2.0 is a minor version bump (237 changed paths in `pi-coding-agent/src`,
+ * 5 in `pi-tui/src`). It adds speculative execution, collab, inline mouse
+ * click-to-focus on subagents (`tui.mouse`), and prompt caching instructions.
+ * All 8 patched methods on `TranscriptContainer` and all 8 on `ToolExecutionComponent`
+ * remain completely intact with identical signatures and arities. `ReadToolGroupComponent`,
+ * `ToolActivityComponent`, `router.ts`, `shake-types.ts`, `keybindings.ts` and both
+ * modules imported by path are byte-identical. `pi-tui` keeps `resetDisplay()`
+ * byte-identical and retains the single `\x1b[3J` scrollback erase.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.1.17 (root `node_modules`), verified from an isolated
- * `runtime/omp-18.1.17/` install before the root tree moved.
+ * The gate pin is 18.2.0 (root `node_modules`), verified from an isolated
+ * `runtime/omp-18.2.0/` install before the root tree moved.
  * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3,
- * 18.1.4, 18.1.10, 18.1.14 and 18.1.15 sources snapshotted under their
+ * 18.1.4, 18.1.10, 18.1.14, 18.1.15 and 18.1.17 sources snapshotted under their
  * matching `runtime/omp-<version>/` directories for the same reason. The
  * fingerprint facts above come from the surface audit in
  * `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md`, the per-file semantic diff in
@@ -181,8 +189,9 @@
  * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md`,
  * `runtime/omp-18.1.10/PIN-MOVE-18.1.10.md`,
  * `runtime/omp-18.1.14/PIN-MOVE-18.1.14.md`,
- * `runtime/omp-18.1.15/PIN-MOVE-18.1.15.md` and
- * `runtime/omp-18.1.17/PIN-MOVE-18.1.17.md`.
+ * `runtime/omp-18.1.15/PIN-MOVE-18.1.15.md`,
+ * `runtime/omp-18.1.17/PIN-MOVE-18.1.17.md` and
+ * `runtime/omp-18.2.0/PIN-MOVE-18.2.0.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify
@@ -190,7 +199,7 @@
  * require the activity method; their compact rows still fail open to native when
  * content extraction fails.
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.1.17 pin and resolved via live capability probes on the instance;
+ * the 18.2.0 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.
