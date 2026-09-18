@@ -32,7 +32,7 @@ import type {
 	RenderableBlock,
 	TranscriptHost,
 } from "../../.omp-plugin/transcript-fold";
-import { loadStockHost, stockHostVersion } from "./test-stock-host";
+import { loadStockHost } from "./test-stock-host";
 
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;
@@ -837,10 +837,6 @@ describe("capability fingerprints", () => {
 		expect(leafCapabilities(null).kind).toBe("none");
 		expect(leafCapabilities(undefined).render).toBe(false);
 	});
-
-	test("the host release pin targets OMP 18.2.0", () => {
-		expect(StockHostAdapter.hostVersion).toBe("18.2.0");
-	});
 });
 
 describe("OMP 17.4.0 argument positions", () => {
@@ -1242,7 +1238,7 @@ describe("StockHostAdapter exact-instance patching", () => {
 	});
 });
 
-stockTest("stock 18.2.0 host capability canary", async () => {
+stockTest("stock host capability canary", async () => {
 	const host = await loadStockHost();
 	const transcript = new host.TranscriptContainer();
 	await host.initTheme();
@@ -1283,12 +1279,10 @@ stockTest("stock 18.2.0 host capability canary", async () => {
 	// leaves, exactly like a background-completion notice.
 	expect(isBackgroundCompletionBlock(tool)).toBe(false);
 	expect(isBackgroundCompletionBlock(readGroup)).toBe(false);
-	// Version last: a pin mismatch must not blind the seam probes above.
-	expect(stockHostVersion()).toBe("18.2.0");
 });
 
 stockTest(
-	"stock 18.2.0 transcript forwards activity visibility to new children",
+	"stock transcript forwards activity visibility to new children",
 	async () => {
 		const host = await loadStockHost();
 		const transcript = new host.TranscriptContainer();

@@ -9,9 +9,9 @@
  * `@oh-my-pi/*` in its root `node_modules`), and isolated generated
  * settings/config state under `.omp-compact-test`.
  *
- * The component instance interfaces mirror the pinned OMP 17.4.2 declarations
- * (`node_modules/@oh-my-pi/pi-coding-agent/dist/types/modes/components/*`)
- * so the test boundary is the same API the plugin adapts, not a hand-copied
+ * The component instance interfaces mirror the stock host declarations
+ * in pi-coding-agent and pi-tui so the test boundary is the same API the
+ * plugin adapts, not a hand-copied
  * subset: `ToolExecutionComponent`'s ctor takes an optional `toolCallId`,
  * `ReadToolGroupComponent` exposes `setExpanded`/`setArgsComplete`, and
  * `TranscriptContainer` exposes `clear`, the viewport render, live row
@@ -20,7 +20,13 @@
  *
  * Test scaffolding only — no production code is imported at module load.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -137,8 +143,17 @@ export interface HostModules {
 		excludeFromContext?: boolean,
 		language?: string,
 	) => object;
-	SkillMessageComponent: new (message: unknown) => object;
-	LateDiagnosticsMessageComponent: new (files: readonly unknown[]) => object;
+	SkillMessageComponent: new (
+		message: unknown,
+	) => Renderable & {
+		setExpanded(expanded: boolean): void;
+	};
+	LateDiagnosticsMessageComponent: new (
+		files: readonly unknown[],
+	) => Renderable & {
+		setExpanded(expanded: boolean): void;
+		setToolActivityVisible(visible: boolean): void;
+	};
 	getTheme: () => {
 		fg(color: string, text: string): string;
 		getFgAnsi(color: string): string;
@@ -230,6 +245,14 @@ export async function loadStockPlugin<T = Record<string, unknown>>(
 export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 	const root = packageRoot();
 	const components = join(root, "src/modes/components");
+	const tuiRoot = join(dirname(root), "pi-tui", "src");
+	// OMP 18.2.5 moved these modules into pi-tui; older hosts keep them in
+	// pi-coding-agent. Select paths without hiding failures inside a module.
+	const moduleUrl = (legacyPath: string, tuiPath: string): string => {
+		const currentPath = join(tuiRoot, tuiPath);
+		return pathToFileURL(existsSync(currentPath) ? currentPath : legacyPath)
+			.href;
+	};
 	const [
 		componentModule,
 		themeModule,
@@ -242,16 +265,46 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		skillMessageModule,
 		lateDiagnosticsModule,
 	] = await Promise.all([
-		import(pathToFileURL(join(components, "tool-execution.ts")).href),
-		import(pathToFileURL(join(root, "src/modes/theme/theme.ts")).href),
-		import(pathToFileURL(join(components, "read-tool-group.ts")).href),
-		import(pathToFileURL(join(components, "transcript-container.ts")).href),
-		import(pathToFileURL(join(components, "ttsr-notification.ts")).href),
-		import(pathToFileURL(join(components, "todo-reminder.ts")).href),
-		import(pathToFileURL(join(components, "bash-execution.ts")).href),
-		import(pathToFileURL(join(components, "eval-execution.ts")).href),
-		import(pathToFileURL(join(components, "skill-message.ts")).href),
-		import(pathToFileURL(join(components, "late-diagnostics-message.ts")).href),
+		import(
+			moduleUrl(join(components, "tool-execution.ts"), "chat/tool-execution.ts")
+		),
+		import(moduleUrl(join(root, "src/modes/theme/theme.ts"), "theme/theme.ts")),
+		import(
+			moduleUrl(
+				join(components, "read-tool-group.ts"),
+				"chat/read-tool-group.ts",
+			)
+		),
+		import(
+			moduleUrl(
+				join(components, "transcript-container.ts"),
+				"chrome/transcript-container.ts",
+			)
+		),
+		import(
+			moduleUrl(
+				join(components, "ttsr-notification.ts"),
+				"chat/ttsr-notification.ts",
+			)
+		),
+		import(
+			moduleUrl(join(components, "todo-reminder.ts"), "chat/todo-reminder.ts")
+		),
+		import(
+			moduleUrl(join(components, "bash-execution.ts"), "chat/bash-execution.ts")
+		),
+		import(
+			moduleUrl(join(components, "eval-execution.ts"), "chat/eval-execution.ts")
+		),
+		import(
+			moduleUrl(join(components, "skill-message.ts"), "chat/skill-message.ts")
+		),
+		import(
+			moduleUrl(
+				join(components, "late-diagnostics-message.ts"),
+				"chat/late-diagnostics-message.ts",
+			)
+		),
 	]);
 	return {
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,

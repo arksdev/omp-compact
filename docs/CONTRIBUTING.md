@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.2.0 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.2.5 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -39,7 +39,7 @@ OMP_STOCK_BIN=./node_modules/.bin/omp bun test docs/tests/component-binding.test
 
 Treat the current command output as authoritative: the gate must come back with zero failures.
 
-CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`): `bun install --frozen-lockfile`, then `bun run check`. The frozen lockfile is the part a local run cannot reproduce — a warm `node_modules` hides a drift between `bun.lock` and `package.json`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.1.14; `host-env-guard.test.ts` fails the run when that variable is missing, because bare `bun test …` without it reports every stock-host-dependent test as skipped and still exits zero.
+CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`): `bun install --frozen-lockfile`, then `bun run check`. The frozen lockfile is the part a local run cannot reproduce — a warm `node_modules` hides a drift between `bun.lock` and `package.json`. The `test` script sets `OMP_STOCK_BIN=./node_modules/.bin/omp` so stock-host integration, replay, and the host capability canaries actually execute against pinned OMP 18.2.5; `host-env-guard.test.ts` fails the run when that variable is missing, because bare `bun test …` without it reports every stock-host-dependent test as skipped and still exits zero.
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -543,7 +543,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.2.0
+4. Manual smoke test on OMP 18.2.5
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -685,9 +685,9 @@ cd ../.. && OMP_STOCK_BIN=./runtime/omp-<version>/node_modules/.bin/omp \
 ```
 
 This executes the stock-host tests against the candidate host without moving the root
-pin. The only expected failure is the hardcoded version assertion in
-`docs/tests/host-adapter.test.ts` (`stockHostVersion()` pin); any other failure is a real
-regression.
+pin. A version difference produces a warning from the patch-surface canary, not an
+expected test failure. Investigate every failing behavioral check; when an optional
+host capability disappears, verify native fallback instead of bypassing the check.
 
 Run `docs/tests/host-patch-surface.test.ts` as the live arity/presence guard: it catches a
 missing method or a changed `Function.prototype.length` on the patched surface. It cannot
@@ -703,9 +703,10 @@ historical pending rows intentionally does not stamp.
 - Root `package.json` devDependency and `bun.lock` (via `bun install`).
 - `StockHostAdapter.hostVersion` in `.omp-plugin/host-adapter.ts`.
 - The version story comment block in `.omp-plugin/host-surface.ts`.
-- The host version assertions in `docs/tests/host-adapter.test.ts` and
-  `docs/tests/marketplace.test.ts`.
-- `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`.
+- `BASELINE_HOST_VERSION` and the measured-arity provenance in
+  `docs/tests/host-patch-surface.test.ts`, after running the live canaries.
+- Behavioral coverage in `docs/tests/host-adapter.test.ts`; keep the public support
+  floor checks in `docs/tests/marketplace.test.ts` separate from the development pin.
 - Prose pins in `docs/CONTRIBUTING.md`, `docs/ARCHITECTURE.md`,
   `docs/FULL-DOCUMENTATION.md`, `README.md`, `README.en.md`.
 - The provenance comments in `.omp-plugin/display-cycle.ts` and

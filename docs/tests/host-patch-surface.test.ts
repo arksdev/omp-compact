@@ -46,13 +46,13 @@ const stockTest = binary ? test : test.skip;
  * for the patched surface, so a host bump must either keep the surface
  * identical or trip here — before the defects reach a session.
  */
-const VERIFIED_HOST_VERSION = "18.2.0";
+const BASELINE_HOST_VERSION = "18.2.5";
 
 /**
  * Method arity measured on the live host.
  *
  * Verbatim numbers checked against both 18.0.8 and 18.0.10 (probe of the
- * real prototypes), and re-checked on the 18.2.0 pin (arities unchanged).
+ * real prototypes), and re-checked on the 18.2.5 pin (arities unchanged).
  * `updateResult` is 1, not 3: the host's `isPartial`
  * parameter has a default, so `Function.prototype.length` stops before it —
  * do not "fix" it to 3.
@@ -190,9 +190,9 @@ const EXECUTION_UI = {
 describe("live host patch surface", () => {
 	stockTest("host version drift warns instead of failing", () => {
 		const version = stockHostVersion();
-		if (version !== VERIFIED_HOST_VERSION) {
+		if (version !== BASELINE_HOST_VERSION) {
 			console.warn(
-				`[host-patch-surface] live host is ${version}, surface verified against ${VERIFIED_HOST_VERSION}. ` +
+				`[host-patch-surface] live host is ${version}, suite baseline is ${BASELINE_HOST_VERSION}. ` +
 					"Run the host-bump checklist (docs/CONTRIBUTING.md) and re-measure the arities before shipping.",
 			);
 		}
@@ -272,9 +272,10 @@ describe("live host patch surface", () => {
  * silently renders the stock card. The session looks intact; the compact
  * presentation is gone.
  *
- * These tests construct the real components and assert the fingerprint
- * matches AND the scrape recovers the values that were passed in. A host
- * bump that changes either half turns red here.
+ * These tests require recovery where public data is available. OMP 18.2.5
+ * made skill messages and diagnostic files private; those optional cards
+ * must reject extraction and retain native rendering, covered by the real
+ * adapter integration in presentation-patches.integration.test.ts.
  *
  * Expected values come from a probe of the live 18.0.10 host, not from
  * reading the plugin: `injectRulesFromTtsrComponent` returns the rule name
@@ -341,36 +342,53 @@ describe("live scraped-leaf canary", () => {
 		});
 	});
 
-	stockTest("skill card: fingerprint and details recovery", async () => {
-		const host = await loadStockHost();
-		await host.initTheme();
-		// customType pins the host's SKILL_PROMPT_MESSAGE_TYPE literal
-		// (session/messages.ts): both the predicate and the scrape reject
-		// anything else, so a renamed constant must fail here.
-		const block = new host.SkillMessageComponent({
-			customType: "skill-prompt",
-			details: { name: "pdf", path: "/s/pdf", lineCount: 12 },
-		});
-		expect(isSkillMessageComponent(block)).toBe(true);
-		expect(skillMessageFromComponent(block)).toEqual({
-			name: "pdf",
-			path: "/s/pdf",
-			lineCount: 12,
-		});
-	});
+	stockTest(
+		"skill card: public details recovery or private-data fallback",
+		async () => {
+			const host = await loadStockHost();
+			await host.initTheme();
+			// customType pins the host's SKILL_PROMPT_MESSAGE_TYPE literal
+			// (session/messages.ts): both the predicate and the scrape reject
+			// anything else, so a renamed constant must fail here.
+			const block = new host.SkillMessageComponent({
+				customType: "skill-prompt",
+				content: "Skill prompt body",
+				details: { name: "pdf", path: "/s/pdf", lineCount: 12 },
+			});
+			if (!("message" in block)) {
+				expect(isSkillMessageComponent(block)).toBe(false);
+				expect(skillMessageFromComponent(block)).toBeUndefined();
+				return;
+			}
+			expect(isSkillMessageComponent(block)).toBe(true);
+			expect(skillMessageFromComponent(block)).toEqual({
+				name: "pdf",
+				path: "/s/pdf",
+				lineCount: 12,
+			});
+		},
+	);
 
-	stockTest("late diagnostics: fingerprint and files recovery", async () => {
-		const host = await loadStockHost();
-		await host.initTheme();
-		const block = new host.LateDiagnosticsMessageComponent([
-			{ summary: "a.ts: 1 error", messages: ["a.ts:1 boom"], errored: true },
-		]);
-		expect(isLateDiagnosticsMessageComponent(block)).toBe(true);
-		expect(lateDiagnosticsFromComponent(block)).toEqual({
-			errored: true,
-			count: 1,
-			summary: "a.ts: 1 error",
-			firstMessage: "a.ts:1 boom",
-		});
-	});
+	stockTest(
+		"late diagnostics: public files recovery or private-data fallback",
+		async () => {
+			const host = await loadStockHost();
+			await host.initTheme();
+			const block = new host.LateDiagnosticsMessageComponent([
+				{ summary: "a.ts: 1 error", messages: ["a.ts:1 boom"], errored: true },
+			]);
+			if (!("files" in block)) {
+				expect(isLateDiagnosticsMessageComponent(block)).toBe(false);
+				expect(lateDiagnosticsFromComponent(block)).toBeUndefined();
+				return;
+			}
+			expect(isLateDiagnosticsMessageComponent(block)).toBe(true);
+			expect(lateDiagnosticsFromComponent(block)).toEqual({
+				errored: true,
+				count: 1,
+				summary: "a.ts: 1 error",
+				firstMessage: "a.ts:1 boom",
+			});
+		},
+	);
 });

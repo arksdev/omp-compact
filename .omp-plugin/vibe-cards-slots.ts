@@ -1,5 +1,4 @@
-import type { ThemeColor } from "@oh-my-pi/pi-coding-agent/modes/theme/schema";
-import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { Theme, ThemeColor } from "@oh-my-pi/pi-coding-agent";
 
 import { codePointLength, truncateCodePoints } from "./compact";
 import { stripRejectedControls } from "./display-control";
