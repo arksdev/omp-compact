@@ -6,6 +6,11 @@
 
 ## Разработка
 
+### Добавлено / Added
+
+- Настройка `compactAdvisorNotes` сворачивает заметки советника `nit` и `concern` в короткие строки. По умолчанию выключена; включается через `Advisor nit/concern` в `/compact-settings`. Карточки с `blocker`, неизвестными или неоднозначными данными остаются штатными. Разворачивание возвращает полный текст; содержимое сессии и доставка заметок не меняются.
+- Add the opt-in `compactAdvisorNotes` setting, exposed as `Advisor nit/concern` in `/compact-settings`. Eligible notes become compact rows; blocker, unknown and ambiguous cards stay native. Expansion restores full text. Live and restored cards use the same display-only policy without changing session content or advisor delivery.
+
 ### Изменено
 
 - Хост-пин переехал с 18.1.4 на 18.1.10 (пять релизов за один шаг). Впервые с 18.1.1 исходники хоста не идентичны побайтово: 356 изменённых путей — движок правок уехал в нативный код, появились реакции агента, ссылки в сообщениях и workpool. Ни один контракт, на котором держится плагин, не изменился: id по-прежнему приезжает третьим параметром результата, карточки создаются в порядке вызовов, правило отложенной карточки чтения и роутер внутренних ссылок побайтово те же, а `session.shake()` так же не сообщает о себе событием. Правок в плагине не потребовалось.

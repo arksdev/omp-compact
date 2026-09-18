@@ -92,6 +92,11 @@ export interface ToolExecutionComponentOptions {
 	showCompletedActivity?: () => boolean;
 }
 
+export interface HostTheme {
+	fg(color: string, text: string): string;
+	getFgAnsi(color: string): string;
+}
+
 export interface HostModules {
 	plugin: (pi: unknown) => void;
 	ToolExecutionComponent: new (
@@ -107,6 +112,11 @@ export interface HostModules {
 		showContentPreview?: boolean;
 	}) => ReadGroupInstance;
 	TranscriptContainer: new () => TranscriptInstance;
+	createAdvisorMessageCard: (
+		details: unknown,
+		getExpanded: () => boolean,
+		theme: HostTheme,
+	) => Renderable & { invalidate(): void };
 	ContainerBase: new () => {
 		addChild(child: unknown): void;
 		render(width: number): readonly string[];
@@ -139,10 +149,7 @@ export interface HostModules {
 	) => object;
 	SkillMessageComponent: new (message: unknown) => object;
 	LateDiagnosticsMessageComponent: new (files: readonly unknown[]) => object;
-	getTheme: () => {
-		fg(color: string, text: string): string;
-		getFgAnsi(color: string): string;
-	};
+	getTheme: () => HostTheme;
 	initTheme: () => Promise<void>;
 	/** `/theme` swap on the same theme module instance `getTheme()` reads. */
 	setTheme: (name: string) => Promise<{ success: boolean; error?: string }>;
@@ -241,6 +248,7 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		evalExecutionModule,
 		skillMessageModule,
 		lateDiagnosticsModule,
+		advisorMessageModule,
 	] = await Promise.all([
 		import(pathToFileURL(join(components, "tool-execution.ts")).href),
 		import(pathToFileURL(join(root, "src/modes/theme/theme.ts")).href),
@@ -252,11 +260,13 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		import(pathToFileURL(join(components, "eval-execution.ts")).href),
 		import(pathToFileURL(join(components, "skill-message.ts")).href),
 		import(pathToFileURL(join(components, "late-diagnostics-message.ts")).href),
+		import(pathToFileURL(join(components, "advisor-message.ts")).href),
 	]);
 	return {
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,
 		ReadToolGroupComponent: readGroupModule.ReadToolGroupComponent,
 		TranscriptContainer: transcriptModule.TranscriptContainer,
+		createAdvisorMessageCard: advisorMessageModule.createAdvisorMessageCard,
 		TtsrNotificationComponent: ttsrModule.TtsrNotificationComponent,
 		TodoReminderComponent: todoReminderModule.TodoReminderComponent,
 		BashExecutionComponent: bashExecutionModule.BashExecutionComponent,

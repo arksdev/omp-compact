@@ -142,6 +142,34 @@ describe("defaults", () => {
 		]);
 	});
 
+	test("advisor compaction is opt-in and accepts boolean preferences", () => {
+		const warnings: string[] = [];
+		const warn = (message: string) => warnings.push(message);
+		expect(normalizeSettings({ version: 1 }, warn).compactAdvisorNotes).toBe(
+			false,
+		);
+		expect(
+			normalizeSettings({ compactAdvisorNotes: true }, warn)
+				.compactAdvisorNotes,
+		).toBe(true);
+		expect(
+			normalizeSettings({ compactAdvisorNotes: false }, warn)
+				.compactAdvisorNotes,
+		).toBe(false);
+		expect(warnings).toEqual([]);
+	});
+
+	test("invalid advisor compaction falls back off with a field diagnostic", () => {
+		const warnings: string[] = [];
+		const normalized = normalizeSettings(
+			{ compactAdvisorNotes: "true" },
+			(message) => warnings.push(message),
+		);
+		expect(normalized.compactAdvisorNotes).toBe(false);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0]).toContain("compactAdvisorNotes");
+	});
+
 	test("a config file without displayCycleKey keeps the default chord", () => {
 		// Files written before the shortcut existed carry no key at all: the
 		// per-field fallback must yield the working default rather than an
@@ -1419,6 +1447,9 @@ describe("persistence is atomic", () => {
 		await store.load();
 		await expect(store.update({ mode: "bogus" as never })).rejects.toThrow();
 		await expect(
+			store.update({ compactAdvisorNotes: "true" as never }),
+		).rejects.toThrow("compactAdvisorNotes");
+		await expect(
 			store.update({ autoShake: { thresholdTokens: -1 } }),
 		).rejects.toThrow();
 		await expect(
@@ -1491,6 +1522,36 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		expect(raw.compactVibeRows).toBe(false);
 		expect(raw.compactPaths).toBe(false);
 		expect(raw.retainGitLive).toBe(DEFAULT_SETTINGS.retainGitLive);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("advisor opt-in survives stale saves while preserving unknown fields", async () => {
+		const dir = await tempDir();
+		const path = join(dir, "omp-compact", "config.json");
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			path,
+			JSON.stringify({ version: 1, futureSetting: { keep: "unchanged" } }),
+		);
+		const { a, b } = await twoStores(dir);
+		const observed: boolean[] = [];
+		a.store.subscribe((settings) =>
+			observed.push(settings.compactAdvisorNotes),
+		);
+		const effective = await a.store.update({ compactAdvisorNotes: true });
+		expect(effective.compactAdvisorNotes).toBe(true);
+		expect(a.store.snapshot().compactAdvisorNotes).toBe(true);
+		expect(observed).toEqual([true]);
+		await b.store.update({ ...b.store.snapshot(), compactPaths: false });
+		expect(await a.store.load()).toMatchObject({
+			compactAdvisorNotes: true,
+			compactPaths: false,
+		});
+		expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+			compactAdvisorNotes: true,
+			compactPaths: false,
+			futureSetting: { keep: "unchanged" },
+		});
 		await rm(dir, { recursive: true, force: true });
 	});
 

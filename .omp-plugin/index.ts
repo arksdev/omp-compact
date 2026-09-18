@@ -170,7 +170,7 @@ function adapterUI(context: ExtensionContext, root: unknown): AdapterUI {
 		requestComponentRender: requestMethod(root, "requestComponentRender"),
 		getToolsExpanded:
 			typeof ui.getToolsExpanded === "function"
-				? () => ui.getToolsExpanded?.() ?? false
+				? () => ui.getToolsExpanded?.()
 				: undefined,
 	};
 }
@@ -320,6 +320,12 @@ export default function ompCompact(pi: ExtensionAPI): void {
 							}
 						},
 					});
+					if (
+						initial.compactAdvisorNotes !== next.compactAdvisorNotes ||
+						initial.enabled !== next.enabled
+					) {
+						adapter?.refreshAdvisorPresentation();
+					}
 				},
 				warn: (message) => {
 					try {
@@ -563,6 +569,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				// RuntimeModes: the adapter snapshots mode per ledger at run
 				// boundaries; rendering consults the frozen snapshot only.
 				modePolicy,
+				compactAdvisorNotes: () =>
+					settingsStore.snapshot().enabled &&
+					settingsStore.snapshot().compactAdvisorNotes,
 				// Construction-time sessionManager reference from this event's
 				// ExtensionContext — never a global settings/session lookup.
 				// Methods on that manager stay live (getBranch/getCwd mutate in
@@ -908,6 +917,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// object is a legitimate completion and counts once.
 	listen("message_end", async (event) => {
 		const message = objectRecord(event.message);
+		adapter?.observeAdvisorMessage(message);
 		if (message.role !== "assistant") return;
 		if (!hasAssistantUsage(message)) return;
 		runStats.observeAssistantMessage(message);

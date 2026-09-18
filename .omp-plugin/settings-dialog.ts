@@ -100,6 +100,7 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	compactPaths: "Renders paths relative to the session cwd",
 	retainGitLive: "Keeps Git commit rows after the terminal answer",
 	compactVibeRows: "Compact rows for vibe tools",
+	compactAdvisorNotes: "Compact nit/concern advisor notes; blockers stay full",
 	displayCycleKey: "Chord cycling compact / live / clear / off (needs restart)",
 	"autoShake.enabled": "Shakes the log after a successful answer",
 	"autoShake.thresholdTokens": "Shakes once the run passes this many tokens",
@@ -213,6 +214,7 @@ export class SettingsDialog implements ComponentLike {
 			draft.retainGitLive !== initial.retainGitLive ||
 			draft.compactPaths !== initial.compactPaths ||
 			draft.compactVibeRows !== initial.compactVibeRows ||
+			draft.compactAdvisorNotes !== initial.compactAdvisorNotes ||
 			draft.displayCycleKey !== initial.displayCycleKey ||
 			draft.stats.enabled !== initial.stats.enabled ||
 			draft.stats.actions !== initial.stats.actions ||
@@ -302,6 +304,15 @@ export class SettingsDialog implements ComponentLike {
 				() => draft.compactVibeRows,
 				(v) => {
 					draft.compactVibeRows = v;
+				},
+				GROUP_DISPLAY,
+			),
+			toggle(
+				"compactAdvisorNotes",
+				"Advisor nit/concern",
+				() => draft.compactAdvisorNotes,
+				(v) => {
+					draft.compactAdvisorNotes = v;
 				},
 				GROUP_DISPLAY,
 			),

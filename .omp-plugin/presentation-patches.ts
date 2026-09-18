@@ -47,6 +47,8 @@ export class PresentationPatches {
 	readonly skillExpandState = new WeakMap<object, ExpandObservedState>();
 	/** Exact-instance late-diagnostics render overrides (not fold-owned). */
 	readonly lateDiagnostics = new Map<object, DescriptorPatch>();
+	/** Exact-instance advisor render overrides, deliberately not fold-owned. */
+	readonly advisor = new Map<object, DescriptorPatch>();
 	readonly lateDiagnosticsExpandState = new WeakMap<
 		object,
 		ExpandObservedState
@@ -63,6 +65,7 @@ export class PresentationPatches {
 		this.userExecution,
 		this.skill,
 		this.lateDiagnostics,
+		this.advisor,
 	];
 
 	/** Restore and clear every per-component registry (detach and dispose). */
