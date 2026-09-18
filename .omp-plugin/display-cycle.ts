@@ -1,4 +1,4 @@
-import { KEYBINDINGS } from "@oh-my-pi/pi-coding-agent/config/keybindings";
+import { KEYBINDINGS } from "@oh-my-pi/pi-coding-agent";
 
 import type { CompactMode } from "./config";
 

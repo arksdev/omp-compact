@@ -8,10 +8,6 @@
  * function is a pure `args → ToolDescription` (or `result → meta`) mapping
  * that never touches the filesystem.
  */
-// External dependency: parseXdUrl from @oh-my-pi/pi-coding-agent. The device-URL
-// grammar (trim, case-insensitive prefix, `/?#` rejection, bare-root form) must
-// not drift from the stock router that actually dispatches these calls.
-import { parseXdUrl } from "@oh-my-pi/pi-coding-agent/internal-urls/xd-protocol";
 import {
 	editPathsFromInput,
 	genericToolDescription,
@@ -113,17 +109,19 @@ const TEXT_DEVICES: Readonly<Partial<Record<string, TextDevicePresentation>>> =
 const MAX_DEVICE_CONTENT = 65_536;
 
 /**
- * Device name of an `xd://<device>` write, or `undefined` when the target is
- * an ordinary path. `parseXdUrl` is the stock grammar: `null` for a non-device
- * or malformed URL, `name: null` for the bare `xd://` root — both stay
- * `undefined` here, so an unrecognized target keeps plain write presentation.
+ * Device name of an `xd://<device>` write, or `undefined` for ordinary paths,
+ * malformed URLs, and the bare root. Matches OMP 18.2.5's pi-tui/tools/xd-url
+ * grammar; that module is not exposed by the compiled host.
  */
 export function writeDeviceName(
 	value: Record<string, unknown>,
 ): string | undefined {
-	const path = stringValue(value, "path") || stringValue(value, "file_path");
-	if (!path) return undefined;
-	return parseXdUrl(path)?.name ?? undefined;
+	const path = (
+		stringValue(value, "path") || stringValue(value, "file_path")
+	).trim();
+	if (!path.toLowerCase().startsWith("xd://")) return undefined;
+	const name = path.slice(5);
+	return name.length > 0 && !/[/?#]/.test(name) ? name : undefined;
 }
 
 /**

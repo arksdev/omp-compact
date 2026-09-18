@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import {
 	type CompactSettings,
 	type CompactSettingsStore,
@@ -1351,6 +1351,68 @@ describe("RuntimeSessionState: hydrateBranch", () => {
 		expect(session.activeLedger).toBe(state?.ledger);
 		expect(pendingStates(session)).toEqual([]);
 	});
+
+	test.each([
+		{ label: "blank", text: "\u00a0 \t\r\n", split: false },
+		{
+			label: "dots and ellipses with trimmed Unicode whitespace",
+			text: "\u00a0. \t…\r\n.\u2003",
+			split: false,
+		},
+		{ label: "internal nonbreaking space", text: ".\u00a0…", split: true },
+		{ label: "internal vertical tab", text: ".\v…", split: true },
+		{ label: "visible prose", text: " … working … ", split: true },
+	])(
+		"read grouping follows assistant placeholders: $label",
+		({ text, split }) => {
+			for (const kind of ["text", "thinking"] as const) {
+				const session = makeSession();
+				const first = new FakeToolComponent();
+				const second = split ? new FakeToolComponent() : first;
+				// No observed IDs: hydration must recover the same read segments
+				// as the host, rather than bypassing segmentation via exact-ID binding.
+				session.binding.createGroup(first, false);
+				if (split) session.binding.createGroup(second, false);
+				session.hydrateBranch([
+					{
+						type: "message",
+						message: {
+							role: "assistant",
+							content: [
+								{
+									type: "toolCall",
+									id: "read-a",
+									name: "read",
+									arguments: { path: "src/a.ts" },
+								},
+							],
+							stopReason: "toolUse",
+						},
+					},
+					{
+						type: "message",
+						message: {
+							role: "assistant",
+							content: [
+								kind === "text"
+									? { type: "text", text }
+									: { type: "thinking", thinking: text },
+								{
+									type: "toolCall",
+									id: "read-b",
+									name: "read",
+									arguments: { path: "src/b.ts" },
+								},
+							],
+							stopReason: "toolUse",
+						},
+					},
+				]);
+				expect(session.state("read-a")?.component, kind).toBe(first);
+				expect(session.state("read-b")?.component, kind).toBe(second);
+			}
+		},
+	);
 
 	test("hydrateBranch is a no-op once live states exist", () => {
 		const session = makeSession();

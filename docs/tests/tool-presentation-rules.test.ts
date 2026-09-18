@@ -390,6 +390,21 @@ describe("existing tool descriptions", () => {
 		).toBe("github");
 	});
 
+	test("device URLs trim outside whitespace and preserve device name case", () => {
+		expect(
+			describeTool("write", {
+				path: "\u00a0\tXd://GitHub\r\n",
+				content: '{"op":"repo_view"}',
+			}),
+		).toEqual({ title: "GitHub", description: "repo_view", meta: [] });
+		expect(
+			describeTool("write", {
+				file_path: " XD://github ",
+				content: '{"op":"repo_view"}',
+			}),
+		).toEqual({ title: "github", description: "repo_view", meta: [] });
+	});
+
 	test("a device carrying no operation prints the device name alone", () => {
 		expect(
 			describeTool("write", {
@@ -427,9 +442,14 @@ describe("existing tool descriptions", () => {
 			description: "xd://",
 			meta: [],
 		});
-		expect(describeTool("write", { path: "xd://github/extra" })?.title).toBe(
-			"write",
-		);
+		for (const path of [
+			"xd://github/extra",
+			"xd://github?op=repo_view",
+			"xd://github#fragment",
+			" \tXD://\r\n",
+		]) {
+			expect(describeTool("write", { path })?.title, path).toBe("write");
+		}
 	});
 
 	test("text devices present as resolutions with their own title and color", () => {

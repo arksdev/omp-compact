@@ -1153,3 +1153,66 @@ stockTest(
 		await booted.adapter.dispose();
 	},
 );
+
+stockTest(
+	"real skill and diagnostics cards preserve native fallback when host data is private",
+	async () => {
+		const skill = new host.SkillMessageComponent({
+			customType: "skill-prompt",
+			content: "Native skill prompt body",
+			details: { name: "pdf", path: "/s/pdf", lineCount: 12 },
+		});
+		const late = new host.LateDiagnosticsMessageComponent([
+			{ summary: "a.ts: 1 error", messages: ["a.ts:1 boom"], errored: true },
+		]);
+		const skillCollapsed = [...skill.render(120)];
+		skill.setExpanded(true);
+		const skillExpanded = [...skill.render(120)];
+		skill.setExpanded(false);
+		const lateCollapsed = [...late.render(120)];
+		late.setExpanded(true);
+		const lateExpanded = [...late.render(120)];
+		late.setExpanded(false);
+		expect(stripAnsi(skillExpanded.join("\n"))).toContain(
+			"Native skill prompt body",
+		);
+		expect(stripAnsi(lateExpanded.join("\n"))).toContain("a.ts:1 boom");
+
+		const booted = await bootAdapter();
+		try {
+			booted.transcript.addChild(skill);
+			booted.transcript.addChild(late);
+			if ("message" in skill) {
+				expect(stripAnsi(skill.render(120).join("\n"))).toMatch(/^• skill pdf/);
+			} else {
+				expect(skill.render(120)).toEqual(skillCollapsed);
+			}
+			if ("files" in late) {
+				expect(stripAnsi(late.render(120).join("\n"))).toMatch(
+					/^• late diagnostics/,
+				);
+			} else {
+				expect(late.render(120)).toEqual(lateCollapsed);
+			}
+
+			skill.setExpanded(true);
+			late.setExpanded(true);
+			expect(skill.render(120)).toEqual(skillExpanded);
+			expect(late.render(120)).toEqual(lateExpanded);
+			late.setToolActivityVisible(false);
+			expect(late.render(120)).toEqual([]);
+			late.setToolActivityVisible(true);
+			expect(late.render(120)).toEqual(lateExpanded);
+			skill.setExpanded(false);
+			late.setExpanded(false);
+			if (!("message" in skill)) {
+				expect(skill.render(120)).toEqual(skillCollapsed);
+			}
+			if (!("files" in late)) {
+				expect(late.render(120)).toEqual(lateCollapsed);
+			}
+		} finally {
+			await booted.adapter.dispose();
+		}
+	},
+);

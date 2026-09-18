@@ -1,4 +1,4 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
 import { type Component, truncateToWidth } from "@oh-my-pi/pi-tui";
 
 import type { CompactStatsSettings } from "./config";
