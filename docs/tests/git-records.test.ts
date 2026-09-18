@@ -803,3 +803,59 @@ describe("quiet commit hash attribution", () => {
 		).toBe("git commit -q -F message.txt");
 	});
 });
+
+describe("commit messages and commands with newlines", () => {
+	test("recognizes a commit with a double-quoted multiline message", () => {
+		const command =
+			'git commit -am "feat: add feature\n\nDetailed explanation of the change."';
+		expect(recognizeGitCommands(command)).toEqual([
+			{ subcommand: "commit", gated: false },
+		]);
+		const formatted = formatGitRecords({
+			command,
+			resultText: "[main 1234567] feat: add feature\n 1 file changed",
+			isError: false,
+		});
+		expect(formatted?.[0]?.text).toBe("git commit 1234567 feat: add feature");
+	});
+
+	test("recognizes a commit with a single-quoted multiline message", () => {
+		const command =
+			"git commit -m 'feat: add feature\n\nDetailed explanation.'";
+		expect(recognizeGitCommands(command)).toEqual([
+			{ subcommand: "commit", gated: false },
+		]);
+		const formatted = formatGitRecords({
+			command,
+			resultText: "[main 1234567] feat: add feature\n 1 file changed",
+			isError: false,
+		});
+		expect(formatted?.[0]?.text).toBe("git commit 1234567 feat: add feature");
+	});
+
+	test("recognizes a compound chain containing a multiline commit", () => {
+		const command =
+			'git add src/index.ts && git commit -m "fix: resolve issue\n\nCloses #42" && git push origin main';
+		expect(recognizeGitCommands(command)).toEqual([
+			{ subcommand: "add", gated: false },
+			{ subcommand: "commit", gated: false },
+			{ subcommand: "push", gated: false },
+		]);
+	});
+
+	test("recognizes commands separated by newlines", () => {
+		const command = 'git add .\ngit commit -m "feat: test"';
+		expect(recognizeGitCommands(command)).toEqual([
+			{ subcommand: "add", gated: false },
+			{ subcommand: "commit", gated: false },
+		]);
+	});
+
+	test("recognizes line continuation via backslash-newline", () => {
+		const command = 'git add . && \\\ngit commit -m "feat: test"';
+		expect(recognizeGitCommands(command)).toEqual([
+			{ subcommand: "add", gated: false },
+			{ subcommand: "commit", gated: false },
+		]);
+	});
+});

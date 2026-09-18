@@ -224,7 +224,14 @@ function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 			rawStart = index;
 			continue;
 		}
-		if (character === "\n" || character === "\r") return undefined;
+		if (character === "\n" || character === "\r") {
+			if (tokenStarted || command.length > 0) {
+				if (!finishCommand(index)) return undefined;
+			}
+			index += character === "\r" && source[index + 1] === "\n" ? 2 : 1;
+			rawStart = index;
+			continue;
+		}
 
 		if (character === "'" || character === '"') {
 			if (!tokenStarted) {
@@ -239,7 +246,6 @@ function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 
 			while (index < source.length) {
 				const quoted = source[index];
-				if (quoted === "\n" || quoted === "\r") return undefined;
 				if (quoted === quote) {
 					if (quotedStart < index)
 						appendLiteral(source.slice(quotedStart, index));
@@ -264,8 +270,14 @@ function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 					if (quoted === "`") return undefined;
 					if (quoted === "\\") {
 						const escaped = source[index + 1];
-						if (!escaped || escaped === "\n" || escaped === "\r")
-							return undefined;
+						if (escaped === "\n" || escaped === "\r") {
+							if (quotedStart < index)
+								appendLiteral(source.slice(quotedStart, index));
+							index += escaped === "\r" && source[index + 2] === "\n" ? 3 : 2;
+							quotedStart = index;
+							continue;
+						}
+						if (!escaped) return undefined;
 						if (
 							escaped === '"' ||
 							escaped === "\\" ||
@@ -289,12 +301,18 @@ function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 		}
 
 		if (character === "\\") {
+			const escaped = source[index + 1];
+			if (escaped === "\n" || escaped === "\r") {
+				if (!finishWord(index)) return undefined;
+				index += escaped === "\r" && source[index + 2] === "\n" ? 3 : 2;
+				rawStart = index;
+				continue;
+			}
 			if (!tokenStarted) {
 				tokenStarted = true;
 				rawStart = index;
 			}
-			const escaped = source[index + 1];
-			if (!escaped || escaped === "\n" || escaped === "\r") return undefined;
+			if (!escaped) return undefined;
 			appendRaw(index);
 			appendLiteral(escaped);
 			index += 2;
