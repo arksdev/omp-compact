@@ -14,6 +14,7 @@ Complete reference for all omp-compact settings, config file format, and environ
 - Project-relative paths: on
 - Git summary: on
 - vibe-compact rows: on
+- Compact advisor nit/concern notes: off; blockers stay full
 - Statistics: on (all fields)
 - Auto-shake: off; configured threshold: `120000` tokens
 - Display-cycle shortcut: `alt+c`
@@ -78,6 +79,7 @@ the pinned value instead of claiming a change the environment forbids.
 | **compactPaths** | `true` | Show project-relative paths |
 | **retainGitLive** | `true` | Show Git operations and commit summary |
 | **compactVibeRows** | `true` | Compact rows for the vibe tools (`vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`); `false` restores their stock cards in every mode, including `clear` |
+| **compactAdvisorNotes** | `false` | Condense only advisor `nit` and `concern` notes. Blockers keep their full native display. Changes presentation only, not stored messages or model context |
 | **displayCycleKey** | `"alt+c"` | Chord that cycles the display: compact → live → clear → off → compact. Must be free; a chord OMP already uses is rejected. Changing it needs an OMP restart |
 | **autoShake.enabled** | `false` | Run stock `shake("elide")` after an eligible successful logical run |
 | **autoShake.thresholdTokens** | `120000` | Minimum context usage for auto-shake; `0` means every eligible run |
@@ -105,6 +107,7 @@ the pinned value instead of claiming a change the environment forbids.
   "retainGitLive": true,
   "compactPaths": true,
   "compactVibeRows": true,
+  "compactAdvisorNotes": false,
   "displayCycleKey": "alt+c",
   "stats": {
     "enabled": true,

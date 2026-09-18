@@ -1,4 +1,10 @@
-import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { Theme } from "@oh-my-pi/pi-coding-agent";
+import {
+	ADVISOR_PROBE_WIDTH,
+	AdvisorNotes,
+	isOpaqueAdvisorSurface,
+	renderAdvisorRows,
+} from "./advisor-notes";
 
 import type { DisplayPathOptions } from "./display-path";
 import {
@@ -105,7 +111,7 @@ export interface AdapterUI {
 	// Live tool-output expansion state. Stock pre-sets `setExpanded(...)` on
 	// components before the adapter can wrap them, so the initial expanded
 	// state is read here instead of guessed from the native presentation.
-	getToolsExpanded?(): boolean;
+	getToolsExpanded?(): boolean | undefined;
 }
 
 export interface TimerContext {
@@ -156,6 +162,8 @@ export interface RuntimeAdapterOptions {
 	 * active working ownership and leaves ambiguous surfaces native.
 	 */
 	getBranch?: () => readonly unknown[] | undefined;
+	/** Live display preference, independent of a run's frozen mode. */
+	compactAdvisorNotes?: () => boolean;
 	/**
 	 * Host-invariant failure seam: fired once from `#rollback` after the
 	 * adapter has disposed itself. Index clears its live handle and marks
@@ -198,6 +206,14 @@ export class RuntimeAdapter {
 	 * transcript wrappers and the discovery watcher).
 	 */
 	readonly #patches = new PresentationPatches();
+	readonly #advisorNotes = new AdvisorNotes();
+	readonly #advisorNative = new Map<
+		RenderableBlock,
+		(width: number) => readonly string[]
+	>();
+	readonly #compactAdvisorNotes: (() => boolean) | undefined;
+	#advisorExpanded: boolean | undefined;
+	#advisorTheme: Theme | undefined;
 	#transcript: TranscriptHost | undefined;
 	#fold: TranscriptFold | undefined;
 	#timer: unknown;
@@ -232,6 +248,7 @@ export class RuntimeAdapter {
 		this.#onRunFinalized = options.onRunFinalized;
 		this.#onDisabled = options.onDisabled;
 		this.#getBranch = options.getBranch;
+		this.#compactAdvisorNotes = options.compactAdvisorNotes;
 		this.#session = new RuntimeSessionState({
 			modePolicy: options.modePolicy,
 			displayPaths: options.displayPaths,
@@ -266,6 +283,12 @@ export class RuntimeAdapter {
 	install(): boolean {
 		if (this.#disposed) return false;
 		try {
+			try {
+				this.#advisorNotes.hydrate(this.#getBranch?.() ?? []);
+			} catch {
+				// Missing branch metadata disables only advisor matching.
+				this.#advisorNotes.hydrate([]);
+			}
 			const candidates = this.#host.collectTranscriptCandidates();
 			if (candidates.length > 1)
 				throw new Error("multiple transcript containers");
@@ -288,6 +311,8 @@ export class RuntimeAdapter {
 
 	hydrateBranch(entries: readonly unknown[]): void {
 		if (this.#disposed) return;
+		this.#advisorNotes.hydrate(entries);
+		this.refreshAdvisorPresentation();
 		if (this.#session.hydrateBranch(entries)) {
 			// Schedule one generation-guarded settlement microtask
 			// so a resumed session with committed startup rows replays
@@ -296,6 +321,31 @@ export class RuntimeAdapter {
 			// call).
 			this.#beginSettlement();
 		}
+	}
+
+	/** Structured message metadata arrives before stock inserts its opaque card. */
+	observeAdvisorMessage(message: unknown): void {
+		if (this.#disposed) return;
+		if (this.#advisorNotes.observeMessage(message))
+			this.refreshAdvisorPresentation();
+	}
+
+	/** Repaint live and committed rows after a display-only setting changes. */
+	refreshAdvisorPresentation(): void {
+		if (this.#disposed) return;
+		const hadCards = this.#patches.advisor.size > 0;
+		if (this.#compactAdvisorNotes?.() !== true) {
+			if (!hadCards) return;
+			for (const patch of this.#patches.advisor.values()) patch.restore();
+			this.#patches.advisor.clear();
+			this.#advisorNative.clear();
+			this.#advisorNotes.clearCards();
+		} else {
+			this.#refreshAdvisorCards();
+		}
+		if (!hadCards && this.#patches.advisor.size === 0) return;
+		this.replayCurrentPresentation();
+		this.#ui.requestRender?.();
 	}
 
 	/**
@@ -608,6 +658,9 @@ export class RuntimeAdapter {
 		}
 		this.#fold = undefined;
 		this.#patches.restorePerComponent();
+		this.#advisorNative.clear();
+		this.#advisorNotes.clearCards();
+		this.#advisorNotes.hydrate([]);
 		this.#patches.restoreTranscript();
 		this.#patches.restoreDiscovery();
 		this.#stopSpinner();
@@ -646,6 +699,7 @@ export class RuntimeAdapter {
 		this.#rebuildPending = true;
 		this.#scheduleSettlement(snapshot.generation);
 		this.#detachPresentation();
+		this.#advisorNotes.hydrate([]);
 	}
 
 	/**
@@ -663,6 +717,8 @@ export class RuntimeAdapter {
 			// Fold restoration must not abort the rebuild detach.
 		}
 		this.#patches.restorePerComponent();
+		this.#advisorNative.clear();
+		this.#advisorNotes.clearCards();
 	}
 
 	/** One generation-guarded settlement microtask per boundary. */
@@ -698,6 +754,7 @@ export class RuntimeAdapter {
 				this.#rebuildSnapshot = undefined;
 				if (snapshot) {
 					const branch = this.#getBranch?.();
+					this.#advisorNotes.hydrate(Array.isArray(branch) ? branch : []);
 					// Absent or non-array branch results fail open — the
 					// rebuild keeps only the preserved active working
 					// ownership and leaves ambiguous surfaces native.
@@ -722,6 +779,7 @@ export class RuntimeAdapter {
 					this.#ensureSpinner();
 				}
 			}
+			this.#refreshAdvisorCards();
 			this.replayCurrentPresentation();
 		} catch (error) {
 			this.#rollback(`omp-compact disabled: ${String(error)}`);
@@ -1210,6 +1268,90 @@ export class RuntimeAdapter {
 			this.#patchToolComponent(child);
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
 			this.#ensureSpinner();
+			return;
+		}
+		this.#patchAdvisorCard(child);
+	}
+
+	#refreshAdvisorCards(): void {
+		if (
+			this.#compactAdvisorNotes?.() !== true ||
+			!this.#advisorNotes.hasCandidates
+		)
+			return;
+		const theme = this.#ui.theme;
+		if (!theme || !this.#transcript) return;
+		this.#advisorExpanded = this.#ui.getToolsExpanded?.();
+		this.#advisorTheme = theme;
+		this.#advisorNotes.clearCards();
+		for (const child of this.#transcript.children)
+			this.#patchAdvisorCard(child);
+	}
+
+	#patchAdvisorCard(component: unknown): void {
+		if (
+			this.#compactAdvisorNotes?.() !== true ||
+			!this.#advisorNotes.hasCandidates
+		)
+			return;
+		if (!isOpaqueAdvisorSurface(component)) return;
+		const theme = this.#ui.theme;
+		if (!theme) return;
+		try {
+			const original =
+				this.#advisorNative.get(component) ?? component.render.bind(component);
+			if (
+				!this.#advisorNotes.observeCard(
+					component,
+					original(ADVISOR_PROBE_WIDTH),
+					theme,
+				)
+			)
+				return;
+			if (this.#patches.advisor.has(component)) return;
+			const adapter = this;
+			const patch = new DescriptorPatch(component, ["render"]);
+			patch.install({
+				render: {
+					configurable: true,
+					writable: true,
+					value(width: number): readonly string[] {
+						try {
+							if (
+								adapter.#disposed ||
+								adapter.#rebuildPending ||
+								adapter.#compactAdvisorNotes?.() !== true ||
+								adapter.#ui.getToolsExpanded?.() !== false
+							)
+								return original(width);
+							const liveTheme = adapter.#ui.theme;
+							if (!liveTheme) return original(width);
+							// Expansion changes all native cached cards together. Refresh
+							// their collision index before rendering any compact card.
+							if (
+								adapter.#advisorExpanded !== false ||
+								adapter.#advisorTheme !== liveTheme
+							) {
+								adapter.#refreshAdvisorCards();
+							}
+							const candidate = adapter.#advisorNotes.match(
+								component,
+								original(ADVISOR_PROBE_WIDTH),
+								liveTheme,
+							);
+							if (candidate)
+								return renderAdvisorRows(candidate, liveTheme, width);
+						} catch {
+							// Metadata, theme or host capability skew keeps the stock card.
+						}
+						return original(width);
+					},
+				},
+			});
+			this.#advisorNative.set(component, original);
+			this.#patches.advisor.set(component, patch);
+		} catch {
+			// Opaque component or descriptor skew: no host mutation required.
 		}
 	}
 

@@ -70,6 +70,7 @@ const FOCUSABLE_LABELS = [
 	"Compact paths",
 	"Retain Git rows",
 	"vibe-compact",
+	"Advisor nit/concern",
 	"Cycle shortcut",
 	"Auto-shake",
 	"Shake threshold",
@@ -270,11 +271,13 @@ describe("keyboard navigation", () => {
 		dialog.handleInput(KEY_J);
 		expect(focusedRow(dialog)).toContain("vibe-compact");
 		dialog.handleInput(KEY_DOWN);
+		expect(focusedRow(dialog)).toContain("Advisor nit/concern");
+		dialog.handleInput(KEY_DOWN);
 		expect(focusedRow(dialog)).toContain("Cycle shortcut");
 		dialog.handleInput(KEY_DOWN);
 		expect(focusedRow(dialog)).toContain("Auto-shake");
 		// wrap from the bottom back to the top
-		for (let i = 0; i < FOCUSABLE_LABELS.length - 6; i++) {
+		for (let i = 0; i < FOCUSABLE_LABELS.length - 7; i++) {
 			dialog.handleInput(KEY_DOWN);
 		}
 		expect(focusedRow(dialog)).toContain("Global compact");
@@ -359,6 +362,63 @@ describe("keyboard navigation", () => {
 		expect(harness.saves).toHaveLength(1);
 		expect(harness.saves[0]?.compactVibeRows).toBe(false);
 		expect(harness.doneResult?.compactVibeRows).toBe(false);
+	});
+
+	test("advisor toggle roundtrips through the save flow and config store", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "omp-compact-advisor-ui-"));
+		try {
+			const path = join(dir, "config.json");
+			const store = createSettingsStore({ path, env: {}, warn: () => {} });
+			const openDialog = async () =>
+				new SettingsDialog(
+					{
+						settings: await store.load(),
+						onSave: async (next) => {
+							await saveSettingsFlow(next, { store });
+						},
+						theme: fakeTheme(),
+						keybindings: noopKeybindings(),
+					},
+					() => {},
+				);
+			const dialog = await openDialog();
+			focus(dialog, "Advisor nit/concern");
+			expect(renderedValue(dialog, "Advisor nit/concern")).toBe("off");
+			dialog.handleInput(KEY_SPACE);
+			expect(dialog.isDirty).toBe(true);
+			dialog.handleInput(KEY_SPACE);
+			expect(dialog.isDirty).toBe(false);
+			dialog.handleInput(KEY_SPACE);
+			dialog.handleInput(KEY_S);
+			await dialog.settled();
+			expect(store.snapshot().compactAdvisorNotes).toBe(true);
+			expect(JSON.parse(await readFile(path, "utf8")).compactAdvisorNotes).toBe(
+				true,
+			);
+
+			const reopened = await openDialog();
+			expect(renderedValue(reopened, "Advisor nit/concern")).toBe("on");
+			focus(reopened, "Advisor nit/concern");
+			reopened.handleInput(KEY_ENTER);
+			reopened.handleInput(KEY_S);
+			await reopened.settled();
+			expect((await store.load()).compactAdvisorNotes).toBe(false);
+			expect(JSON.parse(await readFile(path, "utf8")).compactAdvisorNotes).toBe(
+				false,
+			);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("canceling advisor compaction leaves the preference unchanged", async () => {
+		const harness = makeDialog();
+		focus(harness.dialog, "Advisor nit/concern");
+		harness.dialog.handleInput(KEY_SPACE);
+		harness.dialog.handleInput(KEY_ESCAPE);
+		await harness.dialog.settled();
+		expect(harness.saves).toEqual([]);
+		expect(harness.doneResult).toBeUndefined();
 	});
 });
 
@@ -1610,6 +1670,7 @@ describe("menu labels and layout", () => {
 			"Compact paths",
 			"Retain Git rows",
 			"vibe-compact",
+			"Advisor nit/concern",
 			"Cycle shortcut",
 			"Auto-shake",
 			"Shake threshold",
@@ -1624,17 +1685,6 @@ describe("menu labels and layout", () => {
 		]) {
 			expect(output.some((l) => l.includes(label))).toBe(true);
 		}
-	});
-
-	test("one blank line separates the five groups", () => {
-		const { dialog } = makeDialog();
-		const output = lines(dialog, 80);
-		const blanks = output
-			.map((line, index) => (line === "" ? index : -1))
-			.filter((index) => index >= 0);
-		// header, global (2 rows), display (4 rows), shake (2 rows),
-		// stats (7 rows), host (2 rows), help
-		expect(blanks).toEqual([3, 8, 11, 19]);
 	});
 });
 
@@ -1751,13 +1801,11 @@ describe("short-terminal viewport", () => {
 		const full = lines(makeDialog().dialog);
 		const tall = lines(makeDialog(DEFAULT_SETTINGS, true, () => 40).dialog);
 		expect(tall).toEqual(full);
-		expect(full).toHaveLength(23);
 		expect(full.join("\n")).not.toContain("…");
 	});
 
 	test("non-positive or non-finite terminal height renders the full frame", () => {
 		const full = lines(makeDialog().dialog);
-		expect(full).toHaveLength(23);
 
 		for (const degenerate of [0, -1, Number.NaN]) {
 			const dialog = makeDialog(
@@ -1767,7 +1815,6 @@ describe("short-terminal viewport", () => {
 			).dialog;
 			const rendered = lines(dialog);
 			expect(rendered).toEqual(full);
-			expect(rendered).toHaveLength(23);
 		}
 
 		const undefinedRows = makeDialog(

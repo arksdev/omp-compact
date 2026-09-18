@@ -46,6 +46,7 @@ export interface CompactSettings {
 	retainGitLive: boolean;
 	compactPaths: boolean;
 	compactVibeRows: boolean;
+	compactAdvisorNotes: boolean;
 	/**
 	 * Chord that cycles the display state (compact -> live -> clear -> off).
 	 * Plain text in the JSON; validated by `display-cycle.ts`. A change only
@@ -64,6 +65,7 @@ export interface CompactSettingsPatch {
 	retainGitLive?: boolean;
 	compactPaths?: boolean;
 	compactVibeRows?: boolean;
+	compactAdvisorNotes?: boolean;
 	displayCycleKey?: string;
 	stats?: Partial<CompactStatsSettings>;
 	autoShake?: Partial<CompactAutoShakeSettings>;
@@ -113,6 +115,7 @@ export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
 	retainGitLive: true,
 	compactPaths: true,
 	compactVibeRows: true,
+	compactAdvisorNotes: false,
 	displayCycleKey: DEFAULT_DISPLAY_CYCLE_KEY,
 	stats: DEFAULT_STATS,
 	autoShake: DEFAULT_AUTO_SHAKE,
@@ -147,6 +150,7 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 		retainGitLive: settings.retainGitLive,
 		compactPaths: settings.compactPaths,
 		compactVibeRows: settings.compactVibeRows,
+		compactAdvisorNotes: settings.compactAdvisorNotes,
 		displayCycleKey: settings.displayCycleKey,
 		stats: Object.freeze({ ...settings.stats }),
 		autoShake: Object.freeze({ ...settings.autoShake }),
@@ -417,7 +421,7 @@ function normalizeWithDiagnostics(
 		return fallback;
 	};
 	// Resolved inline in the settings literal below so a rejected chord is
-	// named in field order, right after `compactVibeRows`, alongside its peers.
+	// named in field order alongside its peers.
 	const chord = (value: unknown): string => {
 		if (value === undefined) return DEFAULT_SETTINGS.displayCycleKey;
 		if (!isDisplayCycleKey(value)) {
@@ -460,6 +464,11 @@ function normalizeWithDiagnostics(
 			"compactVibeRows",
 			raw.compactVibeRows,
 			DEFAULT_SETTINGS.compactVibeRows,
+		),
+		compactAdvisorNotes: field(
+			"compactAdvisorNotes",
+			raw.compactAdvisorNotes,
+			DEFAULT_SETTINGS.compactAdvisorNotes,
 		),
 		displayCycleKey: chord(raw.displayCycleKey),
 		stats: { ...DEFAULT_SETTINGS.stats },
@@ -559,6 +568,7 @@ const TOP_LEVEL_FIELDS = [
 	"retainGitLive",
 	"compactPaths",
 	"compactVibeRows",
+	"compactAdvisorNotes",
 	"displayCycleKey",
 ] as const;
 

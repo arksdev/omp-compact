@@ -223,6 +223,7 @@ compact → live → clear → off → compact
 | `Compact paths` / `compactPaths` | `true` | Сокращает отображаемые absolute paths внутри session `cwd`. |
 | `Retain Git rows` / `retainGitLive` | `true` | Показывает Git rows и aggregate commit summary в `live`. |
 | `vibe-compact` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов vibe. При `false` они рисуются stock framed card в любом режиме. |
+| `Advisor nit/concern` / `compactAdvisorNotes` | `false` | Сокращает только отображение advisor notes с уровнем `nit` или `concern`. Blockers остаются в полном native виде. Сохранённые сообщения и model context не меняются. |
 | `Cycle shortcut` / `displayCycleKey` | `"alt+c"` | Сочетание, переключающее вид вывода по кругу. Занятое OMP сочетание отклоняется при вводе. Смена требует restart OMP. |
 | `Auto-shake` / `autoShake.enabled` | `false` | Запускает native `shake("elide")` после eligible run. |
 | `Shake threshold` / `autoShake.thresholdTokens` | `120000` | Минимальный current context usage; `0` означает каждый eligible run. |
@@ -263,6 +264,7 @@ Default path:
   "retainGitLive": true,
   "compactPaths": true,
   "compactVibeRows": true,
+  "compactAdvisorNotes": false,
   "displayCycleKey": "alt+c",
   "stats": {
     "enabled": true,

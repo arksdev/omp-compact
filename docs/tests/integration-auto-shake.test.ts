@@ -175,11 +175,17 @@ stockTest(
 		await beginRun(booted);
 		// …a toolUse continuation keeps the run open…
 		await finishRun(booted, "working", "toolUse");
-		// …then the user turns auto-shake OFF mid-run (seventh focusable row:
-		// Global compact, Mode, Compact paths, Retain Git rows, Worker
-		// sessions, Cycle shortcut, Auto-shake).
+		// …then the user turns auto-shake OFF mid-run.
 		await saveSettingsViaDialog(booted, (dialog) => {
-			for (let i = 0; i < 6; i++) dialog.handleInput(KEY_DOWN);
+			let focused = false;
+			for (let i = 0; i < 32; i++) {
+				focused = dialog
+					.render(100)
+					.some((line) => /›.*Auto-shake/.test(Bun.stripANSI(line)));
+				if (focused) break;
+				dialog.handleInput(KEY_DOWN);
+			}
+			expect(focused, "Auto-shake row must be reachable").toBe(true);
 			dialog.handleInput(KEY_SPACE);
 		});
 		// The continuation boundary must not observe the mid-run change:
