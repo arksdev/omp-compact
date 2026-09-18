@@ -1,5 +1,4 @@
-import type { ThemeColor } from "@oh-my-pi/pi-coding-agent/modes/theme/schema";
-import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { Theme, ThemeColor } from "./theme-types";
 import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 
 import { fitTransparentLine } from "./fit-transparent-line";
@@ -127,10 +126,10 @@ function renderSessionCard(
 	now: number,
 	width: number | undefined,
 ): readonly string[] {
-	const boxRound = theme.boxRound ?? {};
-	const topLeft = boxRound.topLeft ?? "╭";
-	const bottomLeft = boxRound.bottomLeft ?? "╰";
-	const horizontal = boxRound.horizontal ?? "─";
+	const boxRound = theme.boxRound;
+	const topLeft = boxRound?.topLeft ?? "╭";
+	const bottomLeft = boxRound?.bottomLeft ?? "╰";
+	const horizontal = boxRound?.horizontal ?? "─";
 
 	const topPrefix = `${theme.fg("dim", `${topLeft}${horizontal}`)} `;
 	const bottomPrefix = `${theme.fg("dim", `${bottomLeft}${horizontal}`)} `;

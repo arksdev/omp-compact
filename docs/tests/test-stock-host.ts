@@ -332,6 +332,18 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 			).href
 		),
 	]);
+	try {
+		const hlPath = resolveHostModule(
+			"src/tui/hyperlink.ts",
+			"src/render/hyperlink.ts",
+		);
+		const hlModule = (await import(pathToFileURL(hlPath).href)) as {
+			applyHyperlinkSetting?: (mode: string) => void;
+		};
+		hlModule.applyHyperlinkSetting?.("always");
+	} catch {
+		// Ignore if hyperlink module is absent.
+	}
 	return {
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,
 		ReadToolGroupComponent: readGroupModule.ReadToolGroupComponent,

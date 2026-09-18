@@ -56,6 +56,12 @@ function stripAnsi(value: string): string {
 	return result;
 }
 
+const ESC = String.fromCharCode(27);
+const BEL = String.fromCharCode(7);
+const OSC_FILE_RE = new RegExp(
+	`${ESC}\\]8;[^;]*;file://([^${ESC}${BEL}]+?)(?:${ESC}\\\\|${BEL})`,
+);
+
 export const MAX_DESCRIPTION = 220;
 
 /** One injected rule as presented by the compact inject row. */
@@ -482,6 +488,21 @@ export function userEvalExecutionFromComponent(
 	return view?.kind === "python" ? view : undefined;
 }
 
+interface RenderableChild {
+	render(width: number): readonly string[];
+}
+
+function getRenderableChild(value: unknown): RenderableChild | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	if (
+		"render" in value &&
+		typeof (value as { render?: unknown }).render === "function"
+	) {
+		return value as RenderableChild;
+	}
+	return undefined;
+}
+
 /**
  * Recover a compact skill view from a live stock `SkillMessageComponent`
  * via the public parameter-property `message` (customType skill-prompt +
@@ -494,30 +515,73 @@ export function skillMessageFromComponent(
 ): SkillMessageView | undefined {
 	if (!block || typeof block !== "object") return undefined;
 	const candidate = block as Record<string, unknown>;
-	const message = record(candidate.message);
-	// Pin literal to OMP 17.3.4 session/messages.ts:42 SKILL_PROMPT_MESSAGE_TYPE.
-	if (message.customType !== "skill-prompt") return undefined;
+	if (candidate.message) {
+		const message = record(candidate.message);
+		// Pin literal to OMP 17.3.4 session/messages.ts:42 SKILL_PROMPT_MESSAGE_TYPE.
+		if (message.customType !== "skill-prompt") return undefined;
 
-	const details = record(message.details);
-	const rawName = typeof details.name === "string" ? details.name.trim() : "";
-	const name = sanitizeOneLine(rawName || "unknown", 80);
+		const details = record(message.details);
+		const rawName = typeof details.name === "string" ? details.name.trim() : "";
+		const name = sanitizeOneLine(rawName || "unknown", 80);
+		if (!name) return undefined;
+
+		const view: SkillMessageView = { name };
+		if (typeof details.args === "string") {
+			const args = sanitizeOneLine(
+				details.args.replace(/\s+/g, " ").trim(),
+				120,
+			);
+			if (args) view.args = args;
+		}
+		if (typeof details.path === "string") {
+			const path = sanitizeOneLine(details.path, 120);
+			if (path) view.path = path;
+		}
+		if (
+			typeof details.lineCount === "number" &&
+			Number.isFinite(details.lineCount) &&
+			details.lineCount >= 0
+		) {
+			view.lineCount = Math.trunc(details.lineCount);
+		}
+		if (observed?.expanded === true) view.expanded = true;
+		if (observed?.expanded === false) view.expanded = false;
+		return Object.freeze(view);
+	}
+
+	// OMP >= 18.2.5: #message is private. Scrape from the callout child.
+	const child = getRenderableChild(
+		Array.isArray(candidate.children) ? candidate.children[0] : undefined,
+	);
+	if (!child) return undefined;
+	const rows = child.render(120);
+	let name: string | undefined;
+	let lineCount: number | undefined;
+	let path: string | undefined;
+	for (const raw of rows) {
+		if (!path) {
+			const om = raw.match(OSC_FILE_RE);
+			if (om?.[1]) path = om[1];
+		}
+		const stripped = stripAnsi(raw);
+		if (!name) {
+			const m =
+				stripped.match(/[✦*]\s*([^\s]+)/) ?? stripped.match(/\/skill:([^\s]+)/);
+			if (m?.[1]) name = m[1];
+		}
+		if (lineCount === undefined) {
+			const lm = stripped.match(/(\d+)\s+lines?\b/i);
+			if (lm?.[1]) lineCount = parseInt(lm[1], 10);
+		}
+	}
 	if (!name) return undefined;
-
-	const view: SkillMessageView = { name };
-	if (typeof details.args === "string") {
-		const args = sanitizeOneLine(details.args.replace(/\s+/g, " ").trim(), 120);
-		if (args) view.args = args;
+	const view: SkillMessageView = { name: sanitizeOneLine(name, 80) };
+	if (path) {
+		const cleanPath = sanitizeOneLine(path, 120);
+		if (cleanPath) view.path = cleanPath;
 	}
-	if (typeof details.path === "string") {
-		const path = sanitizeOneLine(details.path, 120);
-		if (path) view.path = path;
-	}
-	if (
-		typeof details.lineCount === "number" &&
-		Number.isFinite(details.lineCount) &&
-		details.lineCount >= 0
-	) {
-		view.lineCount = Math.trunc(details.lineCount);
+	if (lineCount !== undefined && Number.isFinite(lineCount) && lineCount >= 0) {
+		view.lineCount = Math.trunc(lineCount);
 	}
 	if (observed?.expanded === true) view.expanded = true;
 	if (observed?.expanded === false) view.expanded = false;
@@ -536,35 +600,81 @@ export function lateDiagnosticsFromComponent(
 ): LateDiagnosticsView | undefined {
 	if (!block || typeof block !== "object") return undefined;
 	const candidate = block as Record<string, unknown>;
-	if (!Array.isArray(candidate.files)) return undefined;
-
-	const messages: string[] = [];
-	const summaries: string[] = [];
-	let errored = false;
-	for (const entry of candidate.files) {
-		const file = record(entry);
-		if (Array.isArray(file.messages)) {
-			for (const msg of file.messages) {
-				if (typeof msg === "string" && msg.length > 0) messages.push(msg);
+	if (Array.isArray(candidate.files)) {
+		const messages: string[] = [];
+		const summaries: string[] = [];
+		let errored = false;
+		for (const entry of candidate.files) {
+			const file = record(entry);
+			if (Array.isArray(file.messages)) {
+				for (const msg of file.messages) {
+					if (typeof msg === "string" && msg.length > 0) messages.push(msg);
+				}
 			}
+			if (typeof file.summary === "string" && file.summary.length > 0) {
+				summaries.push(file.summary);
+			}
+			if (file.errored === true) errored = true;
 		}
-		if (typeof file.summary === "string" && file.summary.length > 0) {
-			summaries.push(file.summary);
-		}
-		if (file.errored === true) errored = true;
-	}
-	// Host early-return when messages.length === 0 — refuse the view so the
-	// install probe leaves empty leaves fully native.
-	if (messages.length === 0) return undefined;
+		// Host early-return when messages.length === 0 — refuse the view so the
+		// install probe leaves empty leaves fully native.
+		if (messages.length === 0) return undefined;
 
+		const view: LateDiagnosticsView = {
+			errored,
+			count: messages.length,
+		};
+		const summary = sanitizeOneLine(summaries.join(", "), 80);
+		if (summary) view.summary = summary;
+		const first = sanitizeOneLine(messages[0], MAX_DESCRIPTION);
+		if (first) view.firstMessage = first;
+		if (observed?.expanded === true) view.expanded = true;
+		if (observed?.expanded === false) view.expanded = false;
+		return Object.freeze(view);
+	}
+
+	// OMP >= 18.2.5: files moved to #files private field. Scrape from Disclosure child.
+	const disclosure = getRenderableChild(
+		Array.isArray(candidate.children) ? candidate.children[0] : undefined,
+	);
+	if (!disclosure) return undefined;
+	const rows = disclosure.render(120).map(stripAnsi);
+	if (rows.length === 0) return undefined;
+	const r0 = rows[0];
+	if (!r0?.includes("Late diagnostics")) return undefined;
+	const errored = r0.includes("✘");
+	const summaryMatch = r0.match(/\(([^)]+)\)/);
+	const summary = summaryMatch?.[1] ? summaryMatch[1].trim() : undefined;
+	let firstMessage: string | undefined;
+	for (let i = 1; i < rows.length; i++) {
+		const line = rows[i];
+		if (!line) continue;
+		const trimmed = line.trim();
+		const m = trimmed.match(/^└─\s*(.+)$/);
+		if (m?.[1]) {
+			firstMessage = m[1].trim();
+			break;
+		}
+	}
+	let count = 1;
+	if (summary) {
+		const cm = summary.match(
+			/(\d+)\s+(?:error|warning|problem|issue|diagnostic)/i,
+		);
+		if (cm?.[1]) count = parseInt(cm[1], 10);
+	}
 	const view: LateDiagnosticsView = {
 		errored,
-		count: messages.length,
+		count,
 	};
-	const summary = sanitizeOneLine(summaries.join(", "), 80);
-	if (summary) view.summary = summary;
-	const first = sanitizeOneLine(messages[0], MAX_DESCRIPTION);
-	if (first) view.firstMessage = first;
+	if (summary) {
+		const cleanSummary = sanitizeOneLine(summary, 80);
+		if (cleanSummary) view.summary = cleanSummary;
+	}
+	if (firstMessage) {
+		const cleanFirst = sanitizeOneLine(firstMessage, MAX_DESCRIPTION);
+		if (cleanFirst) view.firstMessage = cleanFirst;
+	}
 	if (observed?.expanded === true) view.expanded = true;
 	if (observed?.expanded === false) view.expanded = false;
 	return Object.freeze(view);

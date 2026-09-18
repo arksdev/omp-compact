@@ -47,7 +47,7 @@ export interface ShakeResultLike {
 /**
  * One-line operator summary of a {@link ShakeResultLike}, a faithful port of
  * stock `formatShakeSummary` (anchor:
- * `oh-my-pi/packages/coding-agent/src/session/shake-types.ts`, verified against stock 18.0.8 and re-checked against the 18.2.0 pin (file unchanged)) so the
+ * `oh-my-pi/packages/coding-agent/src/session/shake-types.ts`, verified against stock 18.0.8 and re-checked against the 18.2.5 pin (file unchanged)) so the
  * auto-shake confirmation reads exactly like a manual `/shake`:
  * `Shook 35 tool results (~11593 tokens freed).`, regions joined with ` + `,
  * and `Nothing to shake.` for a successful no-op.

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { Theme } from "@oh-my-pi/pi-coding-agent/modes/theme/theme";
+import type { Theme } from "../../.omp-plugin/theme-types";
 import {
 	type CompactSettings,
 	type CompactSettingsStore,

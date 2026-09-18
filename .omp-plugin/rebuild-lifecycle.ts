@@ -15,10 +15,24 @@
  * (`#readSegmentBreaks`, `#lastGroupedRead`).
  */
 
-// Host helper: stock's read group closes at every assistant message with
-// visible content, and stock decides what counts as visible with this exact
-// canonicalization. A private copy would drift from it.
-import { canonicalizeMessage } from "@oh-my-pi/pi-coding-agent/utils/thinking-display";
+function canonicalizeMessage(text: string | null | undefined): string {
+	if (!text) return "";
+	const trimmed = text.trim();
+	for (let i = 0; i < trimmed.length; i++) {
+		const code = trimmed.charCodeAt(i);
+		if (
+			code !== 0x2e &&
+			code !== 0x2026 &&
+			code !== 0x20 &&
+			code !== 0x09 &&
+			code !== 0x0a &&
+			code !== 0x0d
+		) {
+			return trimmed;
+		}
+	}
+	return "";
+}
 
 import type { ComponentBinding } from "./component-binding";
 import type { DisplayPathOptions } from "./display-path";

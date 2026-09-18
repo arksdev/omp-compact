@@ -63,7 +63,7 @@ describe("marketplace catalog", () => {
 		// contracts — the floor is what the plugin claims to support, the pin
 		// is what the suite actually verifies against.
 		expect(pkg.engines.omp).toBe(">=18.0.1");
-		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("18.2.0");
+		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("18.2.5");
 		expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
 		expect(await Bun.file(join(repoRoot, "CHANGELOG.md")).text()).toContain(
 			`## ${pkg.version}`,

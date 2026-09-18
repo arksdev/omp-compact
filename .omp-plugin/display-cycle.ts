@@ -1,4 +1,4 @@
-import { KEYBINDINGS } from "@oh-my-pi/pi-coding-agent/config/keybindings";
+import { TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
 
 import type { CompactMode } from "./config";
 
@@ -46,7 +46,7 @@ export function nextDisplayCycleState(
 /**
  * COPY of `ExtensionRunner.#RESERVED_SHORTCUTS`
  * (`@oh-my-pi/pi-coding-agent/src/extensibility/extensions/runner.ts`), taken
- * from version 18.0.8, re-checked against the pinned 18.2.0 — `runner.ts` is byte-identical between the two.
+ * from version 18.0.8, re-checked against the pinned 18.2.5 — `runner.ts` is byte-identical between the two.
  *
  * The host field is a `static readonly #RESERVED_SHORTCUTS` private class
  * member: it cannot be imported or read at runtime, so keeping this copy is
@@ -118,6 +118,38 @@ const SPECIAL_KEYS: Record<string, true> = {
 	f11: true,
 	f12: true,
 };
+
+/**
+ * Default app-level chords from the host keymap (`app.*` in stock keybindings).
+ * Kept as an explicit list because OMP 18.2.5 moved `app-keybindings` to an
+ * unexported subpath outside the compiled-binary Pi virtual module registry.
+ */
+const DEFAULT_HOST_APP_CHORDS: readonly string[] = Object.freeze([
+	"alt+p",
+	"alt+shift+c",
+	"alt+shift+p",
+	"alt+up",
+	"shift+up",
+	"alt+l",
+	"alt+r",
+	"ctrl+r",
+	"ctrl+s",
+	"ctrl+shift+o",
+	"ctrl+shift+v",
+	"ctrl+j",
+	"ctrl+y",
+	"ctrl+w",
+	"ctrl+u",
+	"ctrl+b",
+	"ctrl+f",
+	"ctrl+a",
+	"ctrl+e",
+	"ctrl+]",
+	"ctrl+alt+]",
+	"ctrl+-",
+	"ctrl+_",
+	"ctrl+.",
+]);
 
 /** Single-character base keys beyond letters and digits (same `keys.ts` union). */
 const SYMBOL_KEYS = "`-=[]\\;',./!@#$%^&*()_+|~{}:<>?";
@@ -246,15 +278,16 @@ let occupiedCache: ReadonlySet<string> | undefined;
 export function occupiedShortcuts(): ReadonlySet<string> {
 	if (occupiedCache) return occupiedCache;
 	const keys = new Set<string>();
-	for (const definition of Object.values(KEYBINDINGS)) {
-		const declared = definition.defaultKeys;
+	for (const definition of Object.values(TUI_KEYBINDINGS)) {
+		const declared = (definition as { defaultKeys?: unknown }).defaultKeys;
 		for (const key of Array.isArray(declared) ? declared : [declared]) {
-			if (key.length > 0) keys.add(canonicalize(key));
+			if (typeof key === "string" && key.length > 0)
+				keys.add(canonicalize(key));
 		}
 	}
+	for (const key of DEFAULT_HOST_APP_CHORDS) keys.add(canonicalize(key));
 	for (const key of CROSS_PLATFORM_PASTE_KEYS) keys.add(key);
 	for (const key of RESERVED_SHORTCUTS) keys.add(canonicalize(key));
-	occupiedCache = keys;
 	return keys;
 }
 
