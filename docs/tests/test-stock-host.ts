@@ -20,7 +20,13 @@
  *
  * Test scaffolding only — no production code is imported at module load.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -229,7 +235,13 @@ export async function loadStockPlugin<T = Record<string, unknown>>(
 /** Loads the stock host modules (components/theme/transcript) only. */
 export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 	const root = packageRoot();
-	const components = join(root, "src/modes/components");
+	const resolveHostModule = (agentPath: string, tuiPath: string): string => {
+		const agentFull = join(root, agentPath);
+		if (existsSync(agentFull)) return agentFull;
+		const tuiFull = resolve(root, "..", "pi-tui", tuiPath);
+		if (existsSync(tuiFull)) return tuiFull;
+		throw new Error(`Cannot find host module at ${agentFull} or ${tuiFull}`);
+	};
 	const [
 		componentModule,
 		themeModule,
@@ -242,16 +254,83 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		skillMessageModule,
 		lateDiagnosticsModule,
 	] = await Promise.all([
-		import(pathToFileURL(join(components, "tool-execution.ts")).href),
-		import(pathToFileURL(join(root, "src/modes/theme/theme.ts")).href),
-		import(pathToFileURL(join(components, "read-tool-group.ts")).href),
-		import(pathToFileURL(join(components, "transcript-container.ts")).href),
-		import(pathToFileURL(join(components, "ttsr-notification.ts")).href),
-		import(pathToFileURL(join(components, "todo-reminder.ts")).href),
-		import(pathToFileURL(join(components, "bash-execution.ts")).href),
-		import(pathToFileURL(join(components, "eval-execution.ts")).href),
-		import(pathToFileURL(join(components, "skill-message.ts")).href),
-		import(pathToFileURL(join(components, "late-diagnostics-message.ts")).href),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/tool-execution.ts",
+					"src/chat/tool-execution.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule("src/modes/theme/theme.ts", "src/theme/theme.ts"),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/read-tool-group.ts",
+					"src/chat/read-tool-group.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/transcript-container.ts",
+					"src/chrome/transcript-container.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/ttsr-notification.ts",
+					"src/chat/ttsr-notification.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/todo-reminder.ts",
+					"src/chat/todo-reminder.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/bash-execution.ts",
+					"src/chat/bash-execution.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/eval-execution.ts",
+					"src/chat/eval-execution.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/skill-message.ts",
+					"src/chat/skill-message.ts",
+				),
+			).href
+		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/late-diagnostics-message.ts",
+					"src/chat/late-diagnostics-message.ts",
+				),
+			).href
+		),
 	]);
 	return {
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,
