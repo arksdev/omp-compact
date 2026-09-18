@@ -685,9 +685,9 @@ cd ../.. && OMP_STOCK_BIN=./runtime/omp-<version>/node_modules/.bin/omp \
 ```
 
 This executes the stock-host tests against the candidate host without moving the root
-pin. The only expected failure is the hardcoded version assertion in
-`docs/tests/host-adapter.test.ts` (`stockHostVersion()` pin); any other failure is a real
-regression.
+pin. A version difference produces a warning from the patch-surface canary, not an
+expected test failure. Investigate every failing behavioral check; when an optional
+host capability disappears, verify native fallback instead of bypassing the check.
 
 Run `docs/tests/host-patch-surface.test.ts` as the live arity/presence guard: it catches a
 missing method or a changed `Function.prototype.length` on the patched surface. It cannot
@@ -703,9 +703,10 @@ historical pending rows intentionally does not stamp.
 - Root `package.json` devDependency and `bun.lock` (via `bun install`).
 - `StockHostAdapter.hostVersion` in `.omp-plugin/host-adapter.ts`.
 - The version story comment block in `.omp-plugin/host-surface.ts`.
-- The host version assertions in `docs/tests/host-adapter.test.ts` and
-  `docs/tests/marketplace.test.ts`.
-- `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`.
+- `BASELINE_HOST_VERSION` and the measured-arity provenance in
+  `docs/tests/host-patch-surface.test.ts`, after running the live canaries.
+- Behavioral coverage in `docs/tests/host-adapter.test.ts`; keep the public support
+  floor checks in `docs/tests/marketplace.test.ts` separate from the development pin.
 - Prose pins in `docs/CONTRIBUTING.md`, `docs/ARCHITECTURE.md`,
   `docs/FULL-DOCUMENTATION.md`, `README.md`, `README.en.md`.
 - The provenance comments in `.omp-plugin/display-cycle.ts` and

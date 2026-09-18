@@ -52,7 +52,7 @@ const BASELINE_HOST_VERSION = "18.2.5";
  * Method arity measured on the live host.
  *
  * Verbatim numbers checked against both 18.0.8 and 18.0.10 (probe of the
- * real prototypes), and re-checked on the 18.2.0 pin (arities unchanged).
+ * real prototypes), and re-checked on the 18.2.5 pin (arities unchanged).
  * `updateResult` is 1, not 3: the host's `isPartial`
  * parameter has a default, so `Function.prototype.length` stops before it —
  * do not "fix" it to 3.
