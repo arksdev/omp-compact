@@ -6,6 +6,8 @@
 
 ## Разработка
 
+- Хост-пин переехал с 18.2.5 на 18.2.6. Точечный maintenance-релиз хоста: исходный код `@oh-my-pi/pi-tui` не изменился (побайтово идентичен), все методы `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` и фингерпринты листьев 100% сохранены.
+
 ---
 
 ## 1.2.9 — 18 сентября 2026
