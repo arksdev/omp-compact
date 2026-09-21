@@ -473,3 +473,88 @@ stockTest(
 		await shutdown(booted);
 	},
 );
+
+stockTest("a semantic find call renders one compact query row", async () => {
+	const booted = await bootWithTranscript();
+	await beginRun(booted);
+	const call = await addTool(
+		booted,
+		"find",
+		{
+			query: "where is the retry budget counted?",
+			grep_keywords: ["retry", "attempt"],
+			path: "src",
+		},
+		"find-row",
+	);
+	const working = visibleRows(booted.transcript).join("\n");
+	expect(working).toContain("find: where is the retry budget counted?");
+	expect(working).not.toContain("τ");
+	await finishTool(booted, call, {
+		toolCallId: "find-row",
+		toolName: "find",
+		result: {
+			content: [
+				{
+					type: "text",
+					text: '2 hit(s) for "where is the retry budget counted?"',
+				},
+			],
+			details: {
+				query: "where is the retry budget counted?",
+				threshold: 0.5,
+				hits: [{ rel: "src/a.ts" }, { rel: "src/b.ts" }],
+				stats: { filesRead: 12, errors: 0 },
+			},
+		},
+		isError: false,
+	});
+	const settled = visibleRows(booted.transcript).join("\n");
+	expect(settled).toContain("• find: where is the retry budget counted?");
+	expect(settled).toContain("in src");
+	expect(settled).toContain("2 hits");
+	expect(settled).toContain("12 files read");
+	// The stock find card carries its own `Find` header, the threshold and
+	// the ranked gauge rows; the compact row replaces all of them.
+	expect(settled).not.toContain("τ");
+	expect(settled).not.toContain("lines judged");
+	await shutdown(booted);
+});
+
+stockTest(
+	"find rows fail open on unreadable arguments and on errors",
+	async () => {
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		// Missing and unknown arguments: the row stays bounded and the call
+		// never throws through the host's render path.
+		const bare = await addTool(booted, "find", {}, "find-bare");
+		await finishTool(booted, bare, {
+			toolCallId: "find-bare",
+			toolName: "find",
+			result: { content: [{ type: "text", text: "ok" }], details: {} },
+			isError: false,
+		});
+		expect(visibleRows(booted.transcript).join("\n")).toContain("• find: ?");
+		// A failed call keeps the compact error row with the stock error text.
+		const failed = await addTool(
+			booted,
+			"find",
+			{ query: "unreachable judge", unexpected: 5 },
+			"find-failed",
+		);
+		await finishTool(booted, failed, {
+			toolCallId: "find-failed",
+			toolName: "find",
+			result: {
+				content: [{ type: "text", text: "Path not found: src/missing" }],
+				details: {},
+			},
+			isError: true,
+		});
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("✗ find: unreachable judge");
+		expect(rows).toContain("Path not found: src/missing");
+		await shutdown(booted);
+	},
+);

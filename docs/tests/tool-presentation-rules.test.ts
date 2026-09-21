@@ -21,6 +21,7 @@ const CANONICAL_NAMES = [
 	"computer",
 	"edit",
 	"eval",
+	"find",
 	"glob",
 	"grep",
 	"hub",
@@ -81,6 +82,7 @@ describe("canonical routes and audit kinds", () => {
 			"edit",
 			"grep",
 			"glob",
+			"find",
 			"hub",
 			"todo",
 			"eval",
@@ -207,6 +209,13 @@ describe("alias normalization", () => {
 		expect(resolveToolRule("apply_patch")?.knownArgs).toContain("input");
 	});
 
+	test("jfind resolves to the canonical find rule", () => {
+		expect(normalizeToolName("jfind")).toBe("find");
+		expect(resolveToolRule("jfind")).toBe(TOOL_RULES.find);
+		expect(resolveToolRule("jfind")?.route).toBe("compact");
+		expect(resolveToolRule("jfind")?.knownArgs).toContain("query");
+	});
+
 	test("hyphen/underscore normalization is deterministic for any spelling", () => {
 		expect(normalizeToolName("custom-tool")).toBe("custom_tool");
 		expect(resolveToolRule("custom-tool")).toBeUndefined();
@@ -216,6 +225,7 @@ describe("alias normalization", () => {
 	test("alias spellings are not registry keys themselves", () => {
 		expect(TOOL_RULES["ast-grep"]).toBeUndefined();
 		expect(TOOL_RULES["ast-edit"]).toBeUndefined();
+		expect(TOOL_RULES.jfind).toBeUndefined();
 	});
 });
 
@@ -695,6 +705,58 @@ describe("existing tool descriptions", () => {
 		);
 	});
 
+	test("find shows the natural-language query and the searched scope", () => {
+		const rule = TOOL_RULES.find;
+		expect(rule?.route).toBe("compact");
+		expect(rule?.audit).toBe("none");
+		expect(rule?.knownArgs).toEqual(["query", "grep_keywords", "path"]);
+		expect(rule?.knownDetails).toEqual([
+			"query",
+			"keywords",
+			"threshold",
+			"hits",
+			"stats",
+			"elapsedMs",
+			"cwd",
+			"scopePath",
+			"meta",
+		]);
+		expect(
+			describeTool("find", {
+				query: "where is the retry budget counted?",
+				grep_keywords: ["retry", "attempt"],
+			}),
+		).toEqual({
+			title: "find",
+			description: "where is the retry budget counted?",
+			meta: [],
+		});
+		expect(
+			describeTool("find", { query: "renderer registry", path: "packages/tui" })
+				?.meta,
+		).toEqual(["in packages/tui"]);
+		// a non-string path is not a scope: no invented location
+		expect(describeTool("find", { query: "q", path: 7 })?.meta).toEqual([]);
+	});
+
+	test("unreadable find arguments leave the query unknown — never throw", () => {
+		for (const args of [
+			undefined,
+			null,
+			"query",
+			42,
+			[],
+			{},
+			{ query: 5 },
+			{ query: "" },
+		]) {
+			const described = describeTool("find", args);
+			expect(described?.title).toBe("find");
+			expect(described?.description).toBe("?");
+			expect(described?.meta).toEqual([]);
+		}
+	});
+
 	test("bounds specialized string arguments before rendering", () => {
 		const description = describeTool("bash", {
 			command: "x".repeat(20_000),
@@ -732,6 +794,16 @@ describe("project-relative display paths", () => {
 			describeTool("glob", { path: ["/project/src/*.ts"] }, display)
 				?.description,
 		).toBe("src/*.ts");
+	});
+
+	test("find scope relativizes to the project", () => {
+		expect(
+			describeTool(
+				"find",
+				{ query: "renderer registry", path: "/project/src/tools" },
+				display,
+			)?.meta,
+		).toEqual(["in src/tools"]);
 	});
 
 	test("cwd itself renders as dot", () => {
@@ -934,6 +1006,50 @@ describe("tool-specific settled result metadata", () => {
 				},
 			),
 		).toEqual([]);
+	});
+
+	test("find reports hits, files read and failed requests", () => {
+		const rule = TOOL_RULES.find;
+		expect(
+			rule?.resultMeta?.({
+				content: [{ type: "text", text: '2 hit(s) for "x"' }],
+				details: {
+					hits: [{ rel: "src/a.ts" }, { rel: "src/b.ts" }],
+					stats: { filesRead: 12, errors: 0 },
+				},
+			}),
+		).toEqual(["2 hits", "12 files read"]);
+		// A miss still reports the count; zero files read and zero failures
+		// print nothing rather than a pair of dead zeroes.
+		expect(
+			rule?.resultMeta?.({
+				details: { hits: [], stats: { filesRead: 0, errors: 0 } },
+			}),
+		).toEqual(["0 hits"]);
+		expect(
+			rule?.resultMeta?.({
+				details: {
+					hits: [{ rel: "src/a.ts" }],
+					stats: { filesRead: 3, errors: 2 },
+				},
+			}),
+		).toEqual(["1 hit", "3 files read", "2 failed"]);
+	});
+
+	test("unknown find result shapes yield no settled metadata", () => {
+		const rule = TOOL_RULES.find;
+		for (const result of [
+			undefined,
+			null,
+			"text",
+			[],
+			{},
+			{ details: {} },
+			{ details: { hits: null, stats: null } },
+			{ details: { hits: "two", stats: { filesRead: "many" } } },
+		]) {
+			expect(rule?.resultMeta?.(result), JSON.stringify(result)).toEqual([]);
+		}
 	});
 
 	test("no other rule carries result metadata", () => {

@@ -20,6 +20,7 @@ import {
 	describeBrowser,
 	describeComputer,
 	describeEdit,
+	describeFind,
 	describeGlob,
 	describeGrep,
 	describeHub,
@@ -29,6 +30,7 @@ import {
 	describeWrite,
 	genericDescribe,
 	resultMetaBash,
+	resultMetaFind,
 	resultMetaGlob,
 	resultMetaGrep,
 	resultMetaResolution,
@@ -144,6 +146,21 @@ const GLOB_DETAILS = [
 	"files",
 	"truncated",
 	"cwd",
+] as const;
+// Semantic search (`src/tools/jfind`): the stock schema is query +
+// grep_keywords + one optional directory, and `FindToolDetails` carries the
+// ranked hits plus the search accounting the settled row reports.
+const FIND_ARGS = ["query", "grep_keywords", "path"] as const;
+const FIND_DETAILS = [
+	"query",
+	"keywords",
+	"threshold",
+	"hits",
+	"stats",
+	"elapsedMs",
+	"cwd",
+	"scopePath",
+	"meta",
 ] as const;
 const HUB_ARGS = [
 	"op",
@@ -300,10 +317,17 @@ const VIBE_DETAILS = [
 // Null prototype: direct index of collision keys (constructor/toString/…) must
 // yield undefined even for callers that bypass normalizeToolName. Object.hasOwn
 // guards on the accessors are belt-and-braces at the untrusted-host boundary.
+//
+// `jfind` is the spelling the semantic-search tool ships under in the host
+// package layout (`pi-coding-agent/src/tools/jfind`): the wire name in
+// transcripts is `find` (see `findToolRenderer` in `pi-tui/src/tools/find.ts`),
+// and this alias keeps the one rule reachable if a session surfaces the
+// module spelling instead — an unresolvable name would fall open to native.
 export const TOOL_ALIASES: Readonly<Partial<Record<string, string>>> =
 	Object.freeze(
 		Object.assign(Object.create(null), {
 			apply_patch: "edit",
+			jfind: "find",
 		}) as Partial<Record<string, string>>,
 	);
 
@@ -385,6 +409,14 @@ export const TOOL_RULES: Readonly<
 			GLOB_DETAILS,
 			describeGlob,
 			resultMetaGlob,
+		),
+		find: presentationRule(
+			"compact",
+			"none",
+			FIND_ARGS,
+			FIND_DETAILS,
+			describeFind,
+			resultMetaFind,
 		),
 		hub: presentationRule(
 			"compact",

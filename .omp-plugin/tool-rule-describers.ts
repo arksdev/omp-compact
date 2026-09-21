@@ -284,6 +284,52 @@ export function resultMetaGlob(result: unknown): readonly string[] {
 		: [];
 }
 
+/**
+ * Semantic `find` (`pi-coding-agent/src/tools/jfind`): the natural-language
+ * query is the identity of the call and the single searched directory is the
+ * scope. A missing or unreadable query renders the same neutral `?` the other
+ * search tools use; a non-string path is not a scope, so no location is
+ * invented.
+ */
+export function describeFind(
+	args: unknown,
+	displayPaths?: DisplayPathOptions,
+): ToolDescription {
+	const value = record(args);
+	const scope = pathList(value, displayPaths);
+	return {
+		title: "find",
+		description: stringValue(value, "query") || "?",
+		meta: scope.length > 0 ? [`in ${scope.join(", ")}`] : [],
+	};
+}
+
+/**
+ * Settled metadata of a semantic `find`: files that cleared the threshold,
+ * files read, and failed requests. Each number is printed only when the
+ * result actually reports it — a missing or non-numeric accounting prints
+ * nothing instead of a fabricated zero, and a zero read/failure count stays
+ * silent.
+ */
+export function resultMetaFind(result: unknown): readonly string[] {
+	const details = record(record(result).details);
+	const stats = record(details.stats);
+	const meta: string[] = [];
+	if (Array.isArray(details.hits)) {
+		const hits = details.hits.length;
+		meta.push(`${hits} hit${hits === 1 ? "" : "s"}`);
+	}
+	if (typeof stats.filesRead === "number" && stats.filesRead > 0) {
+		meta.push(
+			`${stats.filesRead} file${stats.filesRead === 1 ? "" : "s"} read`,
+		);
+	}
+	if (typeof stats.errors === "number" && stats.errors > 0) {
+		meta.push(`${stats.errors} failed`);
+	}
+	return meta;
+}
+
 export function describeAstGrep(
 	args: unknown,
 	displayPaths?: DisplayPathOptions,

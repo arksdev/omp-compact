@@ -381,10 +381,10 @@ Compact output применяется только к явно зарегист�
 | Route | Tools |
 | --- | --- |
 | `read-group` | `read` |
-| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `browser`, `computer`, `resolve`, `reject`, `task`, `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list` |
+| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `find`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `browser`, `computer`, `resolve`, `reject`, `task`, `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list` |
 | `native-live` | `ask` |
 
-Aliases нормализуются до routing и audit: `apply_patch` -> `edit`; hyphen spellings вроде `ast-grep`, `ast-edit` и `inspect-image` -> underscore form.
+Aliases нормализуются до routing и audit: `apply_patch` -> `edit`, `jfind` -> `find` (модуль семантического поиска в хосте называется `jfind`); hyphen spellings вроде `ast-grep`, `ast-edit` и `inspect-image` -> underscore form.
 
 Read groups компактизируются только при полном и однозначном mapping всех entries. Mixed, unknown, ambiguous и incompatible groups остаются native. Обычные compact tool view могут использовать explicit expansion как escape hatch к stock presentation; browser, computer, resolve и reject остаются compact даже при раскрытии.
 
