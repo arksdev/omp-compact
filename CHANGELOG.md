@@ -6,7 +6,7 @@
 
 ## Разработка
 
-- Хост-пин переехал с 18.2.5 на 18.2.6. Точечный maintenance-релиз хоста: исходный код `@oh-my-pi/pi-tui` не изменился (побайтово идентичен), все методы `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` и фингерпринты листьев 100% сохранены.
+- Хост-пин переехал с 18.2.6 на 18.2.8. Обе версии — крупные agent-side релизы (инструмент `find` со своим рендерером, централизованные magic keywords вместо модулей orchestrate/ultrathink/workflow, изменения сигнатур `judge`/eval, модуляризация browser tooling, batch-судейство, новые web-search провайдеры), но ни один файл, который патчит плагин, не изменился: `pi-tui/src/chat/*` и `pi-tui/src/chrome/*` побайтово идентичны 18.2.6, все методы `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` и фингерпринты всех 6 листьев сохранены, а единственная правка `tui.ts` — аддитивный Glyph Protocol hook перерисовки. Публичный пол `engines.omp >=18.0.1` не тронут.
 
 ---
 
