@@ -239,11 +239,19 @@ export class RuntimeAdapter {
 	readonly #advisorNotes = new AdvisorNotes();
 	/**
 	 * Cards whose native rows were proven to come from one parsed candidate.
-	 * The stock card is an opaque closure with immutable details, so a proven
-	 * binding stays valid for the instance's lifetime; `#advisorProbed`
-	 * remembers the failed probes instead, and is dropped whenever the
-	 * candidate set changes so a card added before its message (or before an
-	 * enabling settings change) is re-evaluated exactly once more.
+	 *
+	 * Stock assumption, verified against the 18.0.11/18.2.0/18.2.8 factories:
+	 * the host builds one card per delivered advisor message and the closure
+	 * keeps that delivered `details` forever — the card is never
+	 * re-parameterized with other notes, and `render(width)` only reflects the
+	 * live theme and expansion flag. A proven binding therefore stays valid
+	 * for the instance's lifetime, and nothing is served from it while the
+	 * expansion state is unknown or non-collapsed.
+	 *
+	 * `#advisorProbed` remembers the failed probes instead, and is dropped
+	 * whenever the candidate set changes so a card added before its message
+	 * (or before an enabling settings change) is re-evaluated exactly once
+	 * more; `#invalidateAdvisorBindings` re-proves the successful ones.
 	 */
 	#advisorBound = new WeakMap<object, AdvisorCard>();
 	#advisorProbed = new WeakSet<object>();

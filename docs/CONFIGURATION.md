@@ -79,7 +79,7 @@ the pinned value instead of claiming a change the environment forbids.
 | **compactPaths** | `true` | Show project-relative paths |
 | **retainGitLive** | `true` | Show Git operations and commit summary |
 | **compactVibeRows** | `true` | Compact rows for the vibe tools (`vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`); `false` restores their stock cards in every mode, including `clear` |
-| **compactAdvisorNotes** | `false` | Condense only advisor `nit` and `concern` notes into compact rows; `blocker`, unknown-severity and unproven cards keep the full native card. Turning tool-output expansion on always shows the full native card. Changes presentation only, never stored messages or model context |
+| **compactAdvisorNotes** | `false` | Condense only advisor `nit` and `concern` notes into compact rows (long notes wrap as in the stock card); `blocker`, unknown-severity, unreadable-metadata and unproven cards keep the full native card. Turning tool-output expansion on always shows the full native card. Changes presentation only, never stored messages or model context |
 | **displayCycleKey** | `"alt+c"` | Chord that cycles the display: compact → live → clear → off → compact. Must be free; a chord OMP already uses is rejected. Changing it needs an OMP restart |
 | **autoShake.enabled** | `false` | Run stock `shake("elide")` after an eligible successful logical run |
 | **autoShake.thresholdTokens** | `120000` | Minimum context usage for auto-shake; `0` means every eligible run |

@@ -482,6 +482,50 @@ stockTest(
 	},
 );
 
+stockTest(
+	"genuinely oversized advisor payloads fail open while long notes compact",
+	async () => {
+		// One note per card, each at the per-note bound: the cumulative payload
+		// crosses the shared 1 MiB evidence budget, so the branch cannot be
+		// indexed and every card stays native.
+		const big = "n".repeat(16_384);
+		const branch = Array.from({ length: 65 }, (_, index) =>
+			advisorEntry({ notes: [{ severity: "nit", note: big }] }, `big-${index}`),
+		);
+		const booted = await bootAdvisor({ compact: true, branch });
+		try {
+			const details = { notes: [{ severity: "nit", note: big }] };
+			const { card, native } = await addAdvisorCard(booted, details);
+			expect(card.render(120)).toEqual(native(120));
+			expect(visibleRows(card).join("\n")).toContain("n");
+		} finally {
+			await shutdown(booted);
+		}
+		// The same note count under the budget keeps compacting: the refusal
+		// is the payload budget, not the note length.
+		const small = "n".repeat(1_000);
+		const smallBranch = Array.from({ length: 8 }, (_, index) =>
+			advisorEntry(
+				{ notes: [{ severity: "nit", note: small }] },
+				`small-${index}`,
+			),
+		);
+		const compacting = await bootAdvisor({
+			compact: true,
+			branch: smallBranch,
+		});
+		try {
+			const details = {
+				notes: [{ severity: "nit", note: "Short first line\nBody" }],
+			};
+			const { card } = await addAdvisorCard(compacting, details);
+			expect(visibleRows(card)).toEqual(["• advisor [nit] Short first line"]);
+		} finally {
+			await shutdown(compacting);
+		}
+	},
+);
+
 stockTest("cards with no notes at all stay ignorable", async () => {
 	const booted = await bootAdvisor({ compact: true });
 	try {
