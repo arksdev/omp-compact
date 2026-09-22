@@ -8,29 +8,21 @@
 
 ### Исправлено
 
-- фикс когда сверхдлинные сессии становятся неотзывчивыми при вводе при включенном плагине.
-- апдейт плагина до 18.2.9
+- Свёрнутый транскрипт больше не перерисовывает нативную историю на каждый кадр при вводе, устраняя лаги в сверхдлинных сессиях.
+
+### Изменено
+
+- Хост-пин переехал с 18.2.8 на 18.2.9. Публичный floor `engines.omp >=18.0.1` не тронут.
 
 ---
 
 ### Fixed
 
-- Fixed super-long sessions becoming unresponsive while typing when the plugin was enabled.
-- Updated the plugin to OMP 18.2.9.
+- Collapsed transcript no longer re-renders native history on every frame during input, eliminating lag in super-long sessions.
 
----
+### Changed
 
-## Не выпущено
-
-### Исправлено
-
-- Свёрнутый транскрипт больше не перерисовывает нативную историю на каждый кадр. Планировщик фолда решал, относится ли блок, на котором обрывается серия инструментов, к этой серии, и для этого полностью рендерил его — на каждой точке обрыва, при каждом входе в отрисовку транскрипта, а таких входов на один кадр (то есть на одно нажатие клавиши) приходится два-три. На длинной сессии это сотни-тысячи нативных рендеров на кадр. Теперь вердикт «блок не пустой» запоминается для любого блока (он может только оборвать серию — безопасный исход), а «блок пустой» — только пока хост сам считает строки блока финальными: иначе блок, получивший содержимое позже, был бы втянут в серию и его строки исчезли бы.
-
-### Fixed
-
-- A folded transcript no longer re-renders native history on every frame. The fold's plan decided whether the block a run stops at belongs to that run by rendering the block natively — once per run boundary, at every transcript render entry point, two to three of which run per frame (i.e. per keystroke). On a long session that is hundreds to thousands of native renders per frame. The "not blank" verdict is now remembered for any block (it can only end a run early — the conservative outcome), while "blank" is remembered only while the host itself calls the block's rows final: otherwise a block that gains content later would be folded into the run and its rows would disappear.
-
----
+- Host pin moved from 18.2.8 to 18.2.9. Public floor `engines.omp >=18.0.1` unchanged.
 
 ## 1.3.0 — 22 сентября 2026
 
@@ -54,20 +46,6 @@
 - Added safe advisor-note handling during history restore, rebuild, detach, and live setting changes.
 - Added compatibility with old and new OMP component paths, including OMP 18.2.8.
 
----
-
-## Разработка
-
-### Изменено
-
-- Хост-пин переехал с 18.2.8 на 18.2.9. Это point feature-релиз (сохранённые Claude-ресеты в usage-вью, `omp://`-скоупы как цель поиска для `find`, расширенные compat-правила каталога), и ни один файл, который патчит плагин, не изменился: `pi-tui/src/chat/*` и `pi-tui/src/chrome/*` побайтово идентичны 18.2.8, все методы `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` (арность 0, одна команда `\x1b[3J`) и фингерпринты всех 6 листьев сохранены. Обе правки, касающиеся наших правил, аддитивны: `find` принимает `omp://`-скоуп в `path` (схема, wire-имя и `FindToolDetails` те же, скоуп рендерится как непрозрачная строка), а `hub jobs` получил опциональный `exitCode` в details. Публичный пол `engines.omp >=18.0.1` не тронут.
-
-### Changed
-
-- Host pin moved from 18.2.8 to 18.2.9. This is a point feature release (Claude saved resets in the usage views, `omp://` scopes as a `find` search target, extended catalog compatibility rules), and no file patched by this plugin changed: `pi-tui/src/chat/*` and `pi-tui/src/chrome/*` are byte-identical to 18.2.8, every method on `TranscriptContainer`, `ToolExecutionComponent` and `ReadToolGroupComponent`, `resetDisplay()` (arity 0, one `\x1b[3J` erase) and all 6 leaf fingerprints are preserved. Both changes that touch our rules are additive: `find` accepts an `omp://` scope in `path` (same schema, wire name and `FindToolDetails`; the scope renders as an opaque string), and `hub jobs` gained an optional `exitCode` detail. The public floor `engines.omp >=18.0.1` is untouched.
-
----
-
 ## 1.2.10 — 22 сентября 2026
 
 ### Добавлено
@@ -85,8 +63,6 @@
 ### Changed
 
 - Host pin moved from 18.2.6 to 18.2.8. Both versions are major agent-side releases (the `find` tool with its own renderer, centralized magic keywords replacing the orchestrate/ultrathink/workflow modules, `judge`/eval signature changes, modularized browser tooling, judged-batch evaluation, and expanded web-search providers), but no file patched by this plugin changed: `pi-tui/src/chat/*` and `pi-tui/src/chrome/*` are byte-identical to 18.2.6, all methods on `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` and all 6 leaf fingerprints remain preserved, and the sole `tui.ts` edit is an additive Glyph Protocol repaint hook. The public floor `engines.omp >=18.0.1` is untouched.
-
----
 
 ## 1.2.9 — 18 сентября 2026
 
@@ -114,8 +90,6 @@
 
 - Host pin moved to OMP 18.2.5. Architectural modularization in the host relocated chat TUI components, chrome, and the theme engine from `@oh-my-pi/pi-coding-agent` into `@oh-my-pi/pi-tui`. All 8 patched methods on `TranscriptContainer` and 8 on `ToolExecutionComponent` remain intact with identical signatures and arities. Read tool grouping, tool activity, and `resetDisplay()` (`\x1b[3J`) remain preserved. Theme types are decoupled from internal host paths via a structural `theme-types.ts` interface. Skill and late diagnostics components moved to ECMAScript private fields (`#message`, `#files`) and are now scraped through rendered child trees.
 
----
-
 ## 1.2.8 — 11 сентября 2026
 
 ### Исправлено
@@ -142,8 +116,6 @@
 
 - Fixed tool card rendering for a read beside another tool.
 
----
-
 ## 1.2.6 — 2 сентября 2026
 
 ### Исправлено
@@ -153,8 +125,6 @@
 ### Fixed
 
 - Fixed compatibility with the latest version's tool output protocol.
-
----
 
 ## 1.2.5 — 29 августа 2026
 
@@ -174,15 +144,11 @@
 
 - Плагин проверен на OMP 18.0.10 и теперь собирается против него. Требования к версии OMP не изменились: минимально поддерживаемая — 18.0.1. Дописывать ничего не пришлось: журнал и карточка инструмента в 18.0.9 и 18.0.10 остались в точности прежними. Единственное смежное изменение — повтор хода после ошибки: OMP теперь проигрывает заново тот же набор инструментов и убирает старую карточку перед новой, а плагин умеет это поглощать.
 
----
-
 ## 1.2.4 — 28 августа 2026
 
 ### Исправлено
 
 - Плагин больше не требует, чтобы OMP отдавал ему сторонний пакет ради одной строки с длительностью: нужный расчёт теперь свой, и на установке OMP одним файлом плагин загружается без доустановки чего-либо.
-
----
 
 ## 1.2.3 — 28 августа 2026
 
@@ -197,8 +163,6 @@
 ### Изменено
 
 - Плагин проверен на OMP 18.0.8 и теперь собирается против него. Требования к версии OMP не изменились: минимально поддерживаемая — 18.0.1. Ничего дописывать не потребовалось: всё, от чего зависит компактный вид, в этом выпуске осталось прежним. Сам OMP завёл собственный показ длительности хода в своей строке расхода — он выключен по умолчанию, живёт отдельно от строки плагина и с ней не пересекается.
-
----
 
 ## 1.2.2 — 24 августа 2026
 
@@ -216,8 +180,6 @@
 
 - Требования к OMP не менялись: закреплённый host — **18.0.3**, минимальная поддерживаемая версия — **18.0.1**.
 
----
-
 ## 1.2.1 — 24 августа 2026
 
 ### Исправлено
@@ -234,8 +196,6 @@
 ### Проверено
 
 - Требования к OMP не менялись: закреплённый host — **18.0.3**, минимальная поддерживаемая версия — **18.0.1**.
-
----
 
 ## 1.2.0 — 23 августа 2026
 
@@ -268,8 +228,6 @@
 - Плагин переведён на новый OMP 18.0.1. В этой версии OMP переписал внутреннее устройство журнала: строки уходят в неизменяемую историю пачками, а у каждого блока появилось явное состояние. Плагин, собранный под 18.0.0, на 18.0.1 просто не узнаёт журнал и молча отдаёт весь вывод штатному интерфейсу — поэтому вместе с обновлением поднята и минимальная версия. После перевода компактный вид, тихий вид, восстановление истории и сообщения о фоновых заданиях снова работают на живом OMP 18.0.1.
 - Плагин проверен на OMP 18.0.3. Эта версия ничего не изменила в том, за что плагин держится: журнал остался прежним, а карточка инструмента лишь научилась не сжиматься там, где её содержимое и так короткое. Компактный вид, тихий вид, восстановление истории и живой ход проверены на живом OMP 18.0.3.
 
----
-
 ## 1.1.3 — 22 августа 2026
 
 ### Исправлено
@@ -278,8 +236,6 @@
 - Действия, запущенные тем же сообщением рядом с такими карточками, больше не остаются большими.
 - Bash-команды, которые OMP показывает в рамке, тоже сворачиваются в короткую строку, а не висят большой карточкой всё время выполнения скрипта.
 - Когда запущенный процесс завершается, это показывается своей спокойной строкой.
-
----
 
 ## 1.1.2 — 21 августа 2026
 
@@ -292,15 +248,11 @@
 
 - Закреплённый development/release-gate host — штатный OMP **17.4.0**; публичный порог `engines.omp` по-прежнему **>=17.2.12**.
 
----
-
 ## 1.1.1 — 20 августа 2026
 
 ### Исправлено
 
 - Инструменты write/edit показываются короткой строкой, не дожидаясь, пока модель закончит работу над файлом: правки и записи сворачиваются уже пока аргументы ещё идут потоком, а не только после завершения. Большая карточка write/edit больше не висит на экране до конца вызова.
-
----
 
 ## 1.1.0 — 19 августа 2026
 
@@ -337,8 +289,6 @@
 - Гейт на штатном OMP 17.3.8: **1175** тестов, **0** падений, **6546** проверок в **28** файлах.
 - TypeScript + линт и формат Biome + синхронизация метаданных Marketplace.
 
----
-
 ## 1.0.4 — 17 августа 2026
 
 ### Исправлено
@@ -352,8 +302,6 @@
 - Когда агент удаляет файл, это отдельная красная строка, а не «правка, где ничего не добавили». Если количество убранных строк можно посчитать честно — цифра красная и точная.
 - Удаление файла без возможности отследить количество изменённых строк теперь сохраняется в логе строкой `delete` без статистики, а не скрывается полностью: неизвестное число не придумывается, но видно, какой файл убрали.
 - Инструменты стали определяться по общему шаблону — это расширяет поддержку версий.
-
----
 
 ## 1.0.3 — 14 августа 2026
 
@@ -373,8 +321,6 @@
 
 - Лишние поля в файле настроек, которых эта версия ещё не знает, при сохранении не выбрасываются — чтобы не потерять то, что вы или новая версия туда положили.
 
----
-
 ## 1.0.2 — 13 августа 2026
 
 ### Исправлено
@@ -385,8 +331,6 @@
 
 - Инструменты `browser`, `computer`, `resolve` и `reject` выводятся компактными однострочными строками, а `ask` сохраняет нативную интерактивную поверхность.
 - Закреплённый development/release host обновлён до штатного OMP 17.3.1 при сохранении публичной совместимости с OMP `>=17.2.12`.
-
----
 
 ## 1.0.1 — 12 августа 2026
 
@@ -405,8 +349,6 @@
 - Строгие проверки TypeScript и Biome.
 - Проверка ссылок в README и документации.
 - Проверки содержимого пакета и dry-run для Marketplace.
-
----
 
 ## 1.0.0 — 12 августа 2026
 
@@ -486,15 +428,11 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 - The plugin is verified on OMP 18.0.10 and now builds against it. OMP version requirements are unchanged: the minimum supported release is still 18.0.1. Nothing needed adding: the transcript and the tool card are byte-identical in 18.0.9 and 18.0.10. The only adjacent change is repeating a failed turn: OMP now replays the same tool batch and removes the stale prior-turn card before the fresh one, which the plugin already absorbs.
 
----
-
 ## 1.2.4 — 28 August 2026
 
 ### Fixed
 
 - The plugin no longer needs OMP to hand it a separate package just to spell out a duration: that small calculation is now its own, so on a single-file OMP install the plugin loads without anything extra alongside it.
-
----
 
 ## 1.2.3 — 28 August 2026
 
@@ -509,8 +447,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 ### Changed
 
 - The plugin is verified on OMP 18.0.8 and now builds against it. OMP version requirements are unchanged: the minimum supported release is still 18.0.1. Nothing needed adding: everything the compact view depends on stayed the same in this release. OMP itself gained its own turn-duration display in its usage row — off by default, separate from the plugin's row, and with no overlap.
-
----
 
 ## 1.2.2 — 24 August 2026
 
@@ -528,8 +464,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 - OMP requirements are unchanged: pinned host **18.0.3**, minimum supported version **18.0.1**.
 
----
-
 ## 1.2.1 — 24 August 2026
 
 ### Fixed
@@ -546,8 +480,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 ### Verified
 
 - OMP requirements are unchanged: pinned host **18.0.3**, minimum supported version **18.0.1**.
-
----
 
 ## 1.2.0 — 23 August 2026
 
@@ -580,8 +512,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 - The plugin moved to the new OMP 18.0.1. That release rewrote the transcript internals: rows retire into immutable history in batches, and every block now carries an explicit state. A build made for 18.0.0 simply does not recognize the transcript on 18.0.1 and silently hands the whole output to the native interface — which is why the minimum version moves with the pin. After the move, the compact view, the quiet view, restored history and background-job notices all work again on live OMP 18.0.1.
 - The plugin is verified on OMP 18.0.3. That release changed nothing the plugin holds on to: the transcript stayed as it was, and the tool card only learned not to squeeze itself where its content is already short. The compact view, the quiet view, restored history and a live turn were all checked on live OMP 18.0.3.
 
----
-
 ## 1.1.3 — 22 August 2026
 
 ### Fixed
@@ -590,8 +520,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 - Actions started by the same message next to such cards no longer stay large.
 - Bash commands that OMP shows in a frame also collapse to a short row instead of hanging as a large card for the whole script run.
 - When a launched process finishes, that is shown by its own quiet row.
-
----
 
 ## 1.1.2 — 21 August 2026
 
@@ -604,15 +532,11 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 - Pinned development/release-gate host is stock OMP **17.4.0**; the public `engines.omp` floor remains **>=17.2.12**.
 
----
-
 ## 1.1.1 — 20 August 2026
 
 ### Fixed
 
 - write/edit tools show as a short row without waiting for the model to finish working on the file: edits and writes collapse while arguments are still streaming, not only after completion. The large write/edit card no longer stays on screen until the call ends.
-
----
 
 ## 1.1.0 — 19 August 2026
 
@@ -649,8 +573,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 - Stock OMP 17.3.8 gate: **1175** tests, **0** failures, **6546** assertions across **28** files.
 - TypeScript + Biome lint and format + Marketplace metadata sync.
 
----
-
 ## 1.0.4 — 17 August 2026
 
 ### Fixed
@@ -664,8 +586,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 - When the agent deletes a file, it is a separate red row rather than "an edit that added nothing". When the number of removed lines can be counted honestly, the figure is red and exact.
 - A file deletion whose changed-line count cannot be determined is now kept in the log as a `delete` row without stats instead of being hidden entirely: an unknown number is never invented, but it stays visible which file was removed.
 - Tools are recognized by a common pattern, which widens version support.
-
----
 
 ## 1.0.3 — 14 August 2026
 
@@ -685,8 +605,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 - Extra fields in the settings file that this version does not know yet are not dropped on save — so nothing you or a newer version put there gets lost.
 
----
-
 ## 1.0.2 — 13 August 2026
 
 ### Fixed
@@ -697,8 +615,6 @@ In plain words — what changed for a person working in OMP with this plugin.
 
 - The `browser`, `computer`, `resolve`, and `reject` tools render as compact one-line rows, while `ask` keeps the native interactive surface.
 - Pinned development/release host updated to stock OMP 17.3.1, keeping public compatibility with OMP `>=17.2.12`.
-
----
 
 ## 1.0.1 — 12 August 2026
 
@@ -717,8 +633,6 @@ Public release polish. This patch release does not change plugin behavior; it ti
 - Strict TypeScript and Biome checks.
 - README and documentation link checks.
 - Package payload and Marketplace dry-run checks.
-
----
 
 ## 1.0.0 — 12 August 2026
 
