@@ -395,24 +395,115 @@ stockTest(
 );
 
 stockTest(
-	"notes the stock card would wrap stay native instead of guessing the layout",
+	"long notes compact at the stock break points instead of staying native",
 	async () => {
-		for (const note of [
-			`${"word ".repeat(60)}end-of-line-mark`,
-			`short start ${"x".repeat(200)}`,
-		]) {
-			const booted = await bootAdvisor({ compact: true });
-			try {
-				const { card, native } = await addAdvisorCard(booted, {
-					notes: [{ severity: "nit", note }],
-				});
-				expect(card.render(120)).toEqual(native(120));
-			} finally {
-				await shutdown(booted);
-			}
+		const notes = [
+			{
+				severity: "nit",
+				advisor: "Luna",
+				// One paragraph past the 106-column body cap, one short second
+				// paragraph, plus a single over-wide word.
+				note: `${"word ".repeat(25)}end-of-line-mark\nShort tail paragraph`,
+			},
+			{
+				severity: "concern",
+				// Intro shorter than the badge line, body that must wrap after
+				// the badge is accounted for.
+				note: `short start ${"x".repeat(200)}\n\nfinal paragraph`,
+			},
+		];
+		const booted = await bootAdvisor({ compact: true });
+		try {
+			const before = JSON.stringify(notes);
+			const { card, native } = await addAdvisorCard(booted, { notes });
+			// The card really renders wrapped rows, and the reconstruction
+			// still lines up: compaction is proof, not a guess.
+			expect(native(120).length).toBeGreaterThan(4);
+			// The compact row is the note's first line, whole at a wide
+			// terminal and truncated only by the terminal itself.
+			expect(visibleRows(card, 260)).toEqual([
+				`• advisor [nit] [Luna] ${"word ".repeat(25).trimEnd()} end-of-line-mark`,
+				`• advisor [concern] short start ${"x".repeat(200)}`,
+			]);
+			for (const line of visibleRows(card, 40))
+				expect(line.length).toBeLessThanOrEqual(40);
+			expect(JSON.stringify(notes)).toBe(before);
+			// Expansion still returns the untouched multi-row stock card.
+			booted.setExpanded(true);
+			expect(card.render(120)).toEqual(native(120));
+			expect(visibleRows(card).join("\n")).toContain("end-of-line-mark");
+			expect(visibleRows(card).join("\n")).toContain("Short tail paragraph");
+			expect(visibleRows(card).join("\n")).toContain("final paragraph");
+		} finally {
+			await shutdown(booted);
 		}
 	},
 );
+
+stockTest(
+	"a visible note the plugin cannot read keeps every card native",
+	async () => {
+		const visible = [1, 2, 3].map((index) => ({
+			severity: "nit",
+			note: `Note ${index}\nDetails ${index}`,
+		}));
+		// The safe card is proven first; then an unreadable fourth note (whose
+		// entry never reaches the collapsed body) arrives with rows that would
+		// otherwise be claimed by that proof.
+		const booted = await bootAdvisor({ compact: true });
+		try {
+			const safe = {
+				notes: [...visible, { severity: "nit", note: "Readable hidden note" }],
+			};
+			const { card, native } = await addAdvisorCard(booted, safe);
+			expect(visibleRows(card)[0]).toBe("• advisor [nit] Note 1");
+			// The malformed card paints the same collapsed rows as its stock
+			// card does — the unreadable entry is hidden either way.
+			const malformed = {
+				notes: [...visible, { severity: "nit", note: 42 }],
+			};
+			await dispatch(booted, {
+				type: "message_end",
+				message: advisorMessage(malformed),
+			});
+			const malformedCard = booted.host.createAdvisorMessageCard(
+				malformed,
+				() => false,
+				booted.host.getTheme(),
+			);
+			const malformedNative = malformedCard.render.bind(malformedCard);
+			booted.transcript.addChild(malformedCard);
+			expect(visibleRows(malformedCard).join("\n")).toContain("Note 3");
+			expect(malformedCard.render(120)).toEqual(malformedNative(120));
+			expect(card.render(120)).toEqual(native(120));
+		} finally {
+			await shutdown(booted);
+		}
+	},
+);
+
+stockTest("cards with no notes at all stay ignorable", async () => {
+	const booted = await bootAdvisor({ compact: true });
+	try {
+		const { card, native } = await addAdvisorCard(booted, {
+			notes: [{ severity: "nit", note: "Notes still compact\nFull body" }],
+		});
+		// A sibling `Advisor 0 notes` card renders a header no candidate can
+		// reproduce, so it neither compacts nor poisons the generation.
+		const empty = booted.host.createAdvisorMessageCard(
+			{ notes: [] },
+			() => false,
+			booted.host.getTheme(),
+		);
+		const emptyNative = empty.render.bind(empty);
+		booted.transcript.addChild(empty);
+		expect(empty.render(120)).toEqual(emptyNative(120));
+		expect(visibleRows(card)).toEqual(["• advisor [nit] Notes still compact"]);
+		expect(card.render(120)).not.toEqual(native(120));
+	} finally {
+		await shutdown(booted);
+	}
+});
 
 stockTest("tabs and repeated spaces match the stock rendering", async () => {
 	const booted = await bootAdvisor({ compact: true });

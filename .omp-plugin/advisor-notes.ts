@@ -1,4 +1,4 @@
-import { visibleWidth } from "@oh-my-pi/pi-tui";
+import { replaceTabs, visibleWidth, wrapTextWithAnsi } from "@oh-my-pi/pi-tui";
 
 import { stripRejectedControls } from "./display-control";
 import { fitTransparentLine } from "./fit-transparent-line";
@@ -27,14 +27,15 @@ import type { Theme } from "./theme-types";
  * - Candidates are parsed from structured, bounded metadata only (live
  *   `message_end` messages and restored branch entries); the original payload
  *   is never retained, rewritten or re-emitted.
- * - The expected rows are reconstructed with the live theme and the stock
- *   card's own layout rules (header meta, per-severity rail, badge, advisor
- *   attribution, 110-column body cap, three-note collapsed limit, hidden-count
- *   row).
+ * - The expected rows are reconstructed with the live theme, the host's own
+ *   `wrapTextWithAnsi`/`replaceTabs`, and the stock card's layout rules
+ *   (header meta, per-severity rail, badge, advisor attribution, 110-column
+ *   body cap with the same first/continuation widths, three-note collapsed
+ *   limit, hidden-count row).
  * - Anything the reconstruction cannot prove — blockers, unknown severities,
- *   malformed or oversized metadata, rejected control characters, lines the
- *   stock wrapper would wrap, two candidates producing the same rows — stays
- *   native. Failure is always "leave the stock card alone", never a guess.
+ *   malformed or oversized metadata, rejected control characters, two
+ *   candidates producing the same rows — stays native. Failure is always
+ *   "leave the stock card alone", never a guess.
  */
 
 /**
@@ -47,6 +48,8 @@ export const ADVISOR_PROBE_WIDTH = 8_192;
 /** Stock `COLLAPSED_NOTES` / `NOTE_LINE_WIDTH` (advisor-message.ts). */
 const COLLAPSED_NOTES = 3;
 const NOTE_LINE_WIDTH = 110;
+/** Stock `Disclosure` horizontal padding, applied to both card edges. */
+const CARD_PADDING_X = 1;
 
 /** Bounded evidence budgets; mirrors the hydration bounds the plugin uses. */
 const MAX_NOTES = 64;
@@ -64,6 +67,15 @@ export interface AdvisorCard {
 	readonly notes: readonly AdvisorNoteEntry[];
 	/** False when any note is blocking, unknown or otherwise unrepresentable. */
 	readonly safe: boolean;
+}
+
+/**
+ * True when `details` carries a note list the host card would render — the
+ * shape whose parse failure has to fail the generation open.
+ */
+function hasRenderedNotes(details: unknown): boolean {
+	const notes = objectRecord(details).notes;
+	return Array.isArray(notes) && notes.length > 0;
 }
 
 /** Only `nit` and `concern` are non-blocking per the host's advisor schema. */
@@ -168,16 +180,37 @@ function cardChrome(theme: Theme): CardChrome | undefined {
 }
 
 /**
- * The stock card's visible rows for one payload, or `undefined` when the
- * payload cannot be laid out without the native wrapper (a paragraph wider
- * than the stock body width wraps into rows this reconstruction does not
- * model).
+ * `wrapVarying` is module-private in `chat/advisor-message.ts`; mirrored
+ * verbatim so a note whose first line overflows keeps the stock break points.
+ */
+function wrapVarying(
+	text: string,
+	firstWidth: number,
+	restWidth: number,
+): string[] {
+	if (text.length === 0) return [];
+	const firstWrap = wrapTextWithAnsi(text, firstWidth);
+	if (firstWrap.length <= 1) return firstWrap;
+	const firstLine = firstWrap[0];
+	if (firstLine === undefined) return firstWrap;
+	const index = text.indexOf(firstLine);
+	if (index === -1) return wrapTextWithAnsi(text, restWidth);
+	const remainder = text.slice(index + firstLine.length).trimStart();
+	return [firstLine, ...wrapTextWithAnsi(remainder, restWidth)];
+}
+
+/**
+ * The stock card's visible rows for one payload at the probe width. Wrapping
+ * goes through the host's own `wrapTextWithAnsi`/`replaceTabs` with the same
+ * body-cap arithmetic the stock renderer uses, so a long note produces exactly
+ * the rows the card produces (and a mismatch stays a mismatch).
  */
 function expectedRows(
 	card: AdvisorCard,
 	chromium: CardChrome,
 	expanded: boolean,
-): string[] | undefined {
+	bodyWidth: number,
+): string[] {
 	const notes = card.notes;
 	const blockers = notes.filter((note) => note.severity === "blocker").length;
 	const meta = [`${notes.length} ${notes.length === 1 ? "note" : "notes"}`];
@@ -186,6 +219,7 @@ function expectedRows(
 	const rows = [`${chromium.info} Advisor ${meta.join(chromium.dot)}`];
 	const shown = expanded ? notes : notes.slice(0, COLLAPSED_NOTES);
 	const quoteWidth = visibleWidth(`  ${chromium.rail} `);
+	bodyWidth = Math.min(NOTE_LINE_WIDTH, bodyWidth);
 	for (const entry of shown) {
 		const badge = entry.severity
 			? `${chromium.bracketLeft}${entry.severity}${chromium.bracketRight} `
@@ -194,17 +228,23 @@ function expectedRows(
 			entry.advisor && entry.advisor !== "default" ? `[${entry.advisor}] ` : "";
 		const firstWidth = Math.max(
 			10,
-			NOTE_LINE_WIDTH - quoteWidth - visibleWidth(badge) - visibleWidth(who),
+			bodyWidth - quoteWidth - visibleWidth(badge) - visibleWidth(who),
 		);
-		const restWidth = Math.max(10, NOTE_LINE_WIDTH - quoteWidth);
+		const restWidth = Math.max(10, bodyWidth - quoteWidth);
 		const paragraphs = entry.note.split("\n").filter((line) => line.trim());
+		const bodyLines: string[] = [];
 		for (const [index, paragraph] of paragraphs.entries()) {
-			if (visibleWidth(paragraph) > (index === 0 ? firstWidth : restWidth))
-				return undefined;
-			rows.push(
-				`  ${chromium.rail} ${index === 0 ? `${badge}${who}` : ""}${paragraph}`,
+			bodyLines.push(
+				...(index === 0
+					? wrapVarying(paragraph, firstWidth, restWidth)
+					: wrapTextWithAnsi(paragraph, restWidth)),
 			);
 		}
+		bodyLines.forEach((line, index) => {
+			rows.push(
+				`  ${chromium.rail} ${index === 0 ? `${badge}${who}` : ""}${replaceTabs(line)}`,
+			);
+		});
 	}
 	const hidden = notes.length - shown.length;
 	if (hidden > 0) {
@@ -298,12 +338,26 @@ export class AdvisorNotes {
 		// `display: false` cards never reach the transcript; they carry no
 		// presentation risk and no candidate.
 		if (entry.customType !== "advisor" || entry.display === false) return false;
+		const card = parseNotes(entry.details);
+		if (!card) {
+			// Metadata that is present but unreadable is not "no evidence": a
+			// card can hide an unreadable note (for example a malformed fourth
+			// entry) and still paint the same collapsed rows as a readable
+			// candidate, so ignoring it would let that card be claimed by the
+			// other payload's proof. Such a card cannot be modelled, so the
+			// whole generation refuses to compact. Cards with no notes at all
+			// (`{}`, `{ notes: [] }`) paint an "Advisor 0 notes" header that no
+			// candidate can render, and stay ignorable.
+			if (hasRenderedNotes(entry.details)) {
+				this.#uncertain = true;
+				return true;
+			}
+			return false;
+		}
 		if (this.#cards.length >= MAX_CARDS) {
 			this.#uncertain = true;
 			return true;
 		}
-		const card = parseNotes(entry.details);
-		if (!card) return false;
 		this.#bytes += card.notes.reduce(
 			(sum, note) => sum + note.note.length + (note.advisor?.length ?? 0),
 			0,
@@ -334,8 +388,18 @@ export class AdvisorNotes {
 		for (const card of this.#cards) {
 			const rows = new Set<string>();
 			for (const expanded of [false, true]) {
-				const signature = expectedRows(card, chrome, expanded);
-				if (!signature) continue;
+				let signature: string[];
+				try {
+					signature = expectedRows(
+						card,
+						chrome,
+						expanded,
+						ADVISOR_PROBE_WIDTH - CARD_PADDING_X * 2,
+					);
+				} catch {
+					// A host wrap failure on one payload is not evidence for it.
+					continue;
+				}
 				const key = this.#signatureOf(signature);
 				// A collision (this card's own collapsed/expanded pair included)
 				// means the rows alone cannot identify one payload: stay native.
