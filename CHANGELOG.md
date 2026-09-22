@@ -4,13 +4,23 @@
 
 ---
 
-## Разработка
+## 1.2.10 — 22 сентября 2026
+
+### Добавлено
 
 - Инструмент семантического поиска `find` больше не падает в нативную карточку: он получает компактную строку `• find: <запрос> · in <папка> · N hits · M files read` — по тем же режимам и настройкам, что `grep` и `glob`. Строка собирается только из structured args и details вызова: без читаемого запроса печатается `?`, при неизвестной форме результата остаётся один запрос, ошибка выводится обычной строкой `✗` со штатным текстом. Псевдоним `jfind` (имя модуля хоста `tools/jfind`) резолвится в то же правило, поэтому ни одно написание не уходит в native fallback. Незнакомые инструменты по-прежнему остаются нативными.
 
+### Added
+
 - The semantic `find` tool no longer falls back to its native card: it renders one compact row (`• find: <query> · in <dir> · N hits · M files read`) under the same modes and settings as `grep` and `glob`. The row is built only from the call's structured args and result details: an unreadable query prints `?`, an unknown result shape prints the query alone, and a failure keeps the ordinary `✗` row with the stock error text. The `jfind` spelling (the host module name `tools/jfind`) resolves to the same rule, so neither name falls open to native. Unknown tools still stay native.
 
+### Изменено
+
 - Хост-пин переехал с 18.2.6 на 18.2.8. Обе версии — крупные agent-side релизы (инструмент `find` со своим рендерером, централизованные magic keywords вместо модулей orchestrate/ultrathink/workflow, изменения сигнатур `judge`/eval, модуляризация browser tooling, batch-судейство, новые web-search провайдеры), но ни один файл, который патчит плагин, не изменился: `pi-tui/src/chat/*` и `pi-tui/src/chrome/*` побайтово идентичны 18.2.6, все методы `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` и фингерпринты всех 6 листьев сохранены, а единственная правка `tui.ts` — аддитивный Glyph Protocol hook перерисовки. Публичный пол `engines.omp >=18.0.1` не тронут.
+
+### Changed
+
+- Host pin moved from 18.2.6 to 18.2.8. Both versions are major agent-side releases (the `find` tool with its own renderer, centralized magic keywords replacing the orchestrate/ultrathink/workflow modules, `judge`/eval signature changes, modularized browser tooling, judged-batch evaluation, and expanded web-search providers), but no file patched by this plugin changed: `pi-tui/src/chat/*` and `pi-tui/src/chrome/*` are byte-identical to 18.2.6, all methods on `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` and all 6 leaf fingerprints remain preserved, and the sole `tui.ts` edit is an additive Glyph Protocol repaint hook. The public floor `engines.omp >=18.0.1` is untouched.
 
 ---
 
