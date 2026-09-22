@@ -183,6 +183,12 @@ export class TranscriptFold {
 	// transcript (the adapter's rebuild detach/reinstall cycle).
 	#roles = new WeakMap<object, FoldRole>();
 	#runs = new WeakMap<object, FoldRun>();
+	/**
+	 * Blankness verdicts already rendered out, one per block that cannot
+	 * change any more (see `#probedBlank`). Fold-owned state like the runs:
+	 * a session or rebuild boundary must not carry a verdict over.
+	 */
+	#probedBlankAt = new WeakMap<object, { width: number; blank: boolean }>();
 	readonly #patches = new Map<RenderableBlock, BlockPatch>();
 	#transcriptPatch: DescriptorPatch | undefined;
 	/** Native `liveRowCount`, captured while patching the transcript. */
@@ -583,6 +589,7 @@ export class TranscriptFold {
 		// reinstall/replan of the same instance.
 		this.#runs = new WeakMap();
 		this.#roles = new WeakMap();
+		this.#probedBlankAt = new WeakMap();
 		if (
 			!this.#installed &&
 			this.#patches.size === 0 &&
@@ -830,6 +837,40 @@ export class TranscriptFold {
 		return this.#native(block).render.call(block, width);
 	}
 
+	/**
+	 * Whether a block pads itself to blank at `width`.
+	 *
+	 * The plan renders the block a run stops at to decide whether it belongs
+	 * to the run, and every patched entry point plans — so a keystroke that
+	 * only repaints the composer re-rendered the same settled history once
+	 * per run, every frame, for the whole session.
+	 *
+	 * Verdicts are kept per block and width, under one asymmetry: "not blank"
+	 * only ever ends a run early (the block stays a block), so it is safe to
+	 * keep for any block. "Blank" makes the block a member of the run in
+	 * front of it, which would swallow content if the block could still gain
+	 * some — so that verdict is kept only while the host's own contract says
+	 * the block's rows cannot change any more.
+	 */
+	#probedBlank(block: RenderableBlock, width: number): boolean {
+		const cached = this.#probedBlankAt.get(block);
+		const sameWidth = cached !== undefined && cached.width === width;
+		if (sameWidth && !cached.blank) return false;
+		const frozen = this.#frozen(block);
+		if (sameWidth && frozen) return true;
+		const blank = this.#nativeRows(block, width).every(
+			(line) => !NON_BLANK.test(line),
+		);
+		if (!blank || frozen) this.#probedBlankAt.set(block, { width, blank });
+		return blank;
+	}
+
+	/** Whether the host itself calls this block's rows final and frozen. */
+	#frozen(block: RenderableBlock): boolean {
+		const finalized = this.#native(block).finalized;
+		return finalized?.call(block) === true;
+	}
+
 	#plan(width: number): void {
 		const children = this.#transcript.children;
 		const planned = new Set<RenderableBlock>();
@@ -844,10 +885,7 @@ export class TranscriptFold {
 				const next = children[end + 1];
 				if (
 					this.#callbacks.isFoldable(next) ||
-					(isRenderableBlock(next) &&
-						this.#nativeRows(next, width).every(
-							(line) => !NON_BLANK.test(line),
-						))
+					(isRenderableBlock(next) && this.#probedBlank(next, width))
 				) {
 					end++;
 					continue;
@@ -875,7 +913,13 @@ export class TranscriptFold {
 				if (!member) continue;
 				planned.add(member);
 				this.#installBlock(member);
-				this.#roles.set(member, { run, carrier: position === 0 });
+				// The role object is replaced only when it actually changes:
+				// an unchanged transcript is replanned on every frame, and a
+				// fresh object per member per frame is pure allocation churn.
+				const isCarrier = position === 0;
+				const role = this.#roles.get(member);
+				if (role?.run !== run || role.carrier !== isCarrier)
+					this.#roles.set(member, { run, carrier: isCarrier });
 			}
 			index = end + 1;
 		}

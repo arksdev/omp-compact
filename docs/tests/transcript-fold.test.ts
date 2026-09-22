@@ -519,3 +519,119 @@ describe("TranscriptFold: every block-rendering entry point replans", () => {
 		}
 	});
 });
+
+describe("TranscriptFold: the plan does not re-probe what cannot change", () => {
+	/**
+	 * The block a run stops at: not foldable, so the plan renders it once to
+	 * decide whether it belongs to the run. Counts its own native renders.
+	 */
+	class TerminatorBlock {
+		renders = 0;
+
+		readonly #finalized: boolean;
+		readonly #rows: Lines;
+
+		constructor(rows: Lines, finalized: boolean) {
+			this.#rows = rows;
+			this.#finalized = finalized;
+		}
+
+		render(_width: number): Lines {
+			this.renders++;
+			return this.#rows;
+		}
+
+		isTranscriptBlockFinalized(): boolean {
+			return this.#finalized;
+		}
+	}
+
+	/**
+	 * Host whose own render entry points touch no child: every child render
+	 * observed here came from the fold's plan, never from the host.
+	 */
+	class QuietTranscript extends FakeTranscript {
+		override render(_width: number): Lines {
+			return [];
+		}
+
+		override renderViewport(
+			_width: number,
+			_rows: number,
+			_frame: AnimationFrame,
+		): Lines {
+			return [];
+		}
+
+		override liveRowCount(_width: number): number {
+			return 0;
+		}
+	}
+
+	function installWith(terminator: TerminatorBlock): {
+		transcript: QuietTranscript;
+		renders: () => number;
+	} {
+		const transcript = new QuietTranscript();
+		const foldable = new FakeBlock();
+		transcript.addChild(foldable);
+		transcript.addChild(terminator);
+		const fold = new TranscriptFold(transcript, {
+			...callbacks(),
+			isFoldable: (block): block is RenderableBlock => block === foldable,
+		});
+		fold.install();
+		return { transcript, renders: () => terminator.renders };
+	}
+
+	const CONTENT: Lines = ["native text"];
+	const BLANK: Lines = ["", "   "];
+	const FRAME_VIEW = [80, 10, FRAME] as const;
+
+	test("a content-bearing run terminator is probed once, not once per frame", () => {
+		// Both a live and a finalized block answer "not blank", and that
+		// verdict can only ever end a run — so it never has to be re-rendered.
+		for (const finalized of [true, false]) {
+			const { transcript, renders } = installWith(
+				new TerminatorBlock(CONTENT, finalized),
+			);
+			transcript.renderViewport(...FRAME_VIEW);
+			const afterFirstPlan = renders();
+			expect(afterFirstPlan).toBeGreaterThan(0);
+
+			for (let frame = 0; frame < 5; frame++)
+				transcript.renderViewport(...FRAME_VIEW);
+			expect(renders()).toBe(afterFirstPlan);
+		}
+	});
+
+	test("a blank terminator is re-probed until the host freezes it", () => {
+		// "Blank" makes the block a member of the run in front of it, so it is
+		// only kept once the host itself says the rows cannot change.
+		const live = installWith(new TerminatorBlock(BLANK, false));
+		live.transcript.renderViewport(...FRAME_VIEW);
+		const first = live.renders();
+		expect(first).toBeGreaterThan(0);
+		for (let frame = 0; frame < 3; frame++)
+			live.transcript.renderViewport(...FRAME_VIEW);
+		expect(live.renders()).toBe(first * 4);
+
+		const settled = installWith(new TerminatorBlock(BLANK, true));
+		settled.transcript.renderViewport(...FRAME_VIEW);
+		const afterFirstPlan = settled.renders();
+		for (let frame = 0; frame < 5; frame++)
+			settled.transcript.renderViewport(...FRAME_VIEW);
+		expect(settled.renders()).toBe(afterFirstPlan);
+	});
+
+	test("a new width re-probes the terminator", () => {
+		const { transcript, renders } = installWith(
+			new TerminatorBlock(CONTENT, true),
+		);
+		transcript.renderViewport(...FRAME_VIEW);
+		const afterFirstPlan = renders();
+
+		transcript.renderViewport(100, 10, FRAME);
+		expect(renders()).toBe(afterFirstPlan + 1);
+	});
+});

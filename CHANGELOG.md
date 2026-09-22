@@ -4,6 +4,18 @@
 
 ---
 
+## Не выпущено
+
+### Исправлено
+
+- Свёрнутый транскрипт больше не перерисовывает нативную историю на каждый кадр. Планировщик фолда решал, относится ли блок, на котором обрывается серия инструментов, к этой серии, и для этого полностью рендерил его — на каждой точке обрыва, при каждом входе в отрисовку транскрипта, а таких входов на один кадр (то есть на одно нажатие клавиши) приходится два-три. На длинной сессии это сотни-тысячи нативных рендеров на кадр. Теперь вердикт «блок не пустой» запоминается для любого блока (он может только оборвать серию — безопасный исход), а «блок пустой» — только пока хост сам считает строки блока финальными: иначе блок, получивший содержимое позже, был бы втянут в серию и его строки исчезли бы.
+
+### Fixed
+
+- A folded transcript no longer re-renders native history on every frame. The fold's plan decided whether the block a run stops at belongs to that run by rendering the block natively — once per run boundary, at every transcript render entry point, two to three of which run per frame (i.e. per keystroke). On a long session that is hundreds to thousands of native renders per frame. The "not blank" verdict is now remembered for any block (it can only end a run early — the conservative outcome), while "blank" is remembered only while the host itself calls the block's rows final: otherwise a block that gains content later would be folded into the run and its rows would disappear.
+
+---
+
 ## 1.3.0 — 22 сентября 2026
 
 ### Добавлено
