@@ -12,6 +12,7 @@
  * native renderers and untouched payloads.
  */
 import { afterAll, expect } from "bun:test";
+import { replaceTabs } from "@oh-my-pi/pi-tui";
 
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
 import {
@@ -278,6 +279,24 @@ stockTest("an omitted severity is the host's plain nit", async () => {
 			"Full unbadged details stay available.",
 		);
 		expect(JSON.stringify(notes)).toBe(before);
+	} finally {
+		await shutdown(booted);
+	}
+});
+
+stockTest("a tab in the attribution renders the stock expansion", async () => {
+	const booted = await bootAdvisor({ compact: true });
+	try {
+		const { card } = await addAdvisorCard(booted, {
+			notes: [
+				{ severity: "concern", advisor: "Lu\tna", note: "Attributed body" },
+			],
+		});
+		const rows = visibleRows(card, 120);
+		expect(rows.join("\n")).toContain(
+			`[${replaceTabs("Lu\tna")}] Attributed body`,
+		);
+		expect(rows.some((row) => row.includes("\t"))).toBe(false);
 	} finally {
 		await shutdown(booted);
 	}

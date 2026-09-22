@@ -100,7 +100,12 @@ function parseNotes(value: unknown): AdvisorCard | undefined {
 			return undefined;
 		const note = entry.note;
 		const severity = entry.severity;
-		const advisor = entry.advisor;
+		// Stock prints `replaceTabs(entry.advisor)` (pi-tui/src/chat/advisor-message.ts),
+		// so attribution is normalized once here: a raw tab would otherwise reach the
+		// compact row, where the terminal's own tab stop — not `visibleWidth` — decides
+		// the rendered column.
+		const advisor =
+			entry.advisor === undefined ? undefined : replaceTabs(entry.advisor);
 		if (
 			!isNonBlocking(severity) ||
 			!note.trim() ||
