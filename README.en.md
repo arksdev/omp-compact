@@ -150,6 +150,18 @@ JSON:
 { "compactVibeRows": true }
 ```
 
+### Advisor notes — `Advisor nit/concern`
+
+The option condenses non-blocking advisor notes (`nit`, `concern`, and an omitted severity, which the host documents as a plain nit) to one row per note: `• advisor [nit] <first line>`. It is off by default: without it, advisor cards render exactly as OMP draws them.
+
+A card is compacted only once the plugin can prove its contents: the native card's stripped rows must match the layout the stock renderer would build from the metadata carried by the live message or by the restored session branch. A `blocker`, an unknown severity, control characters, and unreadable metadata keep the whole card native, and tool-output expansion always restores the full note text.
+
+JSON:
+
+```json
+{ "compactAdvisorNotes": true }
+```
+
 ### Quick display switch — `alt+c`
 
 `alt+c` works out of the box, with nothing to enable. Each press takes one step around the cycle:
