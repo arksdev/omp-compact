@@ -4,6 +4,22 @@
 
 ---
 
+## 1.3.1 — 23 сентября 2026
+
+### Исправлено
+
+- фикс когда сверхдлинные сессии становятся неотзывчивыми при вводе при включенном плагине.
+- апдейт плагина до 18.2.9
+
+---
+
+### Fixed
+
+- Fixed super-long sessions becoming unresponsive while typing when the plugin was enabled.
+- Updated the plugin to OMP 18.2.9.
+
+---
+
 ## Не выпущено
 
 ### Исправлено
