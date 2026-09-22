@@ -4,15 +4,31 @@
 
 ---
 
-## Разработка
+## 1.3.0 — 22 сентября 2026
 
 ### Добавлено
 
-- Заметки советника (`advisor`) можно сворачивать в одну строку на заметку — opt-in настройкой `Advisor nit/concern` (по умолчанию выключена). Сворачиваются только non-blocking заметки (`nit`, `concern` и отсутствующий severity — host считает его plain nit), включая длинные заметки, которые stock-карточка переносит на несколько строк: переносы воспроизводятся тем же host-хелпером `wrapTextWithAnsi` и теми же ширинами, поэтому строка остаётся доказанной, а не угаданной. `blocker`, неизвестный severity, управляющие символы и нечитаемый payload оставляют карточку целиком native; если нечитаемая заметка скрыта в свёрнутом виде, отказывается сворачивать вся генерация — такая карточка может нарисовать те же строки, что и доказанная, и приписывать ей чужое доказательство нельзя. Плагин не угадывает по заголовку или порядку детей: карточка патчится только когда её снятые native-строки совпадают с раскладкой stock-рендерера ровно для одного разобранного `details`, а две разные заметки с одинаковыми строками считаются неоднозначностью и остаются native. Раскрытие (`ctrl+o`) всегда показывает stock-карточку целиком, сообщение и `details` не переписываются, компактный вид живёт только в `render`.
+- Добавлена компактная поддержка advisor notes. Настройка `Advisor nit/concern` позволяет сворачивать неблокирующие заметки советника (`nit` и `concern`) в одну строку на заметку. По умолчанию настройка выключена.
+- Длинные заметки advisor теперь корректно переносятся по тем же правилам, что и штатный OMP-рендерер, без потери текста.
+- При раскрытии tool output отображается полный текст заметок.
+- `blocker`, неизвестные уровни, повреждённые или небезопасные данные остаются в штатном native-виде OMP.
+- Добавлена безопасная обработка advisor notes при восстановлении истории, rebuild, detach и смене настроек во время работы.
+- Поддержана совместимость со старыми и новыми путями компонентов OMP, включая OMP 18.2.8.
+
+---
 
 ### Added
 
-- Advisor notes can be condensed to one row per note through the opt-in `Advisor nit/concern` setting (off by default). Only non-blocking notes compact (`nit`, `concern`, and an omitted severity, which the host documents as a plain nit) — long notes included: wrapping is reproduced with the host's own `wrapTextWithAnsi` at the stock widths, so a multi-row note stays proven rather than guessed. A `blocker`, an unknown severity, control characters, and unreadable metadata keep the whole card native; when an unreadable note is hidden in the collapsed view the whole generation refuses to compact, because that card can paint the same rows as a proven one and must not inherit its proof. The plugin never guesses from a header or from child order: a card is patched only when its stripped native rows equal the stock renderer's layout for exactly one parsed `details`, and two distinct notes producing identical rows count as ambiguous and stay native. Expansion (`ctrl+o`) always shows the full stock card, the message and its `details` are never rewritten, and the compact view lives only in `render`.
+- Added compact support for advisor notes. The `Advisor nit/concern` setting collapses non-blocking advisor notes (`nit` and `concern`) into one row per note. The setting is disabled by default.
+- Long advisor notes now wrap using the same rules as the native OMP renderer without losing text.
+- Expanding tool output shows the full note text.
+- `blocker`, unknown severities, malformed data, and unsafe content remain in the native OMP rendering.
+- Added safe advisor-note handling during history restore, rebuild, detach, and live setting changes.
+- Added compatibility with old and new OMP component paths, including OMP 18.2.8.
+
+---
+
+## Разработка
 
 ---
 
