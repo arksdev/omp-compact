@@ -136,6 +136,7 @@ export interface BootedPlugin {
 	clearedTimers: unknown[];
 	dialogs: Array<{
 		handleInput(data: string): void;
+		render(width: number): readonly string[];
 		settled(): Promise<void>;
 		current: { enabled: boolean } | undefined;
 		isDirty: boolean;
@@ -660,7 +661,7 @@ export function bootWithStats(
  */
 export async function saveSettingsViaDialog(
 	booted: BootedPlugin,
-	edit: (dialog: { handleInput(data: string): void }) => void,
+	edit: (dialog: BootedPlugin["dialogs"][number]) => void,
 ): Promise<void> {
 	const handler = booted.commandHandlers.get("compact-settings");
 	if (!handler) throw new Error("compact-settings command not registered");

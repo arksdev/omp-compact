@@ -4,6 +4,18 @@
 
 ---
 
+## Разработка
+
+### Добавлено
+
+- Заметки советника (`advisor`) можно сворачивать в одну строку на заметку — opt-in настройкой `Advisor nit/concern` (по умолчанию выключена). Сворачиваются только non-blocking заметки (`nit`, `concern` и отсутствующий severity — host считает его plain nit): `blocker`, неизвестный severity, нечитаемый payload, управляющие символы и заметки, которые stock-карточка переносит на вторую строку, оставляют карточку целиком native. Плагин не угадывает по заголовку или порядку детей: карточка патчится только когда её снятые native-строки совпадают с раскладкой stock-рендерера ровно для одного разобранного `details`, а две разные заметки с одинаковыми строками считаются неоднозначностью и остаются native. Раскрытие (`ctrl+o`) всегда показывает stock-карточку целиком, сообщение и `details` не переписываются, компактный вид живёт только в `render`.
+
+### Added
+
+- Advisor notes can be condensed to one row per note through the opt-in `Advisor nit/concern` setting (off by default). Only non-blocking notes compact (`nit`, `concern`, and an omitted severity, which the host documents as a plain nit): a `blocker`, an unknown severity, unreadable metadata, control characters, and notes the stock card would wrap all keep the whole card native. The plugin never guesses from a header or from child order: a card is patched only when its stripped native rows equal the stock renderer's layout for exactly one parsed `details`, and two distinct notes producing identical rows count as ambiguous and stay native. Expansion (`ctrl+o`) always shows the full stock card, the message and its `details` are never rewritten, and the compact view lives only in `render`.
+
+---
+
 ## 1.2.10 — 22 сентября 2026
 
 ### Добавлено

@@ -98,6 +98,20 @@ export interface ToolExecutionComponentOptions {
 	showCompletedActivity?: () => boolean;
 }
 
+/**
+ * Stock theme surface used by the host components the suites construct
+ * directly (`getTheme()` below and the advisor card factory).
+ */
+export interface HostTheme {
+	fg(color: string, text: string): string;
+	getFgAnsi(color: string): string;
+}
+
+/** Opaque stock advisor card: `createAdvisorMessageCard` returns one. */
+export interface AdvisorCardInstance extends Renderable {
+	invalidate(): void;
+}
+
 export interface HostModules {
 	plugin: (pi: unknown) => void;
 	ToolExecutionComponent: new (
@@ -145,10 +159,18 @@ export interface HostModules {
 	) => object;
 	SkillMessageComponent: new (message: unknown) => object;
 	LateDiagnosticsMessageComponent: new (files: readonly unknown[]) => object;
-	getTheme: () => {
-		fg(color: string, text: string): string;
-		getFgAnsi(color: string): string;
-	};
+	/**
+	 * Stock advisor card factory. OMP <= 18.2.0 lives at
+	 * `pi-coding-agent/src/modes/components/advisor-message.ts`; OMP >= 18.2.5
+	 * moved it into `pi-tui/src/chat/advisor-message.ts` — `loadStockHost`
+	 * resolves both layouts.
+	 */
+	createAdvisorMessageCard: (
+		details: unknown,
+		getExpanded: () => boolean,
+		theme: HostTheme,
+	) => AdvisorCardInstance;
+	getTheme: () => HostTheme;
 	initTheme: () => Promise<void>;
 	/** `/theme` swap on the same theme module instance `getTheme()` reads. */
 	setTheme: (name: string) => Promise<{ success: boolean; error?: string }>;
@@ -253,6 +275,7 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		evalExecutionModule,
 		skillMessageModule,
 		lateDiagnosticsModule,
+		advisorMessageModule,
 	] = await Promise.all([
 		import(
 			pathToFileURL(
@@ -331,6 +354,14 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 				),
 			).href
 		),
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/advisor-message.ts",
+					"src/chat/advisor-message.ts",
+				),
+			).href
+		),
 	]);
 	try {
 		const hlPath = resolveHostModule(
@@ -355,6 +386,7 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		SkillMessageComponent: skillMessageModule.SkillMessageComponent,
 		LateDiagnosticsMessageComponent:
 			lateDiagnosticsModule.LateDiagnosticsMessageComponent,
+		createAdvisorMessageCard: advisorMessageModule.createAdvisorMessageCard,
 		ContainerBase: Object.getPrototypeOf(
 			readGroupModule.ReadToolGroupComponent.prototype,
 		).constructor,

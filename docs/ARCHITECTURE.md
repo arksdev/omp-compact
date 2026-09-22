@@ -26,6 +26,7 @@ omp-compact/
 │   ├── render-decision.ts         # Compact vs native decision tables
 │   ├── render.ts                  # Row construction (mutations, git, stats)
 │   ├── render-scrape.ts           # Scraping of stock component views into views
+│   ├── advisor-notes.ts           # Opt-in compaction of non-blocking advisor notes
 │   ├── host-surface.ts            # Pinned stock host surface sheet (methods, fingerprints, args)
 │   ├── tool-presentation-rules.ts # Rules registry: routes, aliases, shapes, lookups
 │   ├── tool-rule-describers.ts    # Describer library backing the registered rules
@@ -267,8 +268,14 @@ Exact-instance registry for the descriptor patches `RuntimeAdapter` installs on 
 
 The per-component restore runs from one shared list, so a new patch kind cannot leak patched components across a rebuild.
 
----
 
+### Advisor Note Compaction (advisor-notes.ts)
+
+The stock advisor card (`customType: "advisor"`) is rendered straight into the transcript by `modes/utils/ui-helpers.ts` — before the registered message-renderer lookup — as an opaque object literal over `details` with no readable back-reference to its message. `AdvisorNotes` therefore binds a card to its payload by proof, never by child order or header text: it reconstructs the stock renderer's visible rows (header meta, per-severity rail, badge, advisor attribution, 110-column body cap, three-note collapsed limit, hidden-count row) from bounded parsed metadata and claims a card only when the card's own stripped rows equal that layout for exactly one candidate.
+
+**Fail-open ladder (every step keeps the whole card native):** unknown chrome on the live theme → a candidate whose note the stock wrapper would wrap → a card that renders no advisor header → an unreadable or over-budget payload → a `blocker`, unknown severity or control-bearing note → two candidates producing identical rows (ambiguous). `RuntimeAdapter` keeps the per-instance proof in a `WeakMap` (`#advisorBound`) with the captured native renderer (`#advisorNative`), invalidates it whenever the candidate set changes, and reads the preference, the theme and `getToolsExpanded()` live on every render; `undefined` from `getToolsExpanded` is "expansion state unknown" and stays native. Patches live in `PresentationPatches.advisor`, so rebuild detach, rollback and dispose restore the stock renderer.
+
+---
 ## Decision Flow
 
 ### Render Decision (render-decision.ts)

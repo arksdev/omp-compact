@@ -144,7 +144,7 @@ function requestMethod(
 
 function adapterUI(context: ExtensionContext, root: unknown): AdapterUI {
 	const ui = context.ui as ExtensionContext["ui"] & {
-		getToolsExpanded?: () => boolean;
+		getToolsExpanded?: () => boolean | undefined;
 	};
 	// `/theme` reassigns the host's live theme binding (`export var theme`
 	// in the host's modes/theme/theme.ts, swapped via setTheme), and
@@ -168,9 +168,13 @@ function adapterUI(context: ExtensionContext, root: unknown): AdapterUI {
 		setWidget: context.ui.setWidget.bind(context.ui) as AdapterUI["setWidget"],
 		requestRender: requestMethod(root, "requestRender"),
 		requestComponentRender: requestMethod(root, "requestComponentRender"),
+		// Deliberately un-coerced: `undefined` (no accessor, or an accessor
+		// that refused) must stay distinguishable from a known-collapsed
+		// `false`, which is the only state the advisor-note compaction may
+		// trust.
 		getToolsExpanded:
 			typeof ui.getToolsExpanded === "function"
-				? () => ui.getToolsExpanded?.() ?? false
+				? () => ui.getToolsExpanded?.()
 				: undefined,
 	};
 }
@@ -320,6 +324,24 @@ export default function ompCompact(pi: ExtensionAPI): void {
 							}
 						},
 					});
+					// AdvisorNotes: the advisor toggle is a live display
+					// preference, so a successful save repaints the cards
+					// already in the transcript (on → re-prove and compact,
+					// off → restore the native renderer). Deliberately after
+					// the flow: the store snapshot must already carry the new
+					// value, and a failed save keeps the old presentation.
+					// Decorative only — a failing repaint must not turn a
+					// saved setting into a failed save.
+					if (
+						initial.compactAdvisorNotes !== next.compactAdvisorNotes ||
+						initial.enabled !== next.enabled
+					) {
+						try {
+							adapter?.refreshAdvisorPresentation();
+						} catch {
+							// Best-effort: the preference is already persisted.
+						}
+					}
 				},
 				warn: (message) => {
 					try {
@@ -563,6 +585,13 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				// RuntimeModes: the adapter snapshots mode per ledger at run
 				// boundaries; rendering consults the frozen snapshot only.
 				modePolicy,
+				// AdvisorNotes: a display-only preference, read per render —
+				// deliberately not frozen per run like the mode, because the
+				// cards it repaints already exist in the transcript.
+				compactAdvisorNotes: () => {
+					const settings = settingsStore.snapshot();
+					return settings.enabled && settings.compactAdvisorNotes;
+				},
 				// Construction-time sessionManager reference from this event's
 				// ExtensionContext — never a global settings/session lookup.
 				// Methods on that manager stay live (getBranch/getCwd mutate in
@@ -908,6 +937,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// object is a legitimate completion and counts once.
 	listen("message_end", async (event) => {
 		const message = objectRecord(event.message);
+		// AdvisorNotes: structured metadata for the compact card presentation.
+		// Deliberately before the assistant filter — advisor cards are custom
+		// (`role: custom`) messages. Display-only: the payload is parsed for
+		// bounded notes metadata and never retained or re-emitted.
+		adapter?.observeAdvisorMessage(message);
 		if (message.role !== "assistant") return;
 		if (!hasAssistantUsage(message)) return;
 		runStats.observeAssistantMessage(message);

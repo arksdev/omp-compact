@@ -51,6 +51,13 @@ export class PresentationPatches {
 		object,
 		ExpandObservedState
 	>();
+	/**
+	 * Exact-instance advisor-card render overrides (not fold-owned). The
+	 * binding that proves which candidate a card renders is dropped with the
+	 * registry by the adapter, so a restored card is never served from a
+	 * stale proof.
+	 */
+	readonly advisor = new Map<object, DescriptorPatch>();
 	/** Exact-instance discovery container patches (fail-closed tree watcher). */
 	readonly discovery = new Map<object, DescriptorPatch>();
 	/** Exact-instance transcript patches (addChild observer + clear boundary). */
@@ -63,6 +70,7 @@ export class PresentationPatches {
 		this.userExecution,
 		this.skill,
 		this.lateDiagnostics,
+		this.advisor,
 	];
 
 	/** Restore and clear every per-component registry (detach and dispose). */

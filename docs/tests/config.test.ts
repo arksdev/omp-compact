@@ -106,6 +106,7 @@ describe("defaults", () => {
 		expect(normalized.retainGitLive).toBe(true);
 		expect(normalized.compactPaths).toBe(true);
 		expect(normalized.compactVibeRows).toBe(true);
+		expect(normalized.compactAdvisorNotes).toBe(false);
 		expect(normalized.stats).toEqual(DEFAULT_SETTINGS.stats);
 		expect(normalized.autoShake.enabled).toBe(false);
 		expect(normalized.autoShake.thresholdTokens).toBe(
@@ -139,6 +140,43 @@ describe("defaults", () => {
 		// The rejected field is reported alongside its peers, in field order.
 		expect(warnings).toEqual([
 			"invalid config field(s): compactPaths, compactVibeRows; using defaults",
+		]);
+	});
+
+	test("an absent compactAdvisorNotes keeps the feature off", () => {
+		// Opt-in: version-1 files written before the toggle existed must read
+		// as "off" — the native card is the safe default, never a silent
+		// display change after an upgrade.
+		const warnings: string[] = [];
+		const normalized = normalizeSettings({ version: 1, mode: "compact" }, (m) =>
+			warnings.push(m),
+		);
+		expect(normalized.compactAdvisorNotes).toBe(false);
+		expect(warnings).toEqual([]);
+	});
+
+	test("compactAdvisorNotes accepts booleans and names garbage in the diagnostic", () => {
+		const warnings: string[] = [];
+		expect(
+			normalizeSettings({ version: 1, compactAdvisorNotes: true }, (m) =>
+				warnings.push(m),
+			).compactAdvisorNotes,
+		).toBe(true);
+		expect(
+			normalizeSettings({ version: 1, compactAdvisorNotes: false }, (m) =>
+				warnings.push(m),
+			).compactAdvisorNotes,
+		).toBe(false);
+		expect(warnings).toEqual([]);
+
+		const rejected: string[] = [];
+		const normalized = normalizeSettings(
+			{ version: 1, compactAdvisorNotes: "true" },
+			(m) => rejected.push(m),
+		);
+		expect(normalized.compactAdvisorNotes).toBe(false);
+		expect(rejected).toEqual([
+			"invalid config field(s): compactAdvisorNotes; using defaults",
 		]);
 	});
 
@@ -1419,6 +1457,9 @@ describe("persistence is atomic", () => {
 		await store.load();
 		await expect(store.update({ mode: "bogus" as never })).rejects.toThrow();
 		await expect(
+			store.update({ compactAdvisorNotes: "true" as never }),
+		).rejects.toThrow("compactAdvisorNotes");
+		await expect(
 			store.update({ autoShake: { thresholdTokens: -1 } }),
 		).rejects.toThrow();
 		await expect(
@@ -1491,6 +1532,21 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		expect(raw.compactVibeRows).toBe(false);
 		expect(raw.compactPaths).toBe(false);
 		expect(raw.retainGitLive).toBe(DEFAULT_SETTINGS.retainGitLive);
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a compactAdvisorNotes opt-in persists and composes with a stale peer edit", async () => {
+		const dir = await tempDir();
+		const { a, b } = await twoStores(dir);
+		const effective = await a.store.update({ compactAdvisorNotes: true });
+		expect(effective.compactAdvisorNotes).toBe(true);
+		expect(a.store.snapshot().compactAdvisorNotes).toBe(true);
+		// b's snapshot predates a's write and still says compactAdvisorNotes
+		// =false; its own disjoint edit must not re-assert the default.
+		await b.store.update({ ...b.store.snapshot(), compactPaths: false });
+		const raw = await readStored(dir);
+		expect(raw.compactAdvisorNotes).toBe(true);
+		expect(raw.compactPaths).toBe(false);
 		await rm(dir, { recursive: true, force: true });
 	});
 

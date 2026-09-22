@@ -1,5 +1,12 @@
 import type { Theme } from "./theme-types";
 
+import {
+	ADVISOR_PROBE_WIDTH,
+	type AdvisorCard,
+	AdvisorNotes,
+	isAdvisorCardSurface,
+	renderAdvisorRows,
+} from "./advisor-notes";
 import type { DisplayPathOptions } from "./display-path";
 import {
 	StockHostAdapter,
@@ -105,7 +112,9 @@ export interface AdapterUI {
 	// Live tool-output expansion state. Stock pre-sets `setExpanded(...)` on
 	// components before the adapter can wrap them, so the initial expanded
 	// state is read here instead of guessed from the native presentation.
-	getToolsExpanded?(): boolean;
+	// `undefined` is a real answer — the host exposes no accessor, or its
+	// accessor refused — and stays distinct from a known-collapsed `false`.
+	getToolsExpanded?(): boolean | undefined;
 }
 
 export interface TimerContext {
@@ -156,6 +165,12 @@ export interface RuntimeAdapterOptions {
 	 * active working ownership and leaves ambiguous surfaces native.
 	 */
 	getBranch?: () => readonly unknown[] | undefined;
+	/**
+	 * Live display preference for non-blocking advisor notes. Read per render
+	 * and per refresh, never frozen into a run: like the fold's own display
+	 * preference, a settings change repaints the existing cards.
+	 */
+	compactAdvisorNotes?: () => boolean;
 	/**
 	 * Host-invariant failure seam: fired once from `#rollback` after the
 	 * adapter has disposed itself. Index clears its live handle and marks
@@ -218,6 +233,25 @@ export class RuntimeAdapter {
 	readonly #getBranch: (() => readonly unknown[] | undefined) | undefined;
 	readonly #onRunFinalized: ((runId: string) => void) | undefined;
 	readonly #onDisabled: (() => void) | undefined;
+	/** Live preference: may be absent, and is re-read on every render. */
+	readonly #compactAdvisorNotes: (() => boolean) | undefined;
+	/** Parsed advisor metadata candidates for the current generation. */
+	readonly #advisorNotes = new AdvisorNotes();
+	/**
+	 * Cards whose native rows were proven to come from one parsed candidate.
+	 * The stock card is an opaque closure with immutable details, so a proven
+	 * binding stays valid for the instance's lifetime; `#advisorProbed`
+	 * remembers the failed probes instead, and is dropped whenever the
+	 * candidate set changes so a card added before its message (or before an
+	 * enabling settings change) is re-evaluated exactly once more.
+	 */
+	#advisorBound = new WeakMap<object, AdvisorCard>();
+	#advisorProbed = new WeakSet<object>();
+	/**
+	 * Native renderer captured when a wrapper was installed. Re-proving a
+	 * patched card must probe the stock renderer, never the wrapper.
+	 */
+	#advisorNative = new WeakMap<object, (width: number) => readonly string[]>();
 	/**
 	 * Components whose unbound native render was already traced, so the
 	 * `OMP_COMPACT_TRACE` line fires once per card instead of once per frame.
@@ -232,6 +266,7 @@ export class RuntimeAdapter {
 		this.#onRunFinalized = options.onRunFinalized;
 		this.#onDisabled = options.onDisabled;
 		this.#getBranch = options.getBranch;
+		this.#compactAdvisorNotes = options.compactAdvisorNotes;
 		this.#session = new RuntimeSessionState({
 			modePolicy: options.modePolicy,
 			displayPaths: options.displayPaths,
@@ -266,6 +301,7 @@ export class RuntimeAdapter {
 	install(): boolean {
 		if (this.#disposed) return false;
 		try {
+			this.#hydrateAdvisorNotes(this.#readAdvisorBranch());
 			const candidates = this.#host.collectTranscriptCandidates();
 			if (candidates.length > 1)
 				throw new Error("multiple transcript containers");
@@ -288,6 +324,8 @@ export class RuntimeAdapter {
 
 	hydrateBranch(entries: readonly unknown[]): void {
 		if (this.#disposed) return;
+		this.#hydrateAdvisorNotes(entries);
+		this.refreshAdvisorPresentation();
 		if (this.#session.hydrateBranch(entries)) {
 			// Schedule one generation-guarded settlement microtask
 			// so a resumed session with committed startup rows replays
@@ -296,6 +334,46 @@ export class RuntimeAdapter {
 			// call).
 			this.#beginSettlement();
 		}
+	}
+
+	/**
+	 * Structured advisor metadata arrives before or after stock inserts its
+	 * opaque card. Either order converges: this repaints the cards already in
+	 * the transcript when a new candidate lands, and the transcript walk when
+	 * a card lands where its candidate already exists.
+	 */
+	observeAdvisorMessage(message: unknown): void {
+		if (this.#disposed) return;
+		if (!this.#advisorNotes.observeMessage(message)) return;
+		// The new candidate can collide with a proof already handed out (for
+		// example: the same visible notes plus a hidden note of an unsupported
+		// severity). Every binding is re-proven against the new index; the
+		// wrapper stays installed and simply falls back to native until then.
+		this.#invalidateAdvisorBindings();
+		this.#advisorProbed = new WeakSet();
+		this.refreshAdvisorPresentation();
+	}
+
+	/**
+	 * Display-only repaint of advisor cards after the preference or the
+	 * candidate set changed: turning the option off restores every patched
+	 * card to its native renderer, turning it on re-proves the cards already
+	 * in the transcript. Never touches session content.
+	 */
+	refreshAdvisorPresentation(): void {
+		if (this.#disposed) return;
+		const wasPatched = this.#patches.advisor.size > 0;
+		if (this.#compactAdvisorNotes?.() !== true) {
+			for (const patch of this.#patches.advisor.values()) patch.restore();
+			this.#patches.advisor.clear();
+			this.#clearAdvisorBindings();
+			if (!wasPatched) return;
+		} else {
+			this.#refreshAdvisorCards();
+			if (!wasPatched && this.#patches.advisor.size === 0) return;
+		}
+		this.replayCurrentPresentation();
+		this.#ui.requestRender?.();
 	}
 
 	/**
@@ -610,6 +688,8 @@ export class RuntimeAdapter {
 		this.#patches.restorePerComponent();
 		this.#patches.restoreTranscript();
 		this.#patches.restoreDiscovery();
+		this.#clearAdvisorBindings();
+		this.#advisorNotes.clear();
 		this.#stopSpinner();
 		// C07: dispose invalidates any pending generation microtask — stale
 		// callbacks abort on the token/disposed guard and never replay.
@@ -663,6 +743,8 @@ export class RuntimeAdapter {
 			// Fold restoration must not abort the rebuild detach.
 		}
 		this.#patches.restorePerComponent();
+		this.#clearAdvisorBindings();
+		this.#advisorNotes.clear();
 	}
 
 	/** One generation-guarded settlement microtask per boundary. */
@@ -701,8 +783,10 @@ export class RuntimeAdapter {
 					// Absent or non-array branch results fail open — the
 					// rebuild keeps only the preserved active working
 					// ownership and leaves ambiguous surfaces native.
+					const entries = Array.isArray(branch) ? branch : [];
+					this.#hydrateAdvisorNotes(entries);
 					this.#session.commitRebuild(snapshot, {
-						branchEntries: Array.isArray(branch) ? branch : [],
+						branchEntries: entries,
 					});
 					// Detach restored TTSR/tool patches; stock usually
 					// re-addChilds through the surviving wrapper, but any
@@ -1210,6 +1294,155 @@ export class RuntimeAdapter {
 			this.#patchToolComponent(child);
 			this.#session.binding.tryBindByOrder(this.#session.activeLedger);
 			this.#ensureSpinner();
+			return;
+		}
+		this.#patchAdvisorCard(child);
+	}
+
+	/**
+	 * Branch entries for advisor metadata. A missing or throwing resolver is
+	 * not evidence and must never fail a bring-up: the candidates simply stay
+	 * empty, which leaves every card native.
+	 */
+	#readAdvisorBranch(): readonly unknown[] {
+		try {
+			const branch = this.#getBranch?.();
+			return Array.isArray(branch) ? branch : [];
+		} catch {
+			return [];
+		}
+	}
+
+	/**
+	 * Advisor candidate generation from one branch walk. Hydration is evidence
+	 * gathering, never a bring-up or rebuild failure.
+	 */
+	#hydrateAdvisorNotes(entries: readonly unknown[]): void {
+		try {
+			this.#advisorNotes.hydrate(entries);
+		} catch {
+			this.#advisorNotes.clear();
+		}
+		this.#invalidateAdvisorBindings();
+		this.#advisorProbed = new WeakSet();
+	}
+
+	/**
+	 * Drop every proven binding but keep the installed wrappers: the next
+	 * refresh re-proves the cards against the current candidate index, and
+	 * until it does the wrappers render the native card.
+	 */
+	#invalidateAdvisorBindings(): void {
+		this.#advisorBound = new WeakMap();
+	}
+
+	/** Drop every advisor binding/probe memo (preference off, detach, dispose). */
+	#clearAdvisorBindings(): void {
+		this.#advisorBound = new WeakMap();
+		this.#advisorProbed = new WeakSet();
+		this.#advisorNative = new WeakMap();
+	}
+
+	/** Re-prove every card already in the transcript (settings/live refresh). */
+	#refreshAdvisorCards(): void {
+		if (this.#compactAdvisorNotes?.() !== true || !this.#advisorNotes.usable)
+			return;
+		const transcript = this.#transcript;
+		if (!transcript) return;
+		for (const child of transcript.children) {
+			if (this.#disposed) return;
+			this.#patchAdvisorCard(child);
+		}
+	}
+
+	/**
+	 * Bind one opaque advisor card to its parsed metadata, or leave it native.
+	 *
+	 * Install-time probe: the card is rendered once at {@link
+	 * ADVISOR_PROBE_WIDTH} through its own native renderer and is only claimed
+	 * when the stripped rows equal the stock layout for exactly one candidate
+	 * payload. The proven binding is memoized — the card's closure details are
+	 * immutable, so later frames need no second probe — and every failure
+	 * (unknown shape, no candidate, theme without the stock chrome, ambiguous
+	 * rows) returns to the caller as "not this card".
+	 *
+	 * An installed wrapper is re-proven in place (never stacked): the
+	 * candidate index can widen after the proof, and a candidate that makes
+	 * the same rows ambiguous must take the proof back.
+	 */
+	#patchAdvisorCard(component: unknown): void {
+		if (
+			!component ||
+			typeof component !== "object" ||
+			this.#compactAdvisorNotes?.() !== true ||
+			!this.#advisorNotes.usable
+		)
+			return;
+		if (this.#patches.advisor.has(component)) {
+			const native = this.#advisorNative.get(component);
+			if (!native) return;
+			const reproven = this.#advisorProbe(component, native);
+			if (reproven) this.#advisorBound.set(component, reproven);
+			else this.#advisorBound.delete(component);
+			return;
+		}
+		if (!isAdvisorCardSurface(component) || this.#advisorProbed.has(component))
+			return;
+		this.#advisorProbed.add(component);
+		const resolved = resolveInstanceMethod(component, "render");
+		if (!resolved) return;
+		const original = resolved as (
+			this: object,
+			width: number,
+		) => readonly string[];
+		const card = this.#advisorProbe(component, original);
+		if (!card) return;
+		const adapter = this;
+		try {
+			const patch = new DescriptorPatch(component, ["render"]);
+			patch.install({
+				render: {
+					configurable: true,
+					writable: true,
+					value(this: object, width: number): readonly string[] {
+						// All reads stay live: dispose, the preference and the
+						// host's expansion flag each end compaction on the spot.
+						if (
+							adapter.#disposed ||
+							adapter.#compactAdvisorNotes?.() !== true ||
+							adapter.#ui.getToolsExpanded?.() !== false
+						)
+							return original.call(this, width);
+						const theme = adapter.#ui.theme;
+						const bound = adapter.#advisorBound.get(this);
+						if (!theme || !bound) return original.call(this, width);
+						return renderAdvisorRows(bound, theme, width);
+					},
+				},
+			});
+			this.#patches.advisor.set(component, patch);
+			this.#advisorNative.set(component, original);
+			this.#advisorBound.set(component, card);
+		} catch {
+			// Descriptor skew fails open: the stock card renders untouched.
+		}
+	}
+
+	/** Native-row proof for one structurally eligible card. */
+	#advisorProbe(
+		component: object,
+		original: (this: object, width: number) => readonly string[],
+	): AdvisorCard | undefined {
+		const theme = this.#ui.theme;
+		if (!theme) return undefined;
+		try {
+			return this.#advisorNotes.match(
+				original.call(component, ADVISOR_PROBE_WIDTH),
+				theme,
+			);
+		} catch {
+			// A host render failure during the probe is not evidence.
+			return undefined;
 		}
 	}
 

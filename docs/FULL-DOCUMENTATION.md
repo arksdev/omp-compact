@@ -223,6 +223,7 @@ compact → live → clear → off → compact
 | `Compact paths` / `compactPaths` | `true` | Сокращает отображаемые absolute paths внутри session `cwd`. |
 | `Retain Git rows` / `retainGitLive` | `true` | Показывает Git rows и aggregate commit summary в `live`. |
 | `vibe-compact` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов vibe. При `false` они рисуются stock framed card в любом режиме. |
+| `Advisor nit/concern` / `compactAdvisorNotes` | `false` | Сворачивает non-blocking заметки советника (`nit`/`concern`) в одну строку на заметку. `blocker`, неизвестные severity, нечитаемый payload и неподтверждённые карточки остаются native. Расширение всегда показывает stock-карточку целиком. |
 | `Cycle shortcut` / `displayCycleKey` | `"alt+c"` | Сочетание, переключающее вид вывода по кругу. Занятое OMP сочетание отклоняется при вводе. Смена требует restart OMP. |
 | `Auto-shake` / `autoShake.enabled` | `false` | Запускает native `shake("elide")` после eligible run. |
 | `Shake threshold` / `autoShake.thresholdTokens` | `120000` | Минимальный current context usage; `0` означает каждый eligible run. |
@@ -263,6 +264,7 @@ Default path:
   "retainGitLive": true,
   "compactPaths": true,
   "compactVibeRows": true,
+  "compactAdvisorNotes": false,
   "displayCycleKey": "alt+c",
   "stats": {
     "enabled": true,
@@ -411,6 +413,51 @@ Registry использует только structured tool name, args/result и 
 Explicit expansion работает как обычный escape hatch: раскрытый вызов возвращает stock framed card. Ошибка вызова печатается одной строкой `✘` с целью вызова и текстом ошибки.
 
 Compact grammar управляется настройкой `vibe-compact` / `compactVibeRows` (по умолчанию включена). При `false` все пять инструментов рисуются stock framed card так, как если бы плагин их не знал: не пустой строкой и не generic compact row. Флаг фиксируется на границе logical run вместе с mode, поэтому сохранение меню посреди прогона не меняет картинку на полпути.
+
+
+### Заметки советника (advisor notes)
+
+Карточка советника (`customType: "advisor"`) в OMP рисуется не через зарегистрированный
+message renderer, а напрямую: host сам добавляет в транскрипт результат
+`createAdvisorMessageCard(details, getExpanded, theme)`. Компонент непрозрачный — это
+объект-литерал с `render`/`invalidate` (в 18.2.5+ ещё `dispose` и `setIgnoreTight`), а
+заметки остаются в замыкании. Поэтому плагин не патчит «карточку advisor» по заголовку
+или по порядку детей: он сопоставляет полностью снятые native-строки карточки с
+раскладкой, которую stock-рендерер построил бы для одного разобранного `details`, и
+патчит карточку только при точном совпадении ровно с одним кандидатом.
+
+Что важно знать:
+
+- **Opt-in.** Настройка `Advisor nit/concern` / `compactAdvisorNotes` по умолчанию
+  выключена: при апгрейде ничего не меняется само собой. Выключенная настройка не
+  рендерит карточки на probe-ширине и не трогает ни один компонент.
+- **Сворачиваются только non-blocking заметки** — `nit` и `concern` (и отсутствующий
+  severity: host документирует его как plain nit). `blocker` любого вида, неизвестный
+  severity, управляющие символы в тексте, нечитаемый payload, слишком длинные заметки и
+  коллизия «две разные заметки дают одни и те же строки» оставляют карточку целиком
+  native.
+- **Раскрытие всегда выигрывает.** При включённом tool-output expansion обёртка отдаёт
+  native-карточку целиком: компактная строка существует только в свёрнутом состоянии, и
+  полный текст заметки всегда доступен одним переключением.
+- **Ничего не мутируется.** Сообщение, `details`, сессия и контекст модели не
+  переписываются: компактный вид — это только набор строк, возвращаемых `render`.
+- **Не подтверждённые карточки остаются native.** Живая карточка, добавленная до
+  прихода метаданных, и восстановленная карточка без branch evidence рисуются как
+  stock; обновление настройки или новое сообщение переоценивает их.
+- **Совместимость.** Фабрика карточки лежит в
+  `pi-coding-agent/src/modes/components/advisor-message.ts` до 18.2.0 и в
+  `pi-tui/src/chat/advisor-message.ts` начиная с 18.2.5; тестовый harness резолвит оба
+  пути. Реконструкция читает chrome из живого theme (`theme.status.info`,
+  `theme.sep.dot`, `theme.symbol("advisor.rail")`, `theme.format.bracket*`), поэтому на
+  хосте без этих полей карточка снова просто native.
+
+Строка компактного вида:
+
+```text
+• advisor [nit] Keep the concise label
+• advisor [concern] [Luna] Check the transaction boundary
+  … +1 more note
+```
 
 ## Почему архитектура plugin-only
 

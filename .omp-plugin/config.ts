@@ -47,6 +47,13 @@ export interface CompactSettings {
 	compactPaths: boolean;
 	compactVibeRows: boolean;
 	/**
+	 * Opt-in compact presentation of non-blocking advisor notes: proven
+	 * `nit`/`concern` cards render as one row per note, blockers, unknown
+	 * severities and unproven cards stay native, and expansion restores the
+	 * full stock card. Display-only — never persisted session content.
+	 */
+	compactAdvisorNotes: boolean;
+	/**
 	 * Chord that cycles the display state (compact -> live -> clear -> off).
 	 * Plain text in the JSON; validated by `display-cycle.ts`. A change only
 	 * takes effect after restarting OMP: the host has no way to unregister a
@@ -64,6 +71,7 @@ export interface CompactSettingsPatch {
 	retainGitLive?: boolean;
 	compactPaths?: boolean;
 	compactVibeRows?: boolean;
+	compactAdvisorNotes?: boolean;
 	displayCycleKey?: string;
 	stats?: Partial<CompactStatsSettings>;
 	autoShake?: Partial<CompactAutoShakeSettings>;
@@ -113,6 +121,9 @@ export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
 	retainGitLive: true,
 	compactPaths: true,
 	compactVibeRows: true,
+	// Opt-in: the stock card is the safe default; an upgrade must never
+	// silently condense transcript content the user has not asked to hide.
+	compactAdvisorNotes: false,
 	displayCycleKey: DEFAULT_DISPLAY_CYCLE_KEY,
 	stats: DEFAULT_STATS,
 	autoShake: DEFAULT_AUTO_SHAKE,
@@ -147,6 +158,7 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 		retainGitLive: settings.retainGitLive,
 		compactPaths: settings.compactPaths,
 		compactVibeRows: settings.compactVibeRows,
+		compactAdvisorNotes: settings.compactAdvisorNotes,
 		displayCycleKey: settings.displayCycleKey,
 		stats: Object.freeze({ ...settings.stats }),
 		autoShake: Object.freeze({ ...settings.autoShake }),
@@ -417,7 +429,7 @@ function normalizeWithDiagnostics(
 		return fallback;
 	};
 	// Resolved inline in the settings literal below so a rejected chord is
-	// named in field order, right after `compactVibeRows`, alongside its peers.
+	// named in field order alongside its peers.
 	const chord = (value: unknown): string => {
 		if (value === undefined) return DEFAULT_SETTINGS.displayCycleKey;
 		if (!isDisplayCycleKey(value)) {
@@ -460,6 +472,11 @@ function normalizeWithDiagnostics(
 			"compactVibeRows",
 			raw.compactVibeRows,
 			DEFAULT_SETTINGS.compactVibeRows,
+		),
+		compactAdvisorNotes: field(
+			"compactAdvisorNotes",
+			raw.compactAdvisorNotes,
+			DEFAULT_SETTINGS.compactAdvisorNotes,
 		),
 		displayCycleKey: chord(raw.displayCycleKey),
 		stats: { ...DEFAULT_SETTINGS.stats },
@@ -559,6 +576,7 @@ const TOP_LEVEL_FIELDS = [
 	"retainGitLive",
 	"compactPaths",
 	"compactVibeRows",
+	"compactAdvisorNotes",
 	"displayCycleKey",
 ] as const;
 

@@ -26,6 +26,16 @@ export interface Theme {
 		bracketLeft?: string;
 		bracketRight?: string;
 	};
+	/**
+	 * Symbol-category accessors the stock transcript cards read
+	 * (`theme.status.info`, `theme.sep.dot` on the advisor card header).
+	 * Optional because a host theme that predates the accessor or a theme
+	 * stub without symbol categories still satisfies this interface; callers
+	 * that reconstruct stock chrome must treat a missing member as
+	 * unsupported and fail open.
+	 */
+	readonly status?: { readonly info?: string };
+	readonly sep?: { readonly dot?: string };
 	fg(color: ThemeColor, text: string): string;
 	bg(color: ThemeColor, text: string): string;
 	bold(text: string): string;
