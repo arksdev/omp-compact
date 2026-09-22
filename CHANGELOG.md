@@ -42,6 +42,14 @@
 
 ## Разработка
 
+### Изменено
+
+- Хост-пин переехал с 18.2.8 на 18.2.9. Это point feature-релиз (сохранённые Claude-ресеты в usage-вью, `omp://`-скоупы как цель поиска для `find`, расширенные compat-правила каталога), и ни один файл, который патчит плагин, не изменился: `pi-tui/src/chat/*` и `pi-tui/src/chrome/*` побайтово идентичны 18.2.8, все методы `TranscriptContainer`, `ToolExecutionComponent`, `ReadToolGroupComponent`, `resetDisplay()` (арность 0, одна команда `\x1b[3J`) и фингерпринты всех 6 листьев сохранены. Обе правки, касающиеся наших правил, аддитивны: `find` принимает `omp://`-скоуп в `path` (схема, wire-имя и `FindToolDetails` те же, скоуп рендерится как непрозрачная строка), а `hub jobs` получил опциональный `exitCode` в details. Публичный пол `engines.omp >=18.0.1` не тронут.
+
+### Changed
+
+- Host pin moved from 18.2.8 to 18.2.9. This is a point feature release (Claude saved resets in the usage views, `omp://` scopes as a `find` search target, extended catalog compatibility rules), and no file patched by this plugin changed: `pi-tui/src/chat/*` and `pi-tui/src/chrome/*` are byte-identical to 18.2.8, every method on `TranscriptContainer`, `ToolExecutionComponent` and `ReadToolGroupComponent`, `resetDisplay()` (arity 0, one `\x1b[3J` erase) and all 6 leaf fingerprints are preserved. Both changes that touch our rules are additive: `find` accepts an `omp://` scope in `path` (same schema, wire name and `FindToolDetails`; the scope renders as an opaque string), and `hub jobs` gained an optional `exitCode` detail. The public floor `engines.omp >=18.0.1` is untouched.
+
 ---
 
 ## 1.2.10 — 22 сентября 2026
