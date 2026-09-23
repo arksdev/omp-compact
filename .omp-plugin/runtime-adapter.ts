@@ -240,7 +240,7 @@ export class RuntimeAdapter {
 	/**
 	 * Cards whose native rows were proven to come from one parsed candidate.
 	 *
-	 * Stock assumption, verified against the 18.0.11/18.2.0/18.2.8/18.2.9 factories:
+	 * Stock assumption, verified against the 18.0.11/18.2.0/18.2.8/18.2.9/18.2.11 factories:
 	 * the host builds one card per delivered advisor message and the closure
 	 * keeps that delivered `details` forever — the card is never
 	 * re-parameterized with other notes, and `render(width)` only reflects the

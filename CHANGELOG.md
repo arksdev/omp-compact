@@ -24,6 +24,20 @@
 
 - Host pin moved from 18.2.8 to 18.2.9. Public floor `engines.omp >=18.0.1` unchanged.
 
+---
+
+## Разработка
+
+### Изменено
+
+- Хост-пин переехал с 18.2.9 на 18.2.11. Релиз снова не трогает патч-поверхность: `pi-tui/src/chat/*` и `src/chrome/*` побайтово идентичны 18.2.9, поэтому все методы `TranscriptContainer`, `ToolExecutionComponent` и `ReadToolGroupComponent`, `resetDisplay()` (арность 0, ровно одна команда `\x1b[3J`) и фингерпринты всех 6 скрейпируемых листьев сохранены. Правки `pi-tui` лежат в слоях оверлеев, status-line, `render-utils` (один аддитивный экспорт) и `tui.ts`: `setPaintListener` заменён на мультиподписочный `addPaintListener`, к которому плагин не обращается. Из изменений, которые плагин читает, аддитивны новое событие `before_subagent_spawn` и гейтинг `find` через нативный judge (wire-имя, схема и `FindToolDetails` те же); единственная контрактная правка — ветка thinking в портированном `formatShakeSummary`, куда теперь добавляется `(~N tokens freed)`, и локальный порт переехал вместе с ней. Ветка elide, которую плагин вызывает, не изменилась. Публичный floor `engines.omp >=18.0.1` не тронут.
+
+### Changed
+
+- Host pin moved from 18.2.9 to 18.2.11. The release again leaves the patched surface untouched: `pi-tui/src/chat/*` and `src/chrome/*` are byte-identical to 18.2.9, so every method on `TranscriptContainer`, `ToolExecutionComponent` and `ReadToolGroupComponent`, `resetDisplay()` (arity 0, one `\x1b[3J` erase) and all 6 scraped leaf fingerprints are preserved. The `pi-tui` changes sit in the overlay, status-line, `render-utils` (one additive export) and `tui.ts` layers: `setPaintListener` became a multi-listener `addPaintListener`, a name this plugin never touches. The changes that do touch rules we read are additive — the new `before_subagent_spawn` event and `find` gating through the native judge (same wire name, schema and `FindToolDetails`); the single contract change is the thinking branch of the ported `formatShakeSummary`, which now appends `(~N tokens freed)`, and the local port moved with it. The elide branch this plugin calls is unchanged. The public floor `engines.omp >=18.0.1` is unchanged.
+
+---
+
 ## 1.3.0 — 22 сентября 2026
 
 ### Добавлено

@@ -47,7 +47,10 @@ export interface ShakeResultLike {
 /**
  * One-line operator summary of a {@link ShakeResultLike}, a faithful port of
  * stock `formatShakeSummary` (anchor:
- * `oh-my-pi/packages/coding-agent/src/session/shake-types.ts`, verified against stock 18.0.8 and re-checked against the 18.2.9 pin (file unchanged)) so the
+ * `oh-my-pi/packages/coding-agent/src/session/shake-types.ts`, verified against
+ * stock 18.0.8 and re-checked against the 18.2.11 pin, which added the
+ * `(~N tokens freed)` suffix to the thinking branch because the thinking shake
+ * now reports a real `tokensFreed`) so the
  * auto-shake confirmation reads exactly like a manual `/shake`:
  * `Shook 35 tool results (~11593 tokens freed).`, regions joined with ` + `,
  * and `Nothing to shake.` for a successful no-op.
@@ -63,7 +66,7 @@ export function formatShakeSummary(result: ShakeResultLike): string {
 		const n = result.thinkingBlocksDropped ?? 0;
 		return n === 0
 			? "No thinking blocks found in this session."
-			: `Dropped ${n} thinking block${n === 1 ? "" : "s"} from this session.`;
+			: `Dropped ${n} thinking block${n === 1 ? "" : "s"} from this session${result.tokensFreed > 0 ? ` (~${result.tokensFreed} tokens freed)` : ""}.`;
 	}
 	const parts: string[] = [];
 	if (result.toolResultsDropped > 0) {

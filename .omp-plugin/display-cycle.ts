@@ -46,7 +46,9 @@ export function nextDisplayCycleState(
 /**
  * COPY of `ExtensionRunner.#RESERVED_SHORTCUTS`
  * (`@oh-my-pi/pi-coding-agent/src/extensibility/extensions/runner.ts`), taken
- * from version 18.0.8, re-checked against the pinned 18.2.9 — `runner.ts` is byte-identical between the two.
+ * from version 18.0.8, re-checked against the pinned 18.2.11 — `runner.ts` has
+ * since gained `emitBeforeSubagentSpawn` (and the `before_subagent_spawn`
+ * event), but the `#RESERVED_SHORTCUTS` map itself is unchanged.
  *
  * The host field is a `static readonly #RESERVED_SHORTCUTS` private class
  * member: it cannot be imported or read at runtime, so keeping this copy is

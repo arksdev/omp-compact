@@ -23,7 +23,9 @@ describe("formatShakeSummary thinking mode", () => {
 			formatShakeSummary(
 				shakeResult({ mode: "thinking", thinkingBlocksDropped: 2 }),
 			),
-		).toBe("Dropped 2 thinking blocks from this session.");
+		).toBe(
+			"Dropped 2 thinking blocks from this session (~12000 tokens freed).",
+		);
 	});
 
 	test("thinking mode keeps the singular at exactly one block", () => {
@@ -31,7 +33,19 @@ describe("formatShakeSummary thinking mode", () => {
 			formatShakeSummary(
 				shakeResult({ mode: "thinking", thinkingBlocksDropped: 1 }),
 			),
-		).toBe("Dropped 1 thinking block from this session.");
+		).toBe("Dropped 1 thinking block from this session (~12000 tokens freed).");
+	});
+
+	test("thinking mode omits the token suffix when nothing was freed", () => {
+		expect(
+			formatShakeSummary(
+				shakeResult({
+					mode: "thinking",
+					thinkingBlocksDropped: 2,
+					tokensFreed: 0,
+				}),
+			),
+		).toBe("Dropped 2 thinking blocks from this session.");
 	});
 
 	test("thinking mode with no blocks reports the stock no-op line", () => {
