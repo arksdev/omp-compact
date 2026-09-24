@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.2.11 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.3.0 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -543,7 +543,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.2.11
+4. Manual smoke test on OMP 18.3.0
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -591,7 +591,7 @@ changed 356 paths, 18.1.14 changed 54, 18.1.15 changed 46, 18.1.17 changed
 77, 18.2.0 changed 237 agent paths plus 5 in `pi-tui`, 18.2.5 modularized UI components and theme into `pi-tui`, 18.2.6 is a point maintenance release
 with byte-identical `pi-tui`, and 18.2.7/18.2.8 changed hundreds of agent paths while leaving every file this plugin patches byte-identical to 18.2.6 (the
 only `pi-tui/src/tui.ts` delta is a Glyph Protocol repaint hook). 18.2.9 changed 245 paths package-wide while `pi-tui/src/chat/*` and `src/chrome/*` stayed
-byte-identical to 18.2.8, and 18.2.10/18.2.11 changed 208 paths package-wide (89 in `pi-coding-agent/src`, 12 in `pi-tui/src`) while leaving `pi-tui/src/chat/*` and `src/chrome/*` byte-identical to 18.2.9; judge by changed files, never by diff size — every one of those moves preserved the contracts
+byte-identical to 18.2.8, and 18.2.10/18.2.11 changed 208 paths package-wide (89 in `pi-coding-agent/src`, 12 in `pi-tui/src`) while leaving `pi-tui/src/chat/*` and `src/chrome/*` byte-identical to 18.2.9; 18.3.0 changed 555 paths package-wide and left `src/chrome/*` byte-identical, but its three `src/chat/*` deltas and the upstream breaking list are rename/additive, so the rename of `hub` to `wait` — wire name, empty schema, new `CoordinationDetails` — is what the surface checklist has to catch; judge by changed files, never by diff size — every one of those moves preserved the contracts
 this plugin depends on. When the trees differ, walk the eleven items below by
 file and probe anything the plugin calls. A changed `pi-tui` deserves one extra
 look because the mid-turn history publication rests on it: confirm

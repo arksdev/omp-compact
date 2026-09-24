@@ -15,8 +15,82 @@ import {
 	toolUi,
 	visibleRows,
 } from "./integration-harness";
+import { stockHostVersion } from "./test-stock-host";
 
 afterAll(cleanupGeneratedDirs);
+
+/**
+ * True when the pinned host is at or above `major.minor`.
+ */
+function hostAtLeast(major: number, minor: number): boolean {
+	const [hostMajor = 0, hostMinor = 0] = stockHostVersion()
+		.split(".")
+		.map((part) => Number(part) || 0);
+	return hostMajor > major || (hostMajor === major && hostMinor >= minor);
+}
+
+/**
+ * OMP 18.3.0 gave `proc://` read/write chrome of its own.
+ */
+function supportsProcTransport(): boolean {
+	return hostAtLeast(18, 3);
+}
+
+/**
+ * Coordination tool the pinned host actually ships, plus the chrome it paints
+ * and the compact row the plugin must produce for it.
+ *
+ * OMP 18.3.0 renamed the builtin `hub` tool to `wait`, shrank its schema to
+ * `type({})` (launch ops moved to `write` on `proc://<id>/…` and to supervised
+ * `bash` services), and dropped the `hub` renderer. The plugin keeps a rule
+ * for both spellings — the public floor is 18.0.1 — so these tests drive the
+ * spelling the host ships: the pre-bind sanity check can only look for chrome
+ * the host still paints, and the launch-style describe only exists while
+ * launch ops do.
+ */
+function coordinationTool(): {
+	/** Wire name: `hub` up to 18.2.11, `wait` from 18.3.0. */
+	name: string;
+	/** Args for the shape that host accepts (launch ops were dropped). */
+	args: Record<string, unknown>;
+	/** Result payload matching that shape. */
+	result: Record<string, unknown>;
+	/** Native chrome text visible before the extension binds the card. */
+	nativeChrome: string;
+	/** Compact row the plugin must produce instead. */
+	compactRow: RegExp;
+	/** True for the 18.3.0+ spelling. */
+	modern: boolean;
+} {
+	if (hostAtLeast(18, 3))
+		return {
+			name: "wait",
+			args: {},
+			result: {
+				content: [{ type: "text", text: "no jobs running" }],
+				details: { op: "wait", jobs: [] },
+			},
+			nativeChrome: "Wait",
+			compactRow: /\bwait\b/,
+			modern: true,
+		};
+	return {
+		name: "hub",
+		args: { op: "logs", name: "web", follow: true },
+		result: {
+			content: [
+				{
+					type: "text",
+					text: "ready on :5173\nGET / 200\n[web: running; cursor=12]",
+				},
+			],
+			details: { op: "logs", state: "running", cursor: 12 },
+		},
+		nativeChrome: "Launch",
+		compactRow: /launch:\s*logs\s+web/,
+		modern: false,
+	};
+}
 
 stockTest(
 	"concurrent bash tools compact instead of framed Output/Wall cards",
@@ -476,31 +550,27 @@ stockTest(
 );
 
 stockTest(
-	"streaming hub Launch cards and concurrent tools compact before tool_execution_start",
+	"streaming coordination cards and concurrent tools compact before tool_execution_start",
 	async () => {
 		// Stock paints ToolExecutionComponent cards from message_update long
-		// before tool_execution_start. Hub launch-style ops use the framed
-		// 🚀 Launch chrome (logs = full Output block); concurrent bash in the
-		// same stream paints $ … / Output / Wall. UI subscribers create those
-		// cards synchronously, then the extension message_update is queued —
-		// compact must bind and collapse both surfaces on that extension
-		// delivery, not wait for tool_execution_start (which can be seconds
-		// later for ready-gated start / follow logs).
+		// before tool_execution_start. The coordination tool uses its framed
+		// chrome (hub: 🚀 Launch with logs = full Output block; wait from
+		// 18.3.0: ⏳ Wait); concurrent bash in the same stream paints
+		// $ … / Output / Wall. UI subscribers create those cards synchronously,
+		// then the extension message_update is queued — compact must bind and
+		// collapse both surfaces on that extension delivery, not wait for
+		// tool_execution_start (which can be seconds later for ready-gated
+		// start / follow logs).
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
-
-		const launchArgs = {
-			op: "logs",
-			name: "web",
-			follow: true,
-		};
+		const coordination = coordinationTool();
 		const bashArgs = { command: "curl -s localhost:5173" };
 
 		// Production order: UI cards first, then extension message_update.
-		const hubCall = addToolComponent(
+		const coordinationCall = addToolComponent(
 			booted,
-			"hub",
-			launchArgs,
+			coordination.name,
+			coordination.args,
 			"stream-hub-launch-1",
 		);
 		const bashCall = addToolComponent(
@@ -510,9 +580,9 @@ stockTest(
 			"stream-bash-with-launch-1",
 		);
 
-		// Sanity: unbound stock surfaces still show native Launch / bash chrome.
+		// Sanity: unbound stock surfaces still show native coordination / bash chrome.
 		const nativeBefore = visibleRows(booted.transcript).join("\n");
-		expect(nativeBefore).toContain("Launch");
+		expect(nativeBefore).toContain(coordination.nativeChrome);
 		expect(nativeBefore).toMatch(/╭|\$/);
 
 		await dispatch(booted, {
@@ -523,8 +593,8 @@ stockTest(
 					{
 						type: "toolCall",
 						id: "stream-hub-launch-1",
-						name: "hub",
-						arguments: launchArgs,
+						name: coordination.name,
+						arguments: coordination.args,
 					},
 					{
 						type: "toolCall",
@@ -537,34 +607,27 @@ stockTest(
 		});
 		// Stock's coalesced UI flush calls updateArgs(id) on existing cards
 		// after the extension message_update early-allocates stream previews.
-		hubCall.updateArgs(launchArgs, "stream-hub-launch-1");
+		coordinationCall.updateArgs(coordination.args, "stream-hub-launch-1");
 		bashCall.updateArgs(bashArgs, "stream-bash-with-launch-1");
 
 		const live = visibleRows(booted.transcript).join("\n");
 		expect(live).toContain("Working…");
-		// Launch-style hub describe: "launch: logs web" (not bare generic hub).
-		expect(live).toMatch(/launch:\s*logs\s+web/);
+		// Registered describe for the shipped spelling: "launch: logs web" on
+		// hub, the bare `wait` row (empty schema) from 18.3.0.
+		expect(live).toMatch(coordination.compactRow);
 		expect(live).toContain("bash:");
 		expect(live).toContain("curl -s localhost:5173");
-		expect(live).not.toContain("Launch");
+		expect(live).not.toContain(coordination.nativeChrome);
 		expect(live).not.toContain("╭");
 		expect(live).not.toContain("Output");
 		expect(live).not.toContain("Wall");
 
-		// Settled Launch logs must stay one compact row, not the framed Output
-		// block stock uses for op==="logs".
-		await finishTool(booted, hubCall, {
+		// Settled coordination output must stay one compact row, not the framed
+		// block stock uses for it.
+		await finishTool(booted, coordinationCall, {
 			toolCallId: "stream-hub-launch-1",
-			toolName: "hub",
-			result: {
-				content: [
-					{
-						type: "text",
-						text: "ready on :5173\nGET / 200\n[web: running; cursor=12]",
-					},
-				],
-				details: { op: "logs", state: "running", cursor: 12 },
-			},
+			toolName: coordination.name,
+			result: coordination.result,
 			isError: false,
 		});
 		await finishTool(booted, bashCall, {
@@ -577,33 +640,27 @@ stockTest(
 			isError: false,
 		});
 		const done = visibleRows(booted.transcript).join("\n");
-		expect(done).toMatch(/launch:\s*logs\s+web/);
+		expect(done).toMatch(coordination.compactRow);
 		expect(done).toContain("• bash:");
-		expect(done).not.toContain("Launch");
+		expect(done).not.toContain(coordination.nativeChrome);
 		expect(done).not.toContain("╭");
 		expect(done).not.toContain("├─── Output");
-		expect(done).not.toContain("ready on :5173");
+		if (!coordination.modern) expect(done).not.toContain("ready on :5173");
 
 		await shutdown(booted);
 	},
 );
 
 stockTest(
-	"streaming hub Launch start alone compacts before tool_execution_start",
+	"streaming coordination tool alone compacts before tool_execution_start",
 	async () => {
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
-		const launchArgs = {
-			op: "start",
-			name: "web",
-			application: "bun",
-			args: ["run", "dev"],
-			ready: { port: 5173 },
-		};
-		const hubCall = addToolComponent(
+		const coordination = coordinationTool();
+		const coordinationCall = addToolComponent(
 			booted,
-			"hub",
-			launchArgs,
+			coordination.name,
+			coordination.args,
 			"stream-hub-start-1",
 		);
 		await dispatch(booted, {
@@ -614,18 +671,151 @@ stockTest(
 					{
 						type: "toolCall",
 						id: "stream-hub-start-1",
-						name: "hub",
-						arguments: launchArgs,
+						name: coordination.name,
+						arguments: coordination.args,
 					},
 				],
 			},
 		});
-		hubCall.updateArgs(launchArgs, "stream-hub-start-1");
+		coordinationCall.updateArgs(coordination.args, "stream-hub-start-1");
 		const live = visibleRows(booted.transcript).join("\n");
 		expect(live).toContain("Working…");
-		expect(live).toMatch(/launch:\s*start\s+web/);
-		expect(live).not.toContain("Launch");
+		expect(live).toMatch(coordination.compactRow);
+		expect(live).not.toContain(coordination.nativeChrome);
 		expect(live).not.toContain("╭");
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"transport-targeted read/write calls stay native instead of compacting",
+	async () => {
+		// OMP 18.3.0 turned `proc://` and `agent://` into read/write targets
+		// with chrome of their own: `write proc://web/kill` paints
+		// "⏹ Proc kill web", `read proc://` the jobs/services dashboard, and
+		// `write agent://<id>` an IRC delivery card. The plugin registers
+		// `read` and `write`, so without the transport guard each would
+		// collapse into "write: proc://web/kill" and hide that card; they must
+		// fail open to the native renderer instead.
+		//
+		// `read agent://` has no chrome of its own and falls back to the stock
+		// framed Read card — still native, still not a compact row.
+		//
+		// Older hosts ship no transport chrome at all — the predicate itself
+		// is covered by the unit-level matrix in tool-presentation-rules.
+		if (!supportsProcTransport()) return;
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+
+		const cases: {
+			name: string;
+			args: Record<string, unknown>;
+			result: Record<string, unknown>;
+			/** Chrome visible while the call runs. */
+			chrome: string;
+			/** Chrome after the result lands; defaults to `chrome`. */
+			chromeDone?: string;
+			compactRow: string;
+		}[] = [
+			{
+				name: "write",
+				args: { path: "proc://web/kill", content: "" },
+				result: {
+					content: [{ type: "text", text: "" }],
+					details: { op: "kill" },
+				},
+				chrome: "Proc kill web",
+				compactRow: "write: proc://web/kill",
+			},
+			{
+				name: "read",
+				args: { path: "proc://" },
+				result: {
+					content: [{ type: "text", text: "0 jobs\n0 services" }],
+					details: { jobs: [], services: [] },
+				},
+				chrome: "Proc jobs & services",
+				compactRow: "read: proc://",
+			},
+			{
+				name: "write",
+				args: { path: "agent://AuthLoader", content: "ping" },
+				result: {
+					content: [{ type: "text", text: "delivered" }],
+					details: { to: "AuthLoader" },
+				},
+				chrome: "IRC ➤ AuthLoader",
+				compactRow: "write: agent://AuthLoader",
+			},
+			{
+				name: "read",
+				args: { path: "agent://AuthLoader" },
+				result: {
+					content: [{ type: "text", text: "no mail" }],
+					details: {},
+				},
+				chrome: "Read: agent://AuthLoader",
+				chromeDone: "Read agent://AuthLoader",
+				compactRow: "read: agent://AuthLoader",
+			},
+		];
+
+		for (const [index, probe] of cases.entries()) {
+			const toolCallId = `transport-${index}`;
+			const call = await addTool(booted, probe.name, probe.args, toolCallId);
+			const live = visibleRows(booted.transcript).join("\n");
+			expect(live, probe.chrome).toContain(probe.chrome);
+			expect(live, probe.compactRow).not.toContain(probe.compactRow);
+			await finishTool(booted, call, {
+				toolCallId,
+				toolName: probe.name,
+				result: probe.result,
+				isError: false,
+			});
+			const chromeDone = probe.chromeDone ?? probe.chrome;
+			const done = visibleRows(booted.transcript).join("\n");
+			expect(done, chromeDone).toContain(chromeDone);
+			expect(done, probe.compactRow).not.toContain(probe.compactRow);
+		}
+
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a transport read splits a read-group run instead of joining it",
+	async () => {
+		// The read-group pairs contiguous file reads into one block. A `read
+		// proc://` in the middle is a native card, so it must break the run
+		// rather than be absorbed into the grouping and lose its dashboard.
+		if (!supportsProcTransport()) return;
+		const booted = await bootWithTranscript();
+		await beginRun(booted);
+		const order = ["src/a.ts", "proc://", "src/b.ts"] as const;
+		for (const [index, path] of order.entries()) {
+			const toolCallId = `split-${index}`;
+			const call = await addTool(booted, "read", { path }, toolCallId);
+			await finishTool(booted, call, {
+				toolCallId,
+				toolName: "read",
+				result: {
+					content: [{ type: "text", text: path }],
+					details: path === "proc://" ? { jobs: [], services: [] } : { path },
+				},
+				isError: false,
+			});
+		}
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).toContain("read src/a.ts");
+		expect(rows).toContain("read src/b.ts");
+		expect(rows).not.toContain("read proc://");
+		const first = rows.indexOf("read src/a.ts");
+		const middle = rows.indexOf("Proc jobs & services");
+		const last = rows.indexOf("read src/b.ts");
+		expect(first).toBeGreaterThanOrEqual(0);
+		expect(middle).toBeGreaterThan(first);
+		expect(last).toBeGreaterThan(middle);
+
 		await shutdown(booted);
 	},
 );

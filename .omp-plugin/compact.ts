@@ -102,7 +102,37 @@ export function editPathsFromInput(input: string): string[] {
 		addPath(path);
 		if (paths.length >= 8) break;
 	}
+	// Sloppy-edit payloads: 18.3.0 opens a file with `*** Edit File: <path>`,
+	// hosts up to 18.2.11 spelled the same opener `*** SM:EDIT <path>`. A bare
+	// opener continues the previous file and carries no path, and a trailing
+	// ` all` is the match-all modifier rather than part of the path.
+	for (const match of bounded.matchAll(
+		/^\s*\*{3}[ \t]+(?:Edit[ \t]+File[ \t]*:[ \t]*|SM:EDIT[ \t]+)(\S.*?)[ \t]*$/gim,
+	)) {
+		const raw = match[1];
+		if (!raw) continue;
+		const path = unquoteHeaderPath(raw.replace(/\s+all$/i, ""));
+		if (!path) continue;
+		addPath(path);
+		if (paths.length >= 8) break;
+	}
 	return paths;
+}
+
+/**
+ * Sloppy openers JSON-quote a path that would otherwise be ambiguous
+ * (`*** Edit File: "src/a b.ts"`); plain paths come through unquoted.
+ */
+function unquoteHeaderPath(value: string): string {
+	const trimmed = value.trim();
+	if (trimmed.length < 2 || !trimmed.startsWith('"') || !trimmed.endsWith('"'))
+		return trimmed;
+	try {
+		const parsed: unknown = JSON.parse(trimmed);
+		return typeof parsed === "string" ? parsed : trimmed;
+	} catch {
+		return trimmed;
+	}
 }
 
 function shortValue(value: unknown): string {

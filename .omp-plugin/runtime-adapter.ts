@@ -73,7 +73,10 @@ import {
 	type ToolStartInput,
 	type ToolState,
 } from "./runtime-session-state";
-import { resolveToolRule } from "./tool-presentation-rules";
+import {
+	isTransportPresentationCall,
+	resolveToolRule,
+} from "./tool-presentation-rules";
 import {
 	type RenderableBlock,
 	TranscriptFold,
@@ -240,7 +243,7 @@ export class RuntimeAdapter {
 	/**
 	 * Cards whose native rows were proven to come from one parsed candidate.
 	 *
-	 * Stock assumption, verified against the 18.0.11/18.2.0/18.2.8/18.2.9/18.2.11 factories:
+	 * Stock assumption, verified against the 18.0.11/18.2.0/18.2.8/18.2.9/18.2.11/18.3.0 factories:
 	 * the host builds one card per delivered advisor message and the closure
 	 * keeps that delivered `details` forever — the card is never
 	 * re-parameterized with other notes, and `render(width)` only reflects the
@@ -995,7 +998,15 @@ export class RuntimeAdapter {
 		const rule = resolveToolRule(state.toolName);
 		const runMode = this.#session.modeFor(state.ledger);
 		return decideToolRender({
-			route: rule?.route,
+			// A `read`/`write` addressing a non-file transport (`proc://`,
+			// `agent://`) resolves to no route: OMP 18.3.0 gives those calls
+			// purpose-built stock chrome (process dashboard, daemon state,
+			// delivery receipts) that a compact row would replace with an
+			// address it cannot interpret. Same fail-open path as an unknown
+			// tool, so both phases agree the block is native.
+			route: isTransportPresentationCall(state.toolName, state.args)
+				? undefined
+				: rule?.route,
 			mode: runMode.mode,
 			retainGitLive: runMode.retainGitLive,
 			compactSuppressedBySettings:

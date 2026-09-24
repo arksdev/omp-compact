@@ -757,18 +757,18 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `StockHostAdapter.hostVersion` (`18.2.11`) records the
+  `StockHostAdapter.hostVersion` (`18.3.0`) records the
   **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
   hosts. Neither string is a runtime gate — every decision is a live
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.2.11.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.3.0.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.2.11 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.3.0 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -867,8 +867,13 @@ The host-supplied agent directory and the live session `Settings` object sit
   additive `before_subagent_spawn` event, and the only contract-relevant change
   is the thinking-mode branch of stock `formatShakeSummary`, which now appends
   `(~N tokens freed)`; that ported branch moved with the pin, while the elide
-  branch this plugin calls is unchanged. Compatibility is judged by changed
-  files, never by diff size.
+  branch this plugin calls is unchanged. 18.3.0 is the first release since to
+  change a contract rather than a byte: `src/chrome/*` is byte-identical to
+  18.2.11 and the three changed `src/chat/*` files move only by renaming the
+  builtin `hub` tool to `wait`, but that rename, the new `proc://`/`agent://`
+  read/write transports and the sloppy edit-payload respelling all reach rules
+  this plugin owns, so all three were adapted with the pin.
+  Compatibility is judged by changed files, never by diff size.
   So the floor stays at `>=18.0.1` while the gate pin follows the newest release.
 
 - **Rows retire, blocks fill the screen.** The container retires history by

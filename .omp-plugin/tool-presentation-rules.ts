@@ -35,6 +35,7 @@ import {
 	resultMetaGrep,
 	resultMetaResolution,
 	resultMetaWrite,
+	transportTargetOf,
 	writeDeviceName,
 } from "./tool-rule-describers";
 import type { DisplayPathOptions } from "./display-path";
@@ -219,6 +220,24 @@ const HUB_DETAILS = [
 	"terminalRows",
 	"matched",
 	"spec",
+] as const;
+// OMP 18.3.0 renamed the builtin coordination tool `hub` → `wait` and stripped
+// its schema to `type({})`: process supervision moved to `write` (`proc://<id>/…`)
+// and supervised `bash` services, while `wait` now only blocks for background
+// results and peer messages. Both rules stay registered — `hub` is still the
+// wire name on hosts up to 18.2.11 and the public floor is 18.0.1.
+const WAIT_ARGS: readonly string[] = [];
+const WAIT_DETAILS = [
+	"meta",
+	"op",
+	"from",
+	"to",
+	"receipts",
+	"waited",
+	"jobs",
+	"cancelled",
+	"agents",
+	"interrupted",
 ] as const;
 const TODO_ARGS = ["op", "title", "items"] as const;
 const TODO_DETAILS = ["op", "phases", "storage", "completedTasks"] as const;
@@ -425,6 +444,13 @@ export const TOOL_RULES: Readonly<
 			HUB_DETAILS,
 			describeHub,
 		),
+		wait: presentationRule(
+			"compact",
+			"none",
+			WAIT_ARGS,
+			WAIT_DETAILS,
+			genericDescribe("wait"),
+		),
 		todo: presentationRule(
 			"compact",
 			"none",
@@ -598,13 +624,13 @@ export function resolveToolRule(
 
 /**
  * Effective audit kind of one call: the registered rule's static kind, except
- * that a `write` addressing an `xd://` device audits nothing. Such a call
- * dispatches a mounted tool — the path is a transport address, not a file, so
- * routing it into the write-audit path would attribute a local file mutation
- * to a device invocation.
+ * that a `write` addressing a mounted `xd://` device or a non-file transport
+ * (`proc://`, `agent://`) audits nothing. Such a call dispatches a tool or a
+ * process/peer operation — the path is an address, not a file, so routing it
+ * into the write-audit path would attribute a local file mutation to it.
  *
  * The audit module's own URI-scheme guard stays where it is as the second
- * line of defence: this decision keeps device calls out of the write branch
+ * line of defence: this decision keeps those calls out of the write branch
  * altogether instead of relying on a later refusal.
  *
  * Structured args only, no rendered text. An unregistered tool, a malformed
@@ -617,13 +643,44 @@ export function resolveToolRule(
 export function resolveToolAudit(name: string, args?: unknown): ToolAuditKind {
 	const rule = resolveToolRule(name);
 	if (rule === undefined) return "none";
-	if (
-		rule.audit === "write" &&
-		args !== undefined &&
-		writeDeviceName(record(args)) !== undefined
-	)
-		return "none";
+	if (rule.audit === "write" && args !== undefined) {
+		// A `write` addressing a mounted device or a non-file transport mutates
+		// no file: the path is an address, not a target. Keeping the static
+		// kind for unreadable args is deliberate — a malformed payload must
+		// never silently disable a real file audit.
+		const value = record(args);
+		if (
+			writeDeviceName(value) !== undefined ||
+			transportTargetOf(value) !== undefined
+		)
+			return "none";
+	}
 	return rule.audit;
+}
+
+/**
+ * Whether a registered compact/read-group call must stay native because it
+ * addresses a non-file transport (`proc://`, `agent://`).
+ *
+ * OMP 18.3.0 paints purpose-built chrome for these — the process dashboard,
+ * daemon state with terminal rows, delivery receipts — and the compact row
+ * would replace it with a transport address it cannot interpret. The call is
+ * not *unknown*, so the plain route default would wrongly compact it; this
+ * predicate is the caller's override.
+ *
+ * Static guards mirror `resolveToolAudit`: an unregistered name, a
+ * `native-live` rule, or unreadable args keep the registered route, because
+ * unknown data must never change a tool's presentation by accident.
+ */
+export function isTransportPresentationCall(
+	name: string,
+	args: unknown,
+): boolean {
+	if (args === undefined) return false;
+	const rule = resolveToolRule(name);
+	if (rule === undefined) return false;
+	if (rule.route !== "compact" && rule.route !== "read-group") return false;
+	return transportTargetOf(record(args)) !== undefined;
 }
 
 /**

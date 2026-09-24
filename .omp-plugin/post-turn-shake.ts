@@ -48,10 +48,10 @@ export interface ShakeResultLike {
  * One-line operator summary of a {@link ShakeResultLike}, a faithful port of
  * stock `formatShakeSummary` (anchor:
  * `oh-my-pi/packages/coding-agent/src/session/shake-types.ts`, verified against
- * stock 18.0.8 and re-checked against the 18.2.11 pin, which added the
- * `(~N tokens freed)` suffix to the thinking branch because the thinking shake
- * now reports a real `tokensFreed`) so the
- * auto-shake confirmation reads exactly like a manual `/shake`:
+ * stock 18.0.8 and re-checked on the 18.3.0 pin, where that anchor file is
+ * byte-identical; 18.2.11 had added the `(~N tokens freed)` suffix to the
+ * thinking branch because the thinking shake reports a real `tokensFreed`) so
+ * the auto-shake confirmation reads exactly like a manual `/shake`:
  * `Shook 35 tool results (~11593 tokens freed).`, regions joined with ` + `,
  * and `Nothing to shake.` for a successful no-op.
  */

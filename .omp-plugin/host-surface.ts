@@ -9,7 +9,7 @@
  *
  * ## Version story (do not "fix" the apparent skew)
  *
- * `StockHostAdapter.hostVersion` (`"18.2.11"`) is the **verified contract**
+ * `StockHostAdapter.hostVersion` (`"18.3.0"`) is the **verified contract**
  * this module was written and tested against for the critical private
  * surfaces (tool/read-group/transcript/TUI method names and argument
  * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
@@ -212,14 +212,22 @@
  * now appends ` (~N tokens freed)` because the thinking shake reports a real
  * `tokensFreed`; the elide branch this plugin actually calls is unchanged,
  * and the local port was moved with it.
+ * 18.3.0 is a minor (breaking) release, but not for the surface above:
+ * `src/chrome/*` is byte-identical to 18.2.11 and the three changed files in
+ * `src/chat/*` (`tool-execution.ts`, `chat-transcript-builder.ts`,
+ * `transcript-render-helpers.ts`) move only by renaming the builtin `hub` tool
+ * to `wait`. That rename, the new `proc://`/`agent://` read/write transports
+ * and the sloppy edit-payload respelling are the three host contracts this
+ * release did change; see the `hub` rule, `transportTargetOf` and
+ * `editPathsFromInput` for how each is handled.
  * That floor is release metadata and must not be silently edited from this file.
  *
  * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
  * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
  * (or the root pin). Older copies are kept solely as reference sources for
  * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.2.11 (root `node_modules`), verified from an isolated
- * `runtime/omp-18.2.11/` install before the root tree moved.
+ * The gate pin is 18.3.0 (root `node_modules`), verified from an isolated
+ * `runtime/omp-18.3.0/` install before the root tree moved.
  * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3,
  * 18.1.4, 18.1.10, 18.1.14, 18.1.15 and 18.1.17 sources snapshotted under their
  * matching `runtime/omp-<version>/` directories for the same reason. The
@@ -236,8 +244,9 @@
  * `runtime/omp-18.2.5/PIN-MOVE-18.2.5.md`,
  * `runtime/omp-18.2.6/PIN-MOVE-18.2.6.md`,
  * `runtime/omp-18.2.8/PIN-MOVE-18.2.8.md`,
- * `runtime/omp-18.2.9/PIN-MOVE-18.2.9.md` and
- * `runtime/omp-18.2.11/PIN-MOVE-18.2.11.md`.
+ * `runtime/omp-18.2.9/PIN-MOVE-18.2.9.md`,
+ * `runtime/omp-18.2.11/PIN-MOVE-18.2.11.md` and
+ * `runtime/omp-18.3.0/PIN-MOVE-18.3.0.md`.
  * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
  * and late-diagnostics components. Fingerprints that require that method miss
  * cleanly when absent and leave the stock card native — they do not misclassify
@@ -245,7 +254,7 @@
  * require the activity method; their compact rows still fail open to native when
  * content extraction fails.
  * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.2.11 pin and resolved via live capability probes on the instance;
+ * the 18.3.0 pin and resolved via live capability probes on the instance;
  * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
  * and 17.3.4, remains under capability probes, and upon shape changes degrades
  * gracefully to stock native cards.

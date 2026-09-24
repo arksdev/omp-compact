@@ -133,6 +133,33 @@ export function writeDeviceName(
 }
 
 /**
+ * Non-file transport a `read`/`write` target addresses, or `undefined` for a
+ * filesystem path.
+ *
+ * OMP 18.3.0 introduced `proc://` (background jobs, supervised services,
+ * launch daemons) and `agent://` (peer mailboxes) as `read`/`write` targets.
+ * They are transports with purpose-built stock chrome — a process dashboard,
+ * daemon state with terminal rows, delivery receipts — that a compact row
+ * cannot summarize, so callers fail open to the native renderer. `xd://`
+ * device writes are deliberately NOT transports here: the device name plus
+ * its operation is exactly what the compact row carries.
+ *
+ * Prefix matching only, never URL parsing: the host accepts any trailing
+ * path (`proc://web/kill`, `proc://`) and an unrecognized shape must stay a
+ * transport rather than fall through to a file mutation record.
+ */
+export function transportTargetOf(
+	value: Record<string, unknown>,
+): "proc" | "agent" | undefined {
+	const path = stringValue(value, "path") || stringValue(value, "file_path");
+	if (!path) return undefined;
+	const scheme = path.toLowerCase();
+	if (scheme.startsWith("proc://")) return "proc";
+	if (scheme.startsWith("agent://")) return "agent";
+	return undefined;
+}
+
+/**
  * Operation key of a device args object: stock schemas spell it `op` (`gh`)
  * or `action` (`security_scan`, `debug`, `browser`), and some devices
  * (`ast_grep`) carry none. Absent operation yields "" — never a placeholder.

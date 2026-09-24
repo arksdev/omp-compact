@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { genericToolDescription } from "../../.omp-plugin/compact";
 import {
 	describeTool,
+	isTransportPresentationCall,
 	normalizeToolName,
 	resolveToolAudit,
 	resolveToolRule,
@@ -37,6 +38,7 @@ const CANONICAL_NAMES = [
 	"vibe_send",
 	"vibe_spawn",
 	"vibe_wait",
+	"wait",
 	"web_search",
 	"write",
 	"yield",
@@ -84,6 +86,7 @@ describe("canonical routes and audit kinds", () => {
 			"glob",
 			"find",
 			"hub",
+			"wait",
 			"todo",
 			"eval",
 			"yield",
@@ -188,6 +191,110 @@ describe("effective audit kind of one call", () => {
 		for (const [index, args] of hostile.entries()) {
 			expect(resolveToolAudit("write", args), String(index)).toBe("write");
 		}
+	});
+
+	test("a non-file transport write audits nothing", () => {
+		// OMP 18.3.0 turned `proc://` (jobs, services, daemons) and `agent://`
+		// (peer mailboxes) into write targets. They are transports, not files:
+		// attributing a local file mutation to them would be a false record.
+		for (const path of ["proc://web/kill", "proc://", "agent://AuthLoader"]) {
+			expect(resolveToolAudit("write", { path, content: "" }), path).toBe(
+				"none",
+			);
+			expect(
+				resolveToolAudit("write", { file_path: path, content: "" }),
+				path,
+			).toBe("none");
+		}
+		// A path that merely shares a prefix is still an ordinary file write.
+		expect(
+			resolveToolAudit("write", { path: "procs/web.txt", content: "x" }),
+		).toBe("write");
+	});
+});
+
+describe("non-file transport presentation is native", () => {
+	test("read/write addressing proc:// or agent:// fail open", () => {
+		// Stock paints purpose-built chrome for these (process dashboard,
+		// daemon state, terminal rows, delivery receipts) that a registry row
+		// cannot summarize: the call must stay native instead of collapsing
+		// into "write: proc://web/kill".
+		expect(
+			isTransportPresentationCall("write", { path: "proc://web/kill" }),
+		).toBe(true);
+		expect(isTransportPresentationCall("read", { path: "proc://" })).toBe(true);
+		expect(
+			isTransportPresentationCall("read", { path: "agent://AuthLoader" }),
+		).toBe(true);
+		expect(
+			isTransportPresentationCall("write", { file_path: "proc://a/b" }),
+		).toBe(true);
+	});
+
+	test("files, devices and every other tool keep their registered route", () => {
+		expect(
+			isTransportPresentationCall("write", { path: "src/a.ts", content: "x" }),
+		).toBe(false);
+		// xd:// device writes stay compact by design — the device name and its
+		// operation are exactly what the compact row can carry.
+		expect(
+			isTransportPresentationCall("write", {
+				path: "xd://github",
+				content: "{}",
+			}),
+		).toBe(false);
+		expect(isTransportPresentationCall("bash", { command: "ls" })).toBe(false);
+		expect(
+			isTransportPresentationCall("custom_tool", { path: "proc://x" }),
+		).toBe(false);
+	});
+
+	test("missing or unreadable args never force native", () => {
+		const hostile: readonly unknown[] = [
+			undefined,
+			null,
+			"str",
+			42,
+			[],
+			{ path: 5 },
+			{ path: "" },
+		];
+		for (const [index, args] of hostile.entries()) {
+			expect(isTransportPresentationCall("write", args), String(index)).toBe(
+				false,
+			);
+			expect(isTransportPresentationCall("read", args), String(index)).toBe(
+				false,
+			);
+		}
+	});
+});
+
+describe("host tool rename (hub → wait in OMP 18.3.0)", () => {
+	test("wait is registered compact with no args and job-shaped details", () => {
+		const rule = TOOL_RULES.wait;
+		expect(rule).toBeDefined();
+		expect(rule?.route).toBe("compact");
+		expect(rule?.audit).toBe("none");
+		// Stock declares `type({})`: the tool carries no arguments at all.
+		expect(rule?.knownArgs).toEqual([]);
+		expect(rule?.knownDetails).toContain("jobs");
+		expect(rule?.knownDetails).toContain("cancelled");
+		expect(rule?.knownDetails).toContain("agents");
+	});
+
+	test("hub stays registered for hosts up to 18.2.11", () => {
+		// The public floor is 18.0.1: `hub` is the wire name before the rename
+		// and must keep its rule, or every older host loses compact coverage.
+		expect(TOOL_RULES.hub?.route).toBe("compact");
+		expect(resolveToolRule("hub")).toBe(TOOL_RULES.hub);
+		expect(resolveToolRule("wait")).toBe(TOOL_RULES.wait);
+		expect(resolveToolRule("wait")).not.toBe(TOOL_RULES.hub);
+	});
+
+	test("wait carries no arguments, so its row never invents one", () => {
+		expect(describeTool("wait", {})?.description).toBe("");
+		expect(describeTool("wait", { op: "wait" })?.description).toBe("op: wait");
 	});
 });
 
@@ -490,6 +597,21 @@ describe("existing tool descriptions", () => {
 			description: "src/a.ts, src/b.ts",
 			meta: [],
 		});
+	});
+
+	test("edit names the file a sloppy payload opens", () => {
+		// 18.3.0 respelled the sloppy opener to `*** Edit File:`; hosts up to
+		// 18.2.11 used `*** SM:EDIT`. Both must name the file in the row.
+		const modern =
+			"*** Edit File: src/a.ts\n*** Find\nconst x = 1;\n*** Replace\nconst x = 2;";
+		expect(describeTool("edit", { input: modern })?.description).toBe(
+			"src/a.ts",
+		);
+		const legacy =
+			"*** SM:EDIT src/a.ts\n*** SM:FIND\nconst x = 1;\n*** SM:PUT\nconst x = 2;";
+		expect(describeTool("edit", { input: legacy })?.description).toBe(
+			"src/a.ts",
+		);
 	});
 
 	test("edit aliases accept the legacy streaming _input field", () => {

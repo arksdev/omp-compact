@@ -102,6 +102,62 @@ describe("editPathsFromInput", () => {
 		expect(paths).toHaveLength(8);
 		expect(new Set(paths).size).toBe(8);
 	});
+
+	test("extracts OMP 18.3.0 sloppy Edit File targets", () => {
+		// The sloppy payload's opener was respelled from `*** SM:EDIT` to
+		// `*** Edit File:` in 18.3.0; the bodies are `*** Find` / `*** Replace`
+		// (or `*** Insert Before` / `*** Insert After`) and carry no path.
+		const input = [
+			"*** Edit File: src/a.ts",
+			"*** Find",
+			"const x = 1;",
+			"*** Replace",
+			"const x = 2;",
+			"*** Edit File: src/b.ts all",
+			"*** Find",
+			"helper()",
+			"*** Replace",
+			"helper(1)",
+		].join("\n");
+		expect(editPathsFromInput(input)).toEqual(["src/a.ts", "src/b.ts"]);
+	});
+
+	test("extracts pre-18.3.0 sloppy SM:EDIT targets", () => {
+		// The public floor is 18.0.1, so the old spelling must keep working.
+		const input = [
+			"*** SM:EDIT src/a.ts",
+			"*** SM:FIND",
+			"const x = 1;",
+			"*** SM:PUT",
+			"const x = 2;",
+		].join("\n");
+		expect(editPathsFromInput(input)).toEqual(["src/a.ts"]);
+	});
+
+	test("a bare sloppy opener continues the previous file and adds nothing", () => {
+		const input = [
+			"*** Edit File: src/a.ts",
+			"*** Find",
+			"one",
+			"*** Replace",
+			"two",
+			"*** Edit File:",
+			"*** Find",
+			"three",
+			"*** Replace",
+			"four",
+		].join("\n");
+		expect(editPathsFromInput(input)).toEqual(["src/a.ts"]);
+	});
+
+	test("unquotes a JSON-quoted sloppy path and ignores near-miss headers", () => {
+		expect(editPathsFromInput('*** Edit File: "src/a b.ts"')).toEqual([
+			"src/a b.ts",
+		]);
+		// `*** Edit Files:` is not an opener, and `SM:EDITOR` is not `SM:EDIT`.
+		expect(editPathsFromInput("*** Edit Files: src/a.ts")).toEqual([]);
+		expect(editPathsFromInput("*** SM:EDITOR src/a.ts")).toEqual([]);
+	});
 });
 
 describe("genericToolDescription", () => {

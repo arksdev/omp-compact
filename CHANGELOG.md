@@ -4,6 +4,18 @@
 
 ---
 
+## Разработка
+
+### Изменено
+
+- Хост-пин переехал с 18.2.11 на 18.3.0. Это minor-релиз с breaking changes, но критическая патч-поверхность не тронута: `pi-tui/src/chrome/*` побайтово идентичен 18.2.11, а три изменившихся файла `pi-tui/src/chat/*` сдвинулись только переименованием встроенного инструмента `hub` → `wait`. Задело три контракта: добавлено правило `wait` (рядом с `hub`, который нужен хостам до 18.3.0, — публичный floor остаётся `>=18.0.1`); вызовы `read`/`write` по `proc://` и `agent://` больше не сворачиваются, а остаются нативными — у них своя стоковая рамка (карточка процесса, дашборд задач и сервисов, доставка сообщений); компактная строка `edit:` снова показывает файл для sloppy-пейлоада, потому что синтаксис опенера переписан с `*** SM:EDIT` на `*** Edit File:` (читаются оба написания).
+
+---
+
+### Changed
+
+- Host pin moved from 18.2.11 to 18.3.0. It is a minor release with breaking changes, but the critical patch surface is untouched: `pi-tui/src/chrome/*` is byte-identical to 18.2.11, and the three changed `pi-tui/src/chat/*` files move only by renaming the builtin `hub` tool to `wait`. Three contracts did change: a `wait` rule joins the retained `hub` rule (which hosts below 18.3.0 still need — the public floor stays `>=18.0.1`); `read`/`write` calls addressing `proc://` and `agent://` stay native instead of compacting, because stock gives them chrome a row cannot carry (process card, jobs and services dashboard, message delivery); and the compact `edit:` row names the file again for sloppy payloads, whose opener was respelled from `*** SM:EDIT` to `*** Edit File:` (both spellings are parsed).
+
 ## 1.3.2 — 24 сентября 2026
 
 ### Изменено
