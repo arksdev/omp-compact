@@ -11,9 +11,8 @@ import {
 import type { FileHandle } from "node:fs/promises";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
-// External dependency: peelWriteUrlSelector/unwrapHashlineHeaderPath from
-// @oh-my-pi/pi-coding-agent. API stability: integration tests cover contract.
-import { peelWriteUrlSelector } from "@oh-my-pi/pi-coding-agent/tools/path-utils";
+// External dependency: unwrapHashlineHeaderPath from @oh-my-pi/pi-coding-agent.
+// API stability: integration tests cover contract.
 import { unwrapHashlineHeaderPath } from "@oh-my-pi/pi-coding-agent/tools/plan-mode-guard";
 import { diffLines } from "@oh-my-pi/pi-natives";
 
@@ -314,12 +313,9 @@ export async function captureWriteCandidate(input: {
 	const args = objectRecord(input.args);
 	if (typeof args.path !== "string" || typeof args.content !== "string")
 		return undefined;
-	let displayPath: string;
-	try {
-		displayPath = peelWriteUrlSelector(unwrapHashlineHeaderPath(args.path));
-	} catch {
-		return undefined;
-	}
+	// Internal-URL targets (with or without a read selector) keep their scheme
+	// and are rejected by URI_SCHEME below, so no selector peeling is needed.
+	const displayPath = unwrapHashlineHeaderPath(args.path);
 	if (
 		!displayPath ||
 		URI_SCHEME.test(displayPath) ||
