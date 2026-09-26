@@ -540,6 +540,13 @@ describe("formatting and rounding", () => {
 		expect(module.formatTokens(Number.NaN)).toBe("0");
 	});
 
+	test("formatTokens promotes a value that rounds up into the next unit", () => {
+		expect(module.formatTokens(999.6)).toBe("1k");
+		expect(module.formatTokens(999_949)).toBe("999.9k");
+		expect(module.formatTokens(999_950)).toBe("1M");
+		expect(module.formatTokens(999_950_000)).toBe("1B");
+	});
+
 	test("formatDuration units", () => {
 		expect(module.formatDuration(0)).toBe("0s");
 		expect(module.formatDuration(500)).toBe("1s");

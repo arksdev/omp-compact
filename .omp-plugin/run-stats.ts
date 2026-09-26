@@ -252,10 +252,12 @@ function trimTrailingZero(value: string): string {
  */
 export function formatTokens(value: number): string {
 	const n = nonNegativeNumber(value);
-	if (n >= 1_000_000_000)
+	// Each threshold sits half a display step below its unit, so a value that
+	// rounds up (999.95k) is promoted instead of printing `1000k`.
+	if (n >= 999_950_000)
 		return `${trimTrailingZero((n / 1_000_000_000).toFixed(1))}B`;
-	if (n >= 1_000_000) return `${trimTrailingZero((n / 1_000_000).toFixed(1))}M`;
-	if (n >= 1_000) return `${trimTrailingZero((n / 1_000).toFixed(1))}k`;
+	if (n >= 999_950) return `${trimTrailingZero((n / 1_000_000).toFixed(1))}M`;
+	if (n >= 999.5) return `${trimTrailingZero((n / 1_000).toFixed(1))}k`;
 	return `${Math.round(n)}`;
 }
 
