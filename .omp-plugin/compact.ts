@@ -46,8 +46,6 @@ export function codePointLength(value: string): number {
 	return length;
 }
 
-export { record };
-
 export function stringValue(
 	value: Record<string, unknown>,
 	key: string,

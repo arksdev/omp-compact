@@ -13,7 +13,8 @@ import type {
 	LegacyMutationMessageDetails,
 	MutationMessageDetails,
 } from "./messages";
-import { MAX_DESCRIPTION, record, sanitizeOneLine } from "./render-scrape";
+import { objectRecord as record } from "./object-record";
+import { MAX_DESCRIPTION, sanitizeOneLine } from "./render-scrape";
 import type {
 	InjectRuleView,
 	LateDiagnosticsView,

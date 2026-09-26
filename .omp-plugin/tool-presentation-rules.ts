@@ -12,7 +12,8 @@
  * `undefined` explicitly (never a synthesized implicit compact rule) so
  * callers fail open to the native renderer.
  */
-import { record, type ToolDescription } from "./compact";
+import type { ToolDescription } from "./compact";
+import { objectRecord as record } from "./object-record";
 import {
 	describeAstEdit,
 	describeAstGrep,

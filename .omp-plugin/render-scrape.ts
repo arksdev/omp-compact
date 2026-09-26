@@ -1,4 +1,5 @@
 import { stripRejectedControls } from "./display-control";
+import { objectRecord as record } from "./object-record";
 
 /**
  * Scraping of compact tool views from live stock host component instances.
@@ -146,12 +147,6 @@ export function sanitizeOneLine(
 	const chars = Array.from(clean);
 	if (chars.length <= limit) return clean;
 	return `${chars.slice(0, Math.max(0, limit - 1)).join("")}…`;
-}
-
-export function record(value: unknown): Record<string, unknown> {
-	return value !== null && typeof value === "object" && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: {};
 }
 
 function collectComponentTexts(node: unknown, out: string[]): void {

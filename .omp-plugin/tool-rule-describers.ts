@@ -22,12 +22,12 @@ import {
 	editPathsFromInput,
 	genericToolDescription,
 	listValue,
-	record,
 	stringValue,
 	truncateCodePoints,
 	type ToolDescription,
 } from "./compact";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
+import { objectRecord as record } from "./object-record";
 import type { ToolPresentationRule } from "./tool-presentation-rules";
 
 function pathValue(
