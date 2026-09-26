@@ -568,26 +568,13 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		try {
 			root = captureHostRoot(ui);
 			if (!root) return undefined;
-			const timerContext = context as ExtensionContext & {
-				setInterval?: (callback: () => void, ms?: number) => unknown;
-				clearTimer?: (timer: unknown) => void;
-			};
-			const setTimer = timerContext.setInterval;
-			const clearTimer = timerContext.clearTimer;
-			const timers =
-				typeof setTimer === "function" && typeof clearTimer === "function"
-					? {
-							setInterval: (callback: () => void, ms?: number) =>
-								setTimer.call(timerContext, callback, ms),
-							clearTimer: (timer: unknown) =>
-								clearTimer.call(timerContext, timer),
-						}
-					: undefined;
 			const notify = (context.ui as NotifyingUI).notify;
 			candidate = new RuntimeAdapter({
 				root,
 				ui: adapterUI(context, root),
-				timers,
+				// The host's managed timers: unref'd, throw-contained, and
+				// cleared on session_shutdown.
+				timers: context,
 				// RuntimeModes: the adapter snapshots mode per ledger at run
 				// boundaries; rendering consults the frozen snapshot only.
 				modePolicy,
