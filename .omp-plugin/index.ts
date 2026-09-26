@@ -429,15 +429,17 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	const postShake = new PostTurnShake({
 		getContextUsage: (context) => context.getContextUsage?.(),
 		resolveSession: createSessionResolver(agentRegistry),
-		// A successful `shake("elide")` rewrites the persisted entries,
-		// replaces the agent messages and makes the host clear and rebuild
-		// the transcript synchronously — the same collapsed-tail rebuild an
-		// LLM compaction produces, and equally not a live user clear. Without
-		// the suffix permit the rebuild falls into the strict exact-count
-		// branch, leaves the reconstructed read tail unbound and permanently
-		// re-expands rows the finished turn had already hidden. Arm the
-		// permit here, at the single point that knows the rebuild is ours;
-		// the shake module itself stays ignorant of mode policy.
+		// `session.shake("elide")` rewrites the persisted entries and swaps
+		// the agent messages but rebuilds nothing: stock rebuilds the
+		// transcript only from its own callers (`/shake`, auto-compaction).
+		// The permit therefore waits for the next full replay of the elided
+		// branch before the next run (a manual `/shake`, a `display.*`
+		// toggle, an extension's displayed message); `prepareRun()` drops it
+		// otherwise. That replay is a faithful copy of the branch, so tail
+		// alignment owns what it binds; without the permit the collapsed
+		// read tail stays unbound and re-expands rows the finished turn had
+		// already hidden. The shake module itself stays ignorant of mode
+		// policy.
 		shake: (session, signal) => {
 			modePolicy.armCollapsedRebuild();
 			return session.shake("elide", { signal });

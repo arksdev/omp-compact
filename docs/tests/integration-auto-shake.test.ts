@@ -43,10 +43,9 @@ interface ShakeProbe {
 	registry: unknown;
 	/**
 	 * Mutable persisted branch behind the probe's `sessionManager`. A real
-	 * `shake("elide")` rewrites the entries in place (`rewriteEntries`)
-	 * before the host rebuilds the transcript, so tests that exercise the
-	 * post-shake rebuild swap this to the elided branch from inside the
-	 * shake call.
+	 * `shake("elide")` rewrites the entries in place (`rewriteEntries`), so
+	 * tests that replay the transcript after the shake swap this to the
+	 * elided branch from inside the shake call.
 	 */
 	branch: { current: readonly unknown[] };
 	/** Invoked inside the native shake, before it resolves. */
@@ -68,8 +67,8 @@ function shakeProbe(): ShakeProbe {
 		async shake(mode: string, opts?: { signal?: AbortSignal }) {
 			calls.push({ mode, aborted: opts?.signal?.aborted ?? false });
 			// The real elide pass rewrites the persisted entries and swaps
-			// the agent's messages before it resolves; the host transcript
-			// rebuild happens afterwards.
+			// the agent's messages before it resolves; it rebuilds no
+			// transcript itself.
 			probe.onShake?.();
 			return {
 				mode,
@@ -532,8 +531,8 @@ stockTest(
 			"• read src/a.ts",
 		);
 		addAnswer(booted, "shake done");
-		// The elide pass rewrites the persisted entries before the host
-		// rebuilds, so the rebuild hydrates from the elided branch.
+		// The elide pass rewrites the persisted entries, so any later replay
+		// hydrates from the elided branch.
 		probe.onShake = () => {
 			probe.branch.current = [
 				...elidedReadTurn("read-old", "src/old.ts", "old done", {
@@ -556,12 +555,13 @@ stockTest(
 		await drainShake();
 		expect(probe.calls).toHaveLength(2);
 		expect(probe.calls[1]?.mode).toBe("elide");
-		// stock's post-shake rebuild: clear, then repopulate the collapsed
-		// tail. The staged rebuild constructs the read group without
-		// replaying `updateArgs`, so the group arrives with no observed ids
-		// and only ordinal pairing against the trailing read ledger can
-		// claim it. Its native renderer is marked so an unbound group is
-		// observable.
+		// The host rebuilds nothing after the plugin's shake; the next full
+		// replay of the elided branch (a manual `/shake`, a `display.*`
+		// toggle) clears and repopulates the collapsed tail. The staged
+		// rebuild constructs the read group without replaying `updateArgs`,
+		// so the group arrives with no observed ids and only ordinal pairing
+		// against the trailing read ledger can claim it. Its native renderer
+		// is marked so an unbound group is observable.
 		booted.transcript.clear();
 		const group = new booted.host.ReadToolGroupComponent();
 		group.render = () => ["native read rows"];
@@ -652,9 +652,9 @@ stockTest(
 		);
 		await drainShake();
 		expect(probe.calls).toHaveLength(1);
-		// stock's post-shake rebuild: the card is reconstructed with a
-		// discarded id and only `updateResult(result, isPartial, id)` carries
-		// the exact ownership.
+		// A later full replay of the elided branch: the card is
+		// reconstructed with a discarded id and only
+		// `updateResult(result, isPartial, id)` carries the exact ownership.
 		booted.transcript.clear();
 		const rebuilt = addToolComponent(
 			booted,
