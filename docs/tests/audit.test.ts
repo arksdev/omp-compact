@@ -1087,6 +1087,31 @@ describe("edit evidence budgets", () => {
 		expect(entries.some((entry) => entry.path === "src/big4.ts")).toBe(false);
 	});
 
+	test("a delete past the total scan budget keeps its path-only row", () => {
+		// The path alone is real evidence, and an oversized single-file delete
+		// already renders count-less; the cumulative budget must not drop it.
+		const oldText = "x".repeat(MAX_DELETE_BYTES - 1);
+		const perFileResults = Array.from({ length: 5 }, (_, index) => ({
+			path: `src/del${index}.ts`,
+			op: "delete",
+			diff: "",
+			oldText,
+		}));
+		const entries = completeEditMutations(
+			"edit-b-6d",
+			{ details: { perFileResults } },
+			false,
+		);
+		expect(entries).toHaveLength(5);
+		expect(entries[3]).toMatchObject({ path: "src/del3.ts", exact: true });
+		expect(entries[4]).toEqual({
+			toolCallId: "edit-b-6d",
+			toolName: "delete",
+			path: "src/del4.ts",
+			exact: false,
+		});
+	});
+
 	test("adversarial repeated rows over the row budget flow into no exact entry", () => {
 		expect(
 			completeEditMutations(

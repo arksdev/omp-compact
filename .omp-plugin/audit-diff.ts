@@ -134,9 +134,9 @@ export function trimmedMiddleLines(
 
 /**
  * Count added/removed lines from a unified diff. Returns undefined if the diff
- * exceeds budget or contains malformed hunks. `exact: true` in the returned
- * result means "parsed without overflow", not "validated against declared hunk
- * line counts"; the parser is intentionally fail-open for well-formed SDK output.
+ * exceeds budget or contains malformed hunks. A result means "parsed without
+ * overflow", not "validated against declared hunk line counts"; the parser is
+ * intentionally fail-open for well-formed SDK output.
  */
 export function countUnifiedDiff(
 	diff: string,
@@ -339,10 +339,11 @@ function deleteEntry(
  *
  * - Multi-file results (`details.perFileResults`) keep every successful entry
  *   and drop failed ones, bounded by the F02 budgets: at most
- *   MAX_PER_FILE_RESULTS files are processed and scanning stops once
- *   MAX_TOTAL_SCAN_BYTES of per-file evidence has been examined. Anything
- *   beyond the budgets is dropped deterministically — never counted
- *   approximately. A top-level/aggregate error does **not** suppress the
+ *   MAX_PER_FILE_RESULTS files are processed, and a file whose evidence would
+ *   push the scan past MAX_TOTAL_SCAN_BYTES is not examined (later, smaller
+ *   files still are). Nothing beyond the budgets is counted approximately: an
+ *   unexamined edit is dropped, an unexamined delete keeps its count-less
+ *   path row. A top-level/aggregate error does **not** suppress the
  *   successful per-file rows (stock marks partial multi-file application
  *   that way).
  * - A single-path result (no `perFileResults`) is retained only when the
@@ -373,8 +374,17 @@ export function completeEditMutations(
 			const diff = typeof file.diff === "string" ? file.diff : "";
 			const oldText = typeof file.oldText === "string" ? file.oldText : "";
 			const cost = diff.length + oldText.length;
-			// Skip oversized file but continue scanning remaining files within budget.
-			if (scannedBytes + cost > MAX_TOTAL_SCAN_BYTES) continue;
+			// Skip an oversized file but keep scanning the rest within budget. A
+			// delete's path is evidence on its own, so it stays as a count-less
+			// row, the same as an oversized single-file delete.
+			if (scannedBytes + cost > MAX_TOTAL_SCAN_BYTES) {
+				const pathOnly =
+					file.op === "delete"
+						? deleteEntry(toolCallId, file.path, undefined, false)
+						: undefined;
+				if (pathOnly) entries.push(pathOnly);
+				continue;
+			}
 			scannedBytes += cost;
 			const entry =
 				file.op === "delete"
