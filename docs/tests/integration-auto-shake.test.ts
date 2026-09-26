@@ -122,6 +122,45 @@ function bootWithShake(
 }
 
 stockTest(
+	"auto-shake: a failed shake warns through the session UI, never stderr",
+	async () => {
+		// A stderr write under the differential TUI renderer leaves stray
+		// rows until the next full redraw; an interactive session has a
+		// notification surface for exactly this.
+		const probe = shakeProbe();
+		probe.onShake = () => {
+			throw new Error("disk full");
+		};
+		const booted = await bootWithShake(
+			{
+				...DEFAULT_SETTINGS,
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+				autoShake: { enabled: true, thresholdTokens: 0 },
+			},
+			probe,
+		);
+		const stderr: string[] = [];
+		const consoleWarn = console.warn;
+		console.warn = (...args: unknown[]) => {
+			stderr.push(args.map(String).join(" "));
+		};
+		try {
+			await beginRun(booted);
+			await finishRun(booted, "done");
+			await drainShake();
+		} finally {
+			console.warn = consoleWarn;
+		}
+		expect(probe.calls).toHaveLength(1);
+		expect(booted.notifications).toContain(
+			"omp-compact: auto-shake failed: disk full",
+		);
+		expect(stderr).toEqual([]);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"auto-shake: a globally disabled next run explicitly disarms shake armed by the prior run",
 	async () => {
 		const probe = shakeProbe();

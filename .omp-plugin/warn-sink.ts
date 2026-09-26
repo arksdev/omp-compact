@@ -1,11 +1,10 @@
 /**
- * The plugin's default warning sink: `console.warn` carrying the
- * `[omp-compact]` brand prefix — the user-visible diagnostic identity. One
- * home for the prefix and the sink so every defaulting caller emits
- * identically-branded warnings; callers keep their own `warn` injection seam
- * and fall back to this.
+ * The plugin's fallback warning sink: `console.warn` carrying the
+ * `[omp-compact]` brand prefix — the user-visible diagnostic identity. The
+ * plugin entry routes warnings to the session UI or the host file log once a
+ * session event has arrived; this sink covers the time before that and
+ * modules constructed without an injected `warn`.
  */
 export function defaultWarn(message: string): void {
-	// The one intentional console write in the plugin: this *is* the sink.
 	console.warn(`[omp-compact] ${message}`);
 }

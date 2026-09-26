@@ -220,17 +220,45 @@ function commitDetails(
 export default function ompCompact(pi: ExtensionAPI): void {
 	pi.setLabel("omp-compact");
 
+	// Where the plugin's warnings go. A session with UI gets a notification;
+	// a session without one logs to the host file log, because a subagent
+	// shares the main TUI's terminal and a stderr write there leaves stray
+	// rows in the frame. Stderr remains only before the first event, while
+	// the host has not started drawing (ponytail: a subagent instance still
+	// writes stderr before its first event; route through the parent's UI if
+	// that ever shows up).
+	let warnUi: NotifyingUI | null | undefined;
+	function warn(message: string): void {
+		try {
+			if (warnUi === undefined) defaultWarn(message);
+			else if (warnUi) warnUi.notify?.(message, "warning");
+			else if (pi.logger) pi.logger.warn(`[omp-compact] ${message}`);
+		} catch {
+			// Best-effort: the warning itself must never throw.
+		}
+	}
+
 	// Guarded host registrations, same degrade contract as
 	// registerSettingsCommand: a host without the surface (older runtime, RPC
 	// shim) must not take the plugin down — the feature is skipped with a
 	// warning, every other feature keeps working. The narrow casts mirror the
 	// host signatures; the pinned host's implementations are pure in-memory
-	// writes, so these only fire on hosts that lack the surface.
-	const listen = ((event: string, handler: unknown) => {
+	// writes, so these only fire on hosts that lack the surface. Every
+	// handler first records the event's UI for the warning sink.
+	const listen = ((
+		event: string,
+		handler: (event: unknown, context: ExtensionContext) => unknown,
+	) => {
 		try {
-			(pi.on as (event: string, handler: unknown) => void)(event, handler);
+			(pi.on as (event: string, handler: unknown) => void)(
+				event,
+				(payload: unknown, context: ExtensionContext) => {
+					warnUi = context.hasUI ? (context.ui as NotifyingUI) : null;
+					return handler(payload, context);
+				},
+			);
 		} catch {
-			defaultWarn(`event subscription skipped (${event} unavailable)`);
+			warn(`event subscription skipped (${event} unavailable)`);
 		}
 	}) as unknown as ExtensionAPI["on"];
 	const registerRenderer = ((customType: string, renderer: unknown) => {
@@ -242,7 +270,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				) => void
 			)(customType, renderer);
 		} catch {
-			defaultWarn(`message renderer skipped (${customType} unavailable)`);
+			warn(`message renderer skipped (${customType} unavailable)`);
 		}
 	}) as unknown as ExtensionAPI["registerMessageRenderer"];
 
@@ -263,7 +291,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// gate; the store is created lazily (no disk I/O until the menu opens).
 	// The store is per plugin INSTANCE: two sessions in one process must never
 	// share settings state (cross-session/subagent contamination).
-	const settingsStore = createSettingsStore({ env: Bun.env });
+	const settingsStore = createSettingsStore({ env: Bun.env, warn });
 	registerSettingsCommand<ExtensionCommandContext>(pi, {
 		description: "Open omp-compact plugin settings",
 		handler: async (_args, ctx) => {
@@ -287,6 +315,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			const hostBridge: HostSettingsBridge | undefined = hostSettings
 				? createHostSettingsBridge({
 						api: createSessionSettingsApi(hostSettings),
+						warn,
 					})
 				: undefined;
 			const initial = await settingsStore.load();
@@ -386,6 +415,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						bridge: hostSettings
 							? createHostSettingsBridge({
 									api: createSessionSettingsApi(hostSettings),
+									warn,
 								})
 							: undefined,
 						theme: ctx.ui.theme,
@@ -429,6 +459,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	const postShake = new PostTurnShake({
 		getContextUsage: (context) => context.getContextUsage?.(),
 		resolveSession: createSessionResolver(agentRegistry),
+		warn,
 		// `session.shake("elide")` rewrites the persisted entries and swaps
 		// the agent messages but rebuilds nothing: stock rebuilds the
 		// transcript only from its own callers (`/shake`, auto-compaction).
@@ -478,28 +509,18 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	function warnDecorativeOnce(
 		key: DecorativeWarningKey,
 		message: string,
-		context?: ExtensionContext,
 	): void {
 		if (decorativeWarned.has(key)) return;
 		decorativeWarned.add(key);
-		try {
-			const notify = (context?.ui as NotifyingUI | undefined)?.notify;
-			if (typeof notify === "function" && context) {
-				notify.call(context.ui, message, "warning");
-				return;
-			}
-			defaultWarn(message);
-		} catch {
-			// Best-effort: the warning itself must never throw.
-		}
+		warn(message);
 	}
 	// Audit lifecycle owns its own class-keyed warn-once (capture/completion/
-	// barrier/chain). Constructed without a live ExtensionContext, so the
-	// sink is the shared defaultWarn (see ./warn-sink). The
-	// adapter's `warn` callback is reserved for session-terminal disable.
+	// barrier/chain). The adapter's `warn` callback is reserved for
+	// session-terminal disable.
 	const auditLifecycle = new AuditLifecycle({
 		capture: captureWriteCandidate,
 		complete: completeWriteCandidate,
+		warn,
 	});
 	// RunStats (upgrade2 item 4): one configurable usage row per logical run,
 	// aggregated from authoritative message_end completions and distinct
@@ -631,7 +652,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 							warnDecorativeOnce(
 								"decorative-stats-failed",
 								"omp-compact: decorative-stats-failed (usage row skipped)",
-								context,
 							);
 						}
 					}
@@ -647,7 +667,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						warnDecorativeOnce(
 							"decorative-scrollback-failed",
 							"omp-compact: decorative-scrollback-failed (native replay skipped)",
-							context,
 						);
 					}
 					try {
@@ -662,7 +681,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						warnDecorativeOnce(
 							"decorative-retire-failed",
 							"omp-compact: decorative-retire-failed (payload retention kept)",
-							context,
 						);
 					}
 				},
@@ -755,7 +773,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			warnDecorativeOnce(
 				"decorative-stats-failed",
 				"omp-compact: decorative-stats-failed (usage row skipped)",
-				context,
 			);
 			return false;
 		}
@@ -1157,7 +1174,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				warnDecorativeOnce(
 					"decorative-shake-failed",
 					"omp-compact: decorative-shake-failed (auto-shake skipped)",
-					context,
 				);
 				return undefined;
 			});
