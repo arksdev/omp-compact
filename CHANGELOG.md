@@ -4,6 +4,24 @@
 
 ---
 
+## Не выпущено
+
+### Исправлено
+
+- `/fork` больше не разворачивает компактный транскрипт в нативные карточки инструментов: уже показанные строки остаются компактными.
+- Авто-shake, который ещё выполняется, отменяется при следующем прогоне и больше не может переписать историю под новым запросом. Такая отмена не показывает предупреждение «auto-shake failed».
+- Строка статистики больше не показывает `1000k` и `1000M` на границе разрядов: такие значения выводятся как `1M` и `1B`.
+- Удаление файла в многофайловой правке, не поместившееся в общий бюджет проверки, больше не пропадает: оно показывается строкой с путём без счётчиков, как и в однофайловой правке.
+
+---
+
+### Fixed
+
+- `/fork` no longer turns the compact transcript back into native tool cards: rows already shown stay compact.
+- An auto-shake still running when the next run starts is cancelled and can no longer rewrite history under the new prompt. That cancellation no longer warns "auto-shake failed".
+- The stats row no longer prints `1000k` or `1000M` at a unit boundary; those values show as `1M` and `1B`.
+- A file delete in a multi-file edit that exceeds the cumulative scan budget no longer disappears: it shows as a path row without counts, as a single-file delete does.
+
 ## 1.3.3 — 26 сентября 2026
 
 ### Изменено
