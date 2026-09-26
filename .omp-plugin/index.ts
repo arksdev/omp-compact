@@ -200,23 +200,6 @@ function rollbackAdapterFailure(
 	}
 }
 
-/**
- * Extract short hash and subject from a pre-formatted git commit row
- * produced by `formatGitRecords`. Matches the `git commit <hash> <subject>`
- * pattern emitted by commitSummary in git-records.ts; the subject is
- * optional (a row without one must still keep the hash, mirroring
- * `gitCommitHashes` tolerance in render.ts).
- */
-function commitDetails(
-	text: string,
-): Pick<GitMessageDetails, "shortHash" | "subject"> {
-	const match = /^git commit\s+([0-9a-f]{4,64})(?:\s+(.+))?$/i.exec(text);
-	if (!match) return {};
-	return match[2]
-		? { shortHash: match[1], subject: match[2] }
-		: { shortHash: match[1] };
-}
-
 export default function ompCompact(pi: ExtensionAPI): void {
 	pi.setLabel("omp-compact");
 
@@ -1083,7 +1066,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 							subcommand: first.subcommand,
 							text: first.text,
 							isError: first.isError,
-							...commitDetails(first.text),
 							records: records.map((record) => ({
 								subcommand: record.subcommand,
 								text: record.text,

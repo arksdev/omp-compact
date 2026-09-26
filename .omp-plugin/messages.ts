@@ -68,7 +68,9 @@ export interface GitMessageDetails {
 	subcommand: string;
 	text: string;
 	isError: boolean;
+	/** Legacy: written by 1.3.3 and earlier, never read; still bounded on load. */
 	shortHash?: string;
+	/** Legacy: written by 1.3.3 and earlier, never read; still bounded on load. */
 	subject?: string;
 	cwd?: string;
 	/**

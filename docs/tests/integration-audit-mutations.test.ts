@@ -499,7 +499,7 @@ stockTest(
 );
 
 stockTest(
-	"subject-less commit rows keep the hash in persisted evidence",
+	"subject-less commit rows keep the hash in the persisted row text",
 	async () => {
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
@@ -530,9 +530,11 @@ stockTest(
 				toolCallId: "git-subjectless",
 				subcommand: "commit",
 				text: "git commit abc1234",
-				shortHash: "abc1234",
 			},
 		});
+		// The hash lives in the row text, which the commit summary reads;
+		// no second copy is written beside it.
+		expect("shortHash" in entry.data).toBe(false);
 		expect("subject" in entry.data).toBe(false);
 		expect(visibleRows(booted.transcript).join("\n")).toContain("abc1234");
 		await shutdown(booted);
