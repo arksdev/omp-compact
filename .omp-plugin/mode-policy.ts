@@ -118,7 +118,11 @@ export class ModePolicy {
 		}
 	}
 
-	/** Immutable snapshot of the active logical run; undefined before the first run. */
+	/**
+	 * Immutable snapshot of the latest logical run: frozen while it runs and
+	 * kept until the next run boundary, so settings changed while idle take
+	 * effect at the next run. Undefined before the first run.
+	 */
 	get run(): RunModeSnapshot | undefined {
 		return this.#run;
 	}
@@ -203,9 +207,11 @@ export class ModePolicy {
 	}
 
 	/**
-	 * Whether runtime is enabled. While a run is active its frozen snapshot
-	 * governs (settings changes never mix into a run); between runs the
-	 * latest settings decide; before the first load the default (enabled).
+	 * Whether runtime is enabled. The latest run's frozen snapshot governs,
+	 * during the run and while idle until the next run boundary (settings
+	 * changes never mix into a run or its finished transcript); before the
+	 * first run the latest settings decide; before the first load the
+	 * default (enabled).
 	 */
 	get enabled(): boolean {
 		const run = this.#run;
