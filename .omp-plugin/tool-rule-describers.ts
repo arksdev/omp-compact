@@ -62,6 +62,20 @@ export function describeRead(
 		const end = limit === undefined ? undefined : start + limit - 1;
 		description += `:${start}${end === undefined ? "" : `-${end}`}`;
 	}
+	if (description.toLowerCase().startsWith("proc://")) {
+		return {
+			title: "proc",
+			description: description.slice(7) || "/",
+			meta: [],
+		};
+	}
+	if (description.toLowerCase().startsWith("agent://")) {
+		return {
+			title: "agent",
+			description: description.slice(8) || "/",
+			meta: [],
+		};
+	}
 	return { title: "read", description, meta: [] };
 }
 
@@ -229,13 +243,30 @@ export function describeWrite(
 			meta: [],
 		};
 	}
+	const rawPath = stringValue(value, "path") || stringValue(value, "file_path");
+	if (rawPath) {
+		const lower = rawPath.toLowerCase();
+		if (lower.startsWith("proc://")) {
+			return {
+				title: "proc",
+				description: rawPath.slice(7) || "/",
+				meta: [],
+			};
+		}
+		if (lower.startsWith("agent://")) {
+			return {
+				title: "agent",
+				description: rawPath.slice(8) || "/",
+				meta: [],
+			};
+		}
+	}
 	return {
 		title: "write",
 		description: pathValue(value, displayPaths),
 		meta: [],
 	};
 }
-
 /**
  * Settled metadata of a device write. The operation is confirmed from the
  * validated dispatch args (`details.xdev.args`) — the authoritative copy that

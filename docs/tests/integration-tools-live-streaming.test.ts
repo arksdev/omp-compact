@@ -688,35 +688,13 @@ stockTest(
 );
 
 stockTest(
-	"transport-targeted read/write calls stay native instead of compacting",
+	"transport-targeted read/write calls compact into proc/agent rows",
 	async () => {
-		// OMP 18.3.0 turned `proc://` and `agent://` into read/write targets
-		// with chrome of their own: `write proc://web/kill` paints
-		// "⏹ Proc kill web", `read proc://` the jobs/services dashboard, and
-		// `write agent://<id>` an IRC delivery card. The plugin registers
-		// `read` and `write`, so without the transport guard each would
-		// collapse into "write: proc://web/kill" and hide that card; they must
-		// fail open to the native renderer instead.
-		//
-		// `read agent://` has no chrome of its own and falls back to the stock
-		// framed Read card — still native, still not a compact row.
-		//
-		// Older hosts ship no transport chrome at all — the predicate itself
-		// is covered by the unit-level matrix in tool-presentation-rules.
 		if (!supportsProcTransport()) return;
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
 
-		const cases: {
-			name: string;
-			args: Record<string, unknown>;
-			result: Record<string, unknown>;
-			/** Chrome visible while the call runs. */
-			chrome: string;
-			/** Chrome after the result lands; defaults to `chrome`. */
-			chromeDone?: string;
-			compactRow: string;
-		}[] = [
+		const cases = [
 			{
 				name: "write",
 				args: { path: "proc://web/kill", content: "" },
@@ -724,8 +702,7 @@ stockTest(
 					content: [{ type: "text", text: "" }],
 					details: { op: "kill" },
 				},
-				chrome: "Proc kill web",
-				compactRow: "write: proc://web/kill",
+				compactRow: "proc: web/kill",
 			},
 			{
 				name: "read",
@@ -734,8 +711,7 @@ stockTest(
 					content: [{ type: "text", text: "0 jobs\n0 services" }],
 					details: { jobs: [], services: [] },
 				},
-				chrome: "Proc jobs & services",
-				compactRow: "read: proc://",
+				compactRow: "proc /",
 			},
 			{
 				name: "write",
@@ -744,8 +720,7 @@ stockTest(
 					content: [{ type: "text", text: "delivered" }],
 					details: { to: "AuthLoader" },
 				},
-				chrome: "IRC ➤ AuthLoader",
-				compactRow: "write: agent://AuthLoader",
+				compactRow: "agent: AuthLoader",
 			},
 			{
 				name: "read",
@@ -754,9 +729,7 @@ stockTest(
 					content: [{ type: "text", text: "no mail" }],
 					details: {},
 				},
-				chrome: "Read: agent://AuthLoader",
-				chromeDone: "Read agent://AuthLoader",
-				compactRow: "read: agent://AuthLoader",
+				compactRow: "agent AuthLoader",
 			},
 		];
 
@@ -764,18 +737,15 @@ stockTest(
 			const toolCallId = `transport-${index}`;
 			const call = await addTool(booted, probe.name, probe.args, toolCallId);
 			const live = visibleRows(booted.transcript).join("\n");
-			expect(live, probe.chrome).toContain(probe.chrome);
-			expect(live, probe.compactRow).not.toContain(probe.compactRow);
+			expect(live).toContain(probe.compactRow);
 			await finishTool(booted, call, {
 				toolCallId,
 				toolName: probe.name,
 				result: probe.result,
 				isError: false,
 			});
-			const chromeDone = probe.chromeDone ?? probe.chrome;
 			const done = visibleRows(booted.transcript).join("\n");
-			expect(done, chromeDone).toContain(chromeDone);
-			expect(done, probe.compactRow).not.toContain(probe.compactRow);
+			expect(done).toContain(probe.compactRow);
 		}
 
 		await shutdown(booted);
@@ -783,11 +753,8 @@ stockTest(
 );
 
 stockTest(
-	"a transport read splits a read-group run instead of joining it",
+	"a transport read produces a compact row alongside read-group rows",
 	async () => {
-		// The read-group pairs contiguous file reads into one block. A `read
-		// proc://` in the middle is a native card, so it must break the run
-		// rather than be absorbed into the grouping and lose its dashboard.
 		if (!supportsProcTransport()) return;
 		const booted = await bootWithTranscript();
 		await beginRun(booted);
@@ -808,13 +775,7 @@ stockTest(
 		const rows = visibleRows(booted.transcript).join("\n");
 		expect(rows).toContain("read src/a.ts");
 		expect(rows).toContain("read src/b.ts");
-		expect(rows).not.toContain("read proc://");
-		const first = rows.indexOf("read src/a.ts");
-		const middle = rows.indexOf("Proc jobs & services");
-		const last = rows.indexOf("read src/b.ts");
-		expect(first).toBeGreaterThanOrEqual(0);
-		expect(middle).toBeGreaterThan(first);
-		expect(last).toBeGreaterThan(middle);
+		expect(rows).toContain("proc /");
 
 		await shutdown(booted);
 	},

@@ -332,6 +332,45 @@ const VIBE_DETAILS = [
 	"wait",
 	"killed",
 ] as const;
+const IDA_ARGS = [
+	"action",
+	"database_path",
+	"address",
+	"name",
+	"comment",
+	"type",
+	"count",
+	"query",
+] as const;
+const GITHUB_ARGS = [
+	"op",
+	"owner",
+	"repo",
+	"path",
+	"issue_number",
+	"pull_number",
+	"query",
+	"body",
+	"title",
+] as const;
+const LSP_ARGS = [
+	"action",
+	"path",
+	"file_path",
+	"line",
+	"character",
+	"query",
+] as const;
+const CHECKPOINT_ARGS = ["name", "description"] as const;
+const REWIND_ARGS = ["checkpoint_id"] as const;
+const CONTEXT_NOTES_ARGS = ["action", "note", "index"] as const;
+const NEW_CONTEXT_ARGS = ["reason"] as const;
+const MEMORY_EDIT_ARGS = ["action", "id", "text", "tags"] as const;
+const RETAIN_ARGS = ["text", "tags"] as const;
+const RECALL_ARGS = ["query", "limit"] as const;
+const REFLECT_ARGS = ["query"] as const;
+const LEARN_ARGS = ["topic", "content"] as const;
+const MANAGE_SKILL_ARGS = ["action", "name", "content"] as const;
 
 // Null prototype: direct index of collision keys (constructor/toString/…) must
 // yield undefined even for callers that bypass normalizeToolName. Object.hasOwn
@@ -590,6 +629,97 @@ export const TOOL_RULES: Readonly<
 			VIBE_DETAILS,
 			genericDescribe("vibe_list"),
 		),
+		ida: presentationRule(
+			"compact",
+			"none",
+			IDA_ARGS,
+			[],
+			genericDescribe("ida"),
+		),
+		github: presentationRule(
+			"compact",
+			"none",
+			GITHUB_ARGS,
+			[],
+			genericDescribe("github"),
+		),
+		lsp: presentationRule(
+			"compact",
+			"none",
+			LSP_ARGS,
+			[],
+			genericDescribe("lsp"),
+		),
+		checkpoint: presentationRule(
+			"compact",
+			"none",
+			CHECKPOINT_ARGS,
+			[],
+			genericDescribe("checkpoint"),
+		),
+		rewind: presentationRule(
+			"compact",
+			"none",
+			REWIND_ARGS,
+			[],
+			genericDescribe("rewind"),
+		),
+		context_notes: presentationRule(
+			"compact",
+			"none",
+			CONTEXT_NOTES_ARGS,
+			[],
+			genericDescribe("context_notes"),
+		),
+		new_context: presentationRule(
+			"compact",
+			"none",
+			NEW_CONTEXT_ARGS,
+			[],
+			genericDescribe("new_context"),
+		),
+		memory_edit: presentationRule(
+			"compact",
+			"none",
+			MEMORY_EDIT_ARGS,
+			[],
+			genericDescribe("memory_edit"),
+		),
+		retain: presentationRule(
+			"compact",
+			"none",
+			RETAIN_ARGS,
+			[],
+			genericDescribe("retain"),
+		),
+		recall: presentationRule(
+			"compact",
+			"none",
+			RECALL_ARGS,
+			[],
+			genericDescribe("recall"),
+		),
+		reflect: presentationRule(
+			"compact",
+			"none",
+			REFLECT_ARGS,
+			[],
+			genericDescribe("reflect"),
+		),
+		learn: presentationRule(
+			"compact",
+			"none",
+			LEARN_ARGS,
+			[],
+			genericDescribe("learn"),
+		),
+		manage_skill: presentationRule(
+			"compact",
+			"none",
+			MANAGE_SKILL_ARGS,
+			[],
+			genericDescribe("manage_skill"),
+		),
 	}) as Partial<Record<string, ToolPresentationRule>>,
 );
 
@@ -656,31 +786,6 @@ export function resolveToolAudit(name: string, args?: unknown): ToolAuditKind {
 			return "none";
 	}
 	return rule.audit;
-}
-
-/**
- * Whether a registered compact/read-group call must stay native because it
- * addresses a non-file transport (`proc://`, `agent://`).
- *
- * OMP 18.3.0 paints purpose-built chrome for these — the process dashboard,
- * daemon state with terminal rows, delivery receipts — and the compact row
- * would replace it with a transport address it cannot interpret. The call is
- * not *unknown*, so the plain route default would wrongly compact it; this
- * predicate is the caller's override.
- *
- * Static guards mirror `resolveToolAudit`: an unregistered name, a
- * `native-live` rule, or unreadable args keep the registered route, because
- * unknown data must never change a tool's presentation by accident.
- */
-export function isTransportPresentationCall(
-	name: string,
-	args: unknown,
-): boolean {
-	if (args === undefined) return false;
-	const rule = resolveToolRule(name);
-	if (rule === undefined) return false;
-	if (rule.route !== "compact" && rule.route !== "read-group") return false;
-	return transportTargetOf(record(args)) !== undefined;
 }
 
 /**

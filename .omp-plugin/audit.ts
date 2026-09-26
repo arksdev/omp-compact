@@ -11,9 +11,7 @@ import {
 import type { FileHandle } from "node:fs/promises";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
-// External dependency: peelWriteUrlSelector/unwrapHashlineHeaderPath from
-// @oh-my-pi/pi-coding-agent. API stability: integration tests cover contract.
-import { peelWriteUrlSelector } from "@oh-my-pi/pi-coding-agent/tools/path-utils";
+// External dependency: unwrapHashlineHeaderPath from @oh-my-pi/pi-coding-agent.
 import { unwrapHashlineHeaderPath } from "@oh-my-pi/pi-coding-agent/tools/plan-mode-guard";
 import { diffLines } from "@oh-my-pi/pi-natives";
 
@@ -41,6 +39,22 @@ const COMPOUND_FILE_TARGET =
 	/(?:\.(?:tar\.gz|zip|tar|tgz|jar|war|ear|apk|sqlite3?|db3?)):/i;
 const SNAPSHOT_MAX_BYTES = 1_048_576;
 const SNAPSHOT_MAX_LINES = 50_000;
+const WHOLE_FILE_SELECTOR_RE = /^(?:raw|conflicts)$/i;
+
+/**
+ * Peel a whole-file selector (:raw, :conflicts) from an internal URL or path.
+ * In OMP 18.3.1 `peelWriteUrlSelector` was moved to router-internal
+ * `InternalUrlRouter.instance().peelWriteSelector(input, "write")`.
+ * A simple local helper keeps audit.ts decoupled from host internal changes.
+ */
+function peelWriteSelector(rawPath: string): string {
+	const match = rawPath.match(/^(.+?):([a-z0-9_-]+)$/i);
+	if (match?.[1] && match[2] && WHOLE_FILE_SELECTOR_RE.test(match[2])) {
+		return match[1];
+	}
+	return rawPath;
+}
+
 /** Shared open flags for both snapshot readers (sync pre-image, async post-image). */
 const SNAPSHOT_OPEN_FLAGS =
 	constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW;
@@ -316,7 +330,7 @@ export async function captureWriteCandidate(input: {
 		return undefined;
 	let displayPath: string;
 	try {
-		displayPath = peelWriteUrlSelector(unwrapHashlineHeaderPath(args.path));
+		displayPath = peelWriteSelector(unwrapHashlineHeaderPath(args.path));
 	} catch {
 		return undefined;
 	}

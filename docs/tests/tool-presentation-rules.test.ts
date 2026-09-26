@@ -3,7 +3,6 @@ import { describe, expect, test } from "bun:test";
 import { genericToolDescription } from "../../.omp-plugin/compact";
 import {
 	describeTool,
-	isTransportPresentationCall,
 	normalizeToolName,
 	resolveToolAudit,
 	resolveToolRule,
@@ -19,18 +18,31 @@ const CANONICAL_NAMES = [
 	"ast_grep",
 	"bash",
 	"browser",
+	"checkpoint",
 	"computer",
+	"context_notes",
 	"edit",
 	"eval",
 	"find",
+	"github",
 	"glob",
 	"grep",
 	"hub",
 	"hus",
+	"ida",
 	"inspect_image",
+	"learn",
+	"lsp",
+	"manage_skill",
+	"memory_edit",
+	"new_context",
 	"read",
+	"recall",
+	"reflect",
 	"reject",
 	"resolve",
+	"retain",
+	"rewind",
 	"task",
 	"todo",
 	"vibe_kill",
@@ -99,6 +111,19 @@ describe("canonical routes and audit kinds", () => {
 			"computer",
 			"resolve",
 			"reject",
+			"ida",
+			"github",
+			"lsp",
+			"checkpoint",
+			"rewind",
+			"context_notes",
+			"new_context",
+			"memory_edit",
+			"retain",
+			"recall",
+			"reflect",
+			"learn",
+			"manage_skill",
 		]) {
 			expect(TOOL_RULES[name]?.route, name).toBe("compact");
 		}
@@ -213,60 +238,28 @@ describe("effective audit kind of one call", () => {
 	});
 });
 
-describe("non-file transport presentation is native", () => {
-	test("read/write addressing proc:// or agent:// fail open", () => {
-		// Stock paints purpose-built chrome for these (process dashboard,
-		// daemon state, terminal rows, delivery receipts) that a registry row
-		// cannot summarize: the call must stay native instead of collapsing
-		// into "write: proc://web/kill".
-		expect(
-			isTransportPresentationCall("write", { path: "proc://web/kill" }),
-		).toBe(true);
-		expect(isTransportPresentationCall("read", { path: "proc://" })).toBe(true);
-		expect(
-			isTransportPresentationCall("read", { path: "agent://AuthLoader" }),
-		).toBe(true);
-		expect(
-			isTransportPresentationCall("write", { file_path: "proc://a/b" }),
-		).toBe(true);
-	});
-
-	test("files, devices and every other tool keep their registered route", () => {
-		expect(
-			isTransportPresentationCall("write", { path: "src/a.ts", content: "x" }),
-		).toBe(false);
-		// xd:// device writes stay compact by design — the device name and its
-		// operation are exactly what the compact row can carry.
-		expect(
-			isTransportPresentationCall("write", {
-				path: "xd://github",
-				content: "{}",
-			}),
-		).toBe(false);
-		expect(isTransportPresentationCall("bash", { command: "ls" })).toBe(false);
-		expect(
-			isTransportPresentationCall("custom_tool", { path: "proc://x" }),
-		).toBe(false);
-	});
-
-	test("missing or unreadable args never force native", () => {
-		const hostile: readonly unknown[] = [
-			undefined,
-			null,
-			"str",
-			42,
-			[],
-			{ path: 5 },
-			{ path: "" },
-		];
-		for (const [index, args] of hostile.entries()) {
-			expect(isTransportPresentationCall("write", args), String(index)).toBe(
-				false,
-			);
-			expect(isTransportPresentationCall("read", args), String(index)).toBe(
-				false,
-			);
-		}
+describe("transport target write/read presentation", () => {
+	test("proc:// and agent:// addresses format as proc/agent titles", () => {
+		expect(describeTool("write", { path: "proc://web/kill" })).toEqual({
+			title: "proc",
+			description: "web/kill",
+			meta: [],
+		});
+		expect(describeTool("write", { path: "agent://AuthLoader" })).toEqual({
+			title: "agent",
+			description: "AuthLoader",
+			meta: [],
+		});
+		expect(describeTool("read", { path: "proc://" })).toEqual({
+			title: "proc",
+			description: "/",
+			meta: [],
+		});
+		expect(describeTool("read", { path: "agent://AuthLoader" })).toEqual({
+			title: "agent",
+			description: "AuthLoader",
+			meta: [],
+		});
 	});
 });
 
@@ -1195,6 +1188,19 @@ describe("tool-specific settled result metadata", () => {
 			"vibe_wait",
 			"vibe_kill",
 			"vibe_list",
+			"ida",
+			"github",
+			"lsp",
+			"checkpoint",
+			"rewind",
+			"context_notes",
+			"new_context",
+			"memory_edit",
+			"retain",
+			"recall",
+			"reflect",
+			"learn",
+			"manage_skill",
 		]) {
 			expect(TOOL_RULES[name]?.resultMeta, name).toBeUndefined();
 		}
