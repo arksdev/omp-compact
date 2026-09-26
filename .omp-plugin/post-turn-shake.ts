@@ -326,6 +326,18 @@ export class PostTurnShake {
 		this.#warned.clear();
 	}
 
+	/**
+	 * Abort the native shake in flight, if any, without ending the session:
+	 * the conversation has moved on (a new run, a fork), and a late shake
+	 * would rewrite history under it. The host invalidates its own auto-shake
+	 * at the same boundaries. Run state and settings are kept.
+	 */
+	cancel(): void {
+		if (!this.#inFlight) return;
+		this.#abort.abort();
+		this.#abort = new AbortController();
+	}
+
 	async #dispatch(session: ShakeableSession, ctx: ShakeContext): Promise<void> {
 		// Reentrancy guard: if a second dispatch arrives while the first is
 		// still in flight, await the running shake instead of starting a new

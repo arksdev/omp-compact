@@ -1097,37 +1097,76 @@ stockTest(
 );
 
 stockTest(
-	"fork and handoff session switches do not arm the restore view on the transcript",
+	"a handoff session switch does not arm the restore view on the transcript",
 	async () => {
-		for (const reason of ["fork", "handoff"]) {
-			const harness = rebuildHarness();
-			const booted = await bootForRebuild("live", harness);
-			await dispatch(booted, { type: "session_before_switch", reason });
-			await dispatch(booted, { type: "session_switch", reason });
-			harness.branch.current = committedSingleToolBranch(
-				"printf ghost",
-				"bash-1",
-				"ghost done",
-			);
-			booted.transcript.clear();
-			const rebuilt = addToolComponent(
-				booted,
-				"bash",
-				{ command: "printf ghost" },
-				"bash-1",
-			);
-			rebuilt.updateResult(
-				{ content: [{ type: "text", text: "ok" }] },
-				false,
-				"bash-1",
-			);
-			addAnswer(booted, "ghost done");
-			await flushMicrotasks();
-			const rows = visibleRows(booted.transcript).join("\n");
-			expect(rows).not.toContain("bash: printf ghost");
-			expect(booted.harness.resetCalls).toBe(0);
-			await shutdown(booted);
-		}
+		const harness = rebuildHarness();
+		const booted = await bootForRebuild("live", harness);
+		await dispatch(booted, {
+			type: "session_before_switch",
+			reason: "handoff",
+		});
+		await dispatch(booted, { type: "session_switch", reason: "handoff" });
+		harness.branch.current = committedSingleToolBranch(
+			"printf ghost",
+			"bash-1",
+			"ghost done",
+		);
+		booted.transcript.clear();
+		const rebuilt = addToolComponent(
+			booted,
+			"bash",
+			{ command: "printf ghost" },
+			"bash-1",
+		);
+		rebuilt.updateResult(
+			{ content: [{ type: "text", text: "ok" }] },
+			false,
+			"bash-1",
+		);
+		addAnswer(booted, "ghost done");
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript).join("\n");
+		expect(rows).not.toContain("bash: printf ghost");
+		expect(booted.harness.resetCalls).toBe(0);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"a committed /fork keeps the compact transcript without a rebuild",
+	async () => {
+		// Stock `/fork` keeps the conversation and the rendered transcript: it
+		// never clears or rebuilds the chat, so there is no rehydration point.
+		// Tearing the adapter down at `session_before_switch` would hand every
+		// existing row back to native chrome for the rest of the session.
+		const booted = await bootForRebuild("compact");
+		await beginRun(booted);
+		const call = await addTool(
+			booted,
+			"bash",
+			{ command: "printf forked" },
+			"bash-1",
+		);
+		await finishTool(booted, call, {
+			toolCallId: "bash-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }] },
+			isError: false,
+		});
+		addAnswer(booted, "fork done");
+		await finishRun(booted, "fork done");
+		const before = visibleRows(booted.transcript).join("\n");
+		expect(before).toContain("bash: printf forked");
+		await dispatch(booted, { type: "session_before_switch", reason: "fork" });
+		await dispatch(booted, { type: "session_switch", reason: "fork" });
+		await flushMicrotasks();
+		expect(visibleRows(booted.transcript).join("\n")).toBe(before);
+		await beginRun(booted);
+		await flushMicrotasks();
+		expect(visibleRows(booted.transcript).join("\n")).toContain(
+			"bash: printf forked",
+		);
+		await shutdown(booted);
 	},
 );
 

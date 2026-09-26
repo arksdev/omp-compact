@@ -1202,7 +1202,16 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		decorativeWarned.clear();
 	}
 
-	listen("session_before_switch", async () => {
+	listen("session_before_switch", async (event) => {
+		// Stock `/fork` keeps the conversation, the agent state, and the
+		// rendered transcript: it never clears or rebuilds the chat, so a
+		// disposed adapter would have no rehydration point and every existing
+		// row would fall back to native chrome. Only an in-flight auto-shake is
+		// cancelled, as the host does for its own shake at a fork.
+		if (event.reason === "fork") {
+			postShake.cancel();
+			return;
+		}
 		dispose();
 	});
 	listen("session_shutdown", async () => {
