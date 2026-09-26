@@ -1,5 +1,5 @@
 /**
- * B05: session-scoped runtime state — ledgers, tool/group records, pending
+ * Session-scoped runtime state — ledgers, tool/group records, pending
  * set, terminal projections, stats placement and the presentation
  * generation lifecycle.
  *
@@ -1039,7 +1039,7 @@ export class RuntimeSessionState {
 	}
 
 	/**
-	 * C10: after a successful filtered terminal projection, release raw tool
+	 * After a successful filtered terminal projection, release raw tool
 	 * args/results and per-call Git payloads. The immutable terminal projection
 	 * is materialized first, so mutation rows and the aggregate commit summary
 	 * keep rendering exactly as before; compact-mode/full diagnostics are never

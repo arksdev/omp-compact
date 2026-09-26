@@ -837,10 +837,6 @@ describe("capability fingerprints", () => {
 		expect(leafCapabilities(null).kind).toBe("none");
 		expect(leafCapabilities(undefined).render).toBe(false);
 	});
-
-	test("the host release pin targets OMP 18.3.2", () => {
-		expect(StockHostAdapter.hostVersion).toBe("18.3.2");
-	});
 });
 
 describe("OMP 17.4.0 argument positions", () => {

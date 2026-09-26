@@ -1,12 +1,12 @@
 /**
- * B02: pinned OMP host capability adapter.
+ * Pinned OMP host capability adapter.
  *
  * The behavioral half of the pinned-host adapter: live capability
  * probes (fail open to native rendering when a surface is absent),
  * transcript carrier placement, and exact-instance wrapper
  * transactions. The pinned shape sheet — every method-name manifest,
  * component fingerprint and argument-position decoder — lives in
- * host-surface.ts, whose module header carries the version story.
+ * host-surface.ts, whose module header states the version contract.
  *
  * Every decision below is a capability probe on the live instance; the
  * pinned version strings are records, never runtime gates. Probes
@@ -245,20 +245,11 @@ export function insertTranscriptChildAt(
 
 /**
  * Pinned host adapter for stock OMP. Instance-scoped to the host root of
- * one session; all patching is exact-instance and transactional.
- *
- * `hostVersion` documents the verified critical-surface contract (see the
- * host-surface.ts module header). It is never read for dispatch — probes decide.
+ * one session; all patching is exact-instance and transactional. The pin
+ * is a verified contract, never a dispatch input — probes decide (see the
+ * host-surface.ts module header).
  */
 export class StockHostAdapter {
-	/**
-	 * Verified host release for critical private surfaces (tool / read-group
-	 * / transcript / TUI). Not a runtime minimum; marketplace floor stays
-	 * independent release metadata. See host-surface.ts module header
-	 * "Version story".
-	 */
-	static readonly hostVersion = "18.3.2";
-
 	readonly #root: unknown;
 
 	constructor(root: unknown) {
@@ -401,7 +392,7 @@ export class StockHostAdapter {
 	}
 
 	/**
-	 * Exact-instance transcript `clear` wrapper (C02 rebuild boundary):
+	 * Exact-instance transcript `clear` wrapper (rebuild boundary):
 	 * runs `onBeforeClear()` before calling the native `clear` exactly
 	 * once. The observer must not throw (rollback policy is the caller's);
 	 * a clear while the adapter is disposed is still forwarded to native.
@@ -448,7 +439,7 @@ export class StockHostAdapter {
 	}
 
 	/**
-	 * Capability-checked exact-root `resetDisplay` invocation (C07 full
+	 * Capability-checked exact-root `resetDisplay` invocation (full
 	 * scrollback replay). Returns true when the capability exists and was
 	 * invoked; false when absent. A throwing host method is treated as an
 	 * incompatible capability by the caller (fail open) — this method does

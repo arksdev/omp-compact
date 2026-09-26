@@ -1,5 +1,5 @@
 /**
- * B01: transactional per-instance descriptor patch kit.
+ * Transactional per-instance descriptor patch kit.
  *
  * Every host adaptation in the plugin replaces methods on a *specific
  * instance* (never a prototype or shared shape) by capturing the original

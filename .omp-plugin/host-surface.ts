@@ -1,5 +1,5 @@
 /**
- * B02: pinned stock host surface sheet.
+ * Pinned stock host surface sheet.
  *
  * The verified half of the pinned-host adapter: every method-name
  * manifest, component fingerprint and argument-position decoder the
@@ -7,260 +7,22 @@
  * shape knowledge — no instances, no patching, no side effects; the
  * live probes and wrapper transactions live in host-adapter.ts.
  *
- * ## Version story (do not "fix" the apparent skew)
+ * ## Version contract
  *
- * `StockHostAdapter.hostVersion` (`"18.3.2"`) is the **verified contract**
- * this module was written and tested against for the critical private
- * surfaces (tool/read-group/transcript/TUI method names and argument
- * positions). Comments that cite 17.3.1/17.3.4 mark leaf fingerprints
- * whose shapes were confirmed on those hosts (todo reminder, skill,
- * late diagnostics, user bash/eval). Neither string is a runtime gate:
- * every decision is a capability probe on the live instance.
+ * The shapes here were verified against the gate pin (the root
+ * `package.json` devDependency; `VERIFIED_HOST_VERSION` in
+ * `docs/tests/host-patch-surface.test.ts` warns when the live host
+ * differs). The pin is not a runtime gate: every decision is a
+ * capability probe on the live instance, and a shape that no longer
+ * matches degrades to the stock native card.
  *
- * `package.json` `engines.omp` sets the public floor to `>=18.0.1`,
- * the release that rewrote the transcript container; support for older
- * hosts is discontinued. That rewrite turned the native-scrollback live
- * region into block lifecycle states (`active`/`settled`/`committed`)
- * plus acknowledged history batches, so `renderViewportTail`,
- * `isBlockUncommitted` and `isBlockInLiveRegion` no longer exist and the
- * per-block row accounting (`getTranscriptBlockVersion`,
- * `getTranscriptBlockSettledRows`, `setNativeScrollbackCommittedRows`)
- * has no consumer left. A plugin build for 18.0.0 finds no transcript
- * host from 18.0.1 on and stays fully native, which is why the floor
- * moved with that rewrite. 18.0.2 and 18.0.3 left every critical
- * fingerprint intact: the container only exported its own
- * `trimBlankEdges`, and the inline tool card gained styling plus a
- * trimmed-height check under a squeezed allocation. 18.0.4, 18.0.5 and
- * 18.0.6 left every critical fingerprint intact too: the changes are
- * purely additive — `ToolExecutionComponent` gained a `dispose()`
- * method, and the transcript gained an append-only surface
- * (`TranscriptBlockMode`, `TranscriptStableRow`,
- * `AppendOnlyTranscriptBlock`, `isRowPrefix`). 18.0.7 and 18.0.8 left
- * the container and the tool card byte-identical; their transcript-side
- * work is the stock usage row's own prompt→yield delta
- * (`display.showTurnTime`, `turnElapsedMs`), a surface this plugin
- * neither renders nor filters.
- * 18.0.9 and 18.0.10 left the container and the tool card byte-identical
- * too. 18.0.10's one transcript-adjacent change is a retry-replay path:
- * `retry()` now replays a stripped tool batch reusing `toolCallId`s, and
- * the event controller evicts the stale prior-turn tool card
- * (`#handleToolExecutionStart`) so the fresh card does not stack a
- * duplicate. The fold absorbs that out-of-band removal (it replans from
- * live children and restores unplanned patch entries, and session state
- * retires cross-run entries by call id), so no plugin change was needed.
- * `syncRetryHintRow()` (the F5-to-retry hint row) and `app.retry` gaining
- * `f5` as a default key are stock chrome the plugin neither renders nor
- * registers against. 18.0.11 left the container, the tool card and the
- * read group byte-identical too: the release's only container change is
- * an additive `resetStableEmission()` on the thinking-toggle path, a
- * ledger reset the plugin neither calls nor receives.
- * 18.1.0 and 18.1.1 left the read group byte-identical and the tool card
- * semantically unchanged: the four callbacks the binding observes
- * (`updateArgs`, `updateResult`, `setArgsComplete`, `setExpanded`) keep
- * identical signatures, and that file's only addition is a pure
- * `toolRenderName()` helper resolving an aliased wire name to its renderer
- * key. The container's additions — `rerenderOfferedBatch()`,
- * `getChildStartRow()` and a pinned-frontier warning — are frame recovery, a
- * deep-link row map and log bookkeeping; the six methods the fold wraps keep
- * their contracts. The release's transcript-side work is the new fullscreen
- * navigation surface (`rewind-selector.ts` replacing
- * `user-message-selector.ts`, plus `transcript-outline.ts`), which rewinds
- * through the same `truncateTranscriptFromMessage()`/`renderInitialMessages()`
- * pair the fold already observes; `/copy` moved onto that selector but still
- * harvests `SessionMessageEntry.message` rather than live component renders,
- * and `/usage` left the transcript for a fullscreen overlay this plugin
- * neither renders nor filters. Shortcuts are still called without `await` and
- * commands still awaited inside `try/catch`, both now wrapped in
- * `runScoped()`. The one new finalization path,
- * `#finalizeAbandonedPostToolSegments()`, finalizes abandoned post-tool
- * assistant blocks rather than tool rows, so it correctly does not stamp
- * `settledAt`.
- * 18.1.2 through 18.1.4 left the container, the tool card, the read group,
- * `ui-helpers.ts` and the event controller byte-identical, and the set of
- * `rebuildChatFromMessages()` call sites is unchanged. Three release facts
- * touch this plugin's world without changing its contracts. Esc-esc rewind on
- * a user message stopped forking a child session (`session.branch()`) and now
- * navigates the session tree in place, but it still finishes through the
- * `truncateTranscriptFromMessage()`/`renderInitialMessages()` pair the fold
- * observes, and `doubleEscapeAction` gained a `"tree"` value beside `rewind`
- * and `none`. The new `session/inline-edit-recovery.ts`
- * (`edit.recoverInlineEdits`, default on) turns a plain-text sloppy edit
- * payload into a real `toolCall` block, but only in an assistant message that
- * carries no tool call of its own, so a recovered card is created through the
- * ordinary tool path and never competes for stream state with a sibling call.
- * The plugin loader now skips a `~/.omp/plugins/node_modules` directory that no
- * `package.json` dependency entry claims; linked (symlinked) plugin directories
- * stay exempt, which is what keeps a development checkout loadable.
- * `@oh-my-pi/pi-tui` moved to 18.1.3 with Herdr-pane detection and DECRQM
- * `status` plumbing only: the `TUI` method set is identical and
- * `visibleWidth`/`truncateToWidth` are byte-identical (probed with an OSC
- * 8-wrapped string — width 5, truncation keeps the escape). 18.1.4 shipped
- * `@oh-my-pi/pi-coding-agent/src` and `@oh-my-pi/pi-tui/src` byte-identical to
- * 18.1.3 (1729 and 50 files, `diff -rq` clean): the release moved the model
- * catalog and the provider compat rules, which this plugin never reads.
- * 18.1.10 is the first pin move since 18.1.1 whose sources are **not**
- * byte-identical — 356 changed paths in `pi-coding-agent/src`, 5 in
- * `pi-tui/src`, 72 files added or removed. The release moved the edit engine
- * into `@oh-my-pi/pi-natives` (`EditSession`, native streaming previews) and
- * added agent reactions, assistant link targets and a workpool. Of the
- * thirteen files this plugin's contracts read, `transcript-container.ts`,
- * `read-tool-group.ts`, `config/keybindings.ts`, `session/shake-types.ts` and
- * `internal-urls/router.ts` are byte-identical; the six that changed keep
- * every contract. `updateResult(result, isPartial, toolCallId)` still carries
- * the id (the impl renames it `_toolCallId` and ignores it, exactly as
- * before), `rebuildChatFromMessages()` still has 18 call sites and still
- * replays results with the real id, the read deferral rule is unchanged
- * (`readArgsHaveTarget` then `readArgsCollapseIntoGroup`), tool cards are
- * still created in call order, and `session.shake()` still emits no event.
- * `runner.ts` changed only by renaming a type parameter (`TResult` → `R`);
- * `#RESERVED_SHORTCUTS` and `formatShakeSummary` are identical. The tool card
- * gained `updateStreamPreview(update)` fed by a new `tool_stream_update`
- * event, which drives native edit-diff previews inside the card — below the
- * row this plugin renders itself, and not a patched method.
- * 18.1.14 crosses 18.1.11-18.1.13 and is a small move: 54 changed paths in
- * `pi-coding-agent/src`, 5 in `pi-tui/src`, two files added
- * (`utils/tool-schema.ts`, `edit/hashline-compact.md`), none removed. Of the
- * files this plugin's contracts read, `transcript-container.ts`,
- * `tool-execution.ts`, `read-tool-group.ts`, `tool-activity.ts`,
- * `event-controller.ts`, `read-renderer.ts`, `internal-urls/router.ts`,
- * `shake-types.ts`, `session-maintenance.ts`, `runner.ts` and `composer.ts`
- * are byte-identical, and both modules the plugin imports by path
- * (`extensions/runner.ts`, `vibe/runtime.ts`) are unchanged. The release
- * reserves paste delivery (`PasteTarget.beginPaste`), arms an inline `/loop`
- * body only once dispatch confirms it was forwarded, and defers idle
- * compaction while an async wake is pending — none of which touches the
- * presentation surface. The five changed `modes/components` files are
- * dialogs and selectors (`ask-dialog`, `copy-selector`, `hook-editor`,
- * `rewind-selector`, `transcript-outline`), outside the patched set.
- * 18.1.15 is smaller still: 46 changed paths in `pi-coding-agent/src`, one in
- * `pi-tui/src`, nothing added or removed. Every file this plugin's contracts
- * read is byte-identical — the container, the tool card, the read group, the
- * activity component, the event controller, the read renderer, the
- * internal-URL router, `shake-types.ts`, `session-maintenance.ts`,
- * `input-controller.ts` and `composer.ts` — as are both modules the plugin
- * imports by path. `pi-tui/src/tui.ts` did change, and it matters here
- * because the mid-turn history publication depends on it: the release adds an
- * in-place resize transaction for Warp (which re-reports its size on
- * alt-buffer toggles, so borrowing the alt screen there self-sustains into a
- * flicker loop) behind `PI_TUI_RESIZE_IN_PLACE`. `resetDisplay()` is
- * unchanged and still the sole `\x1b[3J` emitter, so the scrollback-clearing
- * replay that lets a published row be retracted is intact. The rest of the
- * release is the advisor note budget, headless-browser tab freezing and idle
- * close (`browser.freezeOnTurnEnd`, `browser.idleCloseSec`,
- * `advisor.maxNotesPerUpdate`), and a pooled-turn yield contract in
- * `agent-session.ts`. The four changed `modes/components` files are the
- * advisor config, model browser, model hub and usage dashboard.
- * 18.1.17 crosses 18.1.16 in 77 changed `pi-coding-agent/src` paths,
- * adding notes-backed experimental context management, plan autosave and
- * loop-condition support; nothing is removed. The critical presentation
- * surface remains stable: the transcript container, tool card, read group,
- * tool activity, internal-URL router, composer, keybindings, shake types and
- * extension runner are byte-identical, as are both modules imported by path.
- * `event-controller.ts` adds only an idle-compaction timer refresh;
- * `read-renderer.ts` now sanitizes displayed lines; adjacent session changes
- * implement the opt-in context path. `pi-tui` adds Vim/editor-history and
- * cursor-shape support. The history seam is intact: container and composer
- * are byte-identical, `resetDisplay()` keeps arity zero, and `tui.ts` still
- * has exactly one `\x1b[3J` saved-scrollback erase. All 13 patch-surface
- * probes keep their measured arities.
- * 18.2.5 is an architectural modularization release (TUI components and theme
- * relocated from `pi-coding-agent` into `pi-tui`). All 8 patched methods on
- * `TranscriptContainer` and all 8 on `ToolExecutionComponent` remain intact
- * with identical signatures and arities. `ReadToolGroupComponent`,
- * `ToolActivityComponent`, `resetDisplay()` (`\x1b[3J`), and bash/eval execution
- * components are fully preserved. Skill and late-diagnostics components moved to
- * ECMAScript private fields, supported via resilient child scraping.
- * 18.2.6 is a point maintenance release with a byte-identical `pi-tui` source
- * tree: the container, the tool card, the read group and all six leaves are
- * unchanged from 18.2.5.
- * 18.2.7 and 18.2.8 left every file this plugin patches byte-identical to
- * 18.2.6 — `src/chat/*` and `src/chrome/*` are unchanged, and the only
- * `pi-tui/src/tui.ts` delta is an additive Glyph Protocol repaint hook
- * (`terminal.onGlyphProtocolReport` → `invalidate()` + `requestRender(true)`),
- * so `resetDisplay()` keeps arity zero and its single `\x1b[3J` erase. The
- * 18.2.7 breaking changes (centralized magic keywords replacing the
- * orchestrate/ultrathink/workflow modules, the `find` tool, `judge`/eval
- * signature changes, image-generation selector overrides) sit in the agent's
- * tool, prompt and model layers, none of which this plugin patches; the
- * internal-URL scheme set and the shortcut await contract are unchanged.
- * 18.2.9 is a point feature release that again leaves `src/chat/*` and
- * `src/chrome/*` byte-identical, this time to 18.2.8: the container, the tool
- * card, the read group, `resetDisplay()` (arity zero, its single `\x1b[3J`
- * erase) and all six leaves are unchanged, and the changed `pi-tui` files are
- * the editor, terminal, overlay and status-line layers. Its two visible
- * additions are additive to rules we only read: `find` accepts an `omp://`
- * docs scope as `path` (the schema, the wire name and `FindToolDetails` are
- * unchanged, and our describer treats the scope as an opaque string), and
- * `hub jobs` gained an optional `exitCode` detail while omitting the result
- * bodies it never returned to a consuming caller — the hub rule is arg-driven
- * and `knownDetails` is a fixture inventory, not a runtime gate.
- * 18.2.10 and 18.2.11 leave `src/chat/*` and `src/chrome/*` byte-identical
- * again, this time to 18.2.9: the container, the tool card, the read group,
- * `resetDisplay()` (arity zero, its single `\x1b[3J` erase) and all six leaves
- * are untouched, so the changed `pi-tui` files are the overlay, prompt,
- * render-utility, status-line, terminal-capability and `tools/*` layers. The
- * one `tui.ts` delta replaces `setPaintListener(listener | null)` with
- * `addPaintListener(listener)` returning its unsubscribe (multi-listener
- * `#notifyPaint`, new `PaintListener` type) — this plugin never touches
- * either name. The agent-side additions are additive too:
- * `ExtensionRunner.emitBeforeSubagentSpawn` plus the
- * `before_subagent_spawn` event, and `find` gating moved to
- * `isFindEnabled(session)` (native judge only) without touching the wire
- * name, the `query`/`grep_keywords`/`path` schema or `FindToolDetails`. The
- * single contract-relevant change is the thinking-mode branch of
- * `formatShakeSummary` (`pi-coding-agent/src/session/shake-types.ts`), which
- * now appends ` (~N tokens freed)` because the thinking shake reports a real
- * `tokensFreed`; the elide branch this plugin actually calls is unchanged,
- * and the local port was moved with it.
- * 18.3.0 is a minor (breaking) release, but not for the surface above:
- * `src/chrome/*` is byte-identical to 18.2.11 and the three changed files in
- * `src/chat/*` (`tool-execution.ts`, `chat-transcript-builder.ts`,
- * `transcript-render-helpers.ts`) move only by renaming the builtin `hub` tool
- * to `wait`. That rename, the new `proc://`/`agent://` read/write transports
- * and the sloppy edit-payload respelling are the three host contracts this
- * release did change; see the `hub` rule, `transportTargetOf` and
- * `editPathsFromInput` for how each is handled.
- * That floor is release metadata and must not be silently edited from this file.
- *
- * Local cache check (this workstation): `@oh-my-pi/pi-coding-agent@17.2.12`,
- * `17.3.1`, `17.3.4`, `17.3.8`, `17.4.0`, `17.4.2`, `18.0.0`, `18.0.1`, `18.0.3`, `18.0.6`, and `18.0.8` are present under the bun install cache
- * (or the root pin). Older copies are kept solely as reference sources for
- * verifying comments on leaf fingerprints, not as supported runtime targets.
- * The gate pin is 18.3.2 (root `node_modules`), verified from an isolated
- * `runtime/omp-18.3.2/` install before the root tree moved.
- * `runtime/omp-18.1.1/` is kept as the diff baseline, with the 18.1.3,
- * 18.1.4, 18.1.10, 18.1.14, 18.1.15 and 18.1.17 sources snapshotted under their
- * matching `runtime/omp-<version>/` directories for the same reason. The
- * fingerprint facts above come from the surface audit in
- * `runtime/omp-18.1.1/HOST-AUDIT-18.1.1.md`, the per-file semantic diff in
- * `runtime/omp-18.1.1/SEMANTIC-DIFF-18.1.1.md`, and the pin-move records in
- * `runtime/omp-18.1.3/PIN-MOVE-18.1.3.md`,
- * `runtime/omp-18.1.4/PIN-MOVE-18.1.4.md`,
- * `runtime/omp-18.1.10/PIN-MOVE-18.1.10.md`,
- * `runtime/omp-18.1.14/PIN-MOVE-18.1.14.md`,
- * `runtime/omp-18.1.15/PIN-MOVE-18.1.15.md`,
- * `runtime/omp-18.1.17/PIN-MOVE-18.1.17.md`,
- * `runtime/omp-18.2.0/PIN-MOVE-18.2.0.md`,
- * `runtime/omp-18.2.5/PIN-MOVE-18.2.5.md`,
- * `runtime/omp-18.2.6/PIN-MOVE-18.2.6.md`,
- * `runtime/omp-18.2.8/PIN-MOVE-18.2.8.md`,
- * `runtime/omp-18.2.9/PIN-MOVE-18.2.9.md`,
- * `runtime/omp-18.2.11/PIN-MOVE-18.2.11.md`,
- * `runtime/omp-18.3.0/PIN-MOVE-18.3.0.md`,
- * `runtime/omp-18.3.1/PIN-MOVE-18.3.1.md` and
- * `runtime/omp-18.3.2/PIN-MOVE-18.3.2.md`.
- * Activity-gated leaves (`setToolActivityVisible`) exist on TTSR, todo-reminder,
- * and late-diagnostics components. Fingerprints that require that method miss
- * cleanly when absent and leave the stock card native — they do not misclassify
- * into tool/read-group paths. User bash/eval and skill-card fingerprints do not
- * require the activity method; their compact rows still fail open to native when
- * content extraction fails.
- * Honest summary: critical tool/read-group/transcript compaction is verified on
- * the 18.3.2 pin and resolved via live capability probes on the instance;
- * optional compact chrome (inject, reminder, diagnostics) was confirmed on 17.3.1
- * and 17.3.4, remains under capability probes, and upon shape changes degrades
- * gracefully to stock native cards.
- *
+ * `engines.omp` (`>=18.0.1`) is the public floor: 18.0.1 rewrote the
+ * transcript container into block lifecycle states, so an older host
+ * exposes no transcript this plugin can recognise. Optional leaf
+ * fingerprints (inject, reminder, late diagnostics, user bash/eval,
+ * skill) were first confirmed on 17.3.1/17.3.4 and stay behind the same
+ * probes. The per-release verification record is kept outside the code
+ * (`context/host-pin-*.md`, see docs/CONTRIBUTING.md).
  */
 
 import { objectRecord } from "./object-record";

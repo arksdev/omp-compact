@@ -11,7 +11,7 @@ import {
 import { defaultWarn } from "./warn-sink";
 
 /**
- * Host-settings bridge (upgrade2 item 6): menu controls for stock
+ * Host-settings bridge: menu controls for stock
  * `recap.enabled` and `hideThinkingBlock`.
  *
  * Stock seam (OMP 17.3.1, oh-my-pi reference):

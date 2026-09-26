@@ -757,8 +757,9 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  `StockHostAdapter.hostVersion` (`18.3.2`) records the
-  **verified** critical private-surface contract the adapter was written
+  The root `package.json` devDependency (`18.3.2`, mirrored by
+  `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`) records
+  the **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
   hosts. Neither string is a runtime gate — every decision is a live
   capability probe (`isToolComponent`, `isTodoReminderComponent`,

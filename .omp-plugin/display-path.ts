@@ -1,5 +1,5 @@
 /**
- * Optional project-relative display paths (upgrade2 item 3).
+ * Optional project-relative display paths.
  *
  * Pure, display-only relabeling: given the session cwd captured for a logical
  * run, an absolute filesystem path strictly inside that cwd renders as a

@@ -1,5 +1,5 @@
 /**
- * B05: rebuild / branch-hydration lifecycle of `RuntimeSessionState`.
+ * Rebuild / branch-hydration lifecycle of `RuntimeSessionState`.
  *
  * `RuntimeSessionState` keeps its public methods as the entry points; this
  * module owns the lifecycle logic behind them: the persisted-branch walks

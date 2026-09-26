@@ -1,5 +1,5 @@
 /**
- * B03: structured exact-ID / provisional / read-group component binding.
+ * Structured exact-ID / provisional / read-group component binding.
  *
  * Owns every component ↔ toolCallId association of the session:
  * - exact-ID binding through `updateArgs`/`updateResult`/`setArgsComplete`;

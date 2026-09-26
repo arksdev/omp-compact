@@ -1,5 +1,5 @@
 /**
- * F01: explicit production bounds applied BEFORE hydration/state allocation.
+ * Explicit production bounds applied BEFORE hydration/state allocation.
  *
  * Historical/custom evidence that exceeds these limits is ignored locally:
  * the entry keeps its native presentation and is never copied into

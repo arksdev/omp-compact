@@ -1,5 +1,5 @@
 /**
- * B03: pure, table-driven compact-vs-native presentation decision.
+ * Pure, table-driven compact-vs-native presentation decision.
  *
  * Extracted from the decision embedded in RuntimeAdapter#renderBlock. The
  * module maps route + frozen run mode + ledger phase + expansion/native

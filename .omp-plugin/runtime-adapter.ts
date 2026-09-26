@@ -240,7 +240,7 @@ export class RuntimeAdapter {
 	/**
 	 * Cards whose native rows were proven to come from one parsed candidate.
 	 *
-	 * Stock assumption, verified against the 18.0.11/18.2.0/18.2.8/18.2.9/18.2.11/18.3.0/18.3.1/18.3.2 factories:
+	 * Stock assumption, verified against every pinned factory since 18.0.11:
 	 * the host builds one card per delivered advisor message and the closure
 	 * keeps that delivered `details` forever — the card is never
 	 * re-parameterized with other notes, and `render(width)` only reflects the
@@ -699,7 +699,7 @@ export class RuntimeAdapter {
 		this.#clearAdvisorBindings();
 		this.#advisorNotes.clear();
 		this.#stopSpinner();
-		// C07: dispose invalidates any pending generation microtask — stale
+		// Dispose invalidates any pending generation microtask — stale
 		// callbacks abort on the token/disposed guard and never replay.
 		this.#pendingGeneration = undefined;
 		this.#rebuildPending = false;

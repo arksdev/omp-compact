@@ -27,7 +27,7 @@ import {
 	MUTATION_MESSAGE_TYPE,
 	type MutationMessageDetails,
 } from "./messages";
-// RuntimeModes (upgrade2 item 2): per-logical-run mode policy (compact/live/
+// Per-logical-run mode policy (compact/live/
 // clear + enabled + retainGitLive), consumed by the runtime adapter.
 import { ModePolicy } from "./mode-policy";
 import { objectRecord } from "./object-record";
@@ -37,7 +37,7 @@ import {
 	resolveAutoShake,
 } from "./post-turn-shake";
 import { gitMessageComponent, mutationMessageComponent } from "./render";
-// RunStats (upgrade2 item 4): configurable terminal usage row. The
+// RunStats: configurable terminal usage row. The
 // aggregator and evidence stay in run-stats.ts; this file only wires events
 // and the two adapter seams (onRunFinalized / statsRenderer).
 import {
@@ -179,7 +179,7 @@ function adapterUI(context: ExtensionContext, root: unknown): AdapterUI {
 	};
 }
 
-// AdapterFailOpenFix: transactional rollback for a failed runtime bring-up.
+// Transactional rollback for a failed runtime bring-up.
 // Restores every partial own-instance effect the guard may have left behind:
 // the host probe widget (best-effort re-removal) and any constructed adapter
 // (descriptor/discovery patches, spinner timer). Never throws: a capability
@@ -261,14 +261,14 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// main AgentSession (identity-checked against each command context).
 	const agentRegistry = (pi.pi as { AgentRegistry?: unknown } | undefined)
 		?.AgentRegistry;
-	// HostSettingsBridge (upgrade2 item 6): resolves the initialized
+	// HostSettingsBridge: resolves the initialized
 	// per-session Settings of the live main agent session. The exported
 	// global `settings` Proxy is NEVER used — this runtime never calls
 	// `Settings.init()`, so that proxy throws on any access, while every live
 	// AgentSession owns an initialized `session.settings`.
 	const hostSettingsResolver = createSessionSettingsResolver(agentRegistry);
 
-	// SettingsFoundation (upgrade2 item 1): typed persistent settings store
+	// Typed persistent settings store
 	// + /compact-settings command. The command must stay available even when
 	// the runtime is globally disabled, so registration runs before the mode
 	// gate; the store is created lazily (no disk I/O until the menu opens).
@@ -289,7 +289,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				}
 				return;
 			}
-			// HostSettingsBridge (upgrade2 item 6): resolve the live main
+			// HostSettingsBridge: resolve the live main
 			// session's Settings eagerly, before the menu opens, so host rows
 			// can be disabled when no verified live settings instance exists
 			// while plugin rows stay savable. Loading the plugin never touches
@@ -302,7 +302,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					})
 				: undefined;
 			const initial = await settingsStore.load();
-			// E01: the dialog's save outcome (including the single success
+			// The dialog's save outcome (including the single success
 			// notification) is fully handled by saveSettingsFlow inside
 			// onSave, so the dialog result needs no post-processing here.
 			await openSettingsDialog(ctx.ui, {
@@ -318,7 +318,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					// refresh in stock: saveSettingsFlow never reloads and
 					// notifies honestly ("restart OMP to apply") instead.
 					//
-					// E01: saveSettingsFlow emits exactly one success
+					// `saveSettingsFlow` emits exactly one success
 					// notification through the seam below — the plain
 					// "omp-compact settings saved" for an unmasked save, or a
 					// single message carrying both facts (saved + effective)
@@ -425,7 +425,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		},
 	);
 
-	// RuntimeModes (upgrade2 item 2): one settings snapshot per logical run,
+	// One settings snapshot per logical run,
 	// captured at agent_start; settings changes (incl. global disable) apply
 	// at the next run boundary and never mix into an active run. The runtime
 	// stays wired so re-enable reinstalls cleanly mid-session; the settings
@@ -433,10 +433,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	const modePolicy = new ModePolicy(settingsStore);
 	modePolicy.prime();
 
-	// PostTurnShake (upgrade2 item 5): native auto-shake after a visible
+	// PostTurnShake: native auto-shake after a visible
 	// successful terminal answer. Default off; per-run settings are captured
-	// in beginRun() (OMP_COMPACT_SHAKE=1/0 overrides the JSON value). E05:
-	// a successfully resolved shake reports the stock formatShakeSummary
+	// in beginRun() (OMP_COMPACT_SHAKE=1/0 overrides the JSON value). A
+	// successfully resolved shake reports the stock formatShakeSummary
 	// one-liner through the ephemeral UI notification — never an appended
 	// session/custom entry, so the session tree topology stays untouched.
 	const postShake = new PostTurnShake({
@@ -505,7 +505,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		complete: completeWriteCandidate,
 		warn,
 	});
-	// RunStats (upgrade2 item 4): one configurable usage row per logical run,
+	// RunStats: one configurable usage row per logical run,
 	// aggregated from authoritative message_end completions and distinct
 	// tool_execution_start actions (toolCallId-deduplicated).
 	const runStats = new RunStats();
@@ -514,7 +514,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	const pendingTerminalStats = new Map<string, PendingTerminalStats>();
 	// `agent_end` serialization lives inside the lifecycle's
 	// `enqueueAgentEnd` (generation-guarded chain; see audit-lifecycle.ts).
-	// AdapterFailOpenFix: warn once per failure episode through the available
+	// Warn once per failure episode through the available
 	// UI notification seam. A failing or absent notify (headless/RPC) must
 	// never throw into the event stream.
 	function warnAdapterFailure(context: ExtensionContext, error: unknown): void {
@@ -554,7 +554,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		if (adapter) return adapter;
 		// Mid-session host-invariant rollback clears `adapter` via onDisabled
 		// and sets adapterDisabled; the check above already covers that path.
-		// AdapterFailOpenFix: host-probe capture, adapter construction, and
+		// Host-probe capture, adapter construction, and
 		// install run as one transaction. Any exception (a throwing setWidget
 		// probe, a failing host getter, an install fault) must never escape
 		// into the event stream — stock would re-fire ensureAdapter on every
@@ -626,7 +626,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						}
 					}
 					try {
-						// D03: after the stats insertion attempt — also when stats
+						// After the stats insertion attempt — also when stats
 						// are disabled or usage is absent — replay the frozen native
 						// scrollback exactly once through the capability-checked
 						// exact-root `resetDisplay`.
@@ -640,7 +640,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						);
 					}
 					try {
-						// C10: once the filtered projection (including optional
+						// Once the filtered projection (including optional
 						// scrollback replay) is complete, raw args/results and per-call
 						// Git payloads are no longer needed. The adapter preserves the
 						// immutable mutation/aggregate projection and never retires
@@ -772,7 +772,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			.sessionManager;
 		const branch = sessionManager?.getBranch?.();
 		if (Array.isArray(branch)) {
-			// Restore view (upgrade2 item 3): entering an EXISTING session
+			// Restore view: entering an EXISTING session
 			// (`omp -c`, `--resume`/picker, auto-resume) presents the
 			// historical transcript immediately in compact view. The branch
 			// is non-empty exactly when the session carries persisted
@@ -787,7 +787,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	});
 
 	listen("session_switch", async (event, context) => {
-		// Restore view (upgrade2 item 3): an in-process entry into an
+		// Restore view: an in-process entry into an
 		// existing session (`/resume` picker, `ctx.switchSession`, reload)
 		// arrives as `session_switch` with reason "resume" — emitted after
 		// the target session's entries are loaded but BEFORE the caller's

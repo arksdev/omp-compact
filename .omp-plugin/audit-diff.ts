@@ -11,7 +11,7 @@ export type DeleteMutationEvidence =
 	| LegacyMutationMessageDetails;
 
 /**
- * F02: evidence budgets for the edit audit. Malformed/oversized evidence
+ * Evidence budgets for the edit audit. Malformed/oversized evidence
  * fails open locally — the entry keeps its native presentation and the
  * exact candidate is dropped, never invented.
  */
@@ -44,7 +44,7 @@ export const MAX_PER_FILE_RESULTS = 128;
 export const MAX_TOTAL_SCAN_BYTES = 4_194_304;
 
 /**
- * F02 diff complexity budget for exact write comparison: maximum combined
+ * Diff complexity budget for exact write comparison: maximum combined
  * trimmed-middle lines of one native `diffLines` call. The native
  * Myers-style diff is quadratic in the remaining token count (measured
  * ~140 ms worst case at this bound on the pinned runtime, 92 s at the full
@@ -288,11 +288,11 @@ function editEntry(
 /**
  * Derive mutation evidence from a delete operation.
  *
- * - A valid path with a complete unpruned pre-image within the F02 budgets
+ * - A valid path with a complete unpruned pre-image within the evidence budgets
  *   yields an exact `MutationMessageDetails` entry: `removed` is counted from
  *   the actual pre-image, never estimated or sampled.
  * - A valid path whose exact pre-image is unavailable (oldText missing,
- *   snapshots pruned, or oversized per F02 budgets) yields a count-less
+ *   snapshots pruned, or oversized per the evidence budgets) yields a count-less
  *   legacy-shaped entry (`exact: false`, no `added`/`removed`). The delete
  *   row is still shown — red title, gray path, no stat — because the path
  *   itself is real evidence; an unknown count is never approximated.
@@ -338,7 +338,7 @@ function deleteEntry(
  * Derive mutation evidence from a stock edit-tool result.
  *
  * - Multi-file results (`details.perFileResults`) keep every successful entry
- *   and drop failed ones, bounded by the F02 budgets: at most
+ *   and drop failed ones, bounded by the evidence budgets: at most
  *   MAX_PER_FILE_RESULTS files are processed, and a file whose evidence would
  *   push the scan past MAX_TOTAL_SCAN_BYTES is not examined (later, smaller
  *   files still are). Nothing beyond the budgets is counted approximately: an
