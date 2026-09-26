@@ -39,21 +39,6 @@ const COMPOUND_FILE_TARGET =
 	/(?:\.(?:tar\.gz|zip|tar|tgz|jar|war|ear|apk|sqlite3?|db3?)):/i;
 const SNAPSHOT_MAX_BYTES = 1_048_576;
 const SNAPSHOT_MAX_LINES = 50_000;
-const WHOLE_FILE_SELECTOR_RE = /^(?:raw|conflicts)$/i;
-
-/**
- * Peel a whole-file selector (:raw, :conflicts) from an internal URL or path.
- * In OMP 18.3.1 `peelWriteUrlSelector` was moved to router-internal
- * `InternalUrlRouter.instance().peelWriteSelector(input, "write")`.
- * A simple local helper keeps audit.ts decoupled from host internal changes.
- */
-function peelWriteSelector(rawPath: string): string {
-	const match = rawPath.match(/^(.+?):([a-z0-9_-]+)$/i);
-	if (match?.[1] && match[2] && WHOLE_FILE_SELECTOR_RE.test(match[2])) {
-		return match[1];
-	}
-	return rawPath;
-}
 
 /** Shared open flags for both snapshot readers (sync pre-image, async post-image). */
 const SNAPSHOT_OPEN_FLAGS =
@@ -328,12 +313,10 @@ export async function captureWriteCandidate(input: {
 	const args = objectRecord(input.args);
 	if (typeof args.path !== "string" || typeof args.content !== "string")
 		return undefined;
-	let displayPath: string;
-	try {
-		displayPath = peelWriteSelector(unwrapHashlineHeaderPath(args.path));
-	} catch {
-		return undefined;
-	}
+	// Internal-URL targets (with or without a read selector) keep their scheme
+	// and are rejected by URI_SCHEME below; the host never peels selectors
+	// from plain paths, so no selector peeling is needed here.
+	const displayPath = unwrapHashlineHeaderPath(args.path);
 	if (
 		!displayPath ||
 		URI_SCHEME.test(displayPath) ||

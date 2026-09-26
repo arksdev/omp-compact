@@ -1169,6 +1169,25 @@ describe("write audit snapshot bounds", () => {
 		}
 	});
 
+	test("a plain path with a :raw suffix keeps its literal target", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			// The host peels selectors only from internal URLs; a plain path
+			// is written literally, so the pre-image must come from that
+			// literal file and never from the suffix-stripped neighbour.
+			await writeFile(join(cwd, "a.ts"), "neighbour\n");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "write-raw-suffix",
+				args: { path: "a.ts:raw", content: "x\n" },
+				cwd,
+			});
+			expect(candidate?.displayPath).toBe("a.ts:raw");
+			expect(candidate?.before).toBe("");
+		} finally {
+			await cleanup();
+		}
+	});
+
 	test("an overlong display path is rejected before any filesystem I/O", async () => {
 		const { cwd, cleanup } = await stage();
 		try {
