@@ -363,6 +363,8 @@ AgentSession.shake("elide", { signal })
 
 Missing session/API, persistence failure и native shake error не ломают ответ: плагин пропускает операцию и предупреждает один раз. Неизвестный usage при положительном threshold и usage ниже threshold приводят к тихому skip.
 
+Shake, который ещё выполняется, отменяется без предупреждения, когда начинается следующий logical run, выполняется `/fork` или меняется сессия: native shake не должен переписывать историю под новым prompt.
+
 Auto-shake выключен по умолчанию, потому что удаление tool context может ухудшить follow-up questions и prompt caching. Включайте его осознанно.
 
 ## Stock recap и thinking blocks

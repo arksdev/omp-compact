@@ -423,6 +423,33 @@ describe("PostTurnShake session lifecycle", () => {
 		await h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
 		expect(h.calls).toHaveLength(2);
 	});
+
+	test("a new run aborts the previous run's in-flight shake without a warning", async () => {
+		let seen: AbortSignal | undefined;
+		const h = harness(
+			{ enabled: true, thresholdTokens: 0 },
+			{
+				// Mirrors the host: an aborted shake rejects at its next
+				// checkpoint instead of rewriting the session under a new run.
+				shakeImpl: (_session, signal) => {
+					seen = signal;
+					const { promise, reject } = Promise.withResolvers<ShakeResultLike>();
+					signal?.addEventListener("abort", () =>
+						reject(new Error("Compaction cancelled")),
+					);
+					return promise;
+				},
+			},
+		);
+		const pending = h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+		await flush();
+		expect(seen?.aborted).toBe(false);
+		h.shake.beginRun({ enabled: true, thresholdTokens: 0 });
+		expect(seen?.aborted).toBe(true);
+		await pending;
+		expect(h.warns).toEqual([]);
+		expect(h.notifies).toEqual([]);
+	});
 });
 
 describe("PostTurnShake failure and unavailable seam", () => {

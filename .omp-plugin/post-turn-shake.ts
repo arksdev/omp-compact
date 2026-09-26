@@ -224,6 +224,8 @@ export class PostTurnShake {
 		globallyEnabled = settings.enabled,
 	): void {
 		this.#runEpoch++;
+		// The previous run's shake must not rewrite history under this one.
+		this.cancel();
 		this.#settings = settings;
 		this.#globalEnabled = globallyEnabled;
 		this.#shakenThisRun = false;
@@ -362,6 +364,9 @@ export class PostTurnShake {
 				if (generation !== this.#generation) return;
 				this.#reportSuccess(ctx, result);
 			} catch (error) {
+				// A cancellation this class requested (new run, fork, session
+				// end) is not a failure worth surfacing.
+				if (signal.aborted) return;
 				this.#warnOnce(
 					"auto-shake-dispatch",
 					`omp-compact: auto-shake failed: ${messageOf(error)}`,
