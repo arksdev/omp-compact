@@ -12,6 +12,9 @@
 - Авто-shake, который ещё выполняется, отменяется при следующем прогоне и больше не может переписать историю под новым запросом. Такая отмена не показывает предупреждение «auto-shake failed».
 - Строка статистики больше не показывает `1000k` и `1000M` на границе разрядов: такие значения выводятся как `1M` и `1B`.
 - Удаление файла в многофайловой правке, не поместившееся в общий бюджет проверки, больше не пропадает: оно показывается строкой с путём без счётчиков, как и в однофайловой правке.
+- Авто-shake не запускается после ответа, обрезанного по лимиту вывода: хост оставляет такой ответ, чтобы можно было попросить продолжить, и контекст для этого остаётся нетронутым.
+- Предупреждения плагина показываются уведомлением OMP, а не пишутся в stderr поверх интерфейса. В сессиях без интерфейса, например у сабагентов, они уходят в журнал OMP.
+- Vibe-карточки больше не теряют текст после одиночного управляющего символа C1 CSI (U+009B).
 
 ---
 
@@ -21,6 +24,9 @@
 - An auto-shake still running when the next run starts is cancelled and can no longer rewrite history under the new prompt. That cancellation no longer warns "auto-shake failed".
 - The stats row no longer prints `1000k` or `1000M` at a unit boundary; those values show as `1M` and `1B`.
 - A file delete in a multi-file edit that exceeds the cumulative scan budget no longer disappears: it shows as a path row without counts, as a single-file delete does.
+- Auto-shake no longer runs after an answer cut at the output limit: the host keeps that answer so the user can ask it to go on, and the context for that stays intact.
+- Plugin warnings show as OMP notifications instead of stderr writes over the interface. Sessions without an interface, such as subagents, send them to the OMP log.
+- Vibe cards no longer drop the text after a stray C1 CSI control (U+009B).
 
 ## 1.3.3 — 26 сентября 2026
 
