@@ -354,8 +354,8 @@ AgentSession.shake("elide", { signal })
 
 1. runtime плагина был включён на границе этого logical run;
 2. auto-shake включён настройкой или `OMP_COMPACT_SHAKE=1`;
-3. получен видимый successful terminal assistant answer;
-4. нет `willContinue`, `toolUse`, abort или terminal error без ответа;
+3. получен видимый successful terminal assistant answer со `stopReason: "stop"`;
+4. нет `willContinue`, `toolUse`, abort или terminal error без ответа; ответ, обрезанный по лимиту вывода (`stopReason: "length"`), тоже не запускает shake: хост оставляет его, чтобы пользователь мог попросить продолжить;
 5. mutation/Git/stats evidence уже сохранён;
 6. current context usage известен и не меньше положительного threshold, либо threshold равен `0`;
 7. event относится к identity-matched main agent session;

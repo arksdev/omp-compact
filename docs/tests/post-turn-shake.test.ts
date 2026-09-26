@@ -174,6 +174,20 @@ describe("PostTurnShake gates", () => {
 		expect(h.calls).toEqual([]);
 	});
 
+	test("an answer truncated at the output limit keeps its context", async () => {
+		// The host keeps a `length` answer and lets the user ask it to go on;
+		// eliding the context right then would cut what the next turn needs.
+		const h = harness({ enabled: true, thresholdTokens: 0 });
+		await h.shake.onAgentEnd(
+			{
+				messages: [assistant("half an answer", "length")],
+				willContinue: false,
+			},
+			{ sessionManager: {} },
+		);
+		expect(h.calls).toEqual([]);
+	});
+
 	test("a run frozen globally disabled never shakes even when auto-shake settings are armed", async () => {
 		const h = harness({ enabled: true, thresholdTokens: 0 });
 		// The wiring freezes the global runtime gate at the run boundary;

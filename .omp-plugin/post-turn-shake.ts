@@ -250,6 +250,10 @@ export class PostTurnShake {
 		// willContinue, aborted, error, and empty assistant messages are all
 		// classified as non-filtered and keep the live context intact.
 		if (classifyAgentEnd(event) !== "filtered") return;
+		// A `length` answer is shown compact but is not finished: the host
+		// keeps it so the user can ask it to go on, which needs the context.
+		const last = event.messages?.at(-1) as { stopReason?: unknown };
+		if (last.stopReason !== "stop") return;
 		// Once per logical run: duplicate/overlapping agent_end events never
 		// shake twice. Marked synchronously below, before any await, so a
 		// continuation that resumes after the persistence wait can never
