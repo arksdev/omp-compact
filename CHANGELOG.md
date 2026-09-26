@@ -4,17 +4,17 @@
 
 ---
 
-## Разработка
+## 1.3.3 — 26 сентября 2026
 
 ### Изменено
 
-- Хост-пин переехал с 18.2.11 на 18.3.0. Это minor-релиз с breaking changes, но критическая патч-поверхность не тронута: `pi-tui/src/chrome/*` побайтово идентичен 18.2.11, а три изменившихся файла `pi-tui/src/chat/*` сдвинулись только переименованием встроенного инструмента `hub` → `wait`. Задело три контракта: добавлено правило `wait` (рядом с `hub`, который нужен хостам до 18.3.0, — публичный floor остаётся `>=18.0.1`); вызовы `read`/`write` по `proc://` и `agent://` больше не сворачиваются, а остаются нативными — у них своя стоковая рамка (карточка процесса, дашборд задач и сервисов, доставка сообщений); компактная строка `edit:` снова показывает файл для sloppy-пейлоада, потому что синтаксис опенера переписан с `*** SM:EDIT` на `*** Edit File:` (читаются оба написания).
+- Обновлена поддерживаемая версия OMP до 18.3.2 (включая миграции 18.3.0 и 18.3.1). Вызовы `write` и `read` по адресам `proc://` и `agent://` теперь сворачиваются в компактные строки `proc:` и `agent:`. Добавлены компактные правила отображения для инструментов `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill` и `wait`. Компактная строка `edit:` распознаёт синтаксис `*** Edit File:`. Публичный диапазон `engines.omp >=18.0.1` остаётся без изменений.
 
 ---
 
 ### Changed
 
-- Host pin moved from 18.2.11 to 18.3.0. It is a minor release with breaking changes, but the critical patch surface is untouched: `pi-tui/src/chrome/*` is byte-identical to 18.2.11, and the three changed `pi-tui/src/chat/*` files move only by renaming the builtin `hub` tool to `wait`. Three contracts did change: a `wait` rule joins the retained `hub` rule (which hosts below 18.3.0 still need — the public floor stays `>=18.0.1`); `read`/`write` calls addressing `proc://` and `agent://` stay native instead of compacting, because stock gives them chrome a row cannot carry (process card, jobs and services dashboard, message delivery); and the compact `edit:` row names the file again for sloppy payloads, whose opener was respelled from `*** SM:EDIT` to `*** Edit File:` (both spellings are parsed).
+- Updated supported OMP version to 18.3.2 (including 18.3.0 and 18.3.1 migrations). Calls to `write` and `read` targeting `proc://` and `agent://` now collapse into compact `proc:` and `agent:` rows. Added compact presentation rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill`, and `wait`. The compact `edit:` row recognizes the updated `*** Edit File:` syntax. Public range `engines.omp >=18.0.1` remains unchanged.
 
 ## 1.3.2 — 24 сентября 2026
 
