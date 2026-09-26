@@ -14,8 +14,12 @@ import { stripRejectedControls } from "./display-control";
  * Strip ANSI CSI (ESC[) and OSC (ESC]) sequences. Unlike git-records.ts
  * `oneLine`, this is pure escape stripping: it does not collapse whitespace,
  * enforce a length budget, or reject control characters — those stay in
- * `stripControl` / `sanitizeOneLine` so multi-line inject and todo recovery
- * can keep TAB/LF/CR structure after ANSI is gone.
+ * `stripRejectedControls` / `sanitizeOneLine` so multi-line inject and todo
+ * recovery can keep TAB/LF/CR structure after ANSI is gone.
+ *
+ * Not `Bun.stripANSI`: it reads a lone C1 CSI (U+009B) as a sequence
+ * introducer and drops the text after it (`ok\x9B中😀` → `ok`). Here a stray
+ * C1 is a control that `stripRejectedControls` drops, and the text stays.
  */
 function stripAnsi(value: string): string {
 	let result = "";

@@ -3,21 +3,7 @@ import { Ellipsis, truncateToWidth } from "@oh-my-pi/pi-tui";
 import { isRejectedControlCode } from "./display-control";
 
 const ESCAPE = String.fromCharCode(27);
-const ANSI_SGR_RE = new RegExp(`${ESCAPE}\\[[0-9;]*m`, "g");
 const ANSI_SGR_PREFIX_RE = new RegExp(`^${ESCAPE}\\[[0-9;]*m`);
-
-/**
- * Strip ANSI SGR sequences (`ESC[…m`) — colour and style only. The scraper
- * has a separate implementation (`render-scrape.ts`) that also strips CSI and
- * OSC, because it reads arbitrary stock output; this one measures and
- * truncates the plugin's own rows, which carry nothing but SGR. Keep them
- * apart: widening this one would change what the truncator counts, and
- * narrowing the scraper's would leave cursor and hyperlink sequences in
- * scraped text.
- */
-export function stripAnsi(text: string): string {
-	return text.replace(ANSI_SGR_RE, "");
-}
 
 /**
  * Drop rejected terminal controls (shared `display-control` class) while

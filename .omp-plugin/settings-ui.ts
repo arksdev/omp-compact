@@ -3,7 +3,7 @@
 // settings-dialog); this file only re-exports them so existing importers
 // keep resolving the same names with the same types.
 
-export { stripAnsi, truncateAnsiSafe } from "./ansi-width";
+export { truncateAnsiSafe } from "./ansi-width";
 // Re-exported for the store consumers that only need the patch type.
 export type { CompactSettingsPatch, CompactSettingsStore } from "./config";
 export type { DisplayCycleDeps } from "./cycle-handler";

@@ -47,10 +47,13 @@ import {
 	registerSettingsCommand,
 	SettingsDialog,
 	saveSettingsFlow,
-	stripAnsi,
 	type ThemeLike,
 	truncateAnsiSafe,
 } from "../../.omp-plugin/settings-ui";
+
+function stripAnsi(value: string): string {
+	return Bun.stripANSI(value);
+}
 
 const KEY_J = "j";
 const KEY_K = "k";

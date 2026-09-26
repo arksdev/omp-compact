@@ -1,7 +1,7 @@
 import type { Theme, ThemeColor } from "./theme-types";
 
 import { codePointLength, truncateCodePoints } from "./compact";
-import { stripRejectedControls } from "./display-control";
+import { sanitizeOneLine } from "./render-scrape";
 import { formatDuration } from "./format-duration";
 
 /**
@@ -15,18 +15,9 @@ import { formatDuration } from "./format-duration";
 const MAX_ID_CODE_POINTS = 24;
 const MAX_MODEL_CODE_POINTS = 16;
 
-/**
- * Sanitize arbitrary input to a single clean line of text.
- */
-export function sanitizeText(value: unknown, limit?: number): string {
-	const text = typeof value === "string" ? value : "";
-	const clean = stripRejectedControls(Bun.stripANSI(text))
-		.replace(/\s+/g, " ")
-		.trim();
-	if (limit === undefined || clean.length <= limit) return clean;
-	const chars = Array.from(clean);
-	if (chars.length <= limit) return clean;
-	return `${chars.slice(0, Math.max(0, limit - 1)).join("")}…`;
+/** Sanitize arbitrary input to a single clean line, without a length budget. */
+export function sanitizeText(value: unknown): string {
+	return sanitizeOneLine(value, Number.POSITIVE_INFINITY);
 }
 
 export function renderBadge(
