@@ -4,10 +4,22 @@
 
 ---
 
-## Не выпущено
+## 1.4.0 — 26 сентября 2026
+
+### Добавлено
+
+- Вызовы `write` и `read` по адресам `proc://` и `agent://` сворачиваются в компактные строки `proc:` и `agent:` вместо нативных карточек.
+- Добавлены компактные правила для инструментов `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill` и `wait`. `debug` и `security_scan` остаются в нативном виде.
+- Компактная строка `edit:` распознаёт заголовок `*** Edit File:` из OMP 18.3.
+
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.3.2 (включая изменения 18.3.0 и 18.3.1). Публичный диапазон `engines.omp >=18.0.1` не меняется.
 
 ### Исправлено
 
+- Плагин снова загружается на OMP 18.3.x: ошибка `Export named 'peelWriteUrlSelector' not found` больше не появляется (#14, спасибо @materemias за #13).
+- Запись в обычный путь с суффиксом `:raw` больше не берёт снимок «до» из соседнего файла без суффикса.
 - `/fork` больше не разворачивает компактный транскрипт в нативные карточки инструментов: уже показанные строки остаются компактными.
 - Авто-shake, который ещё выполняется, отменяется при следующем прогоне и больше не может переписать историю под новым запросом. Такая отмена не показывает предупреждение «auto-shake failed».
 - Строка статистики больше не показывает `1000k` и `1000M` на границе разрядов: такие значения выводятся как `1M` и `1B`.
@@ -18,8 +30,20 @@
 
 ---
 
+### Added
+
+- `write` and `read` calls to `proc://` and `agent://` collapse into compact `proc:` and `agent:` rows instead of native cards.
+- Added compact rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill`, and `wait`. `debug` and `security_scan` stay native.
+- The compact `edit:` row recognizes the `*** Edit File:` header from OMP 18.3.
+
+### Changed
+
+- Updated the supported OMP version to 18.3.2 (including the 18.3.0 and 18.3.1 changes). The public range `engines.omp >=18.0.1` does not change.
+
 ### Fixed
 
+- The plugin loads on OMP 18.3.x again: the `Export named 'peelWriteUrlSelector' not found` error no longer appears (#14, thanks @materemias for #13).
+- A write to a plain path with a `:raw` suffix no longer takes its pre-image from the neighbouring file without the suffix.
 - `/fork` no longer turns the compact transcript back into native tool cards: rows already shown stay compact.
 - An auto-shake still running when the next run starts is cancelled and can no longer rewrite history under the new prompt. That cancellation no longer warns "auto-shake failed".
 - The stats row no longer prints `1000k` or `1000M` at a unit boundary; those values show as `1M` and `1B`.
@@ -27,18 +51,6 @@
 - Auto-shake no longer runs after an answer cut at the output limit: the host keeps that answer so the user can ask it to go on, and the context for that stays intact.
 - Plugin warnings show as OMP notifications instead of stderr writes over the interface. Sessions without an interface, such as subagents, send them to the OMP log.
 - Vibe cards no longer drop the text after a stray C1 CSI control (U+009B).
-
-## 1.3.3 — 26 сентября 2026
-
-### Изменено
-
-- Обновлена поддерживаемая версия OMP до 18.3.2 (включая миграции 18.3.0 и 18.3.1). Вызовы `write` и `read` по адресам `proc://` и `agent://` теперь сворачиваются в компактные строки `proc:` и `agent:`. Добавлены компактные правила отображения для инструментов `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill` и `wait`. Компактная строка `edit:` распознаёт синтаксис `*** Edit File:`. Публичный диапазон `engines.omp >=18.0.1` остаётся без изменений.
-
----
-
-### Changed
-
-- Updated supported OMP version to 18.3.2 (including 18.3.0 and 18.3.1 migrations). Calls to `write` and `read` targeting `proc://` and `agent://` now collapse into compact `proc:` and `agent:` rows. Added compact presentation rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill`, and `wait`. The compact `edit:` row recognizes the updated `*** Edit File:` syntax. Public range `engines.omp >=18.0.1` remains unchanged.
 
 ## 1.3.2 — 24 сентября 2026
 
