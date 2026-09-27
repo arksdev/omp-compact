@@ -4,6 +4,20 @@
 
 ---
 
+## Не выпущено
+
+### Исправлено
+
+- Строка `edit:` больше не подтормаживает интерфейс на патчах с длинными пробельными участками: разбор заголовков патча стоил до полусекунды на каждую перерисовку, теперь он линейный.
+- Заголовок патча с пустым путём (`*** Update File:` в конце строки) больше не принимает следующую строку патча за путь файла.
+
+---
+
+### Fixed
+
+- The `edit:` row no longer stalls the interface on patches with long whitespace runs: parsing the patch headers cost up to half a second on every redraw and is now linear.
+- A patch header with an empty path (`*** Update File:` at the end of a line) no longer takes the next patch line as the file path.
+
 ## 1.4.0 — 27 сентября 2026
 
 ### Добавлено

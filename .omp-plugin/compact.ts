@@ -92,8 +92,12 @@ export function editPathsFromInput(input: string): string[] {
 		addPath(path);
 		if (paths.length >= 8) return paths;
 	}
+	// Header scans stay on one line and stay linear: `[^\S\r\n]` is
+	// whitespace that is not a line break, and a path ends on a non-space
+	// character, so no whitespace run can be split two ways between the
+	// path and its trailing space.
 	for (const match of bounded.matchAll(
-		/^\s*\*{3}\s+(?:Add|Update|Delete)\s+File\s*:\s*(\S.*?)\s*$/gm,
+		/^[^\S\r\n]*\*{3}[^\S\r\n]+(?:Add|Update|Delete)[^\S\r\n]+File[^\S\r\n]*:[^\S\r\n]*(\S(?:.*\S)?)[^\S\r\n]*$/gm,
 	)) {
 		const path = match[1];
 		if (!path) continue;
@@ -105,16 +109,29 @@ export function editPathsFromInput(input: string): string[] {
 	// opener continues the previous file and carries no path, and a trailing
 	// ` all` is the match-all modifier rather than part of the path.
 	for (const match of bounded.matchAll(
-		/^\s*\*{3}[ \t]+(?:Edit[ \t]+File[ \t]*:[ \t]*|SM:EDIT[ \t]+)(\S.*?)[ \t]*$/gim,
+		/^[^\S\r\n]*\*{3}[ \t]+(?:Edit[ \t]+File[ \t]*:[ \t]*|SM:EDIT[ \t]+)(\S(?:.*\S)?)[^\S\r\n]*$/gim,
 	)) {
 		const raw = match[1];
 		if (!raw) continue;
-		const path = unquoteHeaderPath(raw.replace(/\s+all$/i, ""));
+		const path = unquoteHeaderPath(stripMatchAllModifier(raw));
 		if (!path) continue;
 		addPath(path);
 		if (paths.length >= 8) break;
 	}
 	return paths;
+}
+
+/**
+ * Drop a trailing match-all modifier: whitespace, then `all` in any case, at
+ * the very end. By hand because `/\s+all$/i` retries from every position of
+ * a long whitespace run inside the path. `trimEnd` removes exactly the
+ * characters `\s` matches.
+ */
+function stripMatchAllModifier(raw: string): string {
+	if (!/^all$/i.test(raw.slice(-3))) return raw;
+	const head = raw.slice(0, -3);
+	const kept = head.trimEnd();
+	return kept.length < head.length ? kept : raw;
 }
 
 /**

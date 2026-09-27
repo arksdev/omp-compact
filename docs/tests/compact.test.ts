@@ -158,6 +158,42 @@ describe("editPathsFromInput", () => {
 		expect(editPathsFromInput("*** Edit Files: src/a.ts")).toEqual([]);
 		expect(editPathsFromInput("*** SM:EDITOR src/a.ts")).toEqual([]);
 	});
+
+	test("an apply-patch header field never continues onto the next line", () => {
+		// A header with an empty path must not adopt the next patch line.
+		expect(editPathsFromInput("*** Update File:\n+const x = 1;\n")).toEqual([]);
+		expect(editPathsFromInput("***\nUpdate File: src/a.ts\n")).toEqual([]);
+	});
+
+	test("header scans stay linear on whitespace-heavy input", () => {
+		// Every edit row re-derives its paths on render. A long blank run or a
+		// path with a long inner whitespace gap made the apply-patch and
+		// sloppy-edit scans backtrack quadratically: 0.2–0.5 s per call at the
+		// 16 KB input bound.
+		const gap = " ".repeat(16_300);
+		const tabs = "\t".repeat(16_300);
+		const inputs = [
+			"\n".repeat(16_384),
+			`*** Update File: x${gap}y`,
+			`*** Edit File: x${tabs}y`,
+			`*** Edit File: x${tabs}y all`,
+		];
+		for (const input of inputs) {
+			let best = Number.POSITIVE_INFINITY;
+			for (let run = 0; run < 3; run++) {
+				const start = performance.now();
+				editPathsFromInput(input);
+				best = Math.min(best, performance.now() - start);
+			}
+			expect(best).toBeLessThan(50);
+		}
+		expect(editPathsFromInput(`*** Update File: x${gap}y`)).toEqual([
+			`x${gap}y`,
+		]);
+		expect(editPathsFromInput(`*** Edit File: x${tabs}y ALL`)).toEqual([
+			`x${tabs}y`,
+		]);
+	});
 });
 
 describe("genericToolDescription", () => {
