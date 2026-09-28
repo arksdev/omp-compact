@@ -827,6 +827,7 @@ describe("existing tool descriptions", () => {
 		expect(rule?.knownArgs).toEqual(["query", "grep_keywords", "path"]);
 		expect(rule?.knownDetails).toEqual([
 			"query",
+			"used",
 			"keywords",
 			"threshold",
 			"hits",

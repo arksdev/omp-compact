@@ -87,12 +87,34 @@ const READ_DETAILS = [
 	"displayReadTargets",
 	"summary",
 ] as const;
-const BASH_ARGS = ["command", "cwd"] as const;
+const BASH_ARGS = [
+	"command",
+	"cwd",
+	"timeout",
+	"pty",
+	// 18.3.0 async jobs and supervised `bash` services (`BashToolSchema`).
+	"async",
+	"name",
+	"ready",
+	"log",
+	"port",
+	"host",
+	"env",
+] as const;
 const BASH_DETAILS = [
+	"meta",
 	"timeoutSeconds",
+	"requestedTimeoutSeconds",
+	"timeoutDisabled",
 	"wallTimeMs",
 	"exitCode",
-	"meta",
+	"timedOut",
+	"terminalId",
+	// Service/async envelopes (`BashToolDetails`).
+	"service",
+	"async",
+	// Live progress variant (`BashProgressDetails`).
+	"images",
 ] as const;
 const WRITE_ARGS = ["path", "content"] as const;
 const WRITE_DETAILS = [
@@ -126,7 +148,7 @@ const EDIT_DETAILS = [
 	"source",
 	"executed",
 ] as const;
-const GREP_ARGS = ["pattern", "path", "case", "gitignore"] as const;
+const GREP_ARGS = ["pattern", "path", "case", "gitignore", "skip"] as const;
 const GREP_DETAILS = [
 	"scopePath",
 	"searchPath",
@@ -155,6 +177,7 @@ const GLOB_DETAILS = [
 const FIND_ARGS = ["query", "grep_keywords", "path"] as const;
 const FIND_DETAILS = [
 	"query",
+	"used",
 	"keywords",
 	"threshold",
 	"hits",
@@ -240,21 +263,108 @@ const WAIT_DETAILS = [
 	"agents",
 	"interrupted",
 ] as const;
-const TODO_ARGS = ["op", "title", "items"] as const;
+const TODO_ARGS = [
+	"op",
+	"task",
+	"phase",
+	"items",
+	"list",
+	"reason",
+	"here",
+] as const;
 const TODO_DETAILS = ["op", "phases", "storage", "completedTasks"] as const;
-const EVAL_ARGS = ["code", "language", "title"] as const;
-const EVAL_DETAILS = ["language", "languages", "cells"] as const;
-const YIELD_ARGS = ["data", "type", "result"] as const;
-const YIELD_DETAILS = ["data", "status"] as const;
-const ASK_ARGS = ["question", "options", "multi"] as const;
-const ASK_DETAILS = [
+// `evalSchema` is `language` plus the shared cell fields.
+const EVAL_ARGS = ["language", "code", "title", "timeout", "reset"] as const;
+const EVAL_DETAILS = [
+	"language",
+	"languages",
+	"cells",
+	"jsonOutputs",
+	"images",
+	"statusEvents",
+	"isError",
+	"meta",
+	"notice",
+	"async",
+] as const;
+const YIELD_ARGS = [
+	"data",
+	"type",
+	"result",
+	"status",
+	"error",
+	"useLastTurn",
+	"complete",
+	"schemaOverridden",
+] as const;
+const YIELD_DETAILS = [
+	"data",
+	"status",
+	"error",
+	"type",
+	"useLastTurn",
+	"complete",
+	"schemaOverridden",
+] as const;
+const ASK_ARGS = [
+	"questions",
 	"question",
 	"options",
 	"multi",
-	"selectedOptions",
+	"id",
+	"header",
+	"label",
+	"description",
+	"preview",
+	"recommended",
 ] as const;
-const AST_GREP_ARGS = ["pat", "path", "skip"] as const;
+const ASK_DETAILS = [
+	"question",
+	"questions",
+	"options",
+	"multi",
+	"selectedOptions",
+	"customInput",
+	"note",
+	"timedOut",
+	"results",
+	"chatRedirect",
+] as const;
+const AST_GREP_ARGS = ["pat", "path", "lang", "skip"] as const;
+const AST_GREP_DETAILS = [
+	"count",
+	"matchCount",
+	"fileCount",
+	"files",
+	"fileMatches",
+	"filesSearched",
+	"limitReached",
+	"parseErrors",
+	"parseErrorsTotal",
+	"scopePath",
+	"searchPath",
+	"path",
+	"cwd",
+	"displayContent",
+	"meta",
+] as const;
 const AST_EDIT_ARGS = ["ops", "paths"] as const;
+const AST_EDIT_DETAILS = [
+	"totalReplacements",
+	"filesTouched",
+	"filesSearched",
+	"applied",
+	"limitReached",
+	"parseErrors",
+	"parseErrorsTotal",
+	"scopePath",
+	"files",
+	"fileReplacements",
+	"displayContent",
+	"searchPath",
+	"cwd",
+	"meta",
+] as const;
 const INSPECT_IMAGE_ARGS = ["path", "question"] as const;
 const WEB_SEARCH_ARGS = [
 	"i",
@@ -332,46 +442,114 @@ const VIBE_DETAILS = [
 	"send",
 	"wait",
 	"killed",
+	// 18.4.2 hides director-killed sessions from `screens` and reports only
+	// their count, so the compact row can name what the wall no longer shows.
+	"hiddenKilled",
+	// Envelope fields the stock card reads out of `spawned`/`send`/`wait`/`killed`.
+	"cli",
+	"id",
+	"jobId",
+	"status",
+	"settled",
+	"stillRunning",
+	"timedOut",
+	"waiting",
 ] as const;
+// `ida` (`pi-coding-agent/src/tools/ida.ts`): one schema, `action` selecting
+// the operation and `db` the database the target lives in.
 const IDA_ARGS = [
 	"action",
-	"database_path",
-	"address",
+	"db",
+	"target",
 	"name",
-	"comment",
-	"type",
-	"count",
-	"query",
+	"text",
+	"repeatable",
+	"decl",
+	"code",
+	"save",
+	"timeout",
 ] as const;
+const IDA_DETAILS = ["action", "db", "meta"] as const;
+// `github` (`src/tools/gh.ts`): one wide schema for every op.
 const GITHUB_ARGS = [
 	"op",
-	"owner",
 	"repo",
+	"branch",
 	"path",
-	"issue_number",
-	"pull_number",
-	"query",
-	"body",
+	"pr",
+	"force",
+	"forceWithLease",
 	"title",
+	"body",
+	"base",
+	"head",
+	"draft",
+	"fill",
+	"reviewer",
+	"assignee",
+	"label",
+	"query",
+	"since",
+	"until",
+	"dateField",
+	"limit",
+	"run",
+	"tail",
 ] as const;
+const GITHUB_DETAILS = [
+	"meta",
+	"artifactId",
+	"repo",
+	"branch",
+	"worktreePath",
+	"remote",
+	"remoteBranch",
+	"headSha",
+	"runId",
+	"runIds",
+	"status",
+	"conclusion",
+	"failedJobs",
+	"watch",
+	"checkouts",
+] as const;
+// `lsp` (`src/lsp/types.ts` for the schema, `pi-tui/src/tools/lsp.ts` details).
 const LSP_ARGS = [
 	"action",
-	"path",
-	"file_path",
+	"file",
 	"line",
-	"character",
+	"symbol",
 	"query",
+	"new_name",
+	"apply",
+	"timeout",
+	"payload",
 ] as const;
-const CHECKPOINT_ARGS = ["name", "description"] as const;
-const REWIND_ARGS = ["checkpoint_id"] as const;
-const CONTEXT_NOTES_ARGS = ["action", "note", "index"] as const;
-const NEW_CONTEXT_ARGS = ["reason"] as const;
-const MEMORY_EDIT_ARGS = ["action", "id", "text", "tags"] as const;
-const RETAIN_ARGS = ["text", "tags"] as const;
-const RECALL_ARGS = ["query", "limit"] as const;
-const REFLECT_ARGS = ["query"] as const;
-const LEARN_ARGS = ["topic", "content"] as const;
-const MANAGE_SKILL_ARGS = ["action", "name", "content"] as const;
+const LSP_DETAILS = ["serverName", "action", "success", "request"] as const;
+const CHECKPOINT_ARGS = ["goal"] as const;
+const CHECKPOINT_DETAILS = ["goal", "startedAt", "meta"] as const;
+const REWIND_ARGS = ["report"] as const;
+const REWIND_DETAILS = ["report", "rewound", "meta"] as const;
+const CONTEXT_NOTES_ARGS = ["text"] as const;
+const CONTEXT_NOTES_DETAILS = ["entryId", "text", "bytes"] as const;
+const NEW_CONTEXT_ARGS: readonly string[] = [];
+const NEW_CONTEXT_DETAILS = ["requested"] as const;
+const MEMORY_EDIT_ARGS = [
+	"op",
+	"id",
+	"content",
+	"importance",
+	"replacement_id",
+] as const;
+const MEMORY_EDIT_DETAILS = ["status", "bank", "store"] as const;
+const RETAIN_ARGS = ["items"] as const;
+const RETAIN_DETAILS = ["count"] as const;
+const RECALL_ARGS = ["query"] as const;
+const REFLECT_ARGS = ["query", "context"] as const;
+const LEARN_ARGS = ["memory", "context", "scope", "skill"] as const;
+const LEARN_DETAILS = ["skill", "shadowed"] as const;
+const MANAGE_SKILL_ARGS = ["action", "name", "description", "body"] as const;
+const MANAGE_SKILL_DETAILS = ["action", "name", "shadowed"] as const;
 
 // Null prototype: direct index of collision keys (constructor/toString/…) must
 // yield undefined even for callers that bypass normalizeToolName. Object.hasOwn
@@ -524,14 +702,14 @@ export const TOOL_RULES: Readonly<
 			"compact",
 			"none",
 			AST_GREP_ARGS,
-			[],
+			AST_GREP_DETAILS,
 			describeAstGrep,
 		),
 		ast_edit: presentationRule(
 			"compact",
 			"none",
 			AST_EDIT_ARGS,
-			[],
+			AST_EDIT_DETAILS,
 			describeAstEdit,
 		),
 		inspect_image: presentationRule(
@@ -634,63 +812,63 @@ export const TOOL_RULES: Readonly<
 			"compact",
 			"none",
 			IDA_ARGS,
-			[],
+			IDA_DETAILS,
 			genericDescribe("ida"),
 		),
 		github: presentationRule(
 			"compact",
 			"none",
 			GITHUB_ARGS,
-			[],
+			GITHUB_DETAILS,
 			genericDescribe("github"),
 		),
 		lsp: presentationRule(
 			"compact",
 			"none",
 			LSP_ARGS,
-			[],
+			LSP_DETAILS,
 			genericDescribe("lsp"),
 		),
 		checkpoint: presentationRule(
 			"compact",
 			"none",
 			CHECKPOINT_ARGS,
-			[],
+			CHECKPOINT_DETAILS,
 			genericDescribe("checkpoint"),
 		),
 		rewind: presentationRule(
 			"compact",
 			"none",
 			REWIND_ARGS,
-			[],
+			REWIND_DETAILS,
 			genericDescribe("rewind"),
 		),
 		context_notes: presentationRule(
 			"compact",
 			"none",
 			CONTEXT_NOTES_ARGS,
-			[],
+			CONTEXT_NOTES_DETAILS,
 			genericDescribe("context_notes"),
 		),
 		new_context: presentationRule(
 			"compact",
 			"none",
 			NEW_CONTEXT_ARGS,
-			[],
+			NEW_CONTEXT_DETAILS,
 			genericDescribe("new_context"),
 		),
 		memory_edit: presentationRule(
 			"compact",
 			"none",
 			MEMORY_EDIT_ARGS,
-			[],
+			MEMORY_EDIT_DETAILS,
 			genericDescribe("memory_edit"),
 		),
 		retain: presentationRule(
 			"compact",
 			"none",
 			RETAIN_ARGS,
-			[],
+			RETAIN_DETAILS,
 			genericDescribe("retain"),
 		),
 		recall: presentationRule(
@@ -711,14 +889,14 @@ export const TOOL_RULES: Readonly<
 			"compact",
 			"none",
 			LEARN_ARGS,
-			[],
+			LEARN_DETAILS,
 			genericDescribe("learn"),
 		),
 		manage_skill: presentationRule(
 			"compact",
 			"none",
 			MANAGE_SKILL_ARGS,
-			[],
+			MANAGE_SKILL_DETAILS,
 			genericDescribe("manage_skill"),
 		),
 	}) as Partial<Record<string, ToolPresentationRule>>,

@@ -6,15 +6,25 @@
 
 ## Не выпущено
 
+### Изменено
+
+- Хост-пин переехал с 18.3.4 на 18.4.2. Критическая патч-поверхность впервые за долгую серию релизов сдвинулась не переименованием, а переработкой: `pi-tui/src/chrome/transcript-container.ts` получил `beginFrame(frame)` с общим на кадр кэшем рендера блоков, ранний выход из обхода в `renderViewport` и бюджет времени в `#renderRange`, из-за которого `peekFinalizedBatch` может отдать укороченный батч, а остаток — в следующих кадрах. `renderTail`, `render`, read-group, шесть листьев и карточка советника остались побайтово идентичны, контракт публикации строк и `resetDisplay` не тронуты. Правка на стороне плагина одна: патч `liveRowCount` теперь пропускает новый необязательный бюджет хоста, иначе фолд вернул бы полный обход леджера, который 18.4.2 как раз убрал (#12933). В объявленные детали `vibe` добавлен ключ `hiddenKilled`. Публичный диапазон `engines.omp >=18.0.1` не меняется.
+
 ### Исправлено
 
+- Компактные правила `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill` объявляли выдуманные имена аргументов и не объявляли детали результата, поэтому первая же записанная сессия с этими инструментами сломала бы инвентарь реплея. Объявления сверены со схемами и `*Details` хоста (18.0.10 → 18.4.2) и приведены к ним; заодно закрыты такие же пробелы у `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit` и `vibe_*` (в `todo` убран несуществовавший `title`).
 - Строка `edit:` больше не подтормаживает интерфейс на патчах с длинными пробельными участками: разбор заголовков патча стоил до полусекунды на каждую перерисовку, теперь он линейный.
 - Заголовок патча с пустым путём (`*** Update File:` в конце строки) больше не принимает следующую строку патча за путь файла.
 
 ---
 
+### Changed
+
+- The host pin moved from 18.3.4 to 18.4.2. For the first time in a long run of releases the critical patch surface shifted by rewrite rather than rename: `pi-tui/src/chrome/transcript-container.ts` gained `beginFrame(frame)` with a frame-scoped block render cache, an early exit in the `renderViewport` walk, and a wall-clock budget in `#renderRange` that lets `peekFinalizedBatch` offer a shorter batch and keep the remainder for later frames. `renderTail`, `render`, the read group, the six leaf fingerprints and the advisor card stayed byte-identical, and the stable-row publication contract and `resetDisplay` are untouched. The plugin needs one change: the patched `liveRowCount` now forwards the host's new optional budget, or the fold would restore the full ledger walk 18.4.2 removed (#12933). `hiddenKilled` joined the declared `vibe` details. The public range `engines.omp >=18.0.1` does not change.
+
 ### Fixed
 
+- The compact rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, and `manage_skill` declared invented argument names and no result details, so the first recorded session using any of them would have broken the replay inventory. The declarations now match the host's own schemas and `*Details` (18.0.10 through 18.4.2), and the same latent gaps are closed for `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit`, and the `vibe_*` details (`todo` loses a `title` no host ever carried).
 - The `edit:` row no longer stalls the interface on patches with long whitespace runs: parsing the patch headers cost up to half a second on every redraw and is now linear.
 - A patch header with an empty path (`*** Update File:` at the end of a line) no longer takes the next patch line as the file path.
 

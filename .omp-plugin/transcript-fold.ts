@@ -41,7 +41,15 @@ export interface TranscriptHost extends RenderableBlock {
 	 */
 	clear?(): void;
 	renderViewport(width: number, rows: number, frame: AnimationFrame): Lines;
-	liveRowCount(width: number): number;
+	/**
+	 * Live, un-emitted tail height at `width`.
+	 *
+	 * OMP 18.4.2 added `limit` so a caller that only compares the height
+	 * against a viewport does not pay for rendering a resumed session's whole
+	 * ledger. It is a budget, not a filter: past it the count is a lower bound
+	 * guaranteed only to exceed it, which is all a caller compares against.
+	 */
+	liveRowCount(width: number, limit?: number): number;
 	peekFinalizedBatch(width: number, capacity: number): HistoryBatch | undefined;
 	/**
 	 * Complete-history replay (18.0.6). The terminal drives it through
@@ -484,9 +492,13 @@ export class TranscriptFold {
 				liveRowCount: {
 					configurable: true,
 					writable: true,
-					value: (width: number): number => {
+					value: (width: number, limit?: number): number => {
 						this.#plan(width);
-						return hostLiveRows.call(this.#transcript, width);
+						// The host's walk budget is forwarded, not swallowed: a
+						// resumed ledger is measured once per block, and the composer
+						// only compares the height against the viewport, so dropping
+						// the budget would restore the stall 18.4.2 removed (#12933).
+						return hostLiveRows.call(this.#transcript, width, limit);
 					},
 				},
 				peekFinalizedBatch: {

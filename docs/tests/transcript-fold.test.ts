@@ -57,9 +57,13 @@ class FakeTranscript implements TranscriptHost {
 		return this.render(width).slice(0, rows);
 	}
 
-	liveRowCount(width: number): number {
+	liveRowCount(width: number, limit?: number): number {
+		this.liveRowLimits.push(limit);
 		return this.render(width).length;
 	}
+
+	/** Budgets the container handed its live-row walk (undefined = unbounded). */
+	readonly liveRowLimits: (number | undefined)[] = [];
 
 	peekFinalizedBatch(
 		_width: number,
@@ -263,6 +267,29 @@ describe("TranscriptFold descriptor transactions", () => {
 		expect(() => second.install()).not.toThrow();
 		second.dispose();
 	});
+	test("the live-row walk keeps the host's budget instead of swallowing it", () => {
+		const transcript = new FakeTranscript();
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		// 18.4.2 budgets the walk so a resumed ledger is not rendered whole in
+		// one frame (#12933). The composer only compares the height against the
+		// viewport, so a wrapper that dropped the budget would silently restore
+		// the full walk the host removed.
+		const block = new FakeBlock();
+		transcript.addChild(block);
+
+		transcript.liveRowCount(96, 12);
+		expect(transcript.liveRowLimits).toEqual([12]);
+		// Planning happened: the block is fold-owned now.
+		expect(Object.hasOwn(block, "render")).toBe(true);
+		// Hosts up to 18.4.1 pass one argument; the walk stays unbounded then.
+		transcript.liveRowCount(96);
+		expect(transcript.liveRowLimits).toEqual([12, undefined]);
+
+		fold.dispose();
+		expect(Object.hasOwn(transcript, "liveRowCount")).toBe(false);
+	});
+
 	test("the complete-history replay replans the fold before the host renders it", () => {
 		const transcript = new FakeTranscript();
 		const fold = new TranscriptFold(transcript, callbacks());

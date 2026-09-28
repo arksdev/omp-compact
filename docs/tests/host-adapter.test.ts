@@ -1238,7 +1238,7 @@ describe("StockHostAdapter exact-instance patching", () => {
 	});
 });
 
-stockTest("stock 18.3.4 host capability canary", async () => {
+stockTest("stock 18.4.2 host capability canary", async () => {
 	const host = await loadStockHost();
 	const transcript = new host.TranscriptContainer();
 	await host.initTheme();
@@ -1280,11 +1280,11 @@ stockTest("stock 18.3.4 host capability canary", async () => {
 	expect(isBackgroundCompletionBlock(tool)).toBe(false);
 	expect(isBackgroundCompletionBlock(readGroup)).toBe(false);
 	// Version last: a pin mismatch must not blind the seam probes above.
-	expect(stockHostVersion()).toBe("18.3.4");
+	expect(stockHostVersion()).toBe("18.4.2");
 });
 
 stockTest(
-	"stock 18.3.4 transcript forwards activity visibility to new children",
+	"stock 18.4.2 transcript forwards activity visibility to new children",
 	async () => {
 		const host = await loadStockHost();
 		const transcript = new host.TranscriptContainer();
