@@ -225,15 +225,14 @@ export function readArgsTarget(args: unknown): string | undefined {
  * render as full tool cards so resolved content stays visible.
  *
  * The plugin cannot call stock's `InternalUrlRouter` from the extension
- * process, so the full-card schemes are listed explicitly. Unknown
- * scheme-less / filesystem paths collapse (group presentation). Drift risk
- * is limited to new internal schemes defaulting to group until listed —
- * the inverse (treating a groupable path as a full card) is worse because
- * a single full-card read state previously poisoned every tool's order
- * pairing on restore.
+ * process, so the full-card schemes are listed explicitly; the
+ * host-adapter suite checks the list against the pinned router. Unknown
+ * scheme-less / filesystem paths collapse (group presentation). A missing
+ * scheme books a full card as a group row, and on restore that one card
+ * more than the states explain fails order pairing for every card.
  */
 const FULL_CARD_READ_SCHEME =
-	/^(?:skill|agent|memory|vault|history|artifact|omp|rule|security|mcp|issue|pr|local|ssh):\/\//i;
+	/^(?:skill|agent|memory|vault|history|artifact|omp|rule|security|mcp|issue|pr|local|ssh|proc|cfg|attachment|conflict):\/\//i;
 
 export function readArgsCollapseIntoGroup(args: unknown): boolean {
 	const target = readArgsTarget(args);

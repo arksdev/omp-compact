@@ -199,6 +199,25 @@ export function stockHostVersion(): string {
 	return manifest.version;
 }
 
+/**
+ * Transcript specs of the schemes the pinned host's `InternalUrlRouter`
+ * registers itself. Stock `readArgsCollapseIntoGroup` decides a read's card
+ * shape from exactly this registry. Dynamic import: the package root comes
+ * from `OMP_STOCK_BIN` at run time, like every stock module here.
+ */
+export async function stockInternalUrlSpecs(): Promise<
+	ReadonlyMap<string, { compactTranscript?: boolean }>
+> {
+	const { InternalUrlRouter } = (await import(
+		pathToFileURL(join(packageRoot(), "src/internal-urls/router.ts")).href
+	)) as {
+		InternalUrlRouter: new () => {
+			specs(): ReadonlyMap<string, { compactTranscript?: boolean }>;
+		};
+	};
+	return new InternalUrlRouter().specs();
+}
+
 /** Generated temp dir beside the root node_modules directory. */
 export function stockTempDir(): string {
 	return resolve(dirname(binary ?? ""), "..", "..", ".omp-compact-test");

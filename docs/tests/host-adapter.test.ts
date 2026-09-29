@@ -32,7 +32,11 @@ import type {
 	RenderableBlock,
 	TranscriptHost,
 } from "../../.omp-plugin/transcript-fold";
-import { loadStockHost, stockHostVersion } from "./test-stock-host";
+import {
+	loadStockHost,
+	stockHostVersion,
+	stockInternalUrlSpecs,
+} from "./test-stock-host";
 
 const binary = process.env.OMP_STOCK_BIN;
 const stockTest = binary ? test : test.skip;
@@ -894,33 +898,32 @@ describe("OMP 17.4.0 argument positions", () => {
 		expect(readArgsCollapseIntoGroup({ path: "security://scans/123" })).toBe(
 			false,
 		);
-
-		// Every router scheme except xd must NOT collapse into group:
-		const routerSchemes = [
-			"omp",
-			"agent",
-			"artifact",
-			"memory",
-			"local",
-			"vault",
-			"skill",
-			"rule",
-			"security",
-			"mcp",
-			"issue",
-			"pr",
-			"history",
-			"ssh",
-		];
-		for (const scheme of routerSchemes) {
-			expect(readArgsCollapseIntoGroup({ path: `${scheme}://target` })).toBe(
-				false,
-			);
-			expect(
-				readArgsCollapseIntoGroup({ path: `${scheme.toUpperCase()}://target` }),
-			).toBe(false);
-		}
 	});
+
+	stockTest(
+		"readArgsCollapseIntoGroup matches every scheme the pinned router registers",
+		async () => {
+			// Stock renders a read of a registered internal scheme as a full card
+			// unless its spec declares `compactTranscript`. A scheme missing from
+			// the plugin's mirror booked that card as a group row, so a resumed
+			// session held one card more than its states and every card of the
+			// restored transcript stayed native (`cfg://` on 18.3.4).
+			const specs = await stockInternalUrlSpecs();
+			expect(specs.size).toBeGreaterThan(0);
+			for (const [scheme, spec] of specs) {
+				const collapses = spec.compactTranscript === true;
+				expect({
+					scheme,
+					collapses: readArgsCollapseIntoGroup({ path: `${scheme}://target` }),
+				}).toEqual({ scheme, collapses });
+				expect(
+					readArgsCollapseIntoGroup({
+						path: `${scheme.toUpperCase()}://target`,
+					}),
+				).toBe(collapses);
+			}
+		},
+	);
 });
 describe("StockHostAdapter discovery", () => {
 	test("collectTranscriptCandidates finds nested transcripts", () => {
