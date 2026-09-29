@@ -4,34 +4,32 @@
 
 ---
 
-## Не выпущено
+## 1.4.1 — 29 сентября 2026
 
 ### Изменено
 
-- Хост-пин переехал с 18.3.4 на 18.4.2. Критическая патч-поверхность впервые за долгую серию релизов сдвинулась не переименованием, а переработкой: `pi-tui/src/chrome/transcript-container.ts` получил `beginFrame(frame)` с общим на кадр кэшем рендера блоков, ранний выход из обхода в `renderViewport` и бюджет времени в `#renderRange`, из-за которого `peekFinalizedBatch` может отдать укороченный батч, а остаток — в следующих кадрах. `renderTail`, `render`, read-group, шесть листьев и карточка советника остались побайтово идентичны, контракт публикации строк и `resetDisplay` не тронуты. Правка на стороне плагина одна: патч `liveRowCount` теперь пропускает новый необязательный бюджет хоста, иначе фолд вернул бы полный обход леджера, который 18.4.2 как раз убрал (#12933). В объявленные детали `vibe` добавлен ключ `hiddenKilled`. Публичный диапазон `engines.omp >=18.0.1` не меняется.
-- Хост-пин переехал с 18.4.2 на 18.4.3. Файлы, которые патчит плагин, кроме одного, побайтово совпадают: `tool-execution`, read-group, шесть листьев, карточка советника, `resetDisplay` и реестр схем `internal-urls`. В `transcript-container.ts` изменились две внутренние вещи. Размер батча прогрессивной публикации теперь считается из уже записанных рендеров. Сверка `children` на каждом кадре опирается на идентичность массива и длину и сканирует только живой хвост. Прямая правка `children` у плагина одна, вставка через `splice`, и она меняет длину, так что пересинхронизация срабатывает как раньше. Правок в плагине не понадобилось.
+- Обновлена поддерживаемая версия OMP до 18.4.3 (включая изменения 18.4.2). Плагин передаёт хосту новый бюджет отрисовки из 18.4.2 и не возвращает полный обход транскрипта, который хост убрал. Публичный диапазон `engines.omp >=18.0.1` не меняется.
 
 ### Исправлено
 
-- Открытая заново сессия, где агент читал `cfg://` или `proc://` (а также `attachment://`, `conflict://`), больше не показывает все карточки инструментов стоковыми рамками. OMP 18.3.0 и 18.3.4 добавили эти схемы, и хост рисует их чтение отдельной карточкой. Плагин считал такое чтение строкой read-группы, насчитывал на одну карточку меньше, чем есть в транскрипте, и отказывался сопоставлять карточки со всей историей. Тест теперь сверяет список схем с роутером закреплённого хоста, так что следующая новая схема уронит его при переезде пина.
-- При открытии сессии через `omp -r` или `omp -c` строка `[ N actions … ]` последнего прогона больше не показывается дважды. Плагин ставил её в ещё пустой транскрипт до первой отрисовки хоста. Стоковый `renderInitialMessages({ preserveExistingChat: true })` дописывал её копию под последний ответ, а коммит пересборки ставил вторую на правильное место.
-- Компактные правила `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, `manage_skill` объявляли выдуманные имена аргументов и не объявляли детали результата, поэтому первая же записанная сессия с этими инструментами сломала бы инвентарь реплея. Объявления сверены со схемами и `*Details` хоста (18.0.10 → 18.4.2) и приведены к ним; заодно закрыты такие же пробелы у `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit` и `vibe_*` (в `todo` убран несуществовавший `title`).
-- Строка `edit:` больше не подтормаживает интерфейс на патчах с длинными пробельными участками: разбор заголовков патча стоил до полусекунды на каждую перерисовку, теперь он линейный.
+- Открытая заново сессия, где агент читал `cfg://`, `proc://`, `attachment://` или `conflict://`, больше не показывает все карточки инструментов нативными рамками.
+- При открытии сессии через `omp -r` или `omp -c` строка статистики последнего прогона больше не показывается дважды.
+- Компактные правила для `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn` и `manage_skill` сверены с настоящими аргументами и деталями результата OMP. Раньше они объявляли выдуманные имена. Такие же пробелы закрыты у `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit` и `vibe_*`.
+- Строка `edit:` больше не подтормаживает интерфейс на патчах с длинными пробельными участками.
 - Заголовок патча с пустым путём (`*** Update File:` в конце строки) больше не принимает следующую строку патча за путь файла.
 
 ---
 
 ### Changed
 
-- The host pin moved from 18.3.4 to 18.4.2. For the first time in a long run of releases the critical patch surface shifted by rewrite rather than rename: `pi-tui/src/chrome/transcript-container.ts` gained `beginFrame(frame)` with a frame-scoped block render cache, an early exit in the `renderViewport` walk, and a wall-clock budget in `#renderRange` that lets `peekFinalizedBatch` offer a shorter batch and keep the remainder for later frames. `renderTail`, `render`, the read group, the six leaf fingerprints and the advisor card stayed byte-identical, and the stable-row publication contract and `resetDisplay` are untouched. The plugin needs one change: the patched `liveRowCount` now forwards the host's new optional budget, or the fold would restore the full ledger walk 18.4.2 removed (#12933). `hiddenKilled` joined the declared `vibe` details. The public range `engines.omp >=18.0.1` does not change.
-- The host pin moved from 18.4.2 to 18.4.3. Every file the plugin patches is byte-identical except one: `tool-execution`, the read group, the six leaves, the advisor card, `resetDisplay`, and the `internal-urls` scheme registry are unchanged. `transcript-container.ts` changed in two internal places. The progressive-append batch is now sized from the stable renders already recorded. The per-frame `children` check relies on array identity and length and scans only the live tail. The plugin edits `children` directly in one place, an insertion `splice`, which changes the length, so the resync still fires. The plugin needed no code change.
+- Updated the supported OMP version to 18.4.3 (including the 18.4.2 changes). The plugin forwards the new render budget from 18.4.2 to the host and no longer restores the full transcript walk the host removed. The public range `engines.omp >=18.0.1` does not change.
 
 ### Fixed
 
-- A resumed session in which the agent read `cfg://` or `proc://` (or `attachment://`, `conflict://`) no longer shows every tool card as a stock frame. OMP 18.3.0 and 18.3.4 added these schemes, and the host renders a read of them as a full card. The plugin counted such a read as a read-group row, expected one card fewer than the transcript held, and declined to pair any card of the restored history. A test now checks the scheme list against the pinned host's router, so the next new scheme fails it at the pin move.
-- Opening a session with `omp -r` or `omp -c` no longer shows the last run's `[ N actions … ]` row twice. The plugin placed it into the still empty transcript before the host's first render. Stock `renderInitialMessages({ preserveExistingChat: true })` re-appended that copy below the last answer, and the rebuild commit placed a second one where it belongs.
-- The compact rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, and `manage_skill` declared invented argument names and no result details, so the first recorded session using any of them would have broken the replay inventory. The declarations now match the host's own schemas and `*Details` (18.0.10 through 18.4.2), and the same latent gaps are closed for `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit`, and the `vibe_*` details (`todo` loses a `title` no host ever carried).
-- The `edit:` row no longer stalls the interface on patches with long whitespace runs: parsing the patch headers cost up to half a second on every redraw and is now linear.
+- A resumed session in which the agent read `cfg://`, `proc://`, `attachment://`, or `conflict://` no longer shows every tool card as a native frame.
+- Opening a session with `omp -r` or `omp -c` no longer shows the last run's stats row twice.
+- The compact rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, and `manage_skill` now match the argument names and result details OMP sends. They declared invented names before. The same gaps are closed for `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit`, and `vibe_*`.
+- The `edit:` row no longer stalls the interface on patches with long whitespace runs.
 - A patch header with an empty path (`*** Update File:` at the end of a line) no longer takes the next patch line as the file path.
 
 ## 1.4.0 — 27 сентября 2026
