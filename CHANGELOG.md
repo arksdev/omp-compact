@@ -9,6 +9,7 @@
 ### Изменено
 
 - Хост-пин переехал с 18.3.4 на 18.4.2. Критическая патч-поверхность впервые за долгую серию релизов сдвинулась не переименованием, а переработкой: `pi-tui/src/chrome/transcript-container.ts` получил `beginFrame(frame)` с общим на кадр кэшем рендера блоков, ранний выход из обхода в `renderViewport` и бюджет времени в `#renderRange`, из-за которого `peekFinalizedBatch` может отдать укороченный батч, а остаток — в следующих кадрах. `renderTail`, `render`, read-group, шесть листьев и карточка советника остались побайтово идентичны, контракт публикации строк и `resetDisplay` не тронуты. Правка на стороне плагина одна: патч `liveRowCount` теперь пропускает новый необязательный бюджет хоста, иначе фолд вернул бы полный обход леджера, который 18.4.2 как раз убрал (#12933). В объявленные детали `vibe` добавлен ключ `hiddenKilled`. Публичный диапазон `engines.omp >=18.0.1` не меняется.
+- Хост-пин переехал с 18.4.2 на 18.4.3. Файлы, которые патчит плагин, кроме одного, побайтово совпадают: `tool-execution`, read-group, шесть листьев, карточка советника, `resetDisplay` и реестр схем `internal-urls`. В `transcript-container.ts` изменились две внутренние вещи. Размер батча прогрессивной публикации теперь считается из уже записанных рендеров. Сверка `children` на каждом кадре опирается на идентичность массива и длину и сканирует только живой хвост. Прямая правка `children` у плагина одна, вставка через `splice`, и она меняет длину, так что пересинхронизация срабатывает как раньше. Правок в плагине не понадобилось.
 
 ### Исправлено
 
@@ -23,6 +24,7 @@
 ### Changed
 
 - The host pin moved from 18.3.4 to 18.4.2. For the first time in a long run of releases the critical patch surface shifted by rewrite rather than rename: `pi-tui/src/chrome/transcript-container.ts` gained `beginFrame(frame)` with a frame-scoped block render cache, an early exit in the `renderViewport` walk, and a wall-clock budget in `#renderRange` that lets `peekFinalizedBatch` offer a shorter batch and keep the remainder for later frames. `renderTail`, `render`, the read group, the six leaf fingerprints and the advisor card stayed byte-identical, and the stable-row publication contract and `resetDisplay` are untouched. The plugin needs one change: the patched `liveRowCount` now forwards the host's new optional budget, or the fold would restore the full ledger walk 18.4.2 removed (#12933). `hiddenKilled` joined the declared `vibe` details. The public range `engines.omp >=18.0.1` does not change.
+- The host pin moved from 18.4.2 to 18.4.3. Every file the plugin patches is byte-identical except one: `tool-execution`, the read group, the six leaves, the advisor card, `resetDisplay`, and the `internal-urls` scheme registry are unchanged. `transcript-container.ts` changed in two internal places. The progressive-append batch is now sized from the stable renders already recorded. The per-frame `children` check relies on array identity and length and scans only the live tail. The plugin edits `children` directly in one place, an insertion `splice`, which changes the length, so the resync still fires. The plugin needed no code change.
 
 ### Fixed
 
