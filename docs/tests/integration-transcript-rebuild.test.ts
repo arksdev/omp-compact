@@ -953,6 +953,73 @@ stockTest(
 );
 
 stockTest(
+	"cold entry with preserveExistingChat shows the replayed stats row once, above the answer",
+	async () => {
+		// `omp -r` / `omp -c`: session_start hydrates while the visible
+		// transcript is still empty, then stock's startup
+		// renderInitialMessages({ preserveExistingChat: true }) clears it,
+		// transfers the staged history and re-appends every child that was
+		// already there. A stats carrier planted at hydration rode that
+		// re-append below the answer, and the rebuild commit inserted a second
+		// one in its place.
+		const harness = rebuildHarness();
+		harness.branch.current = committedSingleToolBranch(
+			"printf routine",
+			"bash-r",
+			"restored done",
+			[],
+		).concat({
+			type: "custom",
+			customType: "omp-compact-stats",
+			data: {
+				version: 1,
+				runId: "omp-compact-run-1",
+				actions: 1,
+				sent: 100,
+				received: 50,
+				cacheRead: 200,
+				cacheWrite: 30,
+				hitRate: 200 / 300,
+				durationMs: 32_000,
+				hasError: false,
+				messages: 2,
+				completedAt: 1_700_000_100_000,
+			},
+		});
+		const booted = await bootForRebuild("compact", harness);
+		const call = new booted.host.ToolExecutionComponent(
+			"bash",
+			{ command: "printf routine" },
+			{ showImages: false, useBuiltInRenderer: true },
+			fakeTool("bash"),
+			toolUi(),
+			booted.context.cwd,
+			"bash-r",
+		);
+		call.updateResult(
+			{ content: [{ type: "text", text: "ok" }], details: {} },
+			false,
+			"bash-r",
+		);
+		const reply = new booted.ContainerBase();
+		reply.addChild({ render: () => ["restored done"] });
+		const preserved = [...booted.transcript.children];
+		booted.transcript.clear();
+		booted.transcript.addChild(call);
+		booted.transcript.addChild(reply);
+		for (const child of preserved) booted.transcript.addChild(child);
+		await flushMicrotasks();
+		const rows = visibleRows(booted.transcript);
+		const stats = rows.filter((row) => row.includes("1 actions"));
+		expect(stats).toHaveLength(1);
+		expect(rows.indexOf(stats[0] ?? "")).toBeLessThan(
+			rows.indexOf("restored done"),
+		);
+		await shutdown(booted);
+	},
+);
+
+stockTest(
 	"a restored read run split by visible thinking pairs both stock groups",
 	async () => {
 		// Stock seals its read group at EVERY assistant message with visible

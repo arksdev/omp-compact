@@ -216,7 +216,14 @@ export class RebuildLifecycle {
 		if (access.disposed || access.states.size > 0 || entries.length === 0)
 			return false;
 		this.#walkBranch(entries, { activeLedger: undefined, allowOrder: true });
-		this.#insertHydratedStatsCarriers();
+		// An empty transcript means stock has not rendered this session yet
+		// (startup `omp -r`/`-c`). Its renderInitialMessages({
+		// preserveExistingChat: true }) re-appends every existing child after
+		// the replay, so a carrier planted now would land below the last
+		// answer, and the rebuild commit inserts it again. The commit owns
+		// placement in that case; its walk re-collects the evidence.
+		if (access.transcript?.children.length) this.#insertHydratedStatsCarriers();
+		else access.hydratedStatsEvidence.length = 0;
 		return true;
 	}
 
