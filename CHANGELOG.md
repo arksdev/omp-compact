@@ -14,8 +14,8 @@
 
 - Открытая заново сессия, где агент читал `cfg://`, `proc://`, `attachment://` или `conflict://`, больше не показывает все карточки инструментов нативными рамками.
 - При открытии сессии через `omp -r` или `omp -c` строка статистики последнего прогона больше не показывается дважды.
-- Компактные правила для `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn` и `manage_skill` сверены с настоящими аргументами и деталями результата OMP. Раньше они объявляли выдуманные имена. Такие же пробелы закрыты у `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit` и `vibe_*`.
-- Строка `edit:` больше не подтормаживает интерфейс на патчах с длинными пробельными участками.
+- Компактные правила для `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn` и `manage_skill`, `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit` и `vibe_*` поправлены в соответствии с схемой хоста.
+- Строка `edit:` интерфейс больше не подвисает, когда агент правит файл с тысячами пробелов или пустых строк подряд.
 - Заголовок патча с пустым путём (`*** Update File:` в конце строки) больше не принимает следующую строку патча за путь файла.
 
 ---
@@ -28,8 +28,8 @@
 
 - A resumed session in which the agent read `cfg://`, `proc://`, `attachment://`, or `conflict://` no longer shows every tool card as a native frame.
 - Opening a session with `omp -r` or `omp -c` no longer shows the last run's stats row twice.
-- The compact rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, and `manage_skill` now match the argument names and result details OMP sends. They declared invented names before. The same gaps are closed for `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit`, and `vibe_*`.
-- The `edit:` row no longer stalls the interface on patches with long whitespace runs.
+- The compact rules for `ida`, `github`, `lsp`, `checkpoint`, `rewind`, `context_notes`, `new_context`, `memory_edit`, `retain`, `recall`, `reflect`, `learn`, and `manage_skill`, `bash`, `todo`, `grep`, `find`, `eval`, `ask`, `yield`, `ast_grep`, `ast_edit`, and `vibe_*` now match the argument names and result details OMP sends more carefully.
+- The `edit:` row no longer stalls the interface when the agent edits a file with thousands of consecutive spaces or blank lines.
 - A patch header with an empty path (`*** Update File:` at the end of a line) no longer takes the next patch line as the file path.
 
 ## 1.4.0 — 27 сентября 2026
