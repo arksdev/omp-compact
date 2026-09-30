@@ -4,6 +4,20 @@
 
 ---
 
+## Не выпущено
+
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.4.4. Добавлена поддержка распознавания карточек советника с TSP-методами (`describe`, `setExpanded`, `handleNativeEvent`). Публичный диапазон `engines.omp >=18.0.1` не меняется.
+
+---
+
+### Changed
+
+- Updated the supported OMP version to 18.4.4. Added support for recognizing advisor cards with TSP methods (`describe`, `setExpanded`, `handleNativeEvent`). The public range `engines.omp >=18.0.1` does not change.
+
+---
+
 ## 1.4.1 — 29 сентября 2026
 
 ### Изменено

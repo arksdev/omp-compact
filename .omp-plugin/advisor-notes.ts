@@ -147,14 +147,25 @@ export function isAdvisorCardSurface(value: unknown): value is object {
 	)
 		return false;
 	// OMP <= 18.2.0: `{ render, invalidate }`. OMP >= 18.2.5: the same factory
-	// wraps a Disclosure and adds `dispose` + `setIgnoreTight`.
+	// wraps a Disclosure and adds `dispose` + `setIgnoreTight`. OMP >= 18.4.4:
+	// TSP integration adds `describe`, `setExpanded`, and `handleNativeEvent`.
 	const keys = Reflect.ownKeys(value);
 	const allowed =
 		keys.length === 2
 			? ["render", "invalidate"]
 			: keys.length === 4
 				? ["render", "invalidate", "dispose", "setIgnoreTight"]
-				: undefined;
+				: keys.length === 7
+					? [
+							"render",
+							"invalidate",
+							"dispose",
+							"setIgnoreTight",
+							"describe",
+							"setExpanded",
+							"handleNativeEvent",
+						]
+					: undefined;
 	return (
 		allowed?.every(
 			(key) =>
