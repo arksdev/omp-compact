@@ -8,13 +8,13 @@
 
 ### Изменено
 
-- Обновлена проверяемая версия OMP до 18.4.9. Поддержка OMP 18.0.1 и выше сохранена.
+- Обновлена проверяемая версия OMP до 18.4.10. Поддержка OMP 18.0.1 и выше сохранена.
 
 ---
 
 ### Changed
 
-- Updated the verified OMP version to 18.4.9. Support for OMP 18.0.1 and later is unchanged.
+- Updated the verified OMP version to 18.4.10. Support for OMP 18.0.1 and later is unchanged.
 
 ---
 
