@@ -4,17 +4,17 @@
 
 ---
 
-## Не выпущено
+## 1.4.5 — 5 октября 2026
 
 ### Изменено
 
-- Обновлена проверяемая версия OMP до 18.6.1. Поддержка OMP 18.0.1 и выше сохранена.
+- Обновлено на следующую версию.
 
 ---
 
 ### Changed
 
-- Updated the verified OMP version to 18.6.1. Support for OMP 18.0.1 and later is unchanged.
+- Updated to the next version.
 
 ---
 
