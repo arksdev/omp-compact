@@ -4,20 +4,31 @@
 
 ---
 
-## Не выпущено
+## 1.4.6 — 6 октября 2026
 
 ### Изменено
 
-- Обновлена проверяемая версия OMP до 18.6.3. Поддержка OMP 18.0.1 и выше сохранена.
-- Зарезервирована клавиша `space` (новая комбинация push-to-talk в OMP 18.6.3) при валидации горячих клавиш.
+- Обновлена поддерживаемая версия OMP до 18.6.3. Публичный диапазон `engines.omp >= 18.0.1` сохранён.
+- Зарезервирована клавиша `space` (в OMP 18.6.3 она занята под запись голоса push-to-talk), чтобы плагин не предлагал назначить её на переключение режимов.
+
+### Исправлено
+
+- Настройка горячих клавиш больше не разрешает выбирать системные комбинации хоста (раньше их можно было выбрать, но хост перехватывал нажатия первым и плагин не реагировал).
+- В карточках vibe в итоговом счётчике теперь учитываются воркеры, остановленные координатором, а в строках с ошибками убраны лишние спецсимволы в путях.
+- Защищён от `NaN` подсчёт сэкономленных токенов в сводке хода, если модель отдаёт нестандартные метрики.
 
 ---
 
 ### Changed
 
-- Updated the verified OMP version to 18.6.3. Support for OMP 18.0.1 and later is unchanged.
-- Reserved the `space` key (new push-to-talk chord in OMP 18.6.3) in shortcut validation.
+- Updated the supported OMP version to 18.6.3. Support for OMP 18.0.1 and later is preserved.
+- Reserved the `space` key (assigned to speech-to-text push-to-talk in OMP 18.6.3) so shortcut configuration does not suggest it for mode switching.
 
+### Fixed
+
+- Shortcut configuration no longer accepts host application chords (previously allowed, but intercepted by the host first so the plugin never responded).
+- Vibe cards now include workers terminated by the director in total counts, and path formatting in error rows is cleaned up.
+- Guarded against `NaN` in post-turn token savings calculations when models return non-standard usage metrics.
 ---
 
 ## 1.4.5 — 5 октября 2026
