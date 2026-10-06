@@ -4,6 +4,22 @@
 
 ---
 
+## Не выпущено
+
+### Изменено
+
+- Обновлена проверяемая версия OMP до 18.6.3. Поддержка OMP 18.0.1 и выше сохранена.
+- Зарезервирована клавиша `space` (новая комбинация push-to-talk в OMP 18.6.3) при валидации горячих клавиш.
+
+---
+
+### Changed
+
+- Updated the verified OMP version to 18.6.3. Support for OMP 18.0.1 and later is unchanged.
+- Reserved the `space` key (new push-to-talk chord in OMP 18.6.3) in shortcut validation.
+
+---
+
 ## 1.4.5 — 5 октября 2026
 
 ### Изменено
