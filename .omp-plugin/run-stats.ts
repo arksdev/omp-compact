@@ -333,7 +333,7 @@ export function statsLine(
 		)} prompt`;
 		if (result.cacheRead === 0) {
 			segments.push(
-				result.sent === 0 ? total : `${total} (0 cached${written})`,
+				result.sent === 0 && !written ? total : `${total} (0 cached${written})`,
 			);
 		} else if (result.sent === 0) {
 			segments.push(

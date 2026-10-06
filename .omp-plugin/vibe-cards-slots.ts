@@ -95,6 +95,11 @@ export function renderModelSlot(
 	return theme.fg("muted", name);
 }
 
+const KEYWORD_REGEXES = {
+	killed: /(killed)/g,
+	aborted: /(aborted)/g,
+} as const;
+
 /**
  * Highlight a specific keyword as `error` while rendering the rest as `muted`.
  */
@@ -103,8 +108,8 @@ export function renderHighlightedActivity(
 	keyword: "killed" | "aborted",
 	theme: Theme,
 ): string {
-	const parts = text.split(new RegExp(`(${keyword})`, "g"));
-	return parts
+	return text
+		.split(KEYWORD_REGEXES[keyword])
 		.map((part) => {
 			if (!part) return "";
 			if (part === keyword) return theme.fg("error", part);

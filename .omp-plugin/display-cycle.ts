@@ -127,13 +127,17 @@ const SPECIAL_KEYS: Record<string, true> = {
  * unexported subpath outside the compiled-binary Pi virtual module registry.
  */
 const DEFAULT_HOST_APP_CHORDS: readonly string[] = Object.freeze([
+	"alt+a",
 	"alt+p",
 	"alt+shift+c",
+	"alt+shift+l",
 	"alt+shift+p",
+	"alt+shift+v",
 	"alt+up",
 	"shift+up",
 	"alt+l",
 	"alt+r",
+	"ctrl+enter",
 	"ctrl+r",
 	"ctrl+s",
 	"ctrl+shift+o",
@@ -151,6 +155,7 @@ const DEFAULT_HOST_APP_CHORDS: readonly string[] = Object.freeze([
 	"ctrl+-",
 	"ctrl+_",
 	"ctrl+.",
+	"f5",
 ]);
 
 /** Single-character base keys beyond letters and digits (same `keys.ts` union). */

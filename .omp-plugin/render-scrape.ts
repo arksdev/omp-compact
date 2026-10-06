@@ -156,8 +156,10 @@ function collectComponentTexts(node: unknown, out: string[]): void {
 		children?: unknown;
 	};
 	if (typeof candidate.getText === "function") {
-		const text = candidate.getText();
-		if (typeof text === "string" && text.length > 0) out.push(text);
+		try {
+			const text = candidate.getText();
+			if (typeof text === "string" && text.length > 0) out.push(text);
+		} catch {}
 	}
 	if (Array.isArray(candidate.children)) {
 		for (const child of candidate.children) collectComponentTexts(child, out);
@@ -553,7 +555,12 @@ export function skillMessageFromComponent(
 		Array.isArray(candidate.children) ? candidate.children[0] : undefined,
 	);
 	if (!child) return undefined;
-	const rows = child.render(120);
+	let rows: readonly string[];
+	try {
+		rows = child.render(120);
+	} catch {
+		return undefined;
+	}
 	let name: string | undefined;
 	let lineCount: number | undefined;
 	let path: string | undefined;
@@ -637,7 +644,12 @@ export function lateDiagnosticsFromComponent(
 		Array.isArray(candidate.children) ? candidate.children[0] : undefined,
 	);
 	if (!disclosure) return undefined;
-	const rows = disclosure.render(120).map(stripAnsi);
+	let rows: string[];
+	try {
+		rows = disclosure.render(120).map(stripAnsi);
+	} catch {
+		return undefined;
+	}
 	if (rows.length === 0) return undefined;
 	const r0 = rows[0];
 	if (!r0?.includes("Late diagnostics")) return undefined;

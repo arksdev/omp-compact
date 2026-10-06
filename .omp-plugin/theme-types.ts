@@ -41,11 +41,15 @@ export interface Theme {
 	bold(text: string): string;
 	underline?(text: string): string;
 	italic?(text: string): string;
+	/** Host Theme structural mirror; optional across host versions. */
 	strikethrough?(text: string): string;
 	inverse?(text: string): string;
+	/** Host Theme structural mirror; optional across host versions. */
 	getFgAnsi?(color: ThemeColor): string;
+	/** Host Theme structural mirror; optional across host versions. */
 	getBgAnsi?(color: ThemeColor): string;
 	getSpinnerFrames?(name?: string): readonly string[];
 	symbol?(name: string): string;
+	/** Host Theme structural mirror; optional across host versions. */
 	styledSymbol?(name: string, role?: string): string;
 }

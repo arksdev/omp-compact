@@ -80,9 +80,9 @@ export interface CompactSettingsPatch {
 
 export type EnvLike = Record<string, string | undefined>;
 
-// Config JSON byte/depth budgets; mirrored by the host-settings YAML
-// pre-image budgets (MAX_HOST_SETTINGS_YAML_BYTES / _DEPTH in host-settings.ts)
-// — keep both pairs in sync when either changes.
+// Config JSON byte/depth budgets; MAX_CONFIG_BYTES is mirrored by the
+// host-settings YAML pre-image budget (MAX_HOST_SETTINGS_YAML_BYTES in
+// host-settings.ts) — keep both byte budgets in sync when either changes.
 export const MAX_CONFIG_BYTES = 65_536;
 export const MAX_CONFIG_DEPTH = 16;
 export const MAX_THRESHOLD_TOKENS = 10_000_000;
@@ -789,6 +789,12 @@ export function readDisplayCycleKeySync(deps: StoreDeps = {}): string {
 	}
 	const parsed = parseBoundedJson(text, () => {});
 	if (!parsed.ok || !isRecord(parsed.raw)) {
+		return DEFAULT_SETTINGS.displayCycleKey;
+	}
+	if (
+		parsed.raw.version !== undefined &&
+		parsed.raw.version !== SCHEMA_VERSION
+	) {
 		return DEFAULT_SETTINGS.displayCycleKey;
 	}
 	const chord = parsed.raw.displayCycleKey;

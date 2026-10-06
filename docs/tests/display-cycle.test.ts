@@ -13,6 +13,7 @@ import {
 	canonicalize,
 	DEFAULT_DISPLAY_CYCLE_KEY,
 	isDisplayCycleKey,
+	occupiedShortcuts,
 	RESERVED_SHORTCUTS,
 	validateDisplayCycleKey,
 } from "../../.omp-plugin/display-cycle";
@@ -183,5 +184,48 @@ describe("display cycle: reserved-shortcut copy against the host", () => {
 		);
 		expect(hostKeys.size).toBeGreaterThan(0);
 		expect(new Set(RESERVED_SHORTCUTS)).toEqual(hostKeys);
+	});
+});
+
+describe("display cycle: default host app chords against the host", () => {
+	test("app-level chords from the host are refused by validation", () => {
+		for (const key of ["alt+a", "alt+shift+v", "alt+shift+l", "ctrl+enter"]) {
+			expect(validateDisplayCycleKey(key)).toBe(
+				`${key} is already taken by OMP; pick another shortcut`,
+			);
+		}
+		expect(occupiedShortcuts().has("f5")).toBe(true);
+	});
+
+	test("every chord in host KEYBINDINGS source is present in occupiedShortcuts", () => {
+		const source = readFileSync(
+			resolve(
+				REPO_ROOT,
+				"node_modules/@oh-my-pi/pi-tui/src/app-keybindings.ts",
+			),
+			"utf8",
+		);
+		const occupied = occupiedShortcuts();
+		for (const match of source.matchAll(
+			/defaultKeys:\s*(?:"([^"]+)"|\[([\s\S]*?)\])/g,
+		)) {
+			const rawKeys: string[] = [];
+			if (match[1]) {
+				rawKeys.push(match[1]);
+			} else if (match[2]) {
+				for (const inner of match[2].matchAll(/"([^"]+)"/g)) {
+					if (inner[1]) rawKeys.push(inner[1]);
+				}
+			}
+			for (const key of rawKeys) {
+				if (key.length > 0) {
+					const canonical = canonicalize(key);
+					expect(
+						occupied.has(canonical),
+						`host chord "${key}" (${canonical}) must be occupied`,
+					).toBe(true);
+				}
+			}
+		}
 	});
 });

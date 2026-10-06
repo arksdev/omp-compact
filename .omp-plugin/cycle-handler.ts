@@ -44,7 +44,7 @@ export async function cycleDisplayState(deps: DisplayCycleDeps): Promise<void> {
 				enabled: next.enabled,
 				mode: next.mode,
 				// Seed the host group from the live bridge: runApply's diff
-				// (host-settings.ts:647-668) writes any payload divergence from
+				// (host-settings.ts:380-410) writes any payload divergence from
 				// read(), so a store-snapshot host group would be silently
 				// reconciled with the live host by a pure cycle keypress. The
 				// settings dialog uses the same baseline (index.ts:

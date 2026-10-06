@@ -654,12 +654,8 @@ export class TranscriptFold {
 		for (let position = from; position < to; position++) {
 			const member = run.members[position];
 			if (!member) continue;
-			const raw = this.#renderBlock(member, width);
-			let lead = 0;
-			while (lead < raw.length && !NON_BLANK.test(raw[lead] ?? "")) lead++;
-			let end = raw.length;
-			while (end > lead && !NON_BLANK.test(raw[end - 1] ?? "")) end--;
-			for (let index = lead; index < end; index++) rows.push(raw[index] ?? "");
+			const trimmed = trimBlankEdges(this.#renderBlock(member, width));
+			for (const line of trimmed) rows.push(line);
 		}
 		return rows;
 	}

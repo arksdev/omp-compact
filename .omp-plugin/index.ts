@@ -848,7 +848,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		modePolicy.armCollapsedRebuild();
 	});
 
-	listen("session_tree", async (event) => {
+	listen("session_tree", async () => {
 		// Committed `/tree` navigation (and equivalent navigateTree callers):
 		// stock emits `session_tree` only AFTER the leaf move lands and BEFORE
 		// the caller's `renderInitialMessages` rebuild (disposeChildren +
@@ -856,10 +856,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// one-shot restore override so historical/collapsed tails bind under
 		// the selected mode. Cancelled/no-op tree interactions never
 		// emit this event, so they never arm. Rehydration still keys off the
-		// transcript clear that follows — noteTreeIntent stays a no-op seam.
+		// transcript clear that follows.
 		await modePolicy.ready();
 		if (modePolicy.enabled) modePolicy.armRestoreOverride();
-		adapter?.noteTreeIntent(event);
 	});
 
 	listen("session_branch", async () => {

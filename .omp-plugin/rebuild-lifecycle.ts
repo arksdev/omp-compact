@@ -98,7 +98,7 @@ export interface RebuildLifecycleAccess {
 		ledger: TurnLedger;
 		evidence: RunStatsEvidence;
 	}>;
-	/** The active working ledger; undefined between runs. */
+	/** The active working ledger; during replay, walkLedger when idle between runs. */
 	ledger: TurnLedger | undefined;
 	/** Monotonic presentation-generation counter (rebuild lifecycle). */
 	generation: number;

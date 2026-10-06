@@ -267,8 +267,13 @@ export class PostTurnShake {
 		// positive threshold fails closed (cannot prove eligibility).
 		const threshold = this.#settings.thresholdTokens;
 		if (threshold > 0) {
-			const usage = this.#deps.getContextUsage(ctx);
-			if (!usage || usage.tokens < threshold) return;
+			let usage: { tokens: number } | undefined;
+			try {
+				usage = this.#deps.getContextUsage(ctx);
+			} catch {
+				return;
+			}
+			if (!usage || !(usage.tokens >= threshold)) return;
 		}
 
 		// From here the run is committed: at most one shake per logical run,

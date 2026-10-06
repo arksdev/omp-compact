@@ -129,9 +129,6 @@ const TEXT_DEVICES: Readonly<Partial<Record<string, TextDevicePresentation>>> =
 		}) as Partial<Record<string, TextDevicePresentation>>,
 	);
 
-/** Longest device content this module will attempt to parse as JSON args. */
-const MAX_DEVICE_CONTENT = 65_536;
-
 /**
  * Device name of an `xd://<device>` write, or `undefined` when the target is
  * an ordinary path. `parseXdUrl` is the stock grammar: `null` for a non-device
@@ -188,7 +185,7 @@ function deviceOperationOf(value: Record<string, unknown>): string {
  * row then names the device alone until the settled result confirms more.
  */
 function deviceOperationFromContent(content: string): string {
-	if (!content || content.length > MAX_DEVICE_CONTENT) return "";
+	if (!content) return "";
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(content);

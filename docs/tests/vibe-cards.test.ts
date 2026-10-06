@@ -681,6 +681,41 @@ describe("vibe-cards grammar and presentation", () => {
 		expect(stripAnsi(rows[1] ?? "")).toContain("live-worker");
 	});
 
+	test("list operation includes hiddenKilled in totalCount and hidden count", () => {
+		const allKilledRows = vibeCardsModule.renderCompactVibeRows(
+			routineView({
+				op: "list",
+				isPartial: false,
+				details: {
+					op: "list",
+					screens: [],
+					hiddenKilled: ["k1", "k2"],
+				},
+			}),
+			fakeTheme(),
+		);
+		expect(allKilledRows).toHaveLength(1);
+		expect(stripAnsi(allKilledRows[0] ?? "")).toBe(
+			"vibe sessions 2 (2 hidden)",
+		);
+
+		const active = routineSnapshot({ id: "live-worker", turns: 1 });
+		const mixedRows = vibeCardsModule.renderCompactVibeRows(
+			routineView({
+				op: "list",
+				isPartial: false,
+				details: {
+					op: "list",
+					screens: [active],
+					hiddenKilled: ["k1", "k2"],
+				},
+			}),
+			fakeTheme(),
+		);
+		expect(mixedRows).toHaveLength(2);
+		expect(stripAnsi(mixedRows[0] ?? "")).toBe("vibe sessions 3 (2 hidden)");
+	});
+
 	test("kill operation produces empty output", () => {
 		const rows = vibeCardsModule.renderCompactVibeRows(
 			routineView({
@@ -760,6 +795,23 @@ describe("vibe-cards grammar and presentation", () => {
 
 		expect(rows).toHaveLength(1);
 		expect(stripAnsi(rows[0] ?? "")).toBe("✘ vibe spawn my-worker");
+	});
+
+	test("error target names with newlines and control characters are sanitized", () => {
+		const rows = vibeCardsModule.renderCompactVibeRows(
+			{
+				op: "spawn",
+				isError: true,
+				args: { name: "worker\n\r\twith\x1b[31mcolors" },
+				result: {},
+			},
+			fakeTheme(),
+		);
+
+		expect(rows).toHaveLength(1);
+		expect(rows[0] ?? "").not.toContain("\n");
+		expect(rows[0] ?? "").not.toContain("\x1b[31m");
+		expect(stripAnsi(rows[0] ?? "")).toBe("✘ vibe spawn worker withcolors");
 	});
 
 	test("spawn echo renders ∴ glyph and cursor when partial, clean row when settled", () => {
@@ -1356,6 +1408,17 @@ describe("vibe-cards grammar and presentation", () => {
 			);
 			expect(rows).toHaveLength(2);
 		}).not.toThrow();
+	});
+
+	test("defensive unpack: hiddenKilled preserves valid string IDs and drops non-strings", () => {
+		const input = {
+			op: "list",
+			screens: [],
+			hiddenKilled: ["k1", 123, null, "k2", {}],
+		};
+		const unpacked = vibeCardsModule.unpackVibeToolDetails(input);
+		expect(unpacked).toBeDefined();
+		expect(unpacked?.hiddenKilled).toEqual(["k1", "k2"]);
 	});
 
 	test("defensive unpack: send outcome with unknown delivery mode is dropped", () => {

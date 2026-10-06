@@ -12,6 +12,7 @@ describe("formatDuration unit boundaries", () => {
 	test("sub-second values keep whole milliseconds", () => {
 		expect(formatDuration(1)).toBe("1ms");
 		expect(formatDuration(540)).toBe("540ms");
+		expect(formatDuration(540.6)).toBe("540ms");
 		expect(formatDuration(999)).toBe("999ms");
 	});
 

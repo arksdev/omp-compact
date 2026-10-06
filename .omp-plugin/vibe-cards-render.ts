@@ -351,11 +351,12 @@ function extractTargetDescription(op: VibeOp, args: unknown): string {
 	const rec = objectRecord(args);
 	switch (op) {
 		case "spawn": {
-			const name = typeof rec.name === "string" ? rec.name.trim() : "";
+			const name = typeof rec.name === "string" ? sanitizeText(rec.name) : "";
 			return name ? `vibe spawn ${name}` : "vibe spawn";
 		}
 		case "send": {
-			const session = typeof rec.session === "string" ? rec.session.trim() : "";
+			const session =
+				typeof rec.session === "string" ? sanitizeText(rec.session) : "";
 			return session ? `vibe send ${session}` : "vibe send";
 		}
 		case "wait": {
@@ -364,14 +365,18 @@ function extractTargetDescription(op: VibeOp, args: unknown): string {
 					.filter(
 						(s): s is string => typeof s === "string" && s.trim().length > 0,
 					)
+					.map((s) => sanitizeText(s))
+					.filter((s) => s.length > 0)
 					.join(", ");
 				if (targets) return `vibe wait ${targets}`;
 			}
-			const session = typeof rec.session === "string" ? rec.session.trim() : "";
+			const session =
+				typeof rec.session === "string" ? sanitizeText(rec.session) : "";
 			return session ? `vibe wait ${session}` : "vibe wait";
 		}
 		case "kill": {
-			const session = typeof rec.session === "string" ? rec.session.trim() : "";
+			const session =
+				typeof rec.session === "string" ? sanitizeText(rec.session) : "";
 			return session ? `vibe kill ${session}` : "vibe kill";
 		}
 		case "list":
@@ -641,7 +646,8 @@ export function renderCompactVibeRows(
 			}
 		}
 
-		const totalCount = details?.screens.length ?? 0;
+		const totalCount =
+			(details?.screens.length ?? 0) + (details?.hiddenKilled?.length ?? 0);
 		const hiddenCount = totalCount - printedCount;
 
 		const headerText =

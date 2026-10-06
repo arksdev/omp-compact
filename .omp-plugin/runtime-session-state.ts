@@ -528,14 +528,6 @@ export class RuntimeSessionState {
 		this.#disposed = true;
 	}
 
-	/**
-	 * Create a new logical ledger (run sequence) with its frozen mode
-	 * snapshot. Historical segments use the `omp-compact-replay-` prefix.
-	 */
-	createLedger(prefix: string): TurnLedger {
-		return this.#createLedger(prefix);
-	}
-
 	/** The active working ledger, starting one if the session is idle. */
 	ensureLedger(): TurnLedger {
 		if (this.#ledger?.phase !== "working") this.beginRun();
@@ -917,13 +909,19 @@ export class RuntimeSessionState {
 		}
 	}
 
-	/** Distinct tool executions of a run, failures included. */
+	/**
+	 * Distinct tool executions of a run, failures included.
+	 * @internal Test-only accessor.
+	 */
 	ledgerActions(runId: string): number | undefined {
 		if (this.#disposed) return undefined;
 		return this.#ledgerByRunId(runId)?.entries.length;
 	}
 
-	/** True when any tool execution of the run settled as an error. */
+	/**
+	 * True when any tool execution of the run settled as an error.
+	 * @internal Test-only accessor.
+	 */
 	ledgerHasError(runId: string): boolean | undefined {
 		if (this.#disposed) return undefined;
 		const ledger = this.#ledgerByRunId(runId);
@@ -977,7 +975,10 @@ export class RuntimeSessionState {
 		return this.#states.get(id);
 	}
 
-	/** Snapshot of every state record. */
+	/**
+	 * Snapshot of every state record.
+	 * @internal Test-only accessor.
+	 */
 	allStates(): readonly ToolState[] {
 		return [...this.#states.values()];
 	}

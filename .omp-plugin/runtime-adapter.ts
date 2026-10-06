@@ -380,22 +380,8 @@ export class RuntimeAdapter {
 			this.#refreshAdvisorCards();
 			if (!wasPatched && this.#patches.advisor.size === 0) return;
 		}
-		this.replayCurrentPresentation();
+		this.#replayCurrentPresentation();
 		this.#ui.requestRender?.();
-	}
-
-	/**
-	 * `session_tree` is optional intent/coalescing metadata only —
-	 * stock emits it before the caller-side UI rebuild, so it never begins
-	 * a presentation generation here. The exact transcript `clear` that
-	 * follows a committed navigation is the only rebuild boundary; a
-	 * cancelled or no-op tree interaction never clears and therefore never
-	 * advances the generation. Kept as an explicit seam so the intent
-	 * plumbing is observable and future coalescing has a home.
-	 */
-	noteTreeIntent(_event: unknown): void {
-		// Deliberately no side effects: rehydration is keyed to the
-		// transcript clear, never to this event.
 	}
 
 	/**
@@ -408,7 +394,7 @@ export class RuntimeAdapter {
 	 * future terminal-replay caller reuses it after its own state
 	 * changes.
 	 */
-	replayCurrentPresentation(): boolean {
+	#replayCurrentPresentation(): boolean {
 		if (this.#disposed) return false;
 		// A settlement is still pending: the mapping is not yet validated.
 		if (this.#pendingGeneration !== undefined) return false;
@@ -469,7 +455,7 @@ export class RuntimeAdapter {
 		if (this.#session.activeLedger?.phase !== "filtered") return false;
 		if (!this.#fold?.installed) return false;
 		if (!this.#fold.hasCommittedRows()) return false;
-		return this.replayCurrentPresentation();
+		return this.#replayCurrentPresentation();
 	}
 
 	observeAssistantMessage(message: unknown): void {
@@ -674,12 +660,18 @@ export class RuntimeAdapter {
 		return this.#session.retireFilteredPayloads(runId);
 	}
 
-	/** Distinct tool executions of a run, failures included. */
+	/**
+	 * Distinct tool executions of a run, failures included.
+	 * @internal Test-only accessor.
+	 */
 	ledgerActions(runId: string): number | undefined {
 		return this.#session.ledgerActions(runId);
 	}
 
-	/** True when any tool execution of the run settled as an error. */
+	/**
+	 * True when any tool execution of the run settled as an error.
+	 * @internal Test-only accessor.
+	 */
 	ledgerHasError(runId: string): boolean | undefined {
 		return this.#session.ledgerHasError(runId);
 	}
@@ -814,7 +806,7 @@ export class RuntimeAdapter {
 					this.#ensureSpinner();
 				}
 			}
-			this.replayCurrentPresentation();
+			this.#replayCurrentPresentation();
 		} catch (error) {
 			this.#rollback(`omp-compact disabled: ${String(error)}`);
 		}
@@ -863,6 +855,16 @@ export class RuntimeAdapter {
 			const theme = this.#ui.theme;
 			if (!theme) return nativeRender(width);
 			if (decision.kind === "tool-rows") {
+				const toolStateProps = {
+					toolName: state.toolName,
+					args: state.args,
+					result: state.result,
+					isError: state.isError,
+					isPartial: state.isPartial,
+					tick: state.version,
+					settledAt: state.settledAt,
+					mutationEntries: state.mutations,
+				};
 				if (decision.filtered) {
 					// Terminal retention: write/edit mutation rows stay in
 					// their chronological position, individual Git rows
@@ -874,16 +876,7 @@ export class RuntimeAdapter {
 					if (state.mutations.length > 0 && !decision.summaryOnly)
 						rows.push(
 							...renderCompactToolRows(
-								{
-									toolName: state.toolName,
-									args: state.args,
-									result: state.result,
-									isError: state.isError,
-									isPartial: state.isPartial,
-									tick: state.version,
-									settledAt: state.settledAt,
-									mutationEntries: state.mutations,
-								},
+								toolStateProps,
 								theme,
 								width,
 								this.#session.displayPaths,
@@ -895,14 +888,7 @@ export class RuntimeAdapter {
 				}
 				return renderCompactToolRows(
 					{
-						toolName: state.toolName,
-						args: state.args,
-						result: state.result,
-						isError: state.isError,
-						isPartial: state.isPartial,
-						tick: state.version,
-						settledAt: state.settledAt,
-						mutationEntries: state.mutations,
+						...toolStateProps,
 						git: decision.includeGit ? state.git : undefined,
 					},
 					theme,

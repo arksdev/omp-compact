@@ -26,6 +26,7 @@ import type { MutationMessageDetails } from "./messages";
 import { objectRecord } from "./object-record";
 import { isPathInsideRoot } from "./path-inside-root";
 
+import { MAX_DELETE_LINES, MAX_DIFF_BYTES } from "./audit-diff";
 export {
 	completeEditMutations,
 	DIFF_MAX_REMAINING_LINES,
@@ -37,8 +38,8 @@ export { isPathInsideRoot } from "./path-inside-root";
 const URI_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 const COMPOUND_FILE_TARGET =
 	/(?:\.(?:tar\.gz|zip|tar|tgz|jar|war|ear|apk|sqlite3?|db3?)):/i;
-const SNAPSHOT_MAX_BYTES = 1_048_576;
-const SNAPSHOT_MAX_LINES = 50_000;
+const SNAPSHOT_MAX_BYTES = MAX_DIFF_BYTES;
+const SNAPSHOT_MAX_LINES = MAX_DELETE_LINES;
 
 /** Shared open flags for both snapshot readers (sync pre-image, async post-image). */
 const SNAPSHOT_OPEN_FLAGS =

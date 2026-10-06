@@ -267,6 +267,30 @@ describe("PostTurnShake thresholds", () => {
 		await h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
 		expect(h.calls).toEqual([]);
 	});
+
+	test("a positive threshold with NaN tokens fails closed and does not shake", async () => {
+		const h = harness(
+			{ enabled: true, thresholdTokens: 100 },
+			{ usage: { tokens: Number.NaN } },
+		);
+		await h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+		expect(h.calls).toEqual([]);
+	});
+
+	test("a throwing getContextUsage fails closed and does not shake", async () => {
+		const calls: Array<{ mode: string; signal: AbortSignal | undefined }> = [];
+		const session = makeSession({}, calls);
+		const deps: PostTurnShakeDeps = {
+			getContextUsage: () => {
+				throw new Error("provider error");
+			},
+			resolveSession: () => session,
+		};
+		const shake = new PostTurnShake(deps);
+		shake.beginRun({ enabled: true, thresholdTokens: 100 });
+		await shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+		expect(calls).toEqual([]);
+	});
 });
 
 describe("PostTurnShake once per logical run", () => {

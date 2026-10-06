@@ -157,8 +157,8 @@ export class ModePolicy {
 	 * `ready()` so the current settings are resolved.
 	 */
 	armRestoreOverride(): void {
+		if (!this.enabled) return;
 		const base = this.#current ?? DEFAULT_SETTINGS;
-		if (!base.enabled) return;
 		this.#restore = {
 			mode: base.mode,
 			enabled: true,
@@ -188,8 +188,7 @@ export class ModePolicy {
 	 * is disabled.
 	 */
 	armCollapsedRebuild(): void {
-		const base = this.#current ?? DEFAULT_SETTINGS;
-		if (!base.enabled) return;
+		if (!this.enabled) return;
 		this.#collapsedRebuildArmed = true;
 	}
 

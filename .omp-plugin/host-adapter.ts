@@ -140,7 +140,10 @@ const LEAF_METHODS = [
 	...READ_GROUP_METHODS,
 	...BLOCK_FOLD_METHODS,
 ] as const;
-
+/**
+ * Inspect method capabilities of a leaf candidate.
+ * @internal Test inspection helper.
+ */
 export function leafCapabilities(value: unknown): LeafCapabilities {
 	const candidate = objectRecord(value);
 	const methods: Record<string, boolean> = {};

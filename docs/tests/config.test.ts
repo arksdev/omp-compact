@@ -277,6 +277,19 @@ describe("defaults", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
+	test("an unsupported version in config falls back to default chord", async () => {
+		const dir = await tempDir();
+		const path = join(dir, "config.json");
+		await writeFile(
+			path,
+			JSON.stringify({ version: 99, displayCycleKey: "ctrl+shift+d" }),
+			"utf8",
+		);
+		const chord = readDisplayCycleKeySync({ path });
+		expect(chord).toBe("alt+c");
+		await rm(dir, { recursive: true, force: true });
+	});
+
 	test("saving an uppercase chord persists the canonical spelling", async () => {
 		const dir = await tempDir();
 		const path = join(dir, "config.json");

@@ -832,6 +832,23 @@ describe("statsLine prompt segment: sent × cache matrix", () => {
 			"[ 27 actions · 1M prompt (0 cached · 950k written) · 11.1k received · 1h 20m 32s ]",
 		);
 	});
+
+	test("run with sent=0, cacheRead=0, cacheWrite>0 preserves the written annotation", () => {
+		const line = module.statsLine(
+			result({
+				sent: 0,
+				received: 11_100,
+				cacheRead: 0,
+				cacheWrite: 950_005,
+				hitRate: 0,
+			}),
+			noClock,
+			fakeTheme(),
+		);
+		expect(stripAnsi(line)).toBe(
+			"[ 27 actions · 950k prompt (0 cached · 950k written) · 11.1k received · 1h 20m 32s ]",
+		);
+	});
 });
 
 describe("statsLine coloring", () => {

@@ -72,6 +72,7 @@ export interface VibeKillInfo {
 export interface VibeToolDetails {
 	op: VibeOp;
 	screens: readonly VibeScreenSnapshot[];
+	hiddenKilled?: readonly string[];
 	spawned?: VibeSpawnInfo;
 	send?: VibeSendInfo;
 	wait?: VibeWaitInfo;
@@ -312,10 +313,14 @@ export function unpackVibeToolDetails(
 				};
 			}
 		}
+		const hiddenKilled = Array.isArray(candidate.hiddenKilled)
+			? candidate.hiddenKilled.filter((s): s is string => typeof s === "string")
+			: undefined;
 
 		return {
 			op,
 			screens,
+			hiddenKilled,
 			spawned,
 			send,
 			wait,

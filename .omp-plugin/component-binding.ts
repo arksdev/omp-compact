@@ -44,7 +44,7 @@ import type { RenderableBlock } from "./transcript-fold";
 import { traceNative } from "./trace";
 import type { TurnLedger } from "./turn-ledger";
 
-export type BindingStatus = "bound" | "ambiguous" | "incompatible" | "unmapped";
+export type BindingStatus = "bound" | "ambiguous" | "unmapped";
 
 export interface BindingDelegates {
 	/** Register a state as pending (in-flight component update). */
@@ -181,7 +181,10 @@ export class ComponentBinding {
 		return [...this.#unboundComponents];
 	}
 
-	/** Ledgers queued for read-group pairing (replay/rebuild hydration). */
+	/**
+	 * Ledgers queued for read-group pairing (replay/rebuild hydration).
+	 * @internal Test-only accessor.
+	 */
 	hydratedReadLedgers(): readonly TurnLedger[] {
 		return this.#hydratedReadSegments.map((segment) => segment.ledger);
 	}
@@ -926,6 +929,7 @@ export class ComponentBinding {
 				// real-id state) onto the final id — one ledger entry, one
 				// surviving row. An existing state bound elsewhere is
 				// ambiguous; the caller quarantines this group to native.
+				if (!this.#stateMutable(state)) return "bound";
 				const status = this.#migrateToRealId(state, newId, state.args);
 				if (status !== "bound") return status;
 				group.ledger = state.ledger;
