@@ -2081,7 +2081,16 @@ describe("headless and dialog opening", () => {
 });
 
 describe("arrow key encodings", () => {
-	test("normalizeArrowKey accepts plain CSI, SS3, and unmodified kitty forms", () => {
+	const arrowDirections = [
+		["A", "up"],
+		["B", "down"],
+		["C", "right"],
+		["D", "left"],
+	] as const;
+	// No locks, CapsLock, NumLock, and both locks (wire value = 1 + bits).
+	const lockModifiers = [1, 65, 129, 193];
+
+	test("normalizeArrowKey accepts plain CSI, SS3, and lock-only kitty forms", () => {
 		expect(normalizeArrowKey(KEY_UP)).toBe("up");
 		expect(normalizeArrowKey(KEY_DOWN)).toBe("down");
 		expect(normalizeArrowKey(KEY_RIGHT)).toBe("right");
@@ -2091,25 +2100,36 @@ describe("arrow key encodings", () => {
 		expect(normalizeArrowKey("\u001bOB")).toBe("down");
 		expect(normalizeArrowKey("\u001bOC")).toBe("right");
 		expect(normalizeArrowKey("\u001bOD")).toBe("left");
-		// kitty keyboard protocol: no modifiers, with and without the
-		// event-type sub-field. `:1` is a press, `:2` an auto-repeat.
-		expect(normalizeArrowKey("\u001b[1;1A")).toBe("up");
-		expect(normalizeArrowKey("\u001b[1;1B")).toBe("down");
-		expect(normalizeArrowKey("\u001b[1;1:1B")).toBe("down");
-		expect(normalizeArrowKey("\u001b[1;1:2B")).toBe("down");
-		expect(normalizeArrowKey("\u001b[1;1:2D")).toBe("left");
+		for (const [finalByte, direction] of arrowDirections) {
+			for (const modifier of lockModifiers) {
+				for (const event of ["", ":1", ":2"]) {
+					expect(
+						normalizeArrowKey(`\u001b[1;${modifier}${event}${finalByte}`),
+					).toBe(direction);
+				}
+			}
+		}
 	});
 
 	test("normalizeArrowKey rejects modified arrows and release events", () => {
-		// A held modifier is a different key: shift+up, alt+down, ctrl+right.
-		expect(normalizeArrowKey("\u001b[1;2A")).toBeUndefined();
-		expect(normalizeArrowKey("\u001b[1;3B")).toBeUndefined();
-		expect(normalizeArrowKey("\u001b[1;5C")).toBeUndefined();
-		expect(normalizeArrowKey("\u001b[1;3D")).toBeUndefined();
-		expect(normalizeArrowKey("\u001b[1;2:1A")).toBeUndefined();
-		// Event type 3 is a key release — never a second press.
-		expect(normalizeArrowKey("\u001b[1;1:3A")).toBeUndefined();
-		expect(normalizeArrowKey("\u001b[1;1:3D")).toBeUndefined();
+		for (const [finalByte] of arrowDirections) {
+			for (const lockModifier of lockModifiers) {
+				// Held Shift, Alt, Ctrl, and Super remain modified with locks on.
+				for (const heldModifier of [1, 2, 4, 8]) {
+					for (const event of ["", ":1", ":2", ":3"]) {
+						expect(
+							normalizeArrowKey(
+								`\u001b[1;${lockModifier + heldModifier}${event}${finalByte}`,
+							),
+						).toBeUndefined();
+					}
+				}
+				// Event type 3 is a key release, even with lock bits set.
+				expect(
+					normalizeArrowKey(`\u001b[1;${lockModifier}:3${finalByte}`),
+				).toBeUndefined();
+			}
+		}
 		// Masks no terminal produces must not slip through either.
 		expect(normalizeArrowKey("\u001b[1;0A")).toBeUndefined();
 		expect(normalizeArrowKey("\u001b[1;11A")).toBeUndefined();
@@ -2157,6 +2177,24 @@ describe("arrow key encodings", () => {
 		expect(focusedRow(dialog)).toContain("Compact paths");
 		dialog.handleInput("\u001b[1;1A");
 		expect(focusedRow(dialog)).toContain("Mode");
+	});
+
+	test("lock-only kitty arrows navigate and cycle through handleInput", () => {
+		for (const modifier of lockModifiers.slice(1)) {
+			for (const event of ["", ":1", ":2"]) {
+				const { dialog } = makeDialog({ ...DEFAULT_SETTINGS, mode: "live" });
+				dialog.handleInput(`\u001b[1;${modifier}${event}B`);
+				expect(focusedRow(dialog)).toContain("Mode");
+				dialog.handleInput(`\u001b[1;${modifier}${event}B`);
+				expect(focusedRow(dialog)).toContain("Compact paths");
+				dialog.handleInput(`\u001b[1;${modifier}${event}A`);
+				expect(focusedRow(dialog)).toContain("Mode");
+				dialog.handleInput(`\u001b[1;${modifier}${event}C`);
+				expect(renderedValue(dialog, "Mode")).toBe("clear");
+				dialog.handleInput(`\u001b[1;${modifier}${event}D`);
+				expect(renderedValue(dialog, "Mode")).toBe("live");
+			}
+		}
 	});
 
 	test("modified arrows neither move the focus nor cycle a value", () => {

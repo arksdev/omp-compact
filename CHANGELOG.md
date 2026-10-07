@@ -4,6 +4,18 @@
 
 ---
 
+## Unreleased
+
+### Исправлено
+
+- В `/compact-settings` стрелки снова работают при включённых Num Lock или Caps Lock. Исправлена регрессия после #2: состояния блокировки больше не считаются модификаторами. Комбинации с Shift, Alt, Ctrl и события отпускания клавиш по-прежнему игнорируются.
+
+### Fixed
+
+- Restored `/compact-settings` arrow navigation with Num Lock or Caps Lock enabled. Fixed a regression after #2 by accepting lock-state bits without accepting held modifiers or key-release events.
+
+---
+
 ## 1.4.6 — 6 октября 2026
 
 ### Изменено
