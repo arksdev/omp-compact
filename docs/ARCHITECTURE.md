@@ -757,7 +757,7 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  The root `package.json` devDependency (`18.8.0`, mirrored by
+  The root `package.json` devDependency (`18.8.2`, mirrored by
   `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`) records
   the **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
@@ -765,11 +765,11 @@ The host-supplied agent directory and the live session `Settings` object sit
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.8.0.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.8.2.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.8.0 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.8.2 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
