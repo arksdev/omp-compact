@@ -4,17 +4,17 @@
 
 ---
 
-## Не выпущено
+## 1.4.7 — 9 октября 2026
 
 ### Изменено
 
-- Обновлена проверяемая версия OMP до 18.8.6. Поддержка OMP 18.0.1 и выше сохранена.
+- Обновлена поддерживаемая версия OMP до 18.8.6. Публичный диапазон `engines.omp >= 18.0.1` сохранён.
 
 ---
 
 ### Changed
 
-- Updated the verified OMP version to 18.8.6. Support for OMP 18.0.1 and later is unchanged.
+- Updated the supported OMP version to 18.8.6. Support for OMP 18.0.1 and later is preserved.
 
 ---
 
