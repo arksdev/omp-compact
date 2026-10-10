@@ -417,17 +417,20 @@ function commitSummary(
 ```
 
 **Quiet commits** (`git commit -q`) print no banner. The hash then comes from a
-`git log` invoked immediately after the commit in the same chain: `git log`
-prints HEAD first, HEAD after a successful commit is that commit, and the
-attribution is taken only when the leading captured line carries a hash plus
-exactly the committed subject. A `git log` before the commit fails the proof
-closed — it may have printed the pre-commit HEAD.
+`git log` invoked immediately after the commit with identical global Git
+arguments. Only `--oneline`, positive count limits (`-N`, `-n N`, `-nN`,
+`--max-count N`, `--max-count=N`) and optional explicit `HEAD` are accepted:
+filters, pathspecs, reordered output and other revisions cannot prove HEAD.
+The leading captured hash must carry exactly the committed subject. A log
+before the commit also fails the proof closed — it may have printed old HEAD.
 
-**Accepted shell text:** `&&`/`;` separators, one leading `cd <path> &&`, brace
+**Accepted shell text:** `&&` separators, one leading `cd <path> &&`, brace
 lists inside a word (`src/{a,b}`, kept verbatim and never expanded), and a
-double-quoted `$(printf …)`/`$(echo …)` carrying one literal argument. Every
-other construct that could expand or add a command fails the whole chain
-closed.
+double-quoted `$(printf …)`/`$(echo …)` carrying one literal argument. Quoted
+message newlines and line continuations remain supported. Chains separated
+by `;` or unescaped newlines stay ordinary Bash: success of the last command
+does not prove earlier commands succeeded. A newline after `&&` is whitespace,
+not an unguarded separator. Other syntax that can add a command fails closed.
 
 **Recognized commands:**
 - `git commit` (with hash extraction)
@@ -445,6 +448,11 @@ interface TerminalProjection {
 - Individual Git rows removed
 - Aggregate summary with verified hashes only
 - Failed commits excluded
+
+**`clear` terminal view:** When Git retention is enabled, the aggregate
+created-commit summary is rendered for both `filtered` and interrupted/error
+`full` ledgers. It remains hidden while working and with retention disabled;
+ordinary diagnostics do not return on abort.
 
 ---
 

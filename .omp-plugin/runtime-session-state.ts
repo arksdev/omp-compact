@@ -1021,7 +1021,7 @@ export class RuntimeSessionState {
 	}
 
 	/**
-	 * The terminal Git projection of one filtered ledger, computed once and
+	 * The terminal Git projection of one finalized ledger, computed once and
 	 * cached: aggregate commit hashes in transcript (chronological) order
 	 * plus the anchor state that renders the trailing summary row. A
 	 * ledger's evidence is immutable once finalized — live tool ends drain

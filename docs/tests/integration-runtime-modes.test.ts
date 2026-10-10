@@ -158,6 +158,64 @@ stockTest("clear mode abort hides diagnostic rows", async () => {
 	await shutdown(booted);
 });
 
+for (const stopReason of ["aborted", "error"]) {
+	for (const retainGitLive of [true, false]) {
+		stockTest(
+			`clear ${stopReason} retains only proven commits when retainGitLive=${retainGitLive}`,
+			async () => {
+				const booted = await bootWithMode("clear", { retainGitLive });
+				try {
+					await beginRun(booted);
+					for (const hash of ["abc1234", "def5678"]) {
+						const commit = await addTool(
+							booted,
+							"bash",
+							{ command: "git commit -m fix" },
+							`git-${hash}`,
+						);
+						await finishTool(booted, commit, {
+							toolCallId: `git-${hash}`,
+							toolName: "bash",
+							result: {
+								content: [{ type: "text", text: `[main ${hash}] fix` }],
+							},
+							isError: false,
+						});
+					}
+					const diagnostic = await addTool(
+						booted,
+						"bash",
+						{ command: "printf clear-diag" },
+						"clear-diag",
+					);
+					await finishTool(booted, diagnostic, {
+						toolCallId: "clear-diag",
+						toolName: "bash",
+						result: { content: [{ type: "text", text: "diagnostic text" }] },
+						isError: false,
+					});
+					expect(visibleRows(booted.transcript).join("\n")).not.toContain(
+						"git commit",
+					);
+					await finishRun(booted, "", stopReason);
+					for (const width of [120, 80]) {
+						const rows = visibleRows(booted.transcript, width);
+						expect(rows.join("\n")).not.toContain("clear-diag");
+						expect(rows.join("\n")).not.toContain("diagnostic text");
+						expect(rows.filter((row) => row.includes("git commit"))).toEqual(
+							retainGitLive
+								? [expect.stringContaining("git commit: abc1234, def5678")]
+								: [],
+						);
+					}
+				} finally {
+					await shutdown(booted);
+				}
+			},
+		);
+	}
+}
+
 stockTest(
 	"clear mode keeps unknown tool components native in every phase",
 	async () => {

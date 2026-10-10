@@ -155,10 +155,10 @@ function readInertSubstitution(
 }
 
 /**
- * Tokenize a deliberately small, non-evaluating shell grammar. Only `&&` and
- * `;` are accepted as command separators; other shell syntax that could expand
- * or add a command is rejected rather than interpreted. The two exceptions are
- * text the grammar can carry without evaluating anything: a brace list inside
+ * Tokenize a deliberately small, non-evaluating shell grammar. Only `&&`
+ * joins commands: a successful chain then proves every segment succeeded.
+ * Unguarded separators and syntax that can add a command fail closed. The
+ * accepted text never needs evaluation: a brace list inside
  * a word (`src/{a,b}` — kept verbatim, never expanded) and a double-quoted
  * substitution that only prints its own argument (see readInertSubstitution).
  */
@@ -225,9 +225,7 @@ function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 			continue;
 		}
 		if (character === "\n" || character === "\r") {
-			if (tokenStarted || command.length > 0) {
-				if (!finishCommand(index)) return undefined;
-			}
+			if (tokenStarted || command.length > 0) return undefined;
 			index += character === "\r" && source[index + 1] === "\n" ? 2 : 1;
 			rawStart = index;
 			continue;
@@ -327,12 +325,7 @@ function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 			continue;
 		}
 
-		if (character === ";") {
-			if (!finishCommand(index)) return undefined;
-			index++;
-			rawStart = index;
-			continue;
-		}
+		if (character === ";") return undefined;
 
 		// A brace list inside a word (`src/hud/{a,b}`) is expansion the parser
 		// keeps verbatim: it cannot add a command, and the row shows exactly
@@ -515,9 +508,9 @@ function parseGitInvocationTokens(
 }
 
 /**
- * Parse every `&&`- or `;`-joined segment of one bounded, non-evaluating shell
- * command. A leading `cd <path> &&` or `cd <path>;` is shell bookkeeping, not
- * an invocation; every other segment must itself be a proven simple Git
+ * Parse every `&&`-joined segment of one bounded, non-evaluating shell
+ * command. A leading `cd <path> &&` is shell bookkeeping, not an invocation;
+ * every other segment must itself be a proven simple Git
  * invocation. Any other shell text (echo, pipes, control flow, …) fails the
  * whole chain closed so arbitrary compound shell is never turned into a Git
  * audit.
@@ -542,8 +535,8 @@ function parseGitChain(command: string): GitChain | undefined {
 
 /**
  * Recognize every proven Git invocation of one shell-simple command joined by
- * `&&` or `;`, in command order. The parser intentionally has no execution
- * path.
+ * `&&`, in command order. Unguarded ;/newline chains remain ordinary Bash
+ * because their exit status cannot certify every segment.
  */
 export function recognizeGitCommands(
 	command: string,
@@ -770,14 +763,42 @@ function commitMessageSubject(segment: GitSegment): string | undefined {
 /** A `git log --oneline` line: abbreviated hash plus the commit subject. */
 const ONELINE_LOG_LINE = /^([\da-f]{4,64})\s+(.+)$/iu;
 
+/** Only count limits preserve the leading HEAD entry of an oneline log. */
+const HEAD_LOG_COUNT = /^(?:-[1-9]\d*|-n[1-9]\d*|--max-count=[1-9]\d*)$/u;
+const POSITIVE_LOG_COUNT = /^[1-9]\d*$/u;
+
+function isHeadLog(commit: GitSegment, log: GitSegment): boolean {
+	if (
+		log.subcommand !== "log" ||
+		log.subcommandIndex !== commit.subcommandIndex
+	)
+		return false;
+	// Match all global arguments exactly: a changed -C, --git-dir or config
+	// can select a different repository even when its commit subject matches.
+	for (let index = 0; index < commit.subcommandIndex; index++)
+		if (commit.tokens[index] !== log.tokens[index]) return false;
+	let oneline = false;
+	for (
+		let index = log.subcommandIndex + 1;
+		index < log.tokens.length;
+		index++
+	) {
+		const token = log.tokens[index];
+		if (token === "--oneline") oneline = true;
+		else if (token === "HEAD" || HEAD_LOG_COUNT.test(token ?? "")) continue;
+		else if (token === "-n" || token === "--max-count") {
+			if (!POSITIVE_LOG_COUNT.test(log.tokens[++index] ?? "")) return false;
+		} else return false;
+	}
+	return oneline;
+}
+
 /**
- * `git commit -q` prints no banner, so the hash it created can only come from
- * a later invocation of the same call. A `git log` right after the commit
- * prints HEAD first, and HEAD after a successful commit IS that commit — a
- * successful call proves every segment ran. The hash is therefore taken only
- * when the leading line of the capture carries one together with exactly the
- * committed subject. A `git log` anywhere before the commit could have printed
- * the pre-commit HEAD under that same subject (an amend, a retried commit), so
+ * `git commit -q` prints no banner. Its following log must prove it starts
+ * at HEAD in the same repository: only --oneline, positive count limits
+ * and an optional explicit HEAD are accepted. Filters, reordered output,
+ * paths and other revisions cannot prove which commit supplied the hash.
+ * A preceding log can also print the old HEAD with a matching subject, so
  * its presence fails the proof closed.
  */
 function quietCommitHash(
@@ -786,8 +807,8 @@ function quietCommitHash(
 	resultText: string,
 ): { hash: string; subject: string } | undefined {
 	const commit = segments[commitIndex];
-	if (!commit || segments[commitIndex + 1]?.subcommand !== "log")
-		return undefined;
+	const log = segments[commitIndex + 1];
+	if (!commit || !log || !isHeadLog(commit, log)) return undefined;
 	for (let index = 0; index < commitIndex; index++)
 		if (segments[index]?.subcommand === "log") return undefined;
 	const subject = commitMessageSubject(commit);

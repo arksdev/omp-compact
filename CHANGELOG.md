@@ -14,6 +14,9 @@
 
 - Auto-shake больше не запускается после ошибки сохранения write/edit/Git evidence, даже если ошибка произошла до завершения ответа. Следующий run может снова выполнить shake после успешного сохранения.
 - Отложенный drain предыдущего ответа больше не запускает shake внутри следующего run и не расходует его единственный разрешённый shake.
+- Quiet commit больше не получает чужой hash из отфильтрованного `git log`, другого revision или другого репозитория. Hash подтверждается только по HEAD в том же контексте Git.
+- Цепочки Git через `;` или неэкранированный перевод строки остаются обычными Bash-вызовами: общий exit code больше не выдаётся за успех каждой команды. Цепочки через `&&` и многострочные сообщения коммитов поддерживаются по-прежнему.
+- В `clear` сводка созданных коммитов остаётся видимой после прерывания или ошибки run, когда включён `Retain Git rows`; остальные диагностические строки остаются скрытыми.
 
 ---
 
@@ -25,6 +28,9 @@
 
 - Auto-shake no longer runs after write/edit/Git evidence persistence fails, including failures settled before the answer ends. A later run can shake after successful persistence.
 - A delayed prior-answer drain no longer shakes during the next run or consumes that run's once-per-run shake.
+- Quiet commits no longer borrow hashes from filtered logs, other revisions, or other repositories. Only a HEAD log in the same Git context can confirm the hash.
+- Git chains separated by `;` or unescaped newlines remain ordinary Bash calls: their final exit code no longer certifies every invocation. `&&` chains and multiline commit messages remain supported.
+- In `clear`, the created-commit summary survives an aborted or failed run when `Retain Git rows` is enabled; routine diagnostics stay hidden.
 
 ---
 

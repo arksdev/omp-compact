@@ -846,7 +846,9 @@ export class RuntimeAdapter {
 		if (state) {
 			const phase = state.ledger.phase;
 			const projection =
-				phase === "filtered"
+				phase === "filtered" ||
+				(phase === "full" &&
+					this.#session.modeFor(state.ledger).mode === "clear")
 					? this.#session.terminalProjection(state.ledger)
 					: undefined;
 			const decision = this.#toolDecision(state, phase, projection);
@@ -1050,9 +1052,9 @@ export class RuntimeAdapter {
 		// the block final.
 		const audit = resolveToolRule(state.toolName)?.audit;
 		if (audit === "write" || audit === "edit") return false;
-		// Neither phase below consults the terminal projection: `full` keeps
-		// every row as it is, so the aggregate summary the projection carries
-		// belongs to `filtered` alone — the phase this mode cannot reach.
+		// clear was excluded above. Neither phase below consults the terminal
+		// projection: live/compact `full` keeps each row unchanged rather than
+		// adding the aggregate summary of a filtered terminal view.
 		if (
 			!sameToolRender(
 				this.#toolDecision(state, "working", undefined),

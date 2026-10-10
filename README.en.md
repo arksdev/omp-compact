@@ -125,6 +125,8 @@ JSON:
 
 The plugin recognizes Git activity from Bash commands that already ran and their results. It does not run hidden `git log`, `rev-parse`, or other probes.
 
+Individual calls and `&&` chains become Git rows. Chains separated by `;` or unescaped newlines remain ordinary Bash: a successful last command does not prove earlier commands succeeded. A quiet commit's hash is confirmed only by a following oneline HEAD log in the same Git context, without filters or other revisions.
+
 - In `live`, Git actions are visible while OMP is working and are replaced after the answer by one line containing verified hashes for created commits.
 - A failed commit or a commit without a hash is not included in the final line.
 - If you disable this option, `live` shows neither intermediate Git rows nor the terminal Git summary.

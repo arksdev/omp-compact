@@ -334,60 +334,48 @@ describe("Multiple Git invocations in one Bash call", () => {
 		]);
 	});
 
-	test("recognizes a ;-joined Git chain in command order", () => {
-		expect(
-			recognizeGitCommands(
-				"git status --porcelain; git diff -- Cargo.toml Cargo.lock",
-			),
-		).toEqual([
-			{ subcommand: "status", gated: false },
-			{ subcommand: "diff", gated: false },
-		]);
-	});
+	for (const command of [
+		"git add missing-file; git status --porcelain",
+		"git add missing-file\ngit status --porcelain",
+		"git add missing-file\r\ngit status --porcelain",
+		"git add missing-file && git commit -m x; git status --porcelain",
+		"cd /missing; git status --porcelain",
+	]) {
+		test(`an unguarded chain cannot certify every segment: ${JSON.stringify(command)}`, () => {
+			expect(
+				formatGitRecords({
+					command,
+					resultText: "fatal: pathspec did not match any files",
+					isError: false,
+				}),
+			).toBeUndefined();
+			expect(recognizeGitCommands(command)).toBeUndefined();
+		});
+	}
 
-	test("formats a ;-joined status/diff chain into two rows like its && twin", () => {
-		const records = formatGitRecords({
-			command: "git status --porcelain; git diff -- Cargo.toml Cargo.lock",
-			resultText:
-				" M Cargo.toml\n M Cargo.lock\n@@ -1,2 +1,3 @@\n toml\n+# modified\n",
+	test("newlines following && keep the success gate", () => {
+		const rows = formatGitRecords({
+			command: "git add a &&\n git commit -m 'fix: a'",
+			resultText: "[main 3f52b2f] fix: a",
 			isError: false,
 		});
-		expect(records?.map((record) => record.text)).toEqual([
-			"git status --porcelain",
-			"git diff -- Cargo.toml Cargo.lock",
-		]);
-		expect(records?.map((record) => record.subcommand)).toEqual([
-			"status",
-			"diff",
-		]);
+		expect(rows?.map((row) => row.subcommand)).toEqual(["add", "commit"]);
+		expect(rows?.[1]?.text).toContain("3f52b2f");
 	});
 
-	test("a chain mixing ; and && keeps all three segments in command order", () => {
-		expect(
-			recognizeGitCommands("git add a; git commit -m x && git push"),
-		).toEqual([
-			{ subcommand: "add", gated: false },
-			{ subcommand: "commit", gated: false },
-			{ subcommand: "push", gated: false },
+	test("separators inside a quoted commit message are not shell boundaries", () => {
+		const rows = formatGitRecords({
+			command: 'git commit -m "fix: a; b\n\ncommit body"',
+			resultText: "[main 3f52b2f] fix: a; b",
+			isError: false,
+		});
+		expect(rows).toEqual([
+			{
+				subcommand: "commit",
+				text: "git commit 3f52b2f fix: a; b",
+				isError: false,
+			},
 		]);
-	});
-
-	test("cd-gates a ;-joined segment exactly like its && twin", () => {
-		expect(recognizeGitCommands("cd repo; git status")).toEqual([
-			{ subcommand: "status", gated: true },
-		]);
-	});
-
-	test("recognizes a previously-rejected ; chain as a positive case", () => {
-		expect(recognizeGitCommands("git status ; git diff")).toEqual([
-			{ subcommand: "status", gated: false },
-			{ subcommand: "diff", gated: false },
-		]);
-		expect(
-			recognizeGitCommands("git status ; git diff")?.map(
-				(record) => record.subcommand,
-			),
-		).toEqual(["status", "diff"]);
 	});
 });
 
@@ -748,6 +736,65 @@ describe("quiet commit hash attribution", () => {
 		).toBe("git commit 3f52b2f fix: a");
 	});
 
+	for (const logArgs of [
+		"--oneline --skip=1 -1",
+		"--oneline -1 HEAD^",
+		"--oneline -1 other-branch",
+		"--oneline --reverse -3",
+		"--oneline --grep=fix -1",
+		"--oneline --all -1",
+		"--oneline -1 -- src/a.ts",
+		"--format='%h %s' --skip=1 -1",
+	]) {
+		test(`a quiet commit cannot borrow a hash from log ${logArgs}`, () => {
+			const rows = formatGitRecords({
+				command: `git commit -q -m 'fix: a' && git log ${logArgs}`,
+				resultText: "3f52b2f fix: a",
+				isError: false,
+			});
+			expect(rows?.[0]).toMatchObject({
+				subcommand: "commit",
+				isError: false,
+			});
+			expect(rows?.[0]?.text).not.toContain("3f52b2f");
+		});
+	}
+
+	for (const command of [
+		"git -C repo commit -qm 'fix: a' && git -C other log --oneline -1",
+		"git -C repo commit -qm 'fix: a' && git log --oneline -1",
+		"git commit -qm 'fix: a' && git --git-dir=other/.git log --oneline -1",
+	]) {
+		test(`a quiet commit cannot borrow a hash from another context: ${command}`, () => {
+			const rows = formatGitRecords({
+				command,
+				resultText: "3f52b2f fix: a",
+				isError: false,
+			});
+			expect(rows?.[0]).toMatchObject({
+				subcommand: "commit",
+				isError: false,
+			});
+			expect(rows?.[0]?.text).not.toContain("3f52b2f");
+		});
+	}
+
+	for (const logArgs of [
+		"--oneline -3",
+		"--oneline -n 1",
+		"--oneline -n1 HEAD",
+		"--oneline --max-count=1",
+	]) {
+		test(`matching repository context still proves HEAD with ${logArgs}`, () => {
+			const rows = formatGitRecords({
+				command: `git -C repo commit -qm 'fix: a' && git -C repo log ${logArgs}`,
+				resultText: "3f52b2f fix: a\n0000abc prior subject",
+				isError: false,
+			});
+			expect(rows?.[0]?.text).toBe("git commit 3f52b2f fix: a");
+		});
+	}
+
 	test("a subject mismatch attributes nothing", () => {
 		expect(
 			formatGitRecords({
@@ -840,14 +887,6 @@ describe("commit messages and commands with newlines", () => {
 			{ subcommand: "add", gated: false },
 			{ subcommand: "commit", gated: false },
 			{ subcommand: "push", gated: false },
-		]);
-	});
-
-	test("recognizes commands separated by newlines", () => {
-		const command = 'git add .\ngit commit -m "feat: test"';
-		expect(recognizeGitCommands(command)).toEqual([
-			{ subcommand: "add", gated: false },
-			{ subcommand: "commit", gated: false },
 		]);
 	});
 

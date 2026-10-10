@@ -168,6 +168,8 @@ Local snapshot audit не выводит `exact: true` только из пре�
 
 Git распознаётся консервативно из уже выполненного Bash command/result. Плагин не запускает скрытые `git log`, `rev-parse` или другие probes.
 
+Отдельные вызовы и цепочки через `&&` дают Git evidence. Цепочки через `;` или неэкранированный перевод строки остаются обычным Bash: общий exit code не доказывает успех ранних команд. Переносы в quoted commit message и продолжения после `&&` поддерживаются. Для quiet commit следующий `git log` подтверждает hash только при одинаковых global Git args, `--oneline`, положительном лимите количества записей (если указан) и HEAD без фильтров, pathspecs или других revisions.
+
 В режиме `live`:
 
 - во время работы показываются распознанные Git rows, если `retainGitLive=true`;
@@ -176,7 +178,7 @@ Git распознаётся консервативно из уже выполн
 - status/add/push/switch/rebase, failed commits и commits без hash в summary не входят;
 - hashes сохраняют chronological order, newest hash остаётся видимым при узкой ширине.
 
-`retainGitLive=false` скрывает Git rows и terminal commit summary в `live`. В `compact` полный Git log остаётся независимо от этого toggle. В `clear` ordinary Git rows скрыты вместе с остальными compact rows, но terminal commit summary остаётся: созданные commits — единственная evidence, которую тихий режим не прячет, иначе log утверждал бы, что ничего не произошло, там где история изменилась. При `retainGitLive=false` summary не остаётся и в `clear`.
+`retainGitLive=false` скрывает Git rows и terminal commit summary в `live`. В `compact` полный Git log остаётся независимо от этого toggle. В `clear` ordinary Git rows скрыты вместе с остальными compact rows, но terminal commit summary остаётся и после abort/error: созданные commits — единственная evidence, которую тихий режим не прячет, иначе log утверждал бы, что ничего не произошло, там где история изменилась. При `retainGitLive=false` summary не остаётся и в `clear`.
 
 ## Настройки
 
@@ -568,7 +570,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 
 ### Git summary отсутствует
 
-Проверьте `retainGitLive`, режим и result команды. Summary создаётся только в `live` для successful commit records с подтверждённым hash.
+Проверьте `retainGitLive`, режим и result команды. Summary создаётся в `live` после успешного ответа и в терминальном `clear` (включая abort/error) только для successful commit records с подтверждённым hash. `compact` сохраняет individual Git rows вместо aggregate summary. Цепочки через `;`/неэкранированный newline и quiet logs с фильтрами, другим revision или другим контекстом Git не подтверждают hash.
 
 ### Auto-shake не запустился
 
