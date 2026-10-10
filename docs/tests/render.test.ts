@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { Theme } from "../../.omp-plugin/theme-types";
 import type { Component } from "@oh-my-pi/pi-tui";
+import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
 import {
 	isRejectedControlCode,
 	stripRejectedControls,
@@ -150,16 +151,19 @@ interface RenderModule {
 		theme: Theme,
 		width?: number,
 	): string;
-	mutationLine(
+	mutationRows(
 		entry: MutationMessageDetails | LegacyMutationMessageDetails,
 		theme: Theme,
 		displayPaths?: DisplayPathOptions,
-	): string;
+	): readonly string[];
+	mutationMessageComponent(
+		details: MutationMessageDetails | LegacyMutationMessageDetails | undefined,
+		theme: Theme,
+	): Component | undefined;
 	sanitizeOneLine(value: unknown, limit?: number): string;
 }
 
 let renderModule: RenderModule;
-let truncateToWidth: (value: string, width: number) => string;
 
 beforeAll(async () => {
 	// This test intentionally exercises the stock-runtime module boundary: the
@@ -169,10 +173,6 @@ beforeAll(async () => {
 		"render.ts",
 		"render-test",
 	);
-	const tuiModule = (await import("@oh-my-pi/pi-tui")) as {
-		truncateToWidth(value: string, width: number): string;
-	};
-	truncateToWidth = tuiModule.truncateToWidth;
 });
 
 function renderCompactToolRows(
@@ -200,7 +200,7 @@ function mutationLine(
 	theme: Theme,
 	displayPaths?: DisplayPathOptions,
 ): string {
-	return renderModule.mutationLine(entry, theme, displayPaths);
+	return renderModule.mutationRows(entry, theme, displayPaths).join("\n");
 }
 
 function sanitizeOneLine(value: unknown, limit?: number): string {
@@ -587,6 +587,90 @@ describe("mutation and Git rows stay transparent", () => {
 		const text = stripAnsi(lines[0] ?? "");
 		expect(text.length).toBeLessThanOrEqual(36);
 		expect(text).toMatch(/-7\s*$/);
+	});
+
+	test("narrow tool and carrier rows preserve complete counts after host truncation", () => {
+		const cases: {
+			entry: MutationMessageDetails | LegacyMutationMessageDetails;
+			counts: string;
+		}[] = [
+			{
+				entry: {
+					version: 1,
+					toolCallId: "write",
+					toolName: "write",
+					path: "/project/界/a.ts",
+					added: 12,
+					removed: 4,
+					exact: true,
+				},
+				counts: "+12|4",
+			},
+			{
+				entry: {
+					version: 1,
+					toolCallId: "delete",
+					toolName: "delete",
+					path: "/project/界/gone.ts",
+					added: 0,
+					removed: 9000,
+					exact: true,
+				},
+				counts: "-9000",
+			},
+			{
+				entry: {
+					version: 1,
+					toolCallId: "empty",
+					toolName: "write",
+					path: "/project/.gitkeep",
+					added: 0,
+					removed: 0,
+					exact: true,
+					created: true,
+				},
+				counts: "+0|0",
+			},
+			{
+				entry: {
+					toolName: "write",
+					path: "/project/legacy.ts",
+					lineCount: 42,
+					exact: false,
+				},
+				counts: "42lines",
+			},
+		];
+		for (const { entry, counts } of cases) {
+			const component = renderModule.mutationMessageComponent(
+				entry,
+				fakeTheme(),
+			);
+			if (!component) throw new Error("mutation carrier was not rendered");
+			for (const width of [1, 5, 10, 14, 40]) {
+				const toolRows = renderCompactToolRows(
+					{
+						toolName: entry.toolName,
+						args: {},
+						isError: false,
+						isPartial: false,
+						mutationEntries: [entry],
+					},
+					fakeTheme(),
+					width,
+				);
+				for (const rows of [toolRows, component.render(width)]) {
+					for (const row of rows) {
+						expect(visibleWidth(row)).toBeLessThanOrEqual(width);
+						expect(row).not.toContain("\n");
+					}
+					const painted = rows
+						.map((row) => truncateToWidth(row, width))
+						.join("");
+					expect(stripAnsi(painted).replace(/\s/g, "")).toContain(counts);
+				}
+			}
+		}
 	});
 
 	test("standalone gitLine keeps its markers and stays surface-free for reuse", () => {

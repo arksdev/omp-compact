@@ -687,6 +687,71 @@ describe("store load fail-open", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
+	for (const operation of ["shortcut", "store"] as const) {
+		(process.platform === "win32" ? test.skip : test)(
+			`a writer-less FIFO cannot block config ${operation} or be overwritten`,
+			async () => {
+				const dir = await tempDir();
+				const file = join(dir, "config.fifo");
+				expect(Bun.spawnSync(["mkfifo", file]).exitCode).toBe(0);
+				const modulePath = join(import.meta.dir, "../../.omp-plugin/config.ts");
+				const script = `
+import * as config from ${JSON.stringify(modulePath)};
+import { lstatSync } from "node:fs";
+process.send("ready");
+const path = process.env.PROBE_PATH;
+if (process.env.PROBE_OPERATION === "shortcut") {
+  console.log(JSON.stringify({ chord: config.readDisplayCycleKeySync({ path, env: {} }), fifo: lstatSync(path).isFIFO() }));
+} else {
+  const store = config.createSettingsStore({ path, env: {}, warn() {} });
+  const settings = await store.load();
+  let updateError;
+  try { await store.update({ mode: "compact" }); } catch (error) { updateError = error.name; }
+  console.log(JSON.stringify({ mode: settings.mode, updateError, fifo: lstatSync(path).isFIFO() }));
+}
+`;
+				// A real watchdog is needed to terminate native open(2); fake
+				// timers cannot bound it. Import has its own independent budget.
+				let timer: Timer;
+				let timedOut: "import" | "read" | undefined;
+				let ready = false;
+				const child = Bun.spawn(["bun", "-e", script], {
+					env: { ...Bun.env, PROBE_PATH: file, PROBE_OPERATION: operation },
+					stdout: "pipe",
+					stderr: "pipe",
+					ipc(value) {
+						if (value !== "ready" || ready) return;
+						ready = true;
+						clearTimeout(timer);
+						timer = setTimeout(() => {
+							timedOut = "read";
+							child.kill();
+						}, 3000);
+					},
+				});
+				timer = setTimeout(() => {
+					timedOut = "import";
+					child.kill();
+				}, 30_000);
+				const code = await child.exited;
+				clearTimeout(timer);
+				if (timedOut) throw new Error(`config ${timedOut} blocked`);
+				if (!ready || code !== 0)
+					throw new Error(await new Response(child.stderr).text());
+				const result = JSON.parse(await new Response(child.stdout).text());
+				expect(result).toEqual(
+					operation === "shortcut"
+						? { chord: DEFAULT_SETTINGS.displayCycleKey, fifo: true }
+						: {
+								mode: DEFAULT_SETTINGS.mode,
+								updateError: "ConfigUpdateError",
+								fifo: true,
+							},
+				);
+			},
+		);
+	}
+
 	test("over-deep JSON warns and falls back to defaults", async () => {
 		const dir = await tempDir();
 		const { store, warnings } = storeAt(dir);

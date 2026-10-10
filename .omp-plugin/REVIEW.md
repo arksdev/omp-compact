@@ -14,6 +14,10 @@
 
 **Четвёртый пакет:** P2.8–P2.12 воспроизведены и исправлены. Полная операция cycle сериализуется вместе с dialog saves; начальное раскрытие native skill/diagnostics учитывается до patch; пути хранятся в snapshot своего ledger; пустые создания и удаления сохраняют zero-line existence evidence; отмена session switch сохраняет текущий runtime и pending audit. Подтверждены native shortcut handlers, skill/diagnostics, `WriteTool`, `EditTool`, veto настоящего `ExtensionRunner` и исторические пути на ширинах 120/80. Отложенная публикация дополнительно проверяет source в текущем journal, закрывая промежуток между его заменой и committed switch. Открыты только P3; затем выполняется отдельный полный второй цикл ревью.
 
+**Пятый пакет, 2026-10-11:** оба P3 воспроизведены и исправлены. Writer-less FIFO больше не блокирует синхронную регистрацию shortcut или async load/save; oversized/non-regular config проверяется по открытому descriptor до чтения и не заменяется при сохранении. Проверены 256 MiB sparse file и UTF-8 граница 65 536/65 537 bytes. Mutation rendering возвращает строки по ширине: когда head и counts не помещаются вместе, counts переносятся отдельно. Native `TranscriptContainer` и финальный truncator сохранили все цифры на ширинах 1/5/10/14/20/40/80/120. Все замечания первого ревью закрыты; отдельный полный второй цикл проводится ниже по текущему коду, без сабагентов.
+
+**Гейт после полного первого цикла:** `bun run check` — typecheck, lint и format успешно; **1694 passing tests, 0 failures, 72 files**. Все 14 замечаний (2 P1, 10 P2, 2 P3) закрыты с before/after regression и native/platform smoke evidence.
+
 ## P1 — высокий приоритет
 
 ### 1. Ошибка сохранения evidence не блокирует auto-shake

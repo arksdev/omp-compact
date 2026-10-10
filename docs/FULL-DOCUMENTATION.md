@@ -170,6 +170,8 @@ Local snapshot audit не выводит `exact: true` только из пре�
 
 Создание пустого файла — изменение существования, даже если before/after text пусты. Оно сохраняется как точное `+0|0` с отдельным признаком creation; успешное удаление пустого файла сохраняется как `delete ... -0`. Обычная перезапись существующего пустого файла и нулевой diff `edit` остаются no-op. Отложенное write-evidence также проверяет, что source entry ещё принадлежит текущему session journal: если native переключение уже заменило журнал, старый carrier туда не записывается.
 
+На обычной ширине mutation-row сокращает только path, сохраняя полные счётчики. Если title и stats вместе уже не помещаются, stats выводятся на отдельных строках и при необходимости переносятся штатным ANSI-aware helper. Это действует и для legacy custom-message rows: финальная обрезка хоста не удаляет цифры справа.
+
 `session_before_switch` отменяет pending/native shake, но не разбирает текущий transcript, audit и настройки: другой extension ещё может вернуть `{ cancel: true }`. Teardown происходит при committed initialization/non-fork switch либо shutdown; `/fork` сохраняет текущий adapter. Поэтому после veto текущий run продолжает показывать и сохранять свои tool changes.
 
 ### Git summary
@@ -302,6 +304,7 @@ Default path:
 Ограничения parser/store:
 
 - размер не больше 65,536 bytes;
+- native read проверяет regular file и размер открытого descriptor до чтения; `O_NONBLOCK` не даёт writer-less FIFO остановить startup/load/save, а exact-size read ограничен размером плюс один байт и отклоняет growth/shrink;
 - nesting depth не больше 16;
 - `thresholdTokens` — integer от `0` до `10,000,000`;
 - поддерживается только `version: 1`;

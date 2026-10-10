@@ -471,6 +471,8 @@ ordinary diagnostics do not return on abort.
 
 ### Bounded Parsing (config.ts)
 
+Both synchronous shortcut startup and asynchronous config load/save open with `O_NONBLOCK` and inspect the opened descriptor. Non-regular targets and sizes above `MAX_CONFIG_BYTES` are refused before any content read. The existing exact-size snapshot helpers read at most the accepted size plus one byte and reject growth/shrink; the parser still bounds UTF-8 text, depth and the merged write record. Load is fail-open, strict save is fail-closed, and config symlink behavior is unchanged.
+
 ```typescript
 type BoundedParseResult =
 	| { readonly ok: true; readonly raw: unknown }

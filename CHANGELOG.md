@@ -23,6 +23,8 @@
 - Уже раскрытые skill/diagnostics карточки сохраняют native body при подключении плагина; перерисовка истории не подменяет снимки путей старых run настройками нового run.
 - Создание и удаление пустого файла сохраняются как изменение существования с нулевыми line-counts; перезапись существующего пустого файла остаётся no-op.
 - Отменённый session switch больше не разбирает текущий transcript и audit. Teardown выполняется после подтверждённого перехода; pending shake отменяется уже на proposal, а старое write-evidence не попадает в заменённый session journal.
+- Config проверяется до чтения содержимого: oversized и non-regular files не блокируют startup/load/save и не заменяются при сохранении. Для допустимого файла чтение ограничено размером плюс один байт.
+- В очень узком терминале mutation-counts больше не обрезаются справа: когда title и stats не помещаются вместе, полные счётчики переносятся на отдельные строки, включая legacy carriers.
 
 ---
 
@@ -43,6 +45,8 @@
 - Previously expanded skill/diagnostics cards preserve their native bodies when patched. History redraws retain each run's own display-path snapshot.
 - Empty-file creation and deletion retain zero-line existence evidence; overwriting an existing empty file remains a no-op.
 - A vetoed session switch no longer tears down the current transcript or audit. Teardown waits for commit, pending shake is cancelled at proposal, and old write evidence cannot publish into a replaced session journal.
+- Config is checked before content reads: oversized and non-regular files cannot block startup/load/save or be replaced by a save. Accepted reads are bounded to the file size plus one byte.
+- Very narrow terminals no longer truncate mutation counts on the right. When title and stats do not fit together, complete counts move to their own wrapped rows, including legacy carriers.
 
 ---
 

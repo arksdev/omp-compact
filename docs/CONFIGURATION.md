@@ -136,6 +136,7 @@ the pinned value instead of claiming a change the environment forbids.
 ### Validation Limits
 
 - **File size:** Max 65,536 bytes (64 KB)
+- **Native reads:** Nonblocking open and descriptor stat reject non-regular files and oversized files before reading content. Accepted files read at most their stat size plus one byte; growth/shrink is rejected. Startup/load fall back to defaults; save refuses to replace an unreadable or invalid existing file.
 - **Nesting depth:** Max 16 levels
 - **thresholdTokens:** Integer 0–10,000,000
 - **Invalid fields:** Fall back to defaults with one warning

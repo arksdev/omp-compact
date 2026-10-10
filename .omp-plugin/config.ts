@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import type { Stats } from "node:fs";
+import { closeSync, constants, fstatSync, openSync } from "node:fs";
+import { mkdir, open, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
+import { readExactAsync, readExactSync } from "./audit";
 import {
 	canonicalize,
 	DEFAULT_DISPLAY_CYCLE_KEY,
@@ -86,6 +88,42 @@ export type EnvLike = Record<string, string | undefined>;
 export const MAX_CONFIG_BYTES = 65_536;
 export const MAX_CONFIG_DEPTH = 16;
 export const MAX_THRESHOLD_TOKENS = 10_000_000;
+
+const CONFIG_OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
+
+function configReadSize(stats: Stats): number {
+	if (!stats.isFile()) throw new Error("config is not a regular file");
+	if (stats.size > MAX_CONFIG_BYTES) {
+		throw new Error(`config JSON is oversized (>${MAX_CONFIG_BYTES} bytes)`);
+	}
+	return stats.size;
+}
+
+function readConfigSync(path: string): string {
+	// Nonblocking open plus descriptor-based stat also protects against a
+	// regular path being replaced with a FIFO between path inspection and open.
+	const fd = openSync(path, CONFIG_OPEN_FLAGS);
+	try {
+		const size = configReadSize(fstatSync(fd));
+		const buffer = readExactSync(fd, size);
+		if (!buffer) throw new Error("config size changed during read");
+		return buffer.toString("utf8", 0, size);
+	} finally {
+		closeSync(fd);
+	}
+}
+
+async function readConfig(path: string, encoding: "utf8"): Promise<string> {
+	const handle = await open(path, CONFIG_OPEN_FLAGS);
+	try {
+		const size = configReadSize(await handle.stat());
+		const buffer = await readExactAsync(handle, size);
+		if (!buffer) throw new Error("config size changed during read");
+		return buffer.toString(encoding, 0, size);
+	} finally {
+		await handle.close();
+	}
+}
 
 const DEFAULT_STATS: CompactStatsSettings = Object.freeze({
 	enabled: true,
@@ -762,7 +800,8 @@ export interface StoreDeps {
 	/**
 	 * Read seam for the persisted config file, injectable so tests can force
 	 * deterministic non-ENOENT failures (EACCES/EIO) without chmod. Defaults
-	 * to `readFile` from `node:fs/promises`.
+	 * to the bounded regular-file reader (nonblocking open, descriptor stat,
+	 * at most MAX_CONFIG_BYTES + 1 bytes read, no growth/shrink accepted).
 	 */
 	readFile?: (path: string, encoding: "utf8") => Promise<string>;
 }
@@ -783,7 +822,7 @@ export function readDisplayCycleKeySync(deps: StoreDeps = {}): string {
 	const path = deps.path ?? resolveConfigPath(env);
 	let text: string;
 	try {
-		text = readFileSync(path, "utf8");
+		text = readConfigSync(path);
 	} catch {
 		return DEFAULT_SETTINGS.displayCycleKey;
 	}
@@ -857,7 +896,7 @@ export function createSettingsStore(
 	// Resolve after warn is bound so a rejected explicit OMP_COMPACT_CONFIG
 	// can surface one diagnostic through the store warn seam.
 	const path = deps.path ?? resolveConfigPath(env, { warn });
-	const readConfigFile = deps.readFile ?? readFile;
+	const readConfigFile = deps.readFile ?? readConfig;
 	const warnOnce = createWarnOnce(warn);
 
 	// The normalized user config (what load() read / update() persisted).

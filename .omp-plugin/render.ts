@@ -1,9 +1,10 @@
 import type { Theme } from "./theme-types";
 import {
-	type Component,
 	truncateToWidth,
 	visibleWidth,
+	wrapTextWithAnsi,
 } from "@oh-my-pi/pi-tui";
+import type { Component } from "@oh-my-pi/pi-tui";
 
 import { genericToolDescription } from "./compact";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
@@ -289,12 +290,12 @@ function mutationStat(
 	return value === 0 ? theme.fg("dim", text) : fixedForeground(hex, text);
 }
 
-export function mutationLine(
+export function mutationRows(
 	entry: MutationMessageDetails | LegacyMutationMessageDetails,
 	theme: Theme,
 	displayPaths?: DisplayPathOptions,
 	width?: number,
-): string {
+): readonly string[] {
 	const path = displayPathValue(entry.path, displayPaths);
 	// Cap the path before width-fitting so an absurd path cannot dominate the
 	// row; the width pass below may shorten it further to protect the stats.
@@ -312,14 +313,7 @@ export function mutationLine(
 				? ` ${mutationStat(entry.removed, "-", REMOVED_STAT_COLOR, theme)}`
 				: "";
 		const head = `${theme.fg("dim", "•")} ${title}: `;
-		const fittedPath = fitMutationPath(
-			pathText,
-			head,
-			removedStat,
-			theme,
-			width,
-		);
-		return `${head}${fittedPath}${removedStat}`;
+		return fitMutationRows(pathText, head, removedStat, theme, width);
 	}
 	const added = entry.added ?? 0;
 	const removed = entry.removed ?? 0;
@@ -331,32 +325,36 @@ export function mutationLine(
 		: theme.fg("dim", `${entry.lineCount ?? 0} lines`);
 	const head = `${theme.fg("dim", "•")} ${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: `;
 	const tail = ` ${stats}`;
-	const fittedPath = fitMutationPath(pathText, head, tail, theme, width);
-	return `${head}${fittedPath}${tail}`;
+	return fitMutationRows(pathText, head, tail, theme, width);
 }
 
 /**
- * Shorten only the path portion of a mutation row so the trailing stats
- * (`+N|M`, `-N`, or `N lines`) always remain fully visible. A plain
- * `fitTransparentLine` / `truncateToWidth` would clip the tail — worse than
- * wrapping, because the counts are the evidence the row exists to convey.
+ * Shorten the path on normal widths. If even head + stats cannot fit, put
+ * the stats on their own wrapped rows rather than let host truncation lose
+ * evidence. Each returned string is one terminal row, never an embedded LF.
  */
-function fitMutationPath(
+function fitMutationRows(
 	pathText: string,
 	head: string,
 	tail: string,
 	theme: Theme,
 	width: number | undefined,
-): string {
-	const muted = (text: string) => theme.fg("muted", text);
-	if (width === undefined) return muted(pathText);
+): readonly string[] {
+	const path = theme.fg("muted", pathText);
+	if (width === undefined) return [`${head}${path}${tail}`];
 	const safeWidth = Math.max(1, width);
-	const fixed = visibleWidth(head) + visibleWidth(tail);
-	const pathBudget = Math.max(1, safeWidth - fixed);
-	if (visibleWidth(muted(pathText)) <= pathBudget) return muted(pathText);
-	// truncateToWidth counts visible columns of the styled string; feed it the
-	// muted path so the budget matches what the row will actually paint.
-	return `${truncateToWidth(muted(pathText), pathBudget)}\u001b[39m`;
+	const pathBudget = safeWidth - visibleWidth(head) - visibleWidth(tail);
+	if (pathBudget < 1) {
+		const row = fitTransparentLine(`${head}${path}`, safeWidth);
+		return tail
+			? [row, ...wrapTextWithAnsi(tail.trimStart(), safeWidth)]
+			: [row];
+	}
+	const fittedPath =
+		visibleWidth(path) <= pathBudget
+			? path
+			: `${truncateToWidth(path, pathBudget)}\u001b[39m`;
+	return [`${head}${fittedPath}${tail}`];
 }
 
 export function gitLine(
@@ -501,8 +499,8 @@ export function renderCompactToolRows(
 		view.mutationEntries.length > 0 &&
 		!view.isPartial
 	) {
-		return view.mutationEntries.map((entry) =>
-			mutationLine(entry, theme, displayPaths, width),
+		return view.mutationEntries.flatMap((entry) =>
+			mutationRows(entry, theme, displayPaths, width),
 		);
 	}
 	if (view.git && !view.isPartial) {
@@ -576,7 +574,9 @@ export function mutationMessageComponent(
 	details: MutationMessageDetails | LegacyMutationMessageDetails | undefined,
 	theme: Theme,
 ): Component | undefined {
-	return details ? new CompactLines([mutationLine(details, theme)]) : undefined;
+	return details
+		? { render: (width) => mutationRows(details, theme, undefined, width) }
+		: undefined;
 }
 
 export function gitMessageComponent(
