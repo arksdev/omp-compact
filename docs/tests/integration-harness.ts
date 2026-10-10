@@ -96,6 +96,7 @@ interface AppendedEntry {
 export interface BootedPlugin {
 	host: HostModules;
 	handlers: Map<string, Handler[]>;
+	recordEvent(event: Record<string, unknown>): void;
 	context: {
 		cwd: string;
 		hasUI: boolean;
@@ -113,7 +114,10 @@ export interface BootedPlugin {
 				) => unknown,
 			): Promise<T>;
 		};
-		sessionManager: { getBranch(): readonly unknown[] };
+		sessionManager: {
+			getBranch(): readonly unknown[];
+			getEntries?(): readonly unknown[];
+		};
 		setInterval?(callback: () => void, milliseconds: number): unknown;
 		clearTimer?(timer: unknown): void;
 	};
@@ -153,7 +157,10 @@ export interface BootedPlugin {
  */
 interface BootHarness {
 	piPi?: unknown;
-	sessionManager?: { getBranch(): readonly unknown[] };
+	sessionManager?: {
+		getBranch(): readonly unknown[];
+		getEntries?(): readonly unknown[];
+	};
 	/** Mutates the fake host `pi` before the plugin boots: lets tests
 	 * simulate a host surface that throws on one of the guarded
 	 * registration calls. */
@@ -204,6 +211,43 @@ export async function bootPlugin(
 	const notifications: string[] = [];
 	const intervalCallbacks: Array<() => void> = [];
 	const clearedTimers: unknown[] = [];
+	// The host persists assistant tool calls before emitting execution events.
+	// Model that history so write ownership uses real entry ids, not only the
+	// presentation component. Injected managers provide their own history.
+	// Only write carriers extend this lightweight history; other metadata is
+	// still observed through appendedEntries or an explicitly injected manager.
+	const eventBranch: unknown[] = [...branch];
+	let entryCounter = 0;
+	const appendHistory = (entry: Record<string, unknown>): void => {
+		eventBranch.push({
+			...entry,
+			id: `test-entry-${entryCounter++}`,
+			parentId: (eventBranch.at(-1) as { id?: string } | undefined)?.id ?? null,
+		});
+	};
+	const recordEvent = (event: Record<string, unknown>): void => {
+		if (harness?.sessionManager) return;
+		if (event.type === "tool_execution_start") {
+			appendHistory({
+				type: "message",
+				message: {
+					role: "assistant",
+					stopReason: "toolUse",
+					content: [
+						{
+							type: "toolCall",
+							id: event.toolCallId,
+							name: event.toolName,
+							arguments: event.args,
+						},
+					],
+				},
+			});
+		} else if (event.type === "agent_end" && Array.isArray(event.messages)) {
+			for (const message of event.messages)
+				appendHistory({ type: "message", message });
+		}
+	};
 	// Settings-dialog instances opened through the harness ui.custom seam;
 	// drives the real /compact-settings save flow (store.update path).
 	const dialogs: BootedPlugin["dialogs"] = [];
@@ -241,6 +285,8 @@ export async function bootPlugin(
 		},
 		appendEntry(customType: string, data?: unknown) {
 			appendedEntries.push({ customType, data });
+			if (!harness?.sessionManager && customType === "omp-compact-write")
+				appendHistory({ type: "custom", customType, data });
 		},
 		on(event: string, handler: Handler) {
 			const list = handlers.get(event) ?? [];
@@ -312,7 +358,10 @@ export async function bootPlugin(
 				return promise;
 			},
 		},
-		sessionManager: harness?.sessionManager ?? { getBranch: () => branch },
+		sessionManager: harness?.sessionManager ?? {
+			getBranch: () => eventBranch,
+			getEntries: () => eventBranch,
+		},
 		setInterval(callback) {
 			intervalCallbacks.push(callback);
 			return callback;
@@ -327,6 +376,7 @@ export async function bootPlugin(
 	return {
 		host,
 		handlers,
+		recordEvent,
 		context,
 		root,
 		ContainerBase,
@@ -347,6 +397,7 @@ export async function dispatch(
 	booted: BootedPlugin,
 	event: Record<string, unknown>,
 ): Promise<void> {
+	booted.recordEvent(event);
 	for (const handler of booted.handlers.get(String(event.type)) ?? []) {
 		await handler(event, booted.context);
 	}
@@ -372,6 +423,7 @@ export function dispatchFireAndForget(
 	booted: BootedPlugin,
 	event: Record<string, unknown>,
 ): Promise<void> {
+	booted.recordEvent(event);
 	const pending: Promise<unknown>[] = [];
 	for (const handler of booted.handlers.get(String(event.type)) ?? []) {
 		pending.push(Promise.resolve(handler(event, booted.context)));

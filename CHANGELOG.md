@@ -17,6 +17,8 @@
 - Quiet commit больше не получает чужой hash из отфильтрованного `git log`, другого revision или другого репозитория. Hash подтверждается только по HEAD в том же контексте Git.
 - Цепочки Git через `;` или неэкранированный перевод строки остаются обычными Bash-вызовами: общий exit code больше не выдаётся за успех каждой команды. Цепочки через `&&` и многострочные сообщения коммитов поддерживаются по-прежнему.
 - В `clear` сводка созданных коммитов остаётся видимой после прерывания или ошибки run, когда включён `Retain Git rows`; остальные диагностические строки остаются скрытыми.
+- Отложенное write-evidence связано с исходной assistant-entry и восстанавливается в её ветви, даже если carrier опубликован после перехода по дереву или начала следующего run. Повторный `toolCallId` в другой ветви не получает чужие счётчики.
+- Пересекающиеся `write` одного canonical target, включая symlink aliases, больше не создают ложный exact diff. Native записи выполняются как прежде, но неоднозначные счётчики отбрасываются и блокируют auto-shake затронутого run; последующая непересекающаяся запись снова может дать exact evidence.
 
 ---
 
@@ -31,6 +33,8 @@
 - Quiet commits no longer borrow hashes from filtered logs, other revisions, or other repositories. Only a HEAD log in the same Git context can confirm the hash.
 - Git chains separated by `;` or unescaped newlines remain ordinary Bash calls: their final exit code no longer certifies every invocation. `&&` chains and multiline commit messages remain supported.
 - In `clear`, the created-commit summary survives an aborted or failed run when `Retain Git rows` is enabled; routine diagnostics stay hidden.
+- Delayed write evidence is scoped to its source assistant entry and replays in that branch even when published after navigation or a later run. Reused tool ids in another branch cannot borrow its counts.
+- Overlapping writes to one canonical target, including symlink aliases, no longer produce false exact diffs. Native writes are unchanged; ambiguous counts are dropped and block that run's auto-shake, while later uncontended writes recover exact evidence.
 
 ---
 

@@ -62,6 +62,9 @@ export interface MutationCandidate {
 	before: string;
 }
 
+/** Synchronous lifecycle admission, before any pre-image bytes are read. */
+export type WriteTargetObserver = (canonicalPath: string) => boolean;
+
 // isPathInsideRoot lives in path-inside-root.ts (shared with config path
 // acceptance). Re-exported above for existing audit callers/tests.
 
@@ -299,18 +302,21 @@ function boundedTextSync(path: string): string | undefined {
 	}
 }
 
-export async function captureWriteCandidate(input: {
-	toolCallId: string;
-	args: unknown;
-	cwd: string;
-	/**
-	 * Confinement root for overwrite pre-image reads. Defaults to `cwd`.
-	 * Injectable so tests can state the root explicitly instead of depending
-	 * on `process.cwd()` (fixtures live under OS temp, outside the project).
-	 * Production passes the live session cwd from `resolveSessionCwd`.
-	 */
-	root?: string;
-}): Promise<MutationCandidate | undefined> {
+export async function captureWriteCandidate(
+	input: {
+		toolCallId: string;
+		args: unknown;
+		cwd: string;
+		/**
+		 * Confinement root for overwrite pre-image reads. Defaults to `cwd`.
+		 * Injectable so tests can state the root explicitly instead of depending
+		 * on `process.cwd()` (fixtures live under OS temp, outside the project).
+		 * Production passes the live session cwd from `resolveSessionCwd`.
+		 */
+		root?: string;
+	},
+	acceptTarget?: WriteTargetObserver,
+): Promise<MutationCandidate | undefined> {
 	const args = objectRecord(input.args);
 	if (typeof args.path !== "string" || typeof args.content !== "string")
 		return undefined;
@@ -363,6 +369,7 @@ export async function captureWriteCandidate(input: {
 				? resolve(linkTarget)
 				: resolve(dirname(absolutePath), linkTarget);
 			const destinationCanonical = canonicalPathSync(destination);
+			if (acceptTarget?.(destinationCanonical) === false) return undefined;
 			const rootCanonical = canonicalPathSync(rootPath);
 			if (!isPathInsideRoot(destinationCanonical, rootCanonical)) {
 				// Outside destination: never read pre-image, never claim
@@ -408,6 +415,7 @@ export async function captureWriteCandidate(input: {
 			// /tmp→/private/tmp and symlinked worktrees need matching
 			// canonical roots (session cwd realpath covers the common case).
 			const pathCanonical = canonicalPathSync(absolutePath);
+			if (acceptTarget?.(pathCanonical) === false) return undefined;
 			const rootCanonical = canonicalPathSync(rootPath);
 			if (!isPathInsideRoot(pathCanonical, rootCanonical)) return undefined;
 			const text = boundedTextSync(absolutePath);
@@ -424,6 +432,7 @@ export async function captureWriteCandidate(input: {
 		// confinement does not apply — outside-root creates keep +N|0.
 		before = "";
 		snapshotCanonical = canonicalPathSync(absolutePath);
+		if (acceptTarget?.(snapshotCanonical) === false) return undefined;
 	}
 	// Pre-image is fixed. The trailing await keeps the capture promise
 	// pending across the start handler's return so a fire-and-forget

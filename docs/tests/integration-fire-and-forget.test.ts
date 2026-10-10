@@ -108,20 +108,6 @@ stockTest(
 		expect(rows).toContain("write: multi.ts");
 		expect(rows).toContain("+3|0");
 		expect(booted.sentMessages).toEqual([]);
-		expect(booted.appendedEntries).toEqual([
-			{
-				customType: "omp-compact-write",
-				data: {
-					version: 1,
-					toolCallId,
-					toolName: "write",
-					path: "multi.ts",
-					added: 3,
-					removed: 0,
-					exact: true,
-				},
-			},
-		]);
 		await shutdown(booted);
 		await rm(cwd, { recursive: true, force: true });
 	},
@@ -173,20 +159,6 @@ stockTest(
 			willContinue: false,
 		});
 		expect(booted.sentMessages).toEqual([]);
-		expect(booted.appendedEntries).toEqual([
-			{
-				customType: "omp-compact-write",
-				data: {
-					version: 1,
-					toolCallId,
-					toolName: "write",
-					path: "multi.ts",
-					added: 3,
-					removed: 0,
-					exact: true,
-				},
-			},
-		]);
 		const rows = visibleRows(booted.transcript).join("\n");
 		expect(rows).toContain("write: multi.ts");
 		expect(rows).toContain("+3|0");
@@ -292,36 +264,6 @@ stockTest(
 		expect(rows.filter((line) => line.includes("write: b.ts"))).toHaveLength(1);
 		expect(booted.sentMessages).toEqual([]);
 		expect(booted.appendedEntries).toHaveLength(2);
-		const byToolCallId = new Map(
-			booted.appendedEntries.map((entry) => [
-				(entry.data as { toolCallId?: string } | undefined)?.toolCallId,
-				entry,
-			]),
-		);
-		expect(byToolCallId.get("write-race-a")).toEqual({
-			customType: "omp-compact-write",
-			data: {
-				version: 1,
-				toolCallId: "write-race-a",
-				toolName: "write",
-				path: "a.ts",
-				added: 2,
-				removed: 0,
-				exact: true,
-			},
-		});
-		expect(byToolCallId.get("write-race-b")).toEqual({
-			customType: "omp-compact-write",
-			data: {
-				version: 1,
-				toolCallId: "write-race-b",
-				toolName: "write",
-				path: "b.ts",
-				added: 3,
-				removed: 0,
-				exact: true,
-			},
-		});
 		await shutdown(booted);
 		await rm(cwd, { recursive: true, force: true });
 	},
@@ -386,20 +328,6 @@ stockTest(
 		expect(rows).toContain("write: multi.ts");
 		expect(rows).toContain("+3|0");
 		expect(booted.sentMessages).toEqual([]);
-		expect(booted.appendedEntries).toEqual([
-			{
-				customType: "omp-compact-write",
-				data: {
-					version: 1,
-					toolCallId,
-					toolName: "write",
-					path: "multi.ts",
-					added: 3,
-					removed: 0,
-					exact: true,
-				},
-			},
-		]);
 		await shutdown(booted);
 		await rm(cwd, { recursive: true, force: true });
 	},
@@ -458,20 +386,6 @@ stockTest(
 		expect(rows).toContain("write: multi.ts");
 		expect(rows).toContain("+3|0");
 		expect(booted.sentMessages).toEqual([]);
-		expect(booted.appendedEntries).toEqual([
-			{
-				customType: "omp-compact-write",
-				data: {
-					version: 1,
-					toolCallId,
-					toolName: "write",
-					path: "multi.ts",
-					added: 3,
-					removed: 0,
-					exact: true,
-				},
-			},
-		]);
 		await shutdown(booted);
 		await rm(cwd, { recursive: true, force: true });
 	},

@@ -313,11 +313,11 @@ There is no `verifyWriteMutation` helper. Write evidence is produced by the audi
 
 ```typescript
 // Pre-image at tool_execution_start (sync read — must not lose the race).
-export async function captureWriteCandidate(input: {
-    toolCallId: string;
-    args: unknown;
-    cwd: string;
-}): Promise<MutationCandidate | undefined>;
+export type WriteTargetObserver = (canonicalPath: string) => boolean;
+export async function captureWriteCandidate(
+    input: { toolCallId: string; args: unknown; cwd: string; root?: string },
+    acceptTarget?: WriteTargetObserver,
+): Promise<MutationCandidate | undefined>;
 
 // Post-image + line diff at tool_execution_end.
 export async function completeWriteCandidate(
@@ -342,6 +342,10 @@ export async function completeWriteCandidate(
 **Fallback:** Missing candidate, path mismatch, identical bytes, or over-budget diffs yield no mutation entries (`[]`); rows are not retained on invented stats.
 
 **Publication drain:** `AuditLifecycle` tracks synchronous edit/Git publication as well as asynchronous write completion. Completion or publication failures block auto-shake even when they settle before `agent_end`: failed tokens survive continuations until a terminal drain claims them. A drain releases only its own failure tokens, so an older drain cannot clear a later run's failure. Synchronous publication errors still propagate to the extension runner; terminal presentation finalization remains independent of evidence readiness. `PostTurnShake.onAgentEnd` is invoked at event emission with the pending drain promise, capturing the originating run epoch before it waits. A new run or session invalidates that pending shake.
+
+**Source ownership:** At start, the write record captures the id of its assistant/tool-start entry, verified against the write's tool id. The published `MutationMessageDetails.sourceEntryId` is bounded and write-only; an unverifiable source fails publication closed. `pi.appendEntry` still appends ordinary custom metadata at the current native leaf. The presentation's read-only `auditBranch` view collects scoped write carriers from `getEntries()` and injects them after their source in branches containing that exact source entry and tool call. Scoped carriers cannot hydrate an unrelated branch merely because a tool id repeats. Live mutation attachment also checks the current source. This uses the public readonly journal without moving leaves, rewriting entries, or adding messages to model context. Existing unscoped carriers keep their legacy branch-local behavior; historical journals are not retroactively repaired.
+
+**Target contention:** Capture synchronously claims the canonical filesystem target before reading pre-image bytes, including when that pre-image will be unsupported or over budget. Multiple active claims abandon every contending audit and keep auto-shake fail-closed for their run. Claims remain while a native write is unended or a still-publishable snapshot is in flight; an ended abandoned audit no longer contends. A completed snapshot releases its claim before publication so a following/reentrant write does not poison ready evidence. Native write execution is never serialized, cancelled, or changed. This observes filesystem write events in this plugin lifecycle, not external processes or separate plugin instances.
 
 **Path confinement (POSIX-only):** Pre-image reads and config-path acceptance
 share one predicate (`path-inside-root.ts` `isPathInsideRoot`). Both sides must

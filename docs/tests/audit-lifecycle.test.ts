@@ -643,6 +643,78 @@ describe("failed evidence publication", () => {
 	});
 });
 
+test("an unended contending writer blocks later claims and shake until its run settles", async () => {
+	const published: MutationMessageDetails[][] = [];
+	const life = new AuditLifecycle({
+		capture: (input, acceptTarget) =>
+			Promise.resolve(
+				acceptTarget?.("/tmp/shared.ts") === false
+					? undefined
+					: candidate(input.toolCallId),
+			),
+		complete: (value) =>
+			Promise.resolve(value ? [evidence(value.toolCallId)] : []),
+		warn: () => {},
+	});
+	const publish = (mutations: MutationMessageDetails[]) =>
+		published.push(mutations);
+	life.startWrite(writeStart("first"));
+	life.startWrite(writeStart("second"));
+	life.endWrite(writeEnd("second"), publish);
+	await flush();
+	// The later native call ended first. Its abandonment must not release the
+	// first call's still-active target claim and admit fabricated third stats.
+	life.startWrite(writeStart("third"));
+	life.endWrite(writeEnd("third"), publish);
+	life.endWrite(writeEnd("first"), publish);
+	await flush();
+	expect(published).toEqual([]);
+	expect(await life.barrier(life.snapshot(), true)).toEqual({
+		settled: true,
+		evidenceReady: false,
+	});
+
+	life.startWrite(writeStart("recovered"));
+	life.endWrite(writeEnd("recovered"), publish);
+	expect(await life.barrier(life.snapshot(), true)).toEqual({
+		settled: true,
+		evidenceReady: true,
+	});
+	expect(published).toEqual([[evidence("recovered")]]);
+});
+
+test("a ready publication permits a following write without poisoning its drain", async () => {
+	const published: string[] = [];
+	const life = new AuditLifecycle({
+		capture: (input, acceptTarget) =>
+			Promise.resolve(
+				acceptTarget?.("/tmp/shared.ts") === false
+					? undefined
+					: candidate(input.toolCallId),
+			),
+		complete: (value) =>
+			Promise.resolve(value ? [evidence(value.toolCallId)] : []),
+		warn: () => {},
+	});
+	life.startWrite(writeStart("first"));
+	life.endWrite(writeEnd("first"), () => {
+		published.push("first");
+		life.startWrite(writeStart("following"));
+		life.endWrite(writeEnd("following"), () => published.push("following"));
+	});
+	const firstRun = life.snapshot();
+	await flush();
+	expect(published).toEqual(["first", "following"]);
+	expect(await life.barrier(firstRun, true)).toEqual({
+		settled: true,
+		evidenceReady: true,
+	});
+	expect(await life.barrier(life.snapshot(), true)).toEqual({
+		settled: true,
+		evidenceReady: true,
+	});
+});
+
 function gitCommand(payload: unknown): string {
 	if (payload && typeof payload === "object" && "command" in payload) {
 		const command = payload.command; // unknown after `in` narrowing

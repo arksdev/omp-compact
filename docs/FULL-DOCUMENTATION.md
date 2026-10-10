@@ -164,6 +164,10 @@ Local snapshot audit не выводит `exact: true` только из пре�
 
 Ошибка completion или сохранения write/edit/Git evidence тоже блокирует auto-shake. Lifecycle сохраняет неуспешный token через continuation-события до terminal drain, даже если ошибка завершилась до `agent_end`; drain старого run не очищает ошибки следующего. Синхронные ошибки публикации edit/Git передаются event runner, но не мешают отдельной финализации ответа. Право на shake и epoch run фиксируются сразу при `agent_end`, до ожидания drain: если за время ожидания начался следующий run или сменилась сессия, старый shake пропускается.
 
+Отложенное write-evidence сохраняет id исходной assistant/tool-start entry. При восстановлении UI carrier берётся из session journal только для ветви, содержащей именно эту source entry и соответствующий write. Поэтому поздняя публикация после `/tree` или следующего run не переносит счётчики на новую entry с тем же `toolCallId`. Native leaf/journal не переписываются, metadata не добавляются в модельный контекст. Старые carriers без source id остаются branch-local; уже сохранённая история автоматически не исправляется.
+
+Если другой filesystem `write` начинает менять тот же canonical target до завершения первого audit, оба неоднозначных audit отбрасываются; это распространяется и на symlink aliases. Native записи не блокируются и выполняются как раньше, но run не получает неподтверждённые `+N/−M` и не запускает auto-shake. После завершения конфликтующих native вызовов и terminal drain следующая непересекающаяся запись снова может дать точный diff. Guard отслеживает filesystem write events одного plugin lifecycle, а не внешние процессы или отдельные экземпляры плагина.
+
 ### Git summary
 
 Git распознаётся консервативно из уже выполненного Bash command/result. Плагин не запускает скрытые `git log`, `rev-parse` или другие probes.

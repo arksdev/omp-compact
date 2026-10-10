@@ -1,14 +1,17 @@
-import type { MutationCandidate } from "./audit";
+import type { MutationCandidate, WriteTargetObserver } from "./audit";
 import type { MutationMessageDetails } from "./messages";
 import { defaultWarn } from "./warn-sink";
 
 export interface AuditLifecycleOptions {
-	capture(input: {
-		toolCallId: string;
-		args: unknown;
-		cwd: string;
-		root?: string;
-	}): Promise<MutationCandidate | undefined>;
+	capture(
+		input: {
+			toolCallId: string;
+			args: unknown;
+			cwd: string;
+			root?: string;
+		},
+		acceptTarget?: WriteTargetObserver,
+	): Promise<MutationCandidate | undefined>;
 	complete(
 		candidate: MutationCandidate | undefined,
 		result: unknown,
@@ -114,6 +117,8 @@ interface AuditRecord extends AuditRunToken {
 	abandoned: boolean;
 	/** A terminal drain owns this token; later failures need no tombstone. */
 	terminal: boolean;
+	/** Claimed until the native call and its audit have both settled. */
+	target?: string;
 }
 
 interface ResolvedOptions {
@@ -190,6 +195,7 @@ export class AuditLifecycle {
 	#failedRecords = new Set<AuditRecord>();
 	/** Records whose `tool_execution_end` has not arrived yet. */
 	#pending = new Map<string, AuditRecord>();
+	#targets = new Map<string, Set<AuditRecord>>();
 	#changeWaiters: Array<() => void> = [];
 	/**
 	 * Serialized `agent_end` queue: links run strictly in emission order even
@@ -228,17 +234,17 @@ export class AuditLifecycle {
 	 * capture in the background. Must be called before the first await of the
 	 * `tool_execution_start` handler.
 	 */
-	startWrite(input: WriteStartInput): void {
-		this.#register(input.toolCallId, {
-			capture: this.#options.capture(input).catch(() => {
+	startWrite(input: WriteStartInput, payload?: unknown): void {
+		const record = this.#register(input.toolCallId, { payload });
+		record.capture = this.#options
+			.capture(input, (target) => this.#claimTarget(record, target))
+			.catch(() => {
 				this.#warnOnce(
 					"capture-failed",
 					"omp-compact: write audit capture-failed (evidence dropped)",
 				);
 				return undefined;
-			}),
-			payload: undefined,
-		});
+			});
 	}
 
 	/**
@@ -246,7 +252,7 @@ export class AuditLifecycle {
 	 * payload is handed back to the completion work at `tool_execution_end`.
 	 */
 	startSync(toolCallId: string, payload?: unknown): void {
-		this.#register(toolCallId, { capture: undefined, payload });
+		this.#register(toolCallId, { payload });
 	}
 
 	/**
@@ -260,11 +266,13 @@ export class AuditLifecycle {
 	 */
 	endWrite(
 		event: WriteEndInput,
-		publish: (mutations: MutationMessageDetails[]) => void,
+		publish: (mutations: MutationMessageDetails[], payload: unknown) => void,
 	): void {
 		const record = this.#pending.get(event.toolCallId);
 		if (!record || record.capture === undefined) return;
 		this.#pending.delete(event.toolCallId);
+		// Its native write has ended and an abandoned audit cannot publish.
+		if (record.abandoned) this.#releaseTarget(record);
 		const completion = (async () => {
 			let candidate: MutationCandidate | undefined;
 			try {
@@ -276,8 +284,11 @@ export class AuditLifecycle {
 					event.result,
 					event.isError,
 				);
+				// The snapshot is fixed now; even a reentrant publish may start
+				// the next native write without invalidating this finished diff.
+				this.#releaseTarget(record);
 				if (record.abandoned || mutations.length === 0) return;
-				publish(mutations);
+				publish(mutations, record.payload);
 			} finally {
 				// completeWriteCandidate also clears; this covers the
 				// abandon-before-complete path where complete never ran.
@@ -352,6 +363,7 @@ export class AuditLifecycle {
 	 * under the same id is never touched by an older record's teardown.
 	 */
 	#removeIfCurrent(record: AuditRecord): void {
+		this.#releaseTarget(record);
 		if (this.#pending.get(record.toolCallId) === record) {
 			this.#pending.delete(record.toolCallId);
 		}
@@ -527,6 +539,7 @@ export class AuditLifecycle {
 		this.#pending.clear();
 		this.#records.clear();
 		this.#failedRecords.clear();
+		this.#targets.clear();
 		this.#signalChange();
 		// host-settings / post-turn-shake: session boundary may re-warn.
 		this.#warned.clear();
@@ -535,10 +548,10 @@ export class AuditLifecycle {
 	#register(
 		toolCallId: string,
 		init: {
-			capture?: Promise<MutationCandidate | undefined>;
+			// Payload is owned by this record, including through same-id replacement.
 			payload?: unknown;
 		},
-	): void {
+	): AuditRecord {
 		const previous = this.#records.get(toolCallId);
 		if (previous) {
 			// Superseded by a newer start under the same id (a nested xd://
@@ -548,10 +561,11 @@ export class AuditLifecycle {
 			// no separate reach into replaced records.
 			previous.abandoned = true;
 			releaseRecordPreImage(previous);
+			this.#releaseTarget(previous);
 		}
 		const record: AuditRecord = {
 			toolCallId,
-			capture: init.capture,
+			capture: undefined,
 			completion: undefined,
 			payload: init.payload,
 			abandoned: false,
@@ -563,17 +577,47 @@ export class AuditLifecycle {
 		// publishing alongside this successor (the supersede-overlap case).
 		this.#records.set(toolCallId, record);
 		this.#pending.set(toolCallId, record);
+		return record;
+	}
+
+	#claimTarget(record: AuditRecord, target: string): boolean {
+		if (record.abandoned) return false;
+		record.target = target;
+		let claims = this.#targets.get(target);
+		if (claims?.size) {
+			for (const prior of claims) {
+				this.#failCompletion(prior);
+				releaseRecordPreImage(prior);
+			}
+			this.#failCompletion(record);
+		} else {
+			claims = new Set();
+		}
+		claims.add(record);
+		this.#targets.set(target, claims);
+		return !record.abandoned;
+	}
+
+	#releaseTarget(record: AuditRecord): void {
+		if (record.target === undefined) return;
+		const claims = this.#targets.get(record.target);
+		claims?.delete(record);
+		if (claims?.size === 0) this.#targets.delete(record.target);
+		record.target = undefined;
 	}
 
 	#failCompletion(record: AuditRecord): void {
 		if (record.abandoned) return;
 		record.abandoned = true;
+		// Only an unended native call must keep its claim after abandonment.
+		if (record.completion) this.#releaseTarget(record);
 		if (!record.terminal) this.#failedRecords.add(record);
 	}
 
 	#trackCompletion(record: AuditRecord, completion: Promise<void>): void {
 		record.completion = completion;
 		completion.finally(() => {
+			this.#releaseTarget(record);
 			record.completion = undefined;
 			if (this.#records.get(record.toolCallId) === record) {
 				this.#records.delete(record.toolCallId);

@@ -2,7 +2,6 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
-	ToolExecutionEndEvent,
 } from "@oh-my-pi/pi-coding-agent";
 
 import {
@@ -26,6 +25,8 @@ import {
 	type LegacyMutationMessageDetails,
 	MUTATION_MESSAGE_TYPE,
 	type MutationMessageDetails,
+	mutationBranchEntries,
+	writeSourceEntryId,
 } from "./messages";
 // Per-logical-run mode policy (compact/live/
 // clear + enabled + retainGitLive), consumed by the runtime adapter.
@@ -97,8 +98,39 @@ type NotifyingUI = ExtensionContext["ui"] & {
  * the real context; the plugin never assumes it is there.
  */
 type ContextWithSessionManager = ExtensionContext & {
-	sessionManager?: { getBranch?: () => readonly unknown[] };
+	sessionManager?: {
+		getBranch?: () => readonly unknown[];
+		getEntries?: () => readonly unknown[];
+	};
 };
+
+function auditBranch(
+	context: ExtensionContext,
+): readonly unknown[] | undefined {
+	const manager = (context as ContextWithSessionManager).sessionManager;
+	const branch = manager?.getBranch?.();
+	if (!Array.isArray(branch)) return undefined;
+	const entries = manager?.getEntries?.();
+	return mutationBranchEntries(
+		branch,
+		Array.isArray(entries) ? entries : branch,
+	);
+}
+
+function writeSource(
+	context: ExtensionContext,
+	toolCallId: string,
+): string | undefined {
+	const branch = (
+		context as ContextWithSessionManager
+	).sessionManager?.getBranch?.();
+	if (!Array.isArray(branch)) return undefined;
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const source = writeSourceEntryId(branch[index], toolCallId);
+		if (source) return source;
+	}
+	return undefined;
+}
 
 const MAX_GIT_RESULT_TEXT = 8_192;
 
@@ -591,12 +623,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				// place across /move and switchSession). context.cwd itself is
 				// a createContext string snapshot and must NOT be read for path
 				// display; displayPaths uses getCwd() instead.
-				getBranch: () => {
-					const manager = (context as ContextWithSessionManager).sessionManager;
-					if (typeof manager?.getBranch !== "function") return undefined;
-					const branch = manager.getBranch();
-					return Array.isArray(branch) ? branch : undefined;
-				},
+				getBranch: () => auditBranch(context),
 				displayPaths: () => ({
 					cwd: resolveSessionCwd(context),
 					enabled: settingsStore.snapshot().compactPaths,
@@ -768,9 +795,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// adapter (wrappers/timers) even for an instant.
 		await modePolicy.ready();
 		const current = ensureAdapter(context);
-		const sessionManager = (context as ContextWithSessionManager)
-			.sessionManager;
-		const branch = sessionManager?.getBranch?.();
+		const branch = auditBranch(context);
 		if (Array.isArray(branch)) {
 			// Restore view: entering an EXISTING session
 			// (`omp -c`, `--resume`/picker, auto-resume) presents the
@@ -954,16 +979,20 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				// capture is still in flight and find no record.
 				{
 					const cwd = resolveSessionCwd(context);
-					auditLifecycle.startWrite({
-						toolCallId: event.toolCallId,
-						args: event.args,
-						cwd,
-						// Confinement root = live session cwd (same source as
-						// display-path resolution). Injectable on the capture
-						// API so tests can pin a fixture root; production never
-						// invents a second mechanism.
-						root: cwd,
-					});
+					const sourceEntryId = writeSource(context, event.toolCallId);
+					auditLifecycle.startWrite(
+						{
+							toolCallId: event.toolCallId,
+							args: event.args,
+							cwd,
+							// Confinement root = live session cwd (same source as
+							// display-path resolution). Injectable on the capture
+							// API so tests can pin a fixture root; production never
+							// invents a second mechanism.
+							root: cwd,
+						},
+						sourceEntryId,
+					);
 				}
 				break;
 			case "edit":
@@ -989,7 +1018,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		});
 	});
 
-	listen("tool_execution_end", async (event: ToolExecutionEndEvent) => {
+	listen("tool_execution_end", async (event, context) => {
 		// RunStats: failed executions mark the run's row as dirty (warning
 		// separators); distinct action counting happens at start.
 		if (event.isError === true) runStats.recordToolError(event.toolCallId);
@@ -1019,9 +1048,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						result: event.result,
 						isError: event.isError === true,
 					},
-					(mutations) => {
-						installed.setMutations(event.toolCallId, mutations);
-						for (const entry of mutations) persistMutation(entry);
+					(mutations, payload) => {
+						if (typeof payload !== "string")
+							throw new Error("write audit source unavailable");
+						for (const entry of mutations) {
+							entry.sourceEntryId = payload;
+							persistMutation(entry);
+						}
+						if (writeSource(context, event.toolCallId) === payload)
+							installed.setMutations(event.toolCallId, mutations);
 					},
 				);
 				return;
