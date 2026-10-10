@@ -488,6 +488,43 @@ describe("PostTurnShake session lifecycle", () => {
 		expect(h.warns).toEqual([]);
 		expect(h.notifies).toEqual([]);
 	});
+
+	test("a new run dispatches while the aborted prior shake is still settling", async () => {
+		const priorNative = deferred<ShakeResultLike>();
+		const currentNative = deferred<ShakeResultLike>();
+		const signals: Array<AbortSignal | undefined> = [];
+		const h = harness(
+			{ enabled: true, thresholdTokens: 0 },
+			{
+				shakeImpl: (_session, signal) => {
+					signals.push(signal);
+					return signals.length === 1
+						? priorNative.promise
+						: currentNative.promise;
+				},
+			},
+		);
+		const prior = h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+		await flush();
+		expect(signals).toHaveLength(1);
+
+		h.shake.beginRun({ enabled: true, thresholdTokens: 0 });
+		expect(signals[0]?.aborted).toBe(true);
+		const current = h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+		await flush();
+		const dispatched = signals.length;
+
+		// The host observes cancellation late, after the next run has ended.
+		priorNative.reject(new Error("Compaction cancelled"));
+		await prior;
+		currentNative.resolve(shakeResult());
+		await current;
+
+		expect(dispatched).toBe(2);
+		expect(signals[1]?.aborted).toBe(false);
+		expect(h.warns).toEqual([]);
+		expect(h.notifies).toHaveLength(1);
+	});
 });
 
 describe("PostTurnShake failure and unavailable seam", () => {

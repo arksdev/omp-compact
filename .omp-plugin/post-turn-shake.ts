@@ -347,6 +347,7 @@ export class PostTurnShake {
 		if (!this.#inFlight) return;
 		this.#abort.abort();
 		this.#abort = new AbortController();
+		this.#inFlight = undefined;
 	}
 
 	async #dispatch(session: ShakeableSession, ctx: ShakeContext): Promise<void> {
