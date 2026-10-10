@@ -502,12 +502,16 @@ export async function completeWriteCandidate(
 		// semantics, not the affix strip; the timing is the ground truth.
 		// A wholly added/removed middle already counts exactly here, so
 		// those never need the native diff at all.
-		if (middle.beforeLines + middle.afterLines > DIFF_MAX_REMAINING_LINES)
+		const canCountWithoutDiff =
+			middle.beforeLines === 0 || middle.afterLines === 0;
+		if (
+			!canCountWithoutDiff &&
+			middle.beforeLines + middle.afterLines > DIFF_MAX_REMAINING_LINES
+		)
 			return [];
-		const { added, removed } =
-			middle.beforeLines === 0 || middle.afterLines === 0
-				? { added: middle.afterLines, removed: middle.beforeLines }
-				: exactLineChanges(candidate.before, after);
+		const { added, removed } = canCountWithoutDiff
+			? { added: middle.afterLines, removed: middle.beforeLines }
+			: exactLineChanges(candidate.before, after);
 		if (added === 0 && removed === 0) return [];
 		return [
 			{

@@ -1419,11 +1419,11 @@ describe("write audit diff budget", () => {
 		}
 	});
 
-	test("an all-added tail beyond a full rewrite of the base stays exact", async () => {
+	test("an all-added tail beyond the diff budget stays exact", async () => {
 		const { cwd, cleanup } = await stage();
 		try {
 			const base = 3_000;
-			const added = 2_000;
+			const added = DIFF_MAX_REMAINING_LINES + 1;
 			const before = file(base, "line");
 			await writeFile(join(cwd, "append.ts"), before);
 			const candidate = await captureWriteCandidate({
@@ -1449,6 +1449,43 @@ describe("write audit diff budget", () => {
 					path: "append.ts",
 					added,
 					removed: 0,
+					exact: true,
+				},
+			]);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("an all-removed file beyond the diff budget stays exact", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			const removed = DIFF_MAX_REMAINING_LINES + 1;
+			const path = join(cwd, "empty.ts");
+			await writeFile(path, file(removed, "old"));
+			const candidate = await captureWriteCandidate({
+				toolCallId: "write-empty",
+				args: { path: "empty.ts", content: "untrusted raw input" },
+				cwd,
+			});
+			expect(candidate).toBeDefined();
+			await writeFile(path, "");
+			const entries = await completeWriteCandidate(
+				candidate,
+				{
+					content: [{ type: "text", text: "ok" }],
+					details: { resolvedPath: path },
+				},
+				false,
+			);
+			expect(entries).toEqual([
+				{
+					version: 1,
+					toolCallId: "write-empty",
+					toolName: "write",
+					path: "empty.ts",
+					added: 0,
+					removed,
 					exact: true,
 				},
 			]);
