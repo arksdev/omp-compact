@@ -541,6 +541,108 @@ describe("agent_end drain", () => {
 	});
 });
 
+describe("failed evidence publication", () => {
+	test("a publish failure before agent_end blocks shake but still finalizes the run", async () => {
+		const h = harness();
+		h.life.startWrite(writeStart("failed-write"));
+		h.life.endWrite(writeEnd("failed-write"), () => {
+			throw new Error("mutation sink unavailable");
+		});
+		h.captures[0]?.resolve(candidate("failed-write"));
+		await flush();
+		h.completes[0]?.resolve([evidence("failed-write")]);
+		await flush();
+
+		const finalized: string[] = [];
+		expect(
+			await h.life.enqueueAgentEnd(h.life.snapshot(), true, () =>
+				finalized.push("failed run"),
+			),
+		).toBe(false);
+		expect(finalized).toEqual(["failed run"]);
+		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
+			settled: true,
+			evidenceReady: true,
+		});
+	});
+
+	test("a completion failure during the drain blocks shake without blocking finalization", async () => {
+		const h = harness({ completeError: new Error("post-image unavailable") });
+		h.life.startWrite(writeStart("failed-completion"));
+		h.life.endWrite(writeEnd("failed-completion"), (mutations) =>
+			h.published.push(mutations),
+		);
+		const finalized: string[] = [];
+		const link = h.life.enqueueAgentEnd(h.life.snapshot(), true, () =>
+			finalized.push("done"),
+		);
+		await flush();
+		h.captures[0]?.resolve(candidate("failed-completion"));
+		await flush();
+
+		expect(await link).toBe(false);
+		expect(finalized).toEqual(["done"]);
+		expect(h.published).toEqual([]);
+	});
+
+	test("a sync failure survives a continuation and a same-id replacement until the terminal drain", async () => {
+		const h = harness();
+		h.life.startSync("sync-call");
+		expect(() =>
+			h.life.endSync("sync-call", () => {
+				throw new Error("evidence sink unavailable");
+			}),
+		).toThrow("evidence sink unavailable");
+		await flush();
+		expect(await h.life.barrier(h.life.snapshot(), false)).toEqual({
+			settled: true,
+			evidenceReady: false,
+		});
+
+		h.life.startSync("sync-call");
+		h.life.endSync("sync-call", () =>
+			h.published.push([evidence("sync-call")]),
+		);
+		await flush();
+		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
+			settled: true,
+			evidenceReady: false,
+		});
+		expect(h.published).toEqual([[evidence("sync-call")]]);
+		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
+			settled: true,
+			evidenceReady: true,
+		});
+	});
+
+	test("an old terminal drain cannot clear a later run's publication failure", async () => {
+		const h = harness();
+		h.life.startWrite(writeStart("old-write"));
+		h.life.endWrite(writeEnd("old-write"), (mutations) =>
+			h.published.push(mutations),
+		);
+		const oldDrain = h.life.enqueueAgentEnd(h.life.snapshot(), true, () => {});
+		await flush();
+
+		h.life.startSync("new-sync");
+		expect(() =>
+			h.life.endSync("new-sync", () => {
+				throw new Error("new run sink unavailable");
+			}),
+		).toThrow("new run sink unavailable");
+		h.captures[0]?.resolve(candidate("old-write"));
+		await flush();
+		h.completes[0]?.resolve([evidence("old-write")]);
+		await flush();
+
+		expect(await oldDrain).toBe(true);
+		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
+			settled: true,
+			evidenceReady: false,
+		});
+	});
+});
+
 function gitCommand(payload: unknown): string {
 	if (payload && typeof payload === "object" && "command" in payload) {
 		const command = payload.command; // unknown after `in` narrowing

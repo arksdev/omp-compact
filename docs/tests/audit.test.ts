@@ -2509,7 +2509,10 @@ describe("boundedTextSync special-file safety", () => {
 	// inside open(2) forever, so the probe runs the real capture path in a
 	// child process and the parent kills it on timeout — a pre-fix hang fails
 	// the test instead of hanging the runner.
+	// Real watchdogs terminate a child stuck in native open(2); fake timers
+	// cannot bound that platform operation. Successful probes never sleep.
 	const PROBE_TIMEOUT_MS = 3_000;
+	const PROBE_STARTUP_TIMEOUT_MS = 30_000;
 	const repoRoot = resolve(import.meta.dir, "../..");
 	const PROBE_SCRIPT = `
 const { pathToFileURL } = require("node:url");
@@ -2520,6 +2523,7 @@ const { join } = require("node:path");
       pathToFileURL(join(process.cwd(), ".omp-plugin", "audit.ts")).href +
       "?special-file-probe";
     const mod = await import(href);
+    process.send("ready");
     const result = await mod.captureWriteCandidate({
       toolCallId: "special-file-probe",
       args: { path: process.env.PROBE_PATH, content: "x" },
@@ -2591,24 +2595,42 @@ const { spawnSync } = require("node:child_process");
 	}
 
 	async function probeResult(fifo: string): Promise<unknown> {
+		let timedOut: "startup" | "capture" | undefined;
+		let ready = false;
+		let timer: Timer;
 		const child = Bun.spawn(["bun", "-e", PROBE_SCRIPT], {
 			cwd: repoRoot,
 			env: { ...Bun.env, PROBE_PATH: fifo },
 			stdout: "pipe",
 			stderr: "pipe",
+			ipc(message) {
+				if (message !== "ready" || ready) return;
+				ready = true;
+				clearTimeout(timer);
+				// Cold module loading is not the operation whose blocking we test.
+				// Keep the capture limit strict after the child finishes importing.
+				timer = setTimeout(() => {
+					timedOut = "capture";
+					child.kill();
+				}, PROBE_TIMEOUT_MS);
+			},
 		});
-		let timedOut = false;
-		const timer = setTimeout(() => {
-			timedOut = true;
+		timer = setTimeout(() => {
+			timedOut = "startup";
 			child.kill();
-		}, PROBE_TIMEOUT_MS);
+		}, PROBE_STARTUP_TIMEOUT_MS);
 		const exitCode = await child.exited;
 		clearTimeout(timer);
-		if (timedOut)
+		if (timedOut === "startup")
+			throw new Error(
+				`audit probe import timed out after ${PROBE_STARTUP_TIMEOUT_MS}ms`,
+			);
+		if (timedOut === "capture")
 			throw new Error(
 				`boundedTextSync blocked opening the FIFO (killed after ${PROBE_TIMEOUT_MS}ms)`,
 			);
 		expect(exitCode ?? -1).toBe(0);
+		if (!ready) throw new Error("audit probe exited without starting capture");
 		const stdout = await new Response(child.stdout).text();
 		return JSON.parse(stdout) as unknown;
 	}

@@ -160,7 +160,9 @@ agent_start
 
 Local snapshot audit не выводит `exact: true` только из предположения для URI, archive, SQLite, oversized или несовпавших targets. Для `edit` каждый успешный native `perFileResults` может дать exact per-file evidence, включая multi-file operation. Если изменение нельзя честно подтвердить, плагин оставляет нейтральный/inexact status либо не удерживает строку.
 
-Если terminal `agent_end` приходит раньше, чем `tool_execution_end` успел забрать pending write/git audit-запись, lifecycle сразу abandon'ит эти pending records (terminal purge). Drain всё равно settles, чтобы adapter мог финализировать run, но `evidenceReady` остаётся `false`: для этого turn нет persisted `+N/−M` / Git evidence, и post-turn auto-shake не запускается. Completions, которые уже in flight к моменту `agent_end`, ждутся до внутреннего порога ~5s; сам порог не вынесен в настройки. Это fail-closed by design — лучше не показать stats, чем выдумать их при lag или reordering host events.
+Если terminal `agent_end` приходит раньше, чем `tool_execution_end` успел забрать pending write/edit/git audit-запись, lifecycle сразу abandon'ит эти pending records (terminal purge). Drain всё равно settles, чтобы adapter мог финализировать run, но `evidenceReady` остаётся `false`: для этого turn нет persisted `+N/−M` / Git evidence, и post-turn auto-shake не запускается. Completions, которые уже in flight к моменту `agent_end`, ждутся до внутреннего порога ~5s; сам порог не вынесен в настройки. Это fail-closed by design — лучше не показать stats, чем выдумать их при lag или reordering host events.
+
+Ошибка completion или сохранения write/edit/Git evidence тоже блокирует auto-shake. Lifecycle сохраняет неуспешный token через continuation-события до terminal drain, даже если ошибка завершилась до `agent_end`; drain старого run не очищает ошибки следующего. Синхронные ошибки публикации edit/Git передаются event runner, но не мешают отдельной финализации ответа. Право на shake и epoch run фиксируются сразу при `agent_end`, до ожидания drain: если за время ожидания начался следующий run или сменилась сессия, старый shake пропускается.
 
 ### Git summary
 

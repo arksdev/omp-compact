@@ -97,9 +97,9 @@ export interface AuditRunToken {
  *   only when the drain settled AND no record in scope was abandoned, so no
  *   run evidence was lost. (At a continuation a still-pending record is not
  *   abandoned: its evidence is deferred to the next run's drain and
- *   evaluated there.) A terminal purge of pending records, a teardown, a
- *   same-id replacement, or a timeout all abandon records without evidence
- *   and report `false` — the run must not shake.
+ *   evaluated there.) A publication/completion failure, terminal purge,
+ *   teardown, same-id replacement, or timeout abandons evidence and reports
+ *   `false` — the run must not shake.
  */
 export interface BarrierOutcome {
 	settled: boolean;
@@ -112,6 +112,8 @@ interface AuditRecord extends AuditRunToken {
 	completion: Promise<void> | undefined;
 	payload: unknown;
 	abandoned: boolean;
+	/** A terminal drain owns this token; later failures need no tombstone. */
+	terminal: boolean;
 }
 
 interface ResolvedOptions {
@@ -154,7 +156,7 @@ const defaultSleep = (ms: number): Promise<void> =>
 	new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * Plugin-side lifecycle for write-audit and recognized-Git bookkeeping.
+ * Plugin-side lifecycle for write/edit audit and recognized-Git bookkeeping.
  *
  * Stock OMP invokes extension event listeners without awaiting their returned
  * promises, so the async handlers for `tool_execution_start`,
@@ -167,7 +169,7 @@ const defaultSleep = (ms: number): Promise<void> =>
  *   no `+N|0` evidence).
  * - `endWrite` consumes the same record synchronously and runs
  *   capture -> post-image audit -> publish exactly once inside a tracked
- *   promise; `endSync` does the same for synchronous Git bookkeeping.
+ *   promise; `endSync` tracks synchronous edit/Git publication and failures.
  * - `barrier` waits for every already-consumed completion of the logical run
  *   (started or ended before the `agent_end` emission — see `snapshot`) to
  *   settle, bounded by `barrierMs`. Pending records at a continuation are
@@ -184,6 +186,8 @@ export class AuditLifecycle {
 	#options: ResolvedOptions;
 	/** Every record of the session, until its completion settles or it is abandoned. */
 	#records = new Map<string, AuditRecord>();
+	/** Settled failures remain visible until their logical run's terminal drain. */
+	#failedRecords = new Set<AuditRecord>();
 	/** Records whose `tool_execution_end` has not arrived yet. */
 	#pending = new Map<string, AuditRecord>();
 	#changeWaiters: Array<() => void> = [];
@@ -238,7 +242,7 @@ export class AuditLifecycle {
 	}
 
 	/**
-	 * Synchronously registers a synchronous (recognized Git) record. The
+	 * Synchronously registers a synchronous edit/Git record. The
 	 * payload is handed back to the completion work at `tool_execution_end`.
 	 */
 	startSync(toolCallId: string, payload?: unknown): void {
@@ -280,6 +284,7 @@ export class AuditLifecycle {
 				releaseCandidatePreImage(candidate);
 			}
 		})().catch(() => {
+			this.#failCompletion(record);
 			// Fail closed: an audit error must not crash the fire-and-forget
 			// handler, reject an untracked promise, or double-publish.
 			this.#warnOnce(
@@ -291,26 +296,26 @@ export class AuditLifecycle {
 	}
 
 	/**
-	 * Consumes the record synchronously and runs the completion work exactly
-	 * once. `work` executes synchronously at call time (preserving
-	 * chronological entry order) while the tracked promise covers it in the
-	 * end-run drain.
+	 * Consumes a synchronous edit/Git record exactly once. Publication runs
+	 * at call time to preserve entry order; errors propagate to the event
+	 * runner while the failed token still blocks the run's auto-shake.
 	 */
 	endSync(toolCallId: string, work: (payload: unknown) => void): void {
 		const record = this.#pending.get(toolCallId);
 		if (!record || record.capture !== undefined) return;
 		this.#pending.delete(toolCallId);
-		const completion = (async () => {
-			if (record.abandoned) return;
+		this.#trackCompletion(record, Promise.resolve());
+		if (record.abandoned) return;
+		try {
 			work(record.payload);
-		})().catch(() => {
-			// Fail closed: bookkeeping errors never crash the session.
+		} catch (error) {
+			this.#failCompletion(record);
 			this.#warnOnce(
 				"completion-failed",
 				"omp-compact: sync audit completion-failed (evidence dropped)",
 			);
-		});
-		this.#trackCompletion(record, completion);
+			throw error;
+		}
 	}
 
 	/**
@@ -329,16 +334,16 @@ export class AuditLifecycle {
 	}
 
 	/**
-	 * Tokens of every record alive right now. Call synchronously inside the
-	 * `agent_end` listener so the drain scope is exactly the logical run that
-	 * just ended — work registered later (a continuation run) is ignored.
-	 * Tokens (not ids) pin the drain to these exact records: a later
-	 * `startWrite` under the same id (nested xd:// device dispatch) replaces
-	 * the map entries, and the old drain must not re-address itself to the
-	 * successor.
+	 * Tokens of active records and settled publication failures. Call
+	 * synchronously inside `agent_end` so later work cannot join this drain.
+	 * Failures survive continuations until a terminal drain claims them.
+	 * Tokens (not ids) keep a drain pinned to the original record even when
+	 * a nested xd:// dispatch replaces it under the same `toolCallId`.
 	 */
 	snapshot(): ReadonlySet<AuditRunToken> {
-		return new Set(this.#records.values());
+		const tokens = new Set<AuditRunToken>(this.#records.values());
+		for (const record of this.#failedRecords) tokens.add(record);
+		return tokens;
 	}
 
 	/**
@@ -399,6 +404,8 @@ export class AuditLifecycle {
 		if (terminal) {
 			for (const token of ids) {
 				const record = token as AuditRecord;
+				record.terminal = true;
+				this.#failedRecords.delete(record);
 				if (this.#pending.get(record.toolCallId) === record) {
 					record.abandoned = true;
 					releaseRecordPreImage(record);
@@ -519,6 +526,7 @@ export class AuditLifecycle {
 		}
 		this.#pending.clear();
 		this.#records.clear();
+		this.#failedRecords.clear();
 		this.#signalChange();
 		// host-settings / post-turn-shake: session boundary may re-warn.
 		this.#warned.clear();
@@ -547,6 +555,7 @@ export class AuditLifecycle {
 			completion: undefined,
 			payload: init.payload,
 			abandoned: false,
+			terminal: false,
 		};
 		// Map swap is last-candidate-wins for the shared toolCallId: only the
 		// new record is addressable. The previous entry was already abandoned
@@ -554,6 +563,12 @@ export class AuditLifecycle {
 		// publishing alongside this successor (the supersede-overlap case).
 		this.#records.set(toolCallId, record);
 		this.#pending.set(toolCallId, record);
+	}
+
+	#failCompletion(record: AuditRecord): void {
+		if (record.abandoned) return;
+		record.abandoned = true;
+		if (!record.terminal) this.#failedRecords.add(record);
 	}
 
 	#trackCompletion(record: AuditRecord, completion: Promise<void>): void {

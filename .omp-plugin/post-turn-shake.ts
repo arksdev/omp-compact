@@ -232,11 +232,11 @@ export class PostTurnShake {
 	}
 
 	/**
-	 * Called at `agent_end` once the plugin's audit/Git (and stats) evidence
-	 * has been persisted. `persistence` is the drain promise the evidence
-	 * awaits; the shake never starts before it settles, and a drain that
-	 * settles on `false` (fail-closed: barrier timeout/teardown, evidence
-	 * never persisted) skips the shake.
+	 * Called at `agent_end` emission to capture the originating run before
+	 * waiting for its audit/Git evidence. `persistence` is the pending drain
+	 * promise; a false result skips shake, as does a new run/session while
+	 * the drain waits. Direct callers may omit it when evidence is already
+	 * persisted.
 	 */
 	async onAgentEnd(
 		event: AgentEndEvent,

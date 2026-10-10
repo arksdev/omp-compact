@@ -10,11 +10,21 @@
 
 - Обновлена проверяемая версия OMP до 18.8.9. Добавлена поддержка распознавания карточек советника с методом `releaseRenderCaches`. Поддержка OMP 18.0.1 и выше сохранена.
 
+### Исправлено
+
+- Auto-shake больше не запускается после ошибки сохранения write/edit/Git evidence, даже если ошибка произошла до завершения ответа. Следующий run может снова выполнить shake после успешного сохранения.
+- Отложенный drain предыдущего ответа больше не запускает shake внутри следующего run и не расходует его единственный разрешённый shake.
+
 ---
 
 ### Changed
 
 - Updated the verified OMP version to 18.8.9. Added recognition for advisor cards with `releaseRenderCaches`. Support for OMP 18.0.1 and later is unchanged.
+
+### Fixed
+
+- Auto-shake no longer runs after write/edit/Git evidence persistence fails, including failures settled before the answer ends. A later run can shake after successful persistence.
+- A delayed prior-answer drain no longer shakes during the next run or consumes that run's once-per-run shake.
 
 ---
 

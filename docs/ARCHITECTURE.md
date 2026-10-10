@@ -341,6 +341,8 @@ export async function completeWriteCandidate(
 
 **Fallback:** Missing candidate, path mismatch, identical bytes, or over-budget diffs yield no mutation entries (`[]`); rows are not retained on invented stats.
 
+**Publication drain:** `AuditLifecycle` tracks synchronous edit/Git publication as well as asynchronous write completion. Completion or publication failures block auto-shake even when they settle before `agent_end`: failed tokens survive continuations until a terminal drain claims them. A drain releases only its own failure tokens, so an older drain cannot clear a later run's failure. Synchronous publication errors still propagate to the extension runner; terminal presentation finalization remains independent of evidence readiness. `PostTurnShake.onAgentEnd` is invoked at event emission with the pending drain promise, capturing the originating run epoch before it waits. A new run or session invalidates that pending shake.
+
 **Path confinement (POSIX-only):** Pre-image reads and config-path acceptance
 share one predicate (`path-inside-root.ts` `isPathInsideRoot`). Both sides must
 be `/`-absolute; segment-exact prefix checks reject `/foo/barbaz` under

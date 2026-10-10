@@ -1,4 +1,5 @@
-import { afterAll, expect } from "bun:test";
+import { afterAll, expect, spyOn } from "bun:test";
+import { AuditLifecycle } from "../../.omp-plugin/audit-lifecycle";
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
 import { KEY_SPACE } from "../../.omp-plugin/settings-ui";
 import {
@@ -11,6 +12,7 @@ import {
 	bootPlugin,
 	cleanupGeneratedDirs,
 	dispatch,
+	dispatchFireAndForget,
 	finishRun,
 	finishTool,
 	flushMicrotasks,
@@ -98,6 +100,7 @@ async function drainShake(): Promise<void> {
 function bootWithShake(
 	settings: Record<string, unknown>,
 	probe = shakeProbe(),
+	piMutate?: (pi: Record<string, unknown>) => void,
 ): Promise<
 	BootedPlugin & { transcript: TranscriptInstance; probe: ShakeProbe }
 > {
@@ -114,6 +117,7 @@ function bootWithShake(
 		{
 			piPi: { AgentRegistry: probe.registry },
 			sessionManager: probe.sessionManager,
+			piMutate,
 		},
 	).then((booted) => {
 		if (!transcript) throw new Error("transcript missing");
@@ -351,6 +355,143 @@ stockTest(
 		await drainShake();
 		expect(probe.calls).toEqual([]);
 		await shutdown(booted);
+	},
+);
+
+for (const toolName of ["edit", "bash"] as const) {
+	stockTest(
+		`auto-shake: a failed ${toolName} evidence append blocks only its logical run`,
+		async () => {
+			const probe = shakeProbe();
+			let failAppend = true;
+			const booted = await bootWithShake(
+				{
+					...DEFAULT_SETTINGS,
+					stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+					autoShake: { enabled: true, thresholdTokens: 0 },
+				},
+				probe,
+				(pi) => {
+					const append = pi.appendEntry as (
+						customType: string,
+						data?: unknown,
+					) => void;
+					pi.appendEntry = (customType: string, data?: unknown) => {
+						if (failAppend) throw new Error("evidence sink unavailable");
+						append(customType, data);
+					};
+				},
+			);
+			const args =
+				toolName === "edit"
+					? { path: "/tmp/a.ts" }
+					: { command: "git commit -m fix" };
+			const result =
+				toolName === "edit"
+					? {
+							content: [],
+							details: {
+								path: "/tmp/a.ts",
+								diff: "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new\n",
+							},
+						}
+					: { content: [{ type: "text", text: "[main abc1234] fix" }] };
+			try {
+				await beginRun(booted);
+				await addTool(booted, toolName, args, "failed-evidence");
+				await expect(
+					dispatch(booted, {
+						type: "tool_execution_end",
+						toolCallId: "failed-evidence",
+						toolName,
+						result,
+						isError: false,
+					}),
+				).rejects.toThrow("evidence sink unavailable");
+				addAnswer(booted, "failed sink answer");
+				await finishRun(booted, "failed sink answer");
+				await drainShake();
+				expect(probe.calls).toEqual([]);
+				expect(visibleRows(booted.transcript)).toContain("failed sink answer");
+
+				failAppend = false;
+				await beginRun(booted);
+				const recovered = await addTool(
+					booted,
+					toolName,
+					args,
+					"recovered-evidence",
+				);
+				await finishTool(booted, recovered, {
+					toolCallId: "recovered-evidence",
+					toolName,
+					result,
+					isError: false,
+				});
+				await finishRun(booted, "recovered sink answer");
+				await drainShake();
+				expect(probe.calls).toEqual([{ mode: "elide", aborted: false }]);
+			} finally {
+				await shutdown(booted);
+			}
+		},
+	);
+}
+
+stockTest(
+	"auto-shake: a prior terminal drain cannot shake or consume the next run",
+	async () => {
+		const booted = await bootWithShake({
+			...DEFAULT_SETTINGS,
+			stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+			autoShake: { enabled: true, thresholdTokens: 0 },
+		});
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const barrier = AuditLifecycle.prototype.barrier;
+		let hold = true;
+		const delayed = spyOn(
+			AuditLifecycle.prototype,
+			"barrier",
+		).mockImplementation(async function (
+			this: AuditLifecycle,
+			tokens,
+			terminal,
+		) {
+			if (hold) {
+				hold = false;
+				entered.resolve();
+				await release.promise;
+			}
+			return barrier.call(this, tokens, terminal);
+		});
+		let priorTerminal: Promise<void> | undefined;
+		try {
+			await beginRun(booted);
+			addAnswer(booted, "prior answer");
+			priorTerminal = dispatchFireAndForget(booted, {
+				type: "agent_end",
+				messages: [assistant("prior answer")],
+				willContinue: false,
+			});
+			await entered.promise;
+			await beginRun(booted);
+			release.resolve();
+			await priorTerminal;
+			await drainShake();
+			expect(booted.probe.calls).toEqual([]);
+
+			addAnswer(booted, "current answer");
+			await finishRun(booted, "current answer");
+			await drainShake();
+			expect(booted.probe.calls).toEqual([{ mode: "elide", aborted: false }]);
+			expect(visibleRows(booted.transcript)).toContain("current answer");
+		} finally {
+			release.resolve();
+			await priorTerminal;
+			delayed.mockRestore();
+			await shutdown(booted);
+		}
 	},
 );
 

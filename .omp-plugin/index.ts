@@ -966,6 +966,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					});
 				}
 				break;
+			case "edit":
+				auditLifecycle.startSync(event.toolCallId);
+				break;
 			case "git-bash": {
 				const command = objectRecord(event.args).command;
 				if (typeof command === "string" && recognizeGitCommands(command)) {
@@ -1022,18 +1025,19 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					},
 				);
 				return;
-			case "edit": {
-				const mutations = completeEditMutations(
-					event.toolCallId,
-					event.result,
-					event.isError,
-				);
-				if (mutations.length > 0) {
-					installed.setMutations(event.toolCallId, mutations);
-					for (const entry of mutations) persistMutation(entry);
-				}
+			case "edit":
+				auditLifecycle.endSync(event.toolCallId, () => {
+					const mutations = completeEditMutations(
+						event.toolCallId,
+						event.result,
+						event.isError,
+					);
+					if (mutations.length > 0) {
+						installed.setMutations(event.toolCallId, mutations);
+						for (const entry of mutations) persistMutation(entry);
+					}
+				});
 				return;
-			}
 			case "git-bash":
 				auditLifecycle.endSync(event.toolCallId, (payload) => {
 					const git = pendingGitFrom(payload);
@@ -1122,29 +1126,18 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			// never render it and must not retain the frozen payload.
 			if (pendingStatsRunId) pendingTerminalStats.delete(pendingStatsRunId);
 		});
-		// PostTurnShake: run strictly after the evidence drain settles AND
-		// succeeded. The link resolves `true` only when the drain finished
-		// and the run's audit/Git evidence was persisted; `false` means the
-		// drain failed closed (barrier timeout), was skipped (session
-		// switch/shutdown), or a terminal purge abandoned pending records
-		// (their evidence was never persisted — the run still finalized
-		// through the adapter's end-run work, it just must not shake). The
-		// drain has already settled here, so no persistence barrier is
-		// passed. The module is fail-open and never throws (noop catch is
-		// defensive).
-		void link
-			.then((drained) => {
-				if (!drained) return undefined;
-				return postShake.onAgentEnd(event, context);
-			})
-			.catch(() => {
-				// postShake is fail-open; this catch is defensive only.
-				warnDecorativeOnce(
-					"decorative-shake-failed",
-					"omp-compact: decorative-shake-failed (auto-shake skipped)",
-				);
-				return undefined;
-			});
+		// Capture shake eligibility and the run epoch at agent_end emission,
+		// before another agent_start can replace them. The module awaits this
+		// still-pending drain and skips on lost evidence or a changed run;
+		// invoking it only after link settles would claim the next run instead.
+		void postShake.onAgentEnd(event, context, link).catch(() => {
+			// postShake is fail-open; this catch is defensive only.
+			warnDecorativeOnce(
+				"decorative-shake-failed",
+				"omp-compact: decorative-shake-failed (auto-shake skipped)",
+			);
+			return undefined;
+		});
 		// Return the drain promise so an awaited dispatch (or the extension
 		// runner) observes the evidence before agent_end settles; stock's
 		// fire-and-forget emission ignores it.
