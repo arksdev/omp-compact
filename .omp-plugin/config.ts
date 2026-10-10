@@ -113,7 +113,8 @@ function readConfigSync(path: string): string {
 	}
 }
 
-async function readConfig(path: string, encoding: "utf8"): Promise<string> {
+/** Bounded UTF-8 settings text shared by JSON config and host YAML. */
+export async function readSettingsText(path: string, encoding: "utf8"): Promise<string> {
 	const handle = await open(path, CONFIG_OPEN_FLAGS);
 	try {
 		const size = configReadSize(await handle.stat());
@@ -456,7 +457,7 @@ function normalizeWithDiagnostics(
 	}
 	const version = raw.version;
 	if (version !== undefined && version !== SCHEMA_VERSION) {
-		warn?.(`unsupported config version ${String(version)}; using defaults`);
+		warn?.("unsupported config version; using defaults");
 		return { settings: DEFAULT_SETTINGS, invalid: ["version"] };
 	}
 	const invalid: string[] = [];
@@ -896,7 +897,7 @@ export function createSettingsStore(
 	// Resolve after warn is bound so a rejected explicit OMP_COMPACT_CONFIG
 	// can surface one diagnostic through the store warn seam.
 	const path = deps.path ?? resolveConfigPath(env, { warn });
-	const readConfigFile = deps.readFile ?? readConfig;
+	const readConfigFile = deps.readFile ?? readSettingsText;
 	const warnOnce = createWarnOnce(warn);
 
 	// The normalized user config (what load() read / update() persisted).
@@ -906,6 +907,8 @@ export function createSettingsStore(
 	// overrides reapplied, kept authoritative until process env changes.
 	let current: CompactSettings = DEFAULT_SETTINGS;
 	let loaded = false;
+	let nextSnapshot = 0;
+	let appliedSnapshot = 0;
 	const subscribers = new Set<(settings: CompactSettings) => void>();
 
 	/**
@@ -1049,7 +1052,12 @@ export function createSettingsStore(
 	}
 
 	async function load(): Promise<CompactSettings> {
+		const request = ++nextSnapshot;
 		const settings = await readLatest();
+		// A newer read or committed save owns the baseline. An older inode's
+		// delayed completion must not turn the next requested save into a no-op.
+		if (request < appliedSnapshot) return current;
+		appliedSnapshot = request;
 		persisted = cloneAndFreeze(settings);
 		loaded = true;
 		current = cloneAndFreeze(applyEnvOverrides(settings));
@@ -1159,6 +1167,7 @@ export function createSettingsStore(
 			await persistText(mergedText);
 			return mergedSettings;
 		});
+		appliedSnapshot = ++nextSnapshot;
 		persisted = cloneAndFreeze(next);
 		current = cloneAndFreeze(applyEnvOverrides(next));
 		// Post-commit: the file and snapshots are already authoritative. A

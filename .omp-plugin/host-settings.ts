@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { YAML } from "bun";
 
-import { createWarnOnce } from "./config";
+import { createWarnOnce, readSettingsText } from "./config";
 import type { CompactHostSettings } from "./config";
 import {
 	createSessionResolver,
@@ -594,24 +594,10 @@ export function createSessionSettingsApi(
 				const candidate = join(agentDir, filename);
 				let content: string;
 				try {
-					const file = Bun.file(candidate);
-					if (!(await file.exists())) continue;
-					// Bound before allocating the full text when size is known.
-					// Bun.file().size is the on-disk byte length; when it is
-					// available and already over budget, refuse without reading.
-					const knownSize = file.size;
-					if (
-						typeof knownSize === "number" &&
-						Number.isFinite(knownSize) &&
-						knownSize > MAX_HOST_SETTINGS_YAML_BYTES
-					) {
-						throw new Error(
-							`Persistent host settings config ${candidate} is oversized (${knownSize} bytes; max ${MAX_HOST_SETTINGS_YAML_BYTES})`,
-						);
-					}
-					content = await file.text();
+					content = await readSettingsText(candidate, "utf8");
 					assertHostSettingsYamlWithinBudget(content, candidate);
 				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
 					throw new Error(
 						`Cannot read persistent host settings config ${candidate}: ${
 							error instanceof Error ? error.message : String(error)

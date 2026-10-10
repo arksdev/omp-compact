@@ -151,7 +151,7 @@ Decision table разрешает итоговую Git-сводку для `clea
 - **Лимит config не ограничивает чтение файла.** [config.ts:786](config.ts#L786), [config.ts:938](config.ts#L938): сначала весь файл читается в память, затем проверяются 65 536 байт. Большой файл создаёт лишнюю нагрузку до проверки; FIFO в синхронном startup-read способен заблокировать загрузку. Нужны проверка regular file и ограниченное чтение.
 - **Узкий terminal обрезает mutation-counts.** [render.ts:355](render.ts#L355): при `head + tail >= width` всё равно выделяется минимум одна колонка под path. Строка превышает ширину, и финальный truncator хоста обрезает статистику справа — вопреки контракту этого helper. Для такой ширины нужен отдельный layout или перенос.
 
-## Общая оценка и проверки
+## Общая оценка и проверки исходного ревью (87b738a)
 
 Переписывать архитектуру целиком не предлагается. **Own-instance descriptor patches, fail-open при неоднозначном binding и бюджеты diff/hydration — правильные решения.** Основной долг — согласовать между модулями владение run, ветвью и результатом публикации evidence; локальные guards пока не складываются в сквозную гарантию.
 
@@ -161,3 +161,25 @@ Decision table разрешает итоговую Git-сводку для `clea
 - `bun run lint` — успешно, 149 файлов, без исправлений.
 
 **Тесты и runtime-сценарии не запускались. Производственный код не изменялся.**
+
+## Второй цикл — самостоятельный проход по 4f2d251
+
+Повторно рассмотрены все **51 production-модуль / 22 427 строк**, manifest, конфигурационные и публичные контракты, документация и сквозные пути с установленным OMP **18.8.9**. Сабагенты не использовались. Ниже только новые находки; исправленные замечания первого цикла не переоткрываются без нового воспроизведения.
+
+| Находка | Приоритет | Подтверждение до исправления | Статус |
+|---|---|---|---|
+| R2.1 — unsafe coercion config version | P2 | JSON version с `toString: null` / `valueOf: null` вызывает TypeError вместо default load / ConfigUpdateError | Открыто |
+| R2.2 — поздний load откатывает snapshot | P2 | После save compact память снова live; следующий запрос save live не меняет compact на диске | Открыто |
+| R2.3 — host YAML FIFO | P2 | Real FIFO: `exists=true`, `size=Infinity`, pre-image reader остановлен watchdog через 3 s | Открыто |
+| R2.4 — raw tool ID не является session-wide identity | P2 | Новый run с тем же ID возвращает native `Read old.ts` перед старым ответом; replay также смешивает владельцев разных ledgers | Открыто |
+| R2.5 — advisor per-card override игнорируется | P2 | Native toggle даёт `describe().p.collapsed=false`, но compact rows всё ещё скрывают четвёртый note и detail | Открыто |
+| R2.6 — escaped newline разрывает shell word | P2 | Реальный `git co\` + LF + `mmit` создаёт commit, scanner читает subcommand `co` и теряет hash summary | Открыто |
+| R2.7 — native create/upsert не доказывает delta | P2 | Native patch create поверх неизменённого файла сообщает `+1|0`; overwrite не учитывает удалённую старую строку | Открыто |
+| R2.8 — HUB operation наследует prototype keys | P3 | `constructor`, `toString`, `__proto__` отображаются как launch, хотя это неизвестные операции | Открыто |
+| R2.9 — occupied shortcuts cache не заполняется | P3 | Повторное построение default keyset; 3000 вызовов в smoke — 119 ms | Открыто |
+| R2.10 — prefix копирует весь input | P3 | `Array.from` для 200 000 emoji ради 160-point prefix; 100 вызовов в smoke — 1732 ms | Открыто |
+
+Проверенные гипотезы, **не ставшие новыми находками**: поздний native end освобождает claim и следующая запись восстанавливается; final-file symlink overlap уже отвергает оба audit и запрещает shake; 12 native write-сценариев фиксируют правильный pre-image. Capture без доказанной строки остаётся отличен от сбоя публикации, как зафиксировано в текущем контракте. Session-wide failure latch не добавляется: сохраняется принятая per-run recovery semantics.
+
+**План исправления:** failing consumer regressions → минимальные изменения в существующих механизмах → passing regressions и native/platform smoke → полный гейт, обновление статусов и коммиты. Native tool execution, journal entries/parent IDs и model messages не изменяются.
+

@@ -1213,6 +1213,45 @@ describe("createSessionSettingsApi", () => {
 		}
 	});
 
+	(process.platform === "win32" ? test.skip : test)("FIFO YAML refuses apply without host mutation or fallback", async () => {
+		const agentDir = await mkdtemp(join(tmpdir(), "omp-host-settings-fifo-"));
+		try {
+			const fifo = join(agentDir, "config.yml");
+			expect(Bun.spawnSync(["mkfifo", fifo]).exitCode).toBe(0);
+			await writeFile(join(agentDir, "config.yaml"), "recap:\n  enabled: true\n");
+			const modulePath = join(import.meta.dir, "../../.omp-plugin/host-settings.ts");
+			const script = `
+import { createHostSettingsBridge, createSessionSettingsApi } from ${JSON.stringify(modulePath)};
+import { lstatSync } from "node:fs";
+let sets = 0, flushes = 0, error;
+const api = createSessionSettingsApi({ getAgentDir() { return process.env.AGENT_DIR; }, get(path) { return path === "recap.enabled"; }, set() { sets++; }, async flush() { flushes++; } });
+process.send("ready");
+try { await createHostSettingsBridge({ api }).apply({ recapEnabled: false }); } catch (caught) { error = caught.name; }
+console.log(JSON.stringify({ error, sets, flushes, fifo: lstatSync(process.env.FIFO).isFIFO() }));
+`;
+			let timer: Timer;
+			let timedOut: "import" | "read" | undefined;
+			let ready = false;
+			const child = Bun.spawn(["bun", "-e", script], {
+				env: { ...Bun.env, AGENT_DIR: agentDir, FIFO: fifo }, stdout: "pipe", stderr: "pipe",
+				ipc(value) {
+					if (value !== "ready" || ready) return;
+					ready = true;
+					clearTimeout(timer);
+					timer = setTimeout(() => { timedOut = "read"; child.kill(); }, 3000);
+				},
+			});
+			timer = setTimeout(() => { timedOut = "import"; child.kill(); }, 30_000);
+			const code = await child.exited;
+			clearTimeout(timer);
+			if (timedOut) throw new Error(`host YAML ${timedOut} blocked`);
+			if (!ready || code !== 0) throw new Error(await new Response(child.stderr).text());
+			expect(JSON.parse(await new Response(child.stdout).text())).toEqual({ error: "HostSettingsApplyError", sets: 0, flushes: 0, fifo: true });
+		} finally {
+			await rm(agentDir, { recursive: true, force: true });
+		}
+	});
+
 	test("normal-sized profile YAML still yields a raw pre-image", async () => {
 		// Regression guard: the byte/depth gates must not reject a realistic
 		// stock config.yml that only carries the two host toggles.

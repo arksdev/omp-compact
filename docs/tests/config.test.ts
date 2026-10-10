@@ -687,6 +687,56 @@ describe("store load fail-open", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
+	test("object-valued version falls back on load and cannot be overwritten", async () => {
+		const dir = await tempDir();
+		const file = join(dir, "config.json");
+		const text = JSON.stringify({ version: { toString: null, valueOf: null }, mode: "compact" });
+		await writeFile(file, text);
+		const store = createSettingsStore({ path: file, env: {}, warn() {} });
+		expect(await store.load()).toEqual(DEFAULT_SETTINGS);
+		await expect(store.update({ mode: "clear" })).rejects.toThrow(ConfigUpdateError);
+		expect(await readFile(file, "utf8")).toBe(text);
+	});
+
+	for (const newer of ["save", "reload"] as const) {
+		test(`an older load cannot roll back a newer ${newer} or make a later save a no-op`, async () => {
+			const dir = await tempDir();
+			const file = join(dir, "config.json");
+			await writeFile(file, JSON.stringify({ ...DEFAULT_SETTINGS, mode: "live" }));
+			let pauseNext = false;
+			let captured!: () => void;
+			let resume!: () => void;
+			const didCapture = new Promise<void>(resolve => { captured = resolve; });
+			const release = new Promise<void>(resolve => { resume = resolve; });
+			const store = createSettingsStore({
+				path: file, env: {}, warn() {},
+				readFile: async (path, encoding) => {
+					const text = await readFile(path, encoding);
+					if (pauseNext) {
+						pauseNext = false;
+						captured();
+						await release;
+					}
+					return text;
+				},
+			});
+			await store.load();
+			pauseNext = true;
+			const older = store.load();
+			await didCapture;
+			if (newer === "save") await store.update({ mode: "compact" });
+			else {
+				await writeFile(file, JSON.stringify({ ...DEFAULT_SETTINGS, mode: "compact" }));
+				await store.load();
+			}
+			resume();
+			expect((await older).mode).toBe("compact");
+			expect(store.snapshot().mode).toBe("compact");
+			await store.update({ mode: "live" });
+			expect(JSON.parse(await readFile(file, "utf8")).mode).toBe("live");
+		});
+	}
+
 	for (const operation of ["shortcut", "store"] as const) {
 		(process.platform === "win32" ? test.skip : test)(
 			`a writer-less FIFO cannot block config ${operation} or be overwritten`,
