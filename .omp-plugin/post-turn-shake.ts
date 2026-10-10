@@ -199,7 +199,7 @@ export class PostTurnShake {
 	#abort = new AbortController();
 	#generation = 0;
 	// Distinguishes one logical run from the next inside the same session.
-	// `#generation` remains the session/dispose lifecycle guard.
+	// `#generation` also invalidates cancelled/proposed-switch shake waits.
 	#runEpoch = 0;
 	#warned = new Set<string>();
 
@@ -338,12 +338,13 @@ export class PostTurnShake {
 	}
 
 	/**
-	 * Abort the native shake in flight, if any, without ending the session:
-	 * the conversation has moved on (a new run, a fork), and a late shake
-	 * would rewrite history under it. The host invalidates its own auto-shake
-	 * at the same boundaries. Run state and settings are kept.
+	 * Cancel a pending evidence wait or native shake without ending the
+	 * session. A new run or a proposed/forked switch invalidates its owner;
+	 * even a vetoed switch must not let an old pending shake start later.
+	 * Run state and settings are kept for the next logical run.
 	 */
 	cancel(): void {
+		this.#generation++;
 		if (!this.#inFlight) return;
 		this.#abort.abort();
 		this.#abort = new AbortController();

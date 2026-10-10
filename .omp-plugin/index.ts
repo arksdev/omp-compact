@@ -101,6 +101,7 @@ type ContextWithSessionManager = ExtensionContext & {
 	sessionManager?: {
 		getBranch?: () => readonly unknown[];
 		getEntries?: () => readonly unknown[];
+		getEntry?: (id: string) => unknown;
 	};
 };
 
@@ -120,14 +121,21 @@ function auditBranch(
 function writeSource(
 	context: ExtensionContext,
 	toolCallId: string,
+	sourceEntryId?: string,
 ): string | undefined {
-	const branch = (
-		context as ContextWithSessionManager
-	).sessionManager?.getBranch?.();
+	const manager = (context as ContextWithSessionManager).sessionManager;
+	if (sourceEntryId && typeof manager?.getEntry === "function")
+		return writeSourceEntryId(manager.getEntry(sourceEntryId), toolCallId) ===
+			sourceEntryId
+			? sourceEntryId
+			: undefined;
+	const branch = sourceEntryId
+		? (manager?.getEntries?.() ?? manager?.getBranch?.())
+		: manager?.getBranch?.();
 	if (!Array.isArray(branch)) return undefined;
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const source = writeSourceEntryId(branch[index], toolCallId);
-		if (source) return source;
+		if (source && (!sourceEntryId || source === sourceEntryId)) return source;
 	}
 	return undefined;
 }
@@ -790,6 +798,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	);
 
 	listen("session_start", async (_event, context) => {
+		// A start is a committed initialization, not a cancellable proposal.
+		dispose();
 		// RuntimeModes: never install the runtime before the first settings
 		// resolution — a persisted `enabled=false` must not see a transient
 		// adapter (wrappers/timers) even for an instant.
@@ -812,15 +822,20 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	});
 
 	listen("session_switch", async (event, context) => {
+		if (event.reason === "fork") {
+			postShake.cancel();
+			return;
+		}
+		dispose();
 		// Restore view: an in-process entry into an
 		// existing session (`/resume` picker, `ctx.switchSession`, reload)
 		// arrives as `session_switch` with reason "resume" — emitted after
 		// the target session's entries are loaded but BEFORE the caller's
-		// `renderInitialMessages` rebuild. The adapter was disposed at
-		// `session_before_switch`, so re-install it here while the exact
-		// transcript instance is still patchable; the transcript `clear`
-		// that follows (the rebuild boundary) then rehydrates the restored
-		// branch under the armed override and replays compact. Explicitly
+		// `renderInitialMessages` rebuild. Dispose only at this committed
+		// boundary, then reinstall while the transcript is still patchable;
+		// a vetoed session_before_switch never tears the adapter down.
+		// The following native clear replays the restored branch in compact.
+		// This restore override is explicitly
 		// NOT applied to reason "new" (fresh session), "fork" (a derived
 		// session keeps the in-memory conversation and never rebuilds the
 		// transcript), or "handoff" (automatic compaction continuation) —
@@ -1049,7 +1064,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						isError: event.isError === true,
 					},
 					(mutations, payload) => {
-						if (typeof payload !== "string")
+						if (
+							typeof payload !== "string" ||
+							writeSource(context, event.toolCallId, payload) !== payload
+						)
 							throw new Error("write audit source unavailable");
 						for (const entry of mutations) {
 							entry.sourceEntryId = payload;
@@ -1216,17 +1234,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		decorativeWarned.clear();
 	}
 
-	listen("session_before_switch", async (event) => {
-		// Stock `/fork` keeps the conversation, the agent state, and the
-		// rendered transcript: it never clears or rebuilds the chat, so a
-		// disposed adapter would have no rehydration point and every existing
-		// row would fall back to native chrome. Only an in-flight auto-shake is
-		// cancelled, as the host does for its own shake at a fork.
-		if (event.reason === "fork") {
-			postShake.cancel();
-			return;
-		}
-		dispose();
+	listen("session_before_switch", async () => {
+		// Another extension can still veto this proposal. Cancel native or
+		// drain-waiting shake work now, but preserve the current transcript,
+		// audits, mode subscription and run state until a committed boundary.
+		postShake.cancel();
 	});
 	listen("session_shutdown", async () => {
 		dispose();

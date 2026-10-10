@@ -32,6 +32,7 @@ interface WriteCandidate {
 	absolutePath?: string;
 	canonicalPath?: string;
 	before: string;
+	created: boolean;
 }
 
 interface AuditModule {
@@ -546,11 +547,7 @@ describe("edit delete audit", () => {
 		expect(entries).toEqual([]);
 	});
 
-	// F01 boundary pins for deleteEntry: the byte gate is evaluated before
-	// any line scan, the line gate reuses a single computed count, and the
-	// no-op delete (zero removed lines) stays row-less. These pin the exact
-	// semantics of the single-scan refactor: unknown-count evidence
-	// (exact: false) must survive byte/line overflows unchanged.
+	// Over-budget deletion evidence keeps its path without inventing counts.
 	test("delete over the byte gate keeps the row without inventing stats", () => {
 		const entries = completeEditMutations(
 			"edit-18",
@@ -619,22 +616,6 @@ describe("edit delete audit", () => {
 				exact: true,
 			},
 		]);
-	});
-
-	test("empty oldText is a no-op delete with no row", () => {
-		const entries = completeEditMutations(
-			"edit-21",
-			{
-				details: {
-					path: "src/gone.ts",
-					op: "delete",
-					diff: "",
-					oldText: "",
-				},
-			},
-			false,
-		);
-		expect(entries).toEqual([]);
 	});
 });
 
@@ -1619,30 +1600,6 @@ describe("write audit for brand-new files", () => {
 		}
 	});
 
-	test("empty new file stays a no-op with no entry", async () => {
-		const { cwd, cleanup } = await stage();
-		try {
-			const candidate = await captureWriteCandidate({
-				toolCallId: "write-new-4",
-				args: { path: "empty.ts", content: "" },
-				cwd,
-			});
-			expect(candidate).toBeDefined();
-			await writeFile(join(cwd, "empty.ts"), "");
-			const entries = await completeWriteCandidate(
-				candidate,
-				{
-					content: [{ type: "text", text: "ok" }],
-					details: { resolvedPath: join(cwd, "empty.ts") },
-				},
-				false,
-			);
-			expect(entries).toEqual([]);
-		} finally {
-			await cleanup();
-		}
-	});
-
 	test("resolvedPath mismatch drops the entry", async () => {
 		const { cwd, cleanup } = await stage();
 		try {
@@ -2306,6 +2263,7 @@ while (!existsSync(stop)) {
 									// Fresh pre-image each time: complete clears
 									// `before` in its finally block.
 									before: safeBefore,
+									created: false,
 								},
 								{
 									content: [{ type: "text", text: "ok" }],
@@ -2434,32 +2392,6 @@ while (!existsSync(stop)) {
 					exact: true,
 				},
 			]);
-		} finally {
-			await cleanup();
-		}
-	});
-
-	test("empty create still yields no entry", async () => {
-		const { root, cleanup } = await stage();
-		try {
-			const candidate = await captureWriteCandidate({
-				toolCallId: "confine-empty",
-				args: { path: "empty.ts", content: "" },
-				cwd: root,
-				root,
-			});
-			expect(candidate).toBeDefined();
-			expect(candidate?.before).toBe("");
-			await writeFile(join(root, "empty.ts"), "");
-			const entries = await completeWriteCandidate(
-				candidate,
-				{
-					content: [{ type: "text", text: "ok" }],
-					details: { resolvedPath: join(root, "empty.ts") },
-				},
-				false,
-			);
-			expect(entries).toEqual([]);
 		} finally {
 			await cleanup();
 		}

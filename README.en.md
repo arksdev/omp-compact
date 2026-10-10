@@ -114,6 +114,7 @@ When enabled, an absolute path inside the current project is shortened:
 ```
 
 This changes display only. The plugin does not rewrite tool arguments, files, or stored evidence. External paths, URIs, archive or SQLite selectors, and unsafe paths containing `..` remain unchanged.
+`cwd` and `Compact paths` are captured per run: a later run or resize does not relabel existing rows. Newly restored history uses the current display preferences.
 
 JSON:
 
@@ -175,6 +176,7 @@ compact → live → clear → off → compact
 The mode only ever changes between the three enabled states. The plugin switches off only on the step after `clear` and back on only on the step out of off, always into `compact`, so the order does not depend on where you joined the cycle. Switching off keeps the last mode, so a stray press loses nothing.
 
 Each press prints one line naming what will apply, for example `Compact: live — takes effect next run`, or `Compact: off — from the next run` when the plugin goes off.
+Rapid presses do not lose steps: reading the current state, computing the transition, and persisting it share the queue used by settings-menu saves.
 
 Two things worth knowing:
 

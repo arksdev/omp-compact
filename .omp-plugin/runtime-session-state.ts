@@ -242,6 +242,7 @@ export class RuntimeSessionState {
 	/** Rebuild/branch-hydration lifecycle (see rebuild-lifecycle.ts). */
 	readonly #lifecycle: RebuildLifecycle;
 	readonly #ledgerModes = new WeakMap<TurnLedger, RunModeSnapshot>();
+	readonly #ledgerPaths = new WeakMap<TurnLedger, DisplayPathOptions>();
 	// Host background-completion notices carry no id and no state of their
 	// own, so the run that was live when one appeared is the only thing that
 	// can decide its presentation later.
@@ -265,7 +266,6 @@ export class RuntimeSessionState {
 		evidence: RunStatsEvidence;
 	}> = [];
 	#ledger: TurnLedger | undefined;
-	#displayPaths: DisplayPathOptions | undefined;
 	#transcript: TranscriptHost | undefined;
 	#seq = 0;
 	#runNumber = 0;
@@ -349,13 +349,6 @@ export class RuntimeSessionState {
 			set replayingBranch(value: boolean) {
 				session.#replayingBranch = value;
 			},
-			get displayPaths(): DisplayPathOptions | undefined {
-				return session.#displayPaths;
-			},
-			set displayPaths(value: DisplayPathOptions | undefined) {
-				session.#displayPaths = value;
-			},
-			displayPathsSource: session.#displayPathsSource,
 			get transcript(): TranscriptHost | undefined {
 				return session.#transcript;
 			},
@@ -445,9 +438,11 @@ export class RuntimeSessionState {
 			: undefined;
 	}
 
-	/** Frozen display-path snapshot of the active logical run. */
-	get displayPaths(): DisplayPathOptions | undefined {
-		return this.#displayPaths;
+	/** Owned display-path snapshot; unknown ledgers keep their raw paths. */
+	displayPathsFor(
+		ledger: TurnLedger | undefined,
+	): DisplayPathOptions | undefined {
+		return ledger ? this.#ledgerPaths.get(ledger) : undefined;
 	}
 
 	attachTranscript(transcript: TranscriptHost | undefined): void {
@@ -479,7 +474,6 @@ export class RuntimeSessionState {
 		// this fresh logical boundary.
 		this.binding.discardUnboundComponents();
 		this.#ledger = this.#createLedger("omp-compact-run-");
-		this.#displayPaths = this.#displayPathsSource?.();
 		this.binding.tryBindByOrder(this.#ledger);
 	}
 
@@ -750,11 +744,12 @@ export class RuntimeSessionState {
 		// Finalized ledgers freeze evidence; deferred-terminal (still working)
 		// stays open so the agent_end audit drain can publish verified rows.
 		if (!state || !this.#evidenceMutable(state)) return undefined;
-		// Keep any real mutation: non-zero exact counts, and deletes whose
-		// path is evidence even when the count is unknown.
+		// Keep non-zero line changes, proved empty creations, and deletes
+		// whose path is evidence even when the count is unknown.
 		const kept = entries.filter(
 			(entry) =>
 				entry.toolName === "delete" ||
+				("created" in entry && entry.created === true) ||
 				(entry.added ?? 0) > 0 ||
 				(entry.removed ?? 0) > 0,
 		);
@@ -780,6 +775,13 @@ export class RuntimeSessionState {
 				// demotion).
 				exact: state.mutations.every((entry) => entry.exact === true),
 			};
+			if (
+				state.mutations.some(
+					(entry) =>
+						entry.exact === true && entry.added === 0 && entry.removed === 0,
+				)
+			)
+				state.entry.mutation.existenceChanged = true;
 			if (truncated) this.#lifecycle.markMutationInexact(state);
 		}
 		state.version++;
@@ -1103,6 +1105,9 @@ export class RuntimeSessionState {
 	#createLedger(prefix: string): TurnLedger {
 		const ledger = new TurnLedger(`${prefix}${++this.#runNumber}`);
 		this.#ledgerModes.set(ledger, this.#captureMode());
+		const paths = this.#displayPathsSource?.();
+		if (paths)
+			this.#ledgerPaths.set(ledger, { cwd: paths.cwd, enabled: paths.enabled });
 		return ledger;
 	}
 

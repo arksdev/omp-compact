@@ -35,7 +35,6 @@ function canonicalizeMessage(text: string | null | undefined): string {
 }
 
 import type { ComponentBinding } from "./component-binding";
-import type { DisplayPathOptions } from "./display-path";
 import {
 	isBoundedString,
 	isPayloadWithinBudget,
@@ -110,10 +109,6 @@ export interface RebuildLifecycleAccess {
 	 * late publishes after filtered/full stay frozen.
 	 */
 	replayingBranch: boolean;
-	/** Frozen display-path snapshot of the active logical run. */
-	displayPaths: DisplayPathOptions | undefined;
-	/** Display-path options resolved when a run/rebuild boundary starts. */
-	readonly displayPathsSource: (() => DisplayPathOptions) | undefined;
 	/** The transcript the stats placement targets; undefined pre-install. */
 	readonly transcript: TranscriptHost | undefined;
 	/** Terminal projections; a rebuild drops them with the old history. */
@@ -337,10 +332,6 @@ export class RebuildLifecycle {
 		options: BranchWalkOptions,
 	): boolean {
 		const access = this.#access;
-		// The active run's frozen display paths survive the rebuild; only a
-		// pure replay (no active ledger) re-snapshots.
-		if (!options.activeLedger)
-			access.displayPaths = access.displayPathsSource?.();
 		access.replayingBranch = true;
 		try {
 			let walkLedger: TurnLedger | undefined;

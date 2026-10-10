@@ -20,7 +20,7 @@ interface AdapterModule {
 			setWidget?(key: string, content: unknown): void;
 			requestRender?(): void;
 			requestComponentRender?(component: unknown): void;
-			getToolsExpanded?(): boolean;
+			getToolsExpanded?(): boolean | undefined;
 		};
 		warn?(message: string): void;
 	}) => {
@@ -50,7 +50,9 @@ interface BootedAdapter {
  * presentation patches, which need no mode config, no ledger and no timers —
  * only a live transcript the adapter can walk and patch.
  */
-async function bootAdapter(): Promise<BootedAdapter> {
+async function bootAdapter(
+	getToolsExpanded: () => boolean | undefined = () => false,
+): Promise<BootedAdapter> {
 	const root = new host.ContainerBase();
 	const transcript = new host.TranscriptContainer();
 	root.addChild(transcript);
@@ -65,7 +67,7 @@ async function bootAdapter(): Promise<BootedAdapter> {
 			},
 			requestRender() {},
 			requestComponentRender() {},
-			getToolsExpanded: () => false,
+			getToolsExpanded,
 		},
 		warn: () => {},
 	});
@@ -1127,6 +1129,80 @@ stockTest(
 		expect(stripAnsi(preLate.render(40)[0] ?? "")).toContain(
 			"NATIVE late diagnostics",
 		);
+	},
+);
+
+stockTest(
+	"native cards expanded before insertion preserve their complete bodies",
+	async () => {
+		const booted = await bootAdapter();
+		const skill = new host.SkillMessageComponent({
+			role: "custom",
+			customType: "skill-prompt",
+			content: "initial-prompt-body",
+			display: true,
+			details: { name: "expanded-source", path: "/s/source", lineCount: 1 },
+		}) as Renderable & { setExpanded(value: boolean): void };
+		const late = new host.LateDiagnosticsMessageComponent([
+			{
+				summary: "20 errors",
+				errored: true,
+				messages: Array.from(
+					{ length: 20 },
+					(_, index) => `late-line-${index}`,
+				),
+			},
+		]) as Renderable & { setExpanded(value: boolean): void };
+		try {
+			// Stock sets expansion before addChild; the UI's global toggle is false.
+			skill.setExpanded(true);
+			late.setExpanded(true);
+			booted.transcript.addChild(skill);
+			booted.transcript.addChild(late);
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(stripAnsi(skill.render(120).join("\n"))).toContain(
+				"initial-prompt-body",
+			);
+			expect(stripAnsi(late.render(120).join("\n"))).toContain("late-line-19");
+			skill.setExpanded(false);
+			late.setExpanded(false);
+			expect(stripAnsi(skill.render(120).join("\n"))).not.toContain(
+				"initial-prompt-body",
+			);
+			expect(stripAnsi(late.render(120).join("\n"))).not.toContain(
+				"late-line-19",
+			);
+			skill.setExpanded(true);
+			late.setExpanded(true);
+			expect(stripAnsi(skill.render(80).join("\n"))).toContain(
+				"initial-prompt-body",
+			);
+			expect(stripAnsi(late.render(80).join("\n"))).toContain("late-line-19");
+		} finally {
+			booted.adapter.dispose();
+		}
+	},
+);
+
+stockTest(
+	"unobservable initial expansion stays native until a collapse is observed",
+	async () => {
+		const booted = await bootAdapter(() => undefined);
+		const skill = new FakeSkillMessage("unknown-expanded");
+		skill.setExpanded(true);
+		try {
+			booted.transcript.addChild(skill);
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(stripAnsi(skill.render(120).join("\n"))).toContain(
+				"prompt body line",
+			);
+			skill.setExpanded(false);
+			expect(stripAnsi(skill.render(120)[0] ?? "")).toMatch(/^• skill /);
+		} finally {
+			booted.adapter.dispose();
+		}
 	},
 );
 

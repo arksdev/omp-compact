@@ -51,6 +51,8 @@ export interface MutationCandidate {
 	displayPath: string;
 	absolutePath: string;
 	canonicalPath: string;
+	/** The target was missing at capture, even when its post-image is empty. */
+	created: boolean;
 	/**
 	 * Pre-image text; empty string for a true creation (or empty file).
 	 * Cleared to `""` once the exact diff has been computed (or the
@@ -348,6 +350,7 @@ export async function captureWriteCandidate(
 	// Invariant: content is read only for overwrites. Creations set
 	// `before = ""` from an existence probe alone (no open).
 	let before: string;
+	let created = false;
 	// Snapshot-time canonical identity. Plain paths use absolutePath;
 	// symlinks pin the destination so a dangling in-root create still
 	// matches completion-time realpath once the write lands through the link.
@@ -407,6 +410,7 @@ export async function captureWriteCandidate(
 				before = text;
 			} else {
 				before = "";
+				created = true;
 			}
 		} else if (st.isFile()) {
 			// Overwrite path: pre-image is pre-existing user data — confine
@@ -431,6 +435,7 @@ export async function captureWriteCandidate(
 		// True missing path: creation. Only the post-image is read later;
 		// confinement does not apply — outside-root creates keep +N|0.
 		before = "";
+		created = true;
 		snapshotCanonical = canonicalPathSync(absolutePath);
 		if (acceptTarget?.(snapshotCanonical) === false) return undefined;
 	}
@@ -448,6 +453,7 @@ export async function captureWriteCandidate(
 		absolutePath,
 		canonicalPath: snapshotCanonical,
 		before,
+		created,
 	};
 }
 
@@ -493,11 +499,15 @@ export async function completeWriteCandidate(
 			return [];
 		const after = await boundedText(effectiveResult);
 		if (after === undefined) return [];
-		// Zero-allocation equal-snapshot fast path — identical bytes mean
-		// no mutation, so no diff work and no native call.
-		if (after === candidate.before) return [];
+		// Equal bytes are a no-op only for an already-existing target.
+		if (!candidate.created && after === candidate.before) return [];
 		const middle = trimmedMiddleLines(candidate.before, after);
-		if (middle.beforeLines === 0 && middle.afterLines === 0) return [];
+		if (
+			!candidate.created &&
+			middle.beforeLines === 0 &&
+			middle.afterLines === 0
+		)
+			return [];
 		// Diff complexity budget: the native Myers-style diff is quadratic
 		// in its *remaining* tokens after it strips common leading/trailing
 		// line tokens internally (jsdiff-compatible). Budgeting on
@@ -521,18 +531,18 @@ export async function completeWriteCandidate(
 		const { added, removed } = canCountWithoutDiff
 			? { added: middle.afterLines, removed: middle.beforeLines }
 			: exactLineChanges(candidate.before, after);
-		if (added === 0 && removed === 0) return [];
-		return [
-			{
-				version: 1,
-				toolCallId: candidate.toolCallId,
-				toolName: "write",
-				path: candidate.displayPath,
-				added,
-				removed,
-				exact: true,
-			},
-		];
+		if (!candidate.created && added === 0 && removed === 0) return [];
+		const entry: MutationMessageDetails = {
+			version: 1,
+			toolCallId: candidate.toolCallId,
+			toolName: "write",
+			path: candidate.displayPath,
+			added,
+			removed,
+			exact: true,
+		};
+		if (candidate.created && added === 0 && removed === 0) entry.created = true;
+		return [entry];
 	} finally {
 		// Drop the pre-image once the exact diff path has finished (success,
 		// early bail, or throw). Consumers of `before` are only the equality

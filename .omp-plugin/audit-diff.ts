@@ -296,8 +296,8 @@ function editEntry(
  *   legacy-shaped entry (`exact: false`, no `added`/`removed`). The delete
  *   row is still shown — red title, gray path, no stat — because the path
  *   itself is real evidence; an unknown count is never approximated.
- * - Returns undefined for an invalid/missing/oversized path (nothing real to
- *   show) and for a no-op delete (`removed === 0`).
+ * - Returns undefined for an invalid/missing/oversized path. A successful
+ *   delete of an empty file remains exact evidence with zero removed lines.
  */
 function deleteEntry(
 	toolCallId: string,
@@ -322,7 +322,6 @@ function deleteEntry(
 	const removed = lineCount(oldText);
 	if (removed > MAX_DELETE_LINES)
 		return { toolCallId, toolName: "delete", path, exact: false };
-	if (removed === 0) return undefined;
 	return {
 		version: 1,
 		toolCallId,

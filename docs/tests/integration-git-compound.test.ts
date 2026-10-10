@@ -397,43 +397,6 @@ stockTest(
 );
 
 stockTest(
-	"brand-new empty file stays a no-op and disappears after the answer",
-	async () => {
-		const cwd = fixtureDir("newfile-empty");
-		await rm(cwd, { recursive: true, force: true });
-		await mkdir(cwd, { recursive: true });
-		const path = join(cwd, "empty.ts");
-		const booted = await bootWithTranscript(cwd);
-		await beginRun(booted);
-		const call = await addTool(
-			booted,
-			"write",
-			{ path: "empty.ts", content: "" },
-			"write-new-empty",
-		);
-		await Bun.write(path, "");
-		await finishTool(booted, call, {
-			toolCallId: "write-new-empty",
-			toolName: "write",
-			result: {
-				content: [{ type: "text", text: "ok" }],
-				details: { resolvedPath: path },
-			},
-			isError: false,
-		});
-		addAnswer(booted, "done");
-		await finishRun(booted, "done");
-		const completed = visibleRows(booted.transcript).join("\n");
-		expect(completed).not.toContain("write: empty.ts");
-		expect(completed).not.toContain("0|0");
-		expect(booted.sentMessages).toEqual([]);
-		expect(booted.appendedEntries).toEqual([]);
-		await shutdown(booted);
-		await rm(cwd, { recursive: true, force: true });
-	},
-);
-
-stockTest(
 	"a quiet commit with a substituted message keeps its aggregate summary",
 	async () => {
 		const booted = await bootWithTranscript();

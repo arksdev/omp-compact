@@ -42,6 +42,10 @@ matter where you joined it.
 Each press prints one line naming what will apply, for example
 `Compact: live — takes effect next run` or `Compact: off — from the next run`.
 
+Reading the current state and computing the next step happen inside the save
+queue too. Overlapping presses each advance once, and a preceding menu save
+is observed rather than overwritten by an older keypress snapshot.
+
 Two things are worth knowing:
 
 - **A press applies from the next logical run.** The runtime captures one

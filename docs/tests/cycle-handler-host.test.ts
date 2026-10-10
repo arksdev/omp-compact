@@ -1,15 +1,22 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type {
 	CompactSettings,
 	CompactSettingsStore,
 } from "../../.omp-plugin/config";
-import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
+import {
+	createSettingsStore,
+	DEFAULT_SETTINGS,
+} from "../../.omp-plugin/config";
 import { cycleDisplayState } from "../../.omp-plugin/cycle-handler";
 import {
 	createHostSettingsBridge,
 	type HostSettingsApi,
 } from "../../.omp-plugin/host-settings";
+import { saveSettingsFlow } from "../../.omp-plugin/save-flow";
 
 /**
  * Display cycle must never write stock host settings. The bridge's `apply`
@@ -119,5 +126,32 @@ describe("display cycle: host settings are never touched", () => {
 		await cycleDisplayState(deps);
 		expect(saved).toHaveLength(1);
 		expect(saved[0]?.host).toEqual(DEFAULT_SETTINGS.host);
+	});
+
+	test("overlapping cycle presses and a preceding dialog save each advance from persisted state", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "omp-cycle-race-"));
+		const path = join(directory, "settings.json");
+		const store = createSettingsStore({ path, env: {} });
+		const deps = { store, theme: fakeTheme(), notify: () => {} };
+		try {
+			await store.update({ ...DEFAULT_SETTINGS, mode: "compact" });
+			await Promise.all([cycleDisplayState(deps), cycleDisplayState(deps)]);
+			expect(JSON.parse(await readFile(path, "utf8")).mode).toBe("clear");
+
+			await store.update({ ...DEFAULT_SETTINGS, mode: "compact" });
+			await Promise.all([
+				saveSettingsFlow(
+					{ ...DEFAULT_SETTINGS, mode: "live", retainGitLive: false },
+					{ store },
+				),
+				cycleDisplayState(deps),
+			]);
+			expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({
+				mode: "clear",
+				retainGitLive: false,
+			});
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
 	});
 });

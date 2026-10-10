@@ -1,13 +1,17 @@
 import { afterAll, expect } from "bun:test";
 import {
+	addTool,
 	addToolComponent,
 	assistant,
 	type BootedPlugin,
 	bootForRebuild,
+	beginRun,
 	bootPlugin,
 	cleanupGeneratedDirs,
 	dispatch,
 	fakeTool,
+	finishRun,
+	finishTool,
 	rebuildHarness,
 	shutdown,
 	stockTest,
@@ -30,26 +34,59 @@ stockTest("shutdown restores own descriptors exactly", async () => {
 	expect(Object.hasOwn(transcript, "addChild")).toBe(false);
 });
 
-stockTest("session switch restores then reinstalls the adapter", async () => {
-	let transcript: TranscriptInstance | undefined;
-	const booted = await bootPlugin((root, host) => {
-		transcript = new host.TranscriptContainer();
-		root.addChild(transcript);
-	});
-	if (!transcript) throw new Error("transcript missing");
-	expect(Object.hasOwn(transcript, "addChild")).toBe(true);
-	// Idle install arms no spinner; a pending tool would start it later.
-	expect(booted.intervalCallbacks).toHaveLength(0);
-	await dispatch(booted, { type: "session_before_switch" });
-	expect(Object.hasOwn(transcript, "addChild")).toBe(false);
-	expect(booted.clearedTimers).toHaveLength(0);
-	await dispatch(booted, { type: "session_start" });
-	expect(Object.hasOwn(transcript, "addChild")).toBe(true);
-	expect(booted.intervalCallbacks).toHaveLength(0);
-	await shutdown(booted);
-	expect(Object.hasOwn(transcript, "addChild")).toBe(false);
-	expect(booted.clearedTimers).toHaveLength(0);
-});
+stockTest(
+	"a vetoed resume keeps the current transcript and pending audit",
+	async () => {
+		const booted = await bootForRebuild("compact");
+		try {
+			await beginRun(booted);
+			const old = await addTool(
+				booted,
+				"bash",
+				{ command: "printf retained" },
+				"before-veto",
+			);
+			await finishTool(booted, old, {
+				toolCallId: "before-veto",
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "retained" }] },
+				isError: false,
+			});
+			const edit = await addTool(
+				booted,
+				"edit",
+				{ path: "retained.ts" },
+				"pending-edit",
+			);
+			const before = visibleRows(booted.transcript);
+			await dispatch(booted, {
+				type: "session_before_switch",
+				reason: "resume",
+			});
+			// A later extension vetoes the switch. Native emits no session_switch
+			// and keeps the current run; its next tool end still belongs here.
+			expect(visibleRows(booted.transcript)).toEqual(before);
+			await finishTool(booted, edit, {
+				toolCallId: "pending-edit",
+				toolName: "edit",
+				isError: false,
+				result: {
+					content: [],
+					details: {
+						path: "retained.ts",
+						diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n",
+					},
+				},
+			});
+			await finishRun(booted, "continued after veto");
+			const rows = visibleRows(booted.transcript).join("\n");
+			expect(rows).toContain("bash: printf retained");
+			expect(rows).toMatch(/edit: retained\.ts.*\+1\|[^0-9]*1/);
+		} finally {
+			await shutdown(booted);
+		}
+	},
+);
 
 stockTest(
 	"incompatible transcript shape fails open and rolls back discovery wrappers",

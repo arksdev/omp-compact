@@ -25,6 +25,8 @@ export interface MutationMessageDetails {
 	toolCallId: string;
 	/** Assistant/start entry that owns this write, independent of append timing. */
 	sourceEntryId?: string;
+	/** Proven empty-file creation; zero line counts alone do not prove a change. */
+	created?: true;
 	/**
 	 * Origin tool of the mutation: "write" (full-file write), "edit"
 	 * (edit/update operations), or "delete" (delete operations, exact
@@ -123,6 +125,15 @@ export function isMutationMessageDetails(
 			details.toolName === "delete"
 		) ||
 		!isBoundedString(details.path, MAX_EVIDENCE_PATH_LENGTH)
+	)
+		return false;
+	if (
+		details.created !== undefined &&
+		(details.created !== true ||
+			details.toolName !== "write" ||
+			details.exact !== true ||
+			details.added !== 0 ||
+			details.removed !== 0)
 	)
 		return false;
 	if (

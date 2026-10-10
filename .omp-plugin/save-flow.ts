@@ -132,10 +132,15 @@ export interface SaveOutcome {
  * save's successful write.
  */
 export async function saveSettingsFlow(
-	next: CompactSettings,
+	next: CompactSettings | ((current: CompactSettings) => CompactSettings),
 	deps: SaveFlowDeps,
 ): Promise<SaveOutcome> {
-	return withSaveFlowQueue(deps.store, () => runSaveSettingsFlow(next, deps));
+	return withSaveFlowQueue(deps.store, async () =>
+		runSaveSettingsFlow(
+			typeof next === "function" ? next(await deps.store.load()) : next,
+			deps,
+		),
+	);
 }
 
 async function runSaveSettingsFlow(

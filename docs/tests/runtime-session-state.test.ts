@@ -2463,6 +2463,28 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 		expect(
 			isMutationMessageDetails({
 				...base,
+				added: 0,
+				removed: 0,
+				created: true,
+			}),
+		).toBe(true);
+		for (const created of [false, null, "true"])
+			expect(
+				isMutationMessageDetails({ ...base, added: 0, removed: 0, created }),
+			).toBe(false);
+		expect(isMutationMessageDetails({ ...base, created: true })).toBe(false);
+		expect(
+			isMutationMessageDetails({
+				...base,
+				toolName: "edit",
+				added: 0,
+				removed: 0,
+				created: true,
+			}),
+		).toBe(false);
+		expect(
+			isMutationMessageDetails({
+				...base,
 				sourceEntryId: "s".repeat(MAX_TOOL_CALL_ID_LENGTH),
 			}),
 		).toBe(true);

@@ -881,7 +881,7 @@ export class RuntimeAdapter {
 								toolStateProps,
 								theme,
 								width,
-								this.#session.displayPaths,
+								this.#session.displayPathsFor(state.ledger),
 							),
 						);
 					if (decision.summary && projection)
@@ -895,7 +895,7 @@ export class RuntimeAdapter {
 					},
 					theme,
 					width,
-					this.#session.displayPaths,
+					this.#session.displayPathsFor(state.ledger),
 				);
 			}
 			return nativeRender(width);
@@ -933,7 +933,7 @@ export class RuntimeAdapter {
 						},
 						theme,
 						width,
-						this.#session.displayPaths,
+						this.#session.displayPathsFor(group.ledger),
 					),
 				);
 			}
@@ -1678,6 +1678,25 @@ export class RuntimeAdapter {
 
 		const adapter = this;
 		const state = states.get(component) ?? ({} as TState);
+		if (state.expanded === undefined) {
+			try {
+				// Native describe() exposes private expansion without materializing
+				// render output; a per-card choice wins over the global UI toggle.
+				const describe = objectRecord(component).describe;
+				const node = objectRecord(
+					typeof describe === "function" ? describe.call(component) : undefined,
+				);
+				const collapsed =
+					node.k === "card" ? objectRecord(node.p).collapsed : undefined;
+				const initial =
+					typeof collapsed === "boolean"
+						? !collapsed
+						: this.#ui.getToolsExpanded?.();
+				if (typeof initial === "boolean") state.expanded = initial;
+			} catch {
+				// Unknown is not collapsed; stay native until setExpanded observes it.
+			}
+		}
 		states.set(component, state);
 
 		// Capture order matches the three former sites: render, optional
@@ -1698,8 +1717,8 @@ export class RuntimeAdapter {
 						if (!theme) return render.call(this, width);
 						const view = extract(this, states.get(this));
 						if (!view) return render.call(this, width);
-						// Expanded → native multi-line card so the full body stays readable.
-						if (view.expanded === true) return render.call(this, width);
+						// Expanded or unknown keeps the complete native body readable.
+						if (view.expanded !== false) return render.call(this, width);
 						return renderRow(view, theme, width);
 					},
 				},

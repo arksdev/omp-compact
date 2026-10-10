@@ -600,6 +600,23 @@ describe("PostTurnShake failure and unavailable seam", () => {
 	});
 });
 
+test("cancelling a pending drain invalidates its shake without disarming the next run", async () => {
+	const h = harness({ enabled: true, thresholdTokens: 0 });
+	const persistence = deferred<boolean>();
+	const pending = h.shake.onAgentEnd(
+		terminalEvent,
+		{ sessionManager: {} },
+		persistence.promise,
+	);
+	h.shake.cancel();
+	persistence.resolve(true);
+	await pending;
+	expect(h.calls).toEqual([]);
+	h.shake.beginRun({ enabled: true, thresholdTokens: 0 });
+	await h.shake.onAgentEnd(terminalEvent, { sessionManager: {} });
+	expect(h.calls).toHaveLength(1);
+});
+
 describe("formatShakeSummary", () => {
 	test("canonical stock summary for tool results only", () => {
 		expect(

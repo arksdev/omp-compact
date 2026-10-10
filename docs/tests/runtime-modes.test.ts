@@ -6,6 +6,7 @@ import {
 	type CompactSettingsStore,
 	DEFAULT_SETTINGS,
 } from "../../.omp-plugin/config";
+import type { DisplayPathOptions } from "../../.omp-plugin/display-path";
 import { loadStockPlugin } from "./test-stock-host";
 
 interface AdapterModule {
@@ -260,6 +261,7 @@ async function boot(
 		mode?: "compact" | "live" | "clear";
 		retainGitLive?: boolean;
 		enabled?: boolean;
+		displayPaths?: () => DisplayPathOptions;
 	} = {},
 ): Promise<Booted> {
 	const store = fakeStore(
@@ -294,6 +296,7 @@ async function boot(
 			clearTimer: () => {},
 		},
 		modePolicy: policy,
+		displayPaths: overrides.displayPaths,
 		onRunFinalized: (runId: string) => finalized.push(runId),
 		warn: (message: string) => warned.push(message),
 	});
@@ -356,6 +359,56 @@ function visibleRows(booted: Booted): string[] {
 }
 
 describe("runtime modes", () => {
+	test("each run retains its display paths when later settings and cwd change", async () => {
+		const paths = { cwd: "/project-a", enabled: true };
+		const booted = await boot({ mode: "compact", displayPaths: () => paths });
+		try {
+			await beginRun(booted);
+			const original = addTool(booted, "write", "old-write", {
+				path: "/project-a/src/a.ts",
+			});
+			original.updateResult({ content: [] }, false, "old-write");
+			booted.adapter.setMutations("old-write", [
+				{
+					toolCallId: "old-write",
+					toolName: "write",
+					path: "/project-a/src/a.ts",
+					added: 1,
+					removed: 0,
+					exact: true,
+				},
+			]);
+			booted.adapter.endRun(terminalAnswer("first"));
+			expect(visibleRows(booted).join("\n")).toContain("write: src/a.ts");
+
+			paths.enabled = false;
+			paths.cwd = "/project-b";
+			await beginRun(booted);
+			const next = addTool(booted, "write", "new-write", {
+				path: "/project-b/src/b.ts",
+			});
+			next.updateResult({ content: [] }, false, "new-write");
+			booted.adapter.setMutations("new-write", [
+				{
+					toolCallId: "new-write",
+					toolName: "write",
+					path: "/project-b/src/b.ts",
+					added: 2,
+					removed: 0,
+					exact: true,
+				},
+			]);
+			booted.adapter.endRun(terminalAnswer("second"));
+			for (const width of [120, 80]) {
+				const rows = Bun.stripANSI(booted.transcript.render(width).join("\n"));
+				expect(rows).toContain("write: src/a.ts");
+				expect(rows).toContain("write: /project-b/src/b.ts");
+			}
+		} finally {
+			booted.adapter.dispose();
+			booted.policy.dispose();
+		}
+	});
 	test("live keeps the current lifecycle: rows live, filtered at terminal", async () => {
 		const booted = await boot();
 		await beginRun(booted);

@@ -34,23 +34,19 @@ export interface DisplayCycleDeps {
  * never claims a change the environment forbids.
  */
 export async function cycleDisplayState(deps: DisplayCycleDeps): Promise<void> {
-	const current = await deps.store.load();
-	const next = nextDisplayCycleState(current);
 	let outcome: SaveOutcome;
 	try {
 		outcome = await saveSettingsFlow(
-			{
-				...current,
-				enabled: next.enabled,
-				mode: next.mode,
-				// Seed the host group from the live bridge: runApply's diff
-				// (host-settings.ts:380-410) writes any payload divergence from
-				// read(), so a store-snapshot host group would be silently
-				// reconciled with the live host by a pure cycle keypress. The
-				// settings dialog uses the same baseline (index.ts:
-				// host: hostBridge ? hostBridge.read() : initial.host); absent
-				// read seam (HostBridgeLike) fails open to the store's group.
-				host: deps.bridge?.read?.() ?? current.host,
+			(current) => {
+				const next = nextDisplayCycleState(current);
+				return {
+					...current,
+					enabled: next.enabled,
+					mode: next.mode,
+					// Read the live host baseline in this same queue turn: a
+					// cycle keypress must not reconcile stale host settings.
+					host: deps.bridge?.read?.() ?? current.host,
+				};
 			},
 			{
 				bridge: deps.bridge,
@@ -79,7 +75,7 @@ export async function cycleDisplayState(deps: DisplayCycleDeps): Promise<void> {
 					pinned,
 					deps.theme,
 				)
-			: formatDisplayCycleStatus(next, deps.theme),
+			: formatDisplayCycleStatus(outcome.persisted, deps.theme),
 	);
 }
 

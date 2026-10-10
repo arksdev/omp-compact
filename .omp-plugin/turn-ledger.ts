@@ -15,6 +15,8 @@ export interface MutationRecord {
 	added?: number;
 	removed?: number;
 	exact?: boolean;
+	/** A verified creation/deletion can change existence without changing lines. */
+	existenceChanged?: true;
 }
 
 export interface GitRecord {
@@ -96,14 +98,15 @@ export function classifyAgentEnd(
 	return hasVisibleText ? "filtered" : "full";
 }
 
-function isExactNonZeroMutation(entry: LedgerEntry): boolean {
+function isExactMutation(entry: LedgerEntry): boolean {
 	const mutation = entry.mutation;
 	return (
 		entry.state === "success" &&
 		mutation?.exact === true &&
-		((typeof mutation.added === "number" &&
-			Number.isFinite(mutation.added) &&
-			mutation.added > 0) ||
+		(mutation.existenceChanged === true ||
+			(typeof mutation.added === "number" &&
+				Number.isFinite(mutation.added) &&
+				mutation.added > 0) ||
 			(typeof mutation.removed === "number" &&
 				Number.isFinite(mutation.removed) &&
 				mutation.removed > 0))
@@ -117,7 +120,7 @@ function retainedEntries(
 	for (const entry of entries) {
 		if (
 			entry.retention !== "git" &&
-			(entry.retention !== "mutation" || !isExactNonZeroMutation(entry))
+			(entry.retention !== "mutation" || !isExactMutation(entry))
 		)
 			continue;
 		if (!retained) retained = [];

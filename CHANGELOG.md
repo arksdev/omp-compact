@@ -19,6 +19,10 @@
 - В `clear` сводка созданных коммитов остаётся видимой после прерывания или ошибки run, когда включён `Retain Git rows`; остальные диагностические строки остаются скрытыми.
 - Отложенное write-evidence связано с исходной assistant-entry и восстанавливается в её ветви, даже если carrier опубликован после перехода по дереву или начала следующего run. Повторный `toolCallId` в другой ветви не получает чужие счётчики.
 - Пересекающиеся `write` одного canonical target, включая symlink aliases, больше не создают ложный exact diff. Native записи выполняются как прежде, но неоднозначные счётчики отбрасываются и блокируют auto-shake затронутого run; последующая непересекающаяся запись снова может дать exact evidence.
+- Быстрые нажатия `alt+c` больше не теряют шаги: чтение текущего состояния и вычисление следующего шага выполняются в той же save-очереди, что и запись настроек.
+- Уже раскрытые skill/diagnostics карточки сохраняют native body при подключении плагина; перерисовка истории не подменяет снимки путей старых run настройками нового run.
+- Создание и удаление пустого файла сохраняются как изменение существования с нулевыми line-counts; перезапись существующего пустого файла остаётся no-op.
+- Отменённый session switch больше не разбирает текущий transcript и audit. Teardown выполняется после подтверждённого перехода; pending shake отменяется уже на proposal, а старое write-evidence не попадает в заменённый session journal.
 
 ---
 
@@ -35,6 +39,10 @@
 - In `clear`, the created-commit summary survives an aborted or failed run when `Retain Git rows` is enabled; routine diagnostics stay hidden.
 - Delayed write evidence is scoped to its source assistant entry and replays in that branch even when published after navigation or a later run. Reused tool ids in another branch cannot borrow its counts.
 - Overlapping writes to one canonical target, including symlink aliases, no longer produce false exact diffs. Native writes are unchanged; ambiguous counts are dropped and block that run's auto-shake, while later uncontended writes recover exact evidence.
+- Rapid `alt+c` presses no longer lose steps: current-state reads and next-state computation share the settings-save queue.
+- Previously expanded skill/diagnostics cards preserve their native bodies when patched. History redraws retain each run's own display-path snapshot.
+- Empty-file creation and deletion retain zero-line existence evidence; overwriting an existing empty file remains a no-op.
+- A vetoed session switch no longer tears down the current transcript or audit. Teardown waits for commit, pending shake is cancelled at proposal, and old write evidence cannot publish into a replaced session journal.
 
 ---
 

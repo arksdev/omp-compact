@@ -303,6 +303,10 @@ Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
 
 **Key insight:** First matching rule wins. Order is critical. `native-live` is phase- and mode-independent: a settled run never hides or collapses interactive stock chrome. `compactSuppressedBySettings` is plain data derived by the caller — the module never learns tool names; `runtime-adapter.ts` pairs the tool name with the run's frozen `compactVibeRows` snapshot (`VIBE_OPS` in `render.ts` stays the single source of truth for the five worker-session names).
 
+**Initial skill/diagnostics expansion:** Before wrapping a native card, the adapter reads `describe()`'s root card `p.collapsed` metadata without rendering/materializing its body. A known per-card choice wins over the global tool-output preference. If neither metadata nor the supported UI baseline yields a boolean, the wrapper keeps the native card until `setExpanded` observes a choice.
+
+**Display-path ownership:** Every ledger captures an owned `{ cwd, enabled }` snapshot. Tool rows, retained mutation rows and read groups use their owning ledger's paths, never the newest run's options. Later settings/cwd changes and resize cannot relabel existing ledgers; newly hydrated ledgers take the current restore-view snapshot, without storing UI preferences in native history.
+
 ---
 
 ## Mutation Audit
@@ -328,8 +332,9 @@ export async function completeWriteCandidate(
     // Require non-error result with absolute details.resolvedPath.
     // Canonical-path triple-check: snapshot path, resolved path, and
     // completion-time canonical must agree (symlink/race defense).
-    // Equal bytes → no evidence. Otherwise trimmed-middle + exact line diff.
-    // Returns [{ version: 1, toolCallId, toolName: "write", path, added, removed, exact: true }]
+    // Equal bytes are a no-op only when the target already existed.
+    // Empty creations carry created:true with exact zero line counts.
+    // Returns [{ version: 1, toolCallId, toolName: "write", path, added, removed, exact: true, created?: true }]
     // or [] when evidence is missing/untrusted.
 }
 ```
@@ -339,11 +344,13 @@ export async function completeWriteCandidate(
 - Post-image text after end, only when paths canonicalize to the same target
 - Exact line-level `added` / `removed` (not byte size/mtime guesses)
 
-**Fallback:** Missing candidate, path mismatch, identical bytes, or over-budget diffs yield no mutation entries (`[]`); rows are not retained on invented stats.
+**Fallback:** Missing candidate, path mismatch, unchanged existing bytes, or over-budget diffs yield no mutation entries (`[]`); rows are not retained on invented stats. Capture records whether the target existed: an empty creation is exact `{ added: 0, removed: 0, created: true }`, whereas an empty overwrite is a no-op. A successful native empty deletion remains `{ toolName: "delete", added: 0, removed: 0, exact: true }`. The runtime retains those verified existence changes without treating ordinary zero-count edits as mutations.
 
 **Publication drain:** `AuditLifecycle` tracks synchronous edit/Git publication as well as asynchronous write completion. Completion or publication failures block auto-shake even when they settle before `agent_end`: failed tokens survive continuations until a terminal drain claims them. A drain releases only its own failure tokens, so an older drain cannot clear a later run's failure. Synchronous publication errors still propagate to the extension runner; terminal presentation finalization remains independent of evidence readiness. `PostTurnShake.onAgentEnd` is invoked at event emission with the pending drain promise, capturing the originating run epoch before it waits. A new run or session invalidates that pending shake.
 
 **Source ownership:** At start, the write record captures the id of its assistant/tool-start entry, verified against the write's tool id. The published `MutationMessageDetails.sourceEntryId` is bounded and write-only; an unverifiable source fails publication closed. `pi.appendEntry` still appends ordinary custom metadata at the current native leaf. The presentation's read-only `auditBranch` view collects scoped write carriers from `getEntries()` and injects them after their source in branches containing that exact source entry and tool call. Scoped carriers cannot hydrate an unrelated branch merely because a tool id repeats. Live mutation attachment also checks the current source. This uses the public readonly journal without moving leaves, rewriting entries, or adding messages to model context. Existing unscoped carriers keep their legacy branch-local behavior; historical journals are not retroactively repaired.
+
+**Journal replacement:** Publication verifies the captured source again through the current readonly session manager (`getEntry`, or a bounded id scan over its available journal). If native reinitialization has replaced the journal before `session_switch`, the absent source blocks publication; old metadata must not be appended into the new session. Source lookup does not require the original branch to remain selected.
 
 **Target contention:** Capture synchronously claims the canonical filesystem target before reading pre-image bytes, including when that pre-image will be unsupported or over budget. Multiple active claims abandon every contending audit and keep auto-shake fail-closed for their run. Claims remain while a native write is unended or a still-publishable snapshot is in flight; an ended abandoned audit no longer contends. A completed snapshot releases its claim before publication so a following/reentrant write does not poison ready evidence. Native write execution is never serialized, cancelled, or changed. This observes filesystem write events in this plugin lifecycle, not external processes or separate plugin instances.
 
@@ -532,7 +539,7 @@ One chord (`alt+c` by default, stored as plain text in `displayCycleKey`) walks 
 
 `mode` moves only between the three enabled steps; `enabled` flips only into and out of the off step. Re-entering at `compact` rather than the stored mode keeps the cycle order independent of where the user joined it.
 
-**Persistence path:** the keypress handler (`cycleDisplayState`) goes through `saveSettingsFlow`, the same seam the dialog uses, so it inherits per-store serialization, host-bridge ordering, and env-mask reporting. It suppresses the flow's own success notification and emits exactly one status line instead. A hard `OMP_COMPACT_PLUGIN`/`OMP_COMPACT_MODE` override is reported as the effective state, never written over silently.
+**Persistence path:** the keypress handler (`cycleDisplayState`) passes a current-state transform to `saveSettingsFlow`, the same seam the dialog uses. The per-store queue owns load → next-state computation → host baseline read → host apply → JSON persist/rollback as one transaction. Overlapping presses each advance from the previous persisted step; a prior dialog save is not overwritten by a stale keypress snapshot. The handler suppresses the flow's own success notification and emits exactly one persisted/effective status line instead. A hard `OMP_COMPACT_PLUGIN`/`OMP_COMPACT_MODE` override is reported as the effective state, never written over silently.
 
 **Two host constraints shape the design:**
 
@@ -696,7 +703,7 @@ Host-invariant failures still trigger complete rollback:
 - Multiple transcript containers
 - Unexpected host exception during discovery/patch / presentation settle
 
-**Owner policy:** mid-session `#rollback` is **session-terminal**. The adapter fires `onDisabled` once after `dispose()`; `index.ts` drops its live handle and sets `adapterDisabled`. A dead adapter is never handed to event handlers, and the runtime does **not** reinstall until a session boundary (`session_before_switch` / `session_shutdown` → `dispose` resets the flags). Reinstall is refused because host-invariant causes almost certainly recur immediately — an unbounded retry would warn/rollback-loop on every event, which is worse than staying native.
+**Owner policy:** mid-session `#rollback` is **session-terminal**. The adapter fires `onDisabled` once after `dispose()`; `index.ts` drops its live handle and sets `adapterDisabled`. A dead adapter is never handed to event handlers, and the runtime does **not** reinstall until a committed session initialization/switch or shutdown resets the flags. `session_before_switch` only cancels native/pending shake work because a later extension can veto it; transcript, audits, subscriptions and run state remain owned until a committed non-fork boundary. Fork keeps the current adapter. Reinstall is refused mid-session because host-invariant causes almost certainly recur immediately — an unbounded retry would warn/rollback-loop on every event, which is worse than staying native.
 
 **Error sources (per-component quarantine):**
 - Ambiguous provisional→real toolCallId migration

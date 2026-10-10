@@ -1,5 +1,6 @@
-import { afterAll, expect } from "bun:test";
+import { afterAll, expect, spyOn } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
+import { AuditLifecycle } from "../../.omp-plugin/audit-lifecycle";
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
 import {
 	addTool,
@@ -327,65 +328,92 @@ stockTest(
 		);
 		if (!transcript) throw new Error("transcript missing");
 		const bootedWithTranscript = { ...booted, transcript };
-		await beginRun(bootedWithTranscript);
-		// The write audit capture stays in flight while a terminal agent_end
-		// queues its drain link; the session then switches before the drain
-		// can settle (the same race the audit lifecycle generation guard
-		// owns, now pinned for the stats seam).
-		const toolCallId = "write-late-drain";
-		const startPromise = dispatchFireAndForget(bootedWithTranscript, {
-			type: "tool_execution_start",
-			toolCallId,
-			toolName: "write",
-			args: { path: "multi.ts", content: "untrusted raw input" },
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
+		const barrier = AuditLifecycle.prototype.barrier;
+		let hold = true;
+		const delayed = spyOn(
+			AuditLifecycle.prototype,
+			"barrier",
+		).mockImplementation(async function (
+			this: AuditLifecycle,
+			tokens,
+			terminal,
+		) {
+			if (hold) {
+				hold = false;
+				entered.resolve();
+				await release.promise;
+			}
+			return barrier.call(this, tokens, terminal);
 		});
-		addToolComponent(
-			bootedWithTranscript,
-			"write",
-			{ path: "multi.ts", content: "untrusted raw input" },
-			toolCallId,
-		);
-		const drain = dispatchFireAndForget(bootedWithTranscript, {
-			type: "agent_end",
-			messages: [assistant("done")],
-			willContinue: false,
-		});
-		await dispatch(bootedWithTranscript, { type: "session_before_switch" });
-		await dispatch(bootedWithTranscript, { type: "session_start" });
-		// The reinstalled adapter is live and owns a fresh run id sequence.
-		await beginRun(bootedWithTranscript);
-		const healed = await addTool(
-			bootedWithTranscript,
-			"bash",
-			{ command: "printf healed" },
-			"healed",
-		);
-		await finishTool(bootedWithTranscript, healed, {
-			toolCallId: "healed",
-			toolName: "bash",
-			result: { content: [{ type: "text", text: "ok" }] },
-			isError: false,
-		});
-		// Settle the old session's in-flight write and its queued drain: the
-		// late callback must not render the old run's stats row on the new
-		// adapter (or throw), and the new run renders normally.
-		await startPromise;
-		await dispatchFireAndForget(bootedWithTranscript, {
-			type: "tool_execution_end",
-			toolCallId,
-			toolName: "write",
-			result: {
-				content: [{ type: "text", text: "ok" }],
-				details: {},
-			},
-			isError: false,
-		});
-		await drain;
-		const rows = visibleRows(bootedWithTranscript.transcript).join("\n");
-		expect(rows).toContain("printf healed");
-		expect(rows).not.toContain("sent");
-		expect(rows).not.toContain("actions");
-		await shutdown(bootedWithTranscript);
-		await rm(cwd, { recursive: true, force: true });
+		let drain: Promise<void> | undefined;
+		try {
+			await beginRun(bootedWithTranscript);
+			// Hold the drain across the committed boundary explicitly. A proposal
+			// may be vetoed and must not dispose a drain that legitimately settles
+			// before session_start; this test targets an actually late completion.
+			const toolCallId = "write-late-drain";
+			const startPromise = dispatchFireAndForget(bootedWithTranscript, {
+				type: "tool_execution_start",
+				toolCallId,
+				toolName: "write",
+				args: { path: "multi.ts", content: "untrusted raw input" },
+			});
+			addToolComponent(
+				bootedWithTranscript,
+				"write",
+				{ path: "multi.ts", content: "untrusted raw input" },
+				toolCallId,
+			);
+			drain = dispatchFireAndForget(bootedWithTranscript, {
+				type: "agent_end",
+				messages: [assistant("done")],
+				willContinue: false,
+			});
+			await entered.promise;
+			await dispatch(bootedWithTranscript, { type: "session_before_switch" });
+			await dispatch(bootedWithTranscript, { type: "session_start" });
+			release.resolve();
+			// The reinstalled adapter is live and owns a fresh run id sequence.
+			await beginRun(bootedWithTranscript);
+			const healed = await addTool(
+				bootedWithTranscript,
+				"bash",
+				{ command: "printf healed" },
+				"healed",
+			);
+			await finishTool(bootedWithTranscript, healed, {
+				toolCallId: "healed",
+				toolName: "bash",
+				result: { content: [{ type: "text", text: "ok" }] },
+				isError: false,
+			});
+			// Settle the old session's in-flight write and its queued drain: the
+			// late callback must not render the old run's stats row on the new
+			// adapter (or throw), and the new run renders normally.
+			await startPromise;
+			await dispatchFireAndForget(bootedWithTranscript, {
+				type: "tool_execution_end",
+				toolCallId,
+				toolName: "write",
+				result: {
+					content: [{ type: "text", text: "ok" }],
+					details: {},
+				},
+				isError: false,
+			});
+			await drain;
+			const rows = visibleRows(bootedWithTranscript.transcript).join("\n");
+			expect(rows).toContain("printf healed");
+			expect(rows).not.toContain("sent");
+			expect(rows).not.toContain("actions");
+		} finally {
+			release.resolve();
+			await drain;
+			delayed.mockRestore();
+			await shutdown(bootedWithTranscript);
+			await rm(cwd, { recursive: true, force: true });
+		}
 	},
 );

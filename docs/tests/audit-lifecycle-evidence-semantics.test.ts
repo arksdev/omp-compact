@@ -97,6 +97,7 @@ function candidate(id: string): MutationCandidate {
 		absolutePath: `/tmp/${id}.ts`,
 		canonicalPath: `/tmp/${id}.ts`,
 		before: "",
+		created: true,
 	};
 }
 
