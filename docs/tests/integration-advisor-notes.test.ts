@@ -181,6 +181,48 @@ const PLAIN_NOTES = [
 ];
 
 stockTest(
+	"native advisor per-card expansion survives compact rendering and resize",
+	async () => {
+		for (const initiallyExpanded of [false, true]) {
+			const booted = await bootAdvisor({ compact: true });
+			try {
+				const notes = Array.from({ length: 4 }, (_, index) => ({
+					severity: "nit",
+					note: `Note ${index}\nDetail ${index}`,
+				}));
+				await dispatch(booted, {
+					type: "message_end",
+					message: advisorMessage({ notes }),
+				});
+				const card = booted.host.createAdvisorMessageCard(
+					{ notes },
+					() => false,
+					booted.host.getTheme(),
+				);
+				if (!card.handleNativeEvent)
+					throw new Error("native advisor toggle missing");
+				const native = card.render.bind(card);
+				if (initiallyExpanded)
+					card.handleNativeEvent({ type: "toggle", key: "", collapsed: false });
+				booted.transcript.addChild(card);
+				if (!initiallyExpanded) {
+					expect(visibleRows(card).join("\n")).not.toContain("Detail 3");
+					card.handleNativeEvent({ type: "toggle", key: "", collapsed: false });
+				}
+				for (const width of [120, 80]) {
+					expect(card.render(width)).toEqual(native(width));
+					expect(visibleRows(card, width).join("\n")).toContain("Detail 3");
+				}
+				card.handleNativeEvent({ type: "toggle", key: "", collapsed: true });
+				expect(visibleRows(card)[0]).toBe("• advisor [nit] Note 0");
+			} finally {
+				await shutdown(booted);
+			}
+		}
+	},
+);
+
+stockTest(
 	"the option is off by default: cards stay byte-identical and nothing is probed wide",
 	async () => {
 		for (const options of [{}, { compact: true, enabled: false }]) {

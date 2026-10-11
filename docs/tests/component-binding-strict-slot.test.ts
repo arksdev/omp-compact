@@ -77,6 +77,17 @@ function makeBinding(): {
 	const states = new Map<string, ToolState>();
 	const pending = new Set<ToolState>();
 	const delegates: BindingDelegates = {
+		state: (id, ledger) => {
+			const state = states.get(id);
+			return !ledger || state?.ledger === ledger ? state : undefined;
+		},
+		forgetState: (state) => {
+			if (states.get(state.id) === state) states.delete(state.id);
+		},
+		rekeyState: (state, previousId) => {
+			if (states.get(previousId) === state) states.delete(previousId);
+			states.set(state.id, state);
+		},
 		markPending: (state) => {
 			pending.add(state);
 		},

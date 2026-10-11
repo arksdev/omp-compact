@@ -14,6 +14,19 @@ import {
 import { isGitMessageDetails } from "../../.omp-plugin/messages";
 
 describe("Git command recognition", () => {
+	test("escaped newlines within words retain the actual commit and hash", () => {
+		for (const newline of ["\n", "\r\n"]) {
+			const command = `git co\\${newline}mmit -m fi\\${newline}x`;
+			expect(recognizeGitCommands(command)?.[0]?.subcommand).toBe("commit");
+			const records = formatGitRecords({
+				command,
+				resultText: "[main abc1234] fix\n 1 file changed, 1 insertion(+)\n",
+				isError: false,
+			});
+			expect(records?.[0]?.text).toContain("abc1234");
+			expect(records?.[0]?.text).toContain("fix");
+		}
+	});
 	test("recognizes direct and cd-prefixed Git invocations", () => {
 		expect(recognizeGitCommands("git status --short")?.[0]?.subcommand).toBe(
 			"status",

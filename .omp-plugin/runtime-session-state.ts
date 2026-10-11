@@ -251,6 +251,8 @@ export class RuntimeSessionState {
 		TurnLedger
 	>();
 	readonly #states = new Map<string, ToolState>();
+	#statesByLedger = new WeakMap<TurnLedger, Map<string, ToolState>>();
+	readonly #latestStates = new Map<string, ToolState>();
 	readonly #pendingStates = new Set<ToolState>();
 	readonly #terminalProjections = new Map<TurnLedger, TerminalProjection>();
 	// A terminal agent_end may await audit work while stock starts the next
@@ -286,6 +288,12 @@ export class RuntimeSessionState {
 		this.#now = options.now ?? Date.now;
 		this.#placeStatsCarrier = options.placeStatsCarrier;
 		this.binding = new ComponentBinding(this.#states, {
+			state: (id, ledger) => this.state(id, ledger),
+			forgetState: (state) => this.#forgetState(state),
+			rekeyState: (state, previousId) => {
+				this.#forgetState(state, previousId);
+				this.#indexState(state);
+			},
 			markPending: (state) => {
 				this.#pendingStates.add(state);
 			},
@@ -363,9 +371,12 @@ export class RuntimeSessionState {
 			createLedger: (prefix) => session.#createLedger(prefix),
 			finalizeLedger: (ledger, event) => session.finalizeLedger(ledger, event),
 			stateForLedger: (input, ledger) => session.stateForLedger(input, ledger),
-			setMutations: (toolCallId, entries) =>
-				session.setMutations(toolCallId, entries),
-			setGit: (toolCallId, git) => session.setGit(toolCallId, git),
+			state: (id, ledger) => session.state(id, ledger),
+			forgetState: (state) => session.#forgetState(state),
+			setMutations: (toolCallId, entries, ledger) =>
+				session.setMutations(toolCallId, entries, ledger),
+			setGit: (toolCallId, git, ledger) =>
+				session.setGit(toolCallId, git, ledger),
 			ledgerStates: (ledger) => session.ledgerStates(ledger),
 			insertStatsCarrier: (ledger, line) =>
 				session.#insertStatsCarrier(ledger, line),
@@ -514,6 +525,8 @@ export class RuntimeSessionState {
 		this.#continuationPending = false;
 		this.#rebuildInProgress = false;
 		this.#states.clear();
+		this.#latestStates.clear();
+		this.#statesByLedger = new WeakMap();
 		this.#terminalProjections.clear();
 		this.#deferredTerminalLedgers.clear();
 		this.#pendingStates.clear();
@@ -529,14 +542,9 @@ export class RuntimeSessionState {
 		return this.#ledger;
 	}
 
-	/**
-	 * Create (or re-key-update) the state record of one tool call in a
-	 * ledger. New states record their single chronological ledger entry and
-	 * start pending; replay/rebuild walks rely on the exact-toolCallId
-	 * absorption (an existing state keeps its identity and evidence).
-	 */
+	/** Create or refresh a tool call only within its owning logical ledger. */
 	stateForLedger(input: ToolStartInput, ledger: TurnLedger): ToolState {
-		const existing = this.#states.get(input.toolCallId);
+		const existing = this.state(input.toolCallId, ledger);
 		// Live and hydrate share one retained-payload budget: over-budget
 		// args stay out of ToolState while the state itself still allocates
 		// and binds (losing a row is not acceptable; losing an oversized
@@ -545,10 +553,9 @@ export class RuntimeSessionState {
 			? input.args
 			: undefined;
 		if (existing) {
-			// A rebuild may replay a stale branch snapshot for an in-flight
-			// active state. Only the owning ledger can refresh its args; live
-			// event state remains authoritative across that boundary.
-			if (existing.ledger === ledger) existing.args = retainedArgs;
+			// The preserved active state stays authoritative during replay.
+			if (!this.#replayingBranch || existing.ledger !== this.#ledger)
+				existing.args = retainedArgs;
 			// Authoritative tool_execution_start promotes a stream preview so
 			// order binding prefers it over leftover stream-only ids.
 			if (input.fromStream !== true) existing.executionStarted = true;
@@ -558,7 +565,7 @@ export class RuntimeSessionState {
 				existing.toolName === "read" &&
 				readArgsCollapseIntoGroup(existing.args ?? input.args)
 			) {
-				this.binding.markGroupPresentationRead(existing.id);
+				this.binding.markGroupPresentationRead(existing);
 			}
 			return existing;
 		}
@@ -587,7 +594,7 @@ export class RuntimeSessionState {
 			mutations: [],
 			version: 1,
 		};
-		this.#states.set(state.id, state);
+		this.#indexState(state);
 		this.#pendingStates.add(state);
 		// Filesystem/`xd://` reads collapse into ReadToolGroup; internal-URL
 		// full cards (`skill://`, `agent://`, …) bind as ordinary tools.
@@ -595,7 +602,7 @@ export class RuntimeSessionState {
 			state.toolName === "read" &&
 			readArgsCollapseIntoGroup(retainedArgs ?? input.args)
 		) {
-			this.binding.markGroupPresentationRead(state.id);
+			this.binding.markGroupPresentationRead(state);
 		}
 		return state;
 	}
@@ -610,16 +617,6 @@ export class RuntimeSessionState {
 	 * event-controller streams `""` then migrates through `updateArgs`);
 	 * exact-ID precedence for in-budget ids is unchanged. Hydration already
 	 * filters before `stateForLedger`; this is the live entry counterpart.
-	 *
-	 * Exact-id absorption is a rebuild/replay affordance: there the state
-	 * map legitimately holds the preserved *active* run's states while the
-	 * walk replays a branch ledger. A live start is different — a state
-	 * whose ledger is not the working one means the host/provider reused a
-	 * toolCallId across logical runs. Absorbing it would attach this
-	 * execution to the finished run's ledger (which records no entry for
-	 * it), so the new run undercounts its actions while the old row mutates
-	 * with later evidence. Retire that stale claim first and let the fresh
-	 * run allocate its own state and ledger entry.
 	 */
 	startState(input: ToolStartInput): ToolState | undefined {
 		if (
@@ -629,11 +626,6 @@ export class RuntimeSessionState {
 			return undefined;
 		}
 		const ledger = this.ensureLedger();
-		const stale = this.#states.get(input.toolCallId);
-		if (stale && stale.ledger !== ledger) {
-			this.#states.delete(input.toolCallId);
-			this.#pendingStates.delete(stale);
-		}
 		const state = this.stateForLedger(input, ledger);
 		// stateForLedger already applied the retained-payload budget; keep
 		// the live refresh on the same rule so a second start with huge
@@ -692,7 +684,7 @@ export class RuntimeSessionState {
 
 	/** tool_execution_update: partial result. */
 	updateTool(input: ToolResultInput): RenderableBlock | undefined {
-		const state = this.#states.get(input.toolCallId);
+		const state = this.state(input.toolCallId);
 		if (!state || !this.#stateMutable(state)) return undefined;
 		state.result = isPayloadWithinBudget(input.result)
 			? input.result
@@ -717,7 +709,7 @@ export class RuntimeSessionState {
 	 * (same budget as hydrateBranch / commitRebuild).
 	 */
 	finishTool(input: ToolResultInput): RenderableBlock | undefined {
-		const state = this.#states.get(input.toolCallId);
+		const state = this.state(input.toolCallId);
 		if (state?.ledger.phase !== "working") return undefined;
 		state.result = isPayloadWithinBudget(input.result)
 			? input.result
@@ -739,8 +731,9 @@ export class RuntimeSessionState {
 	setMutations(
 		toolCallId: string,
 		entries: (MutationMessageDetails | LegacyMutationMessageDetails)[],
+		ledger?: TurnLedger,
 	): RenderableBlock | undefined {
-		const state = this.#states.get(toolCallId);
+		const state = this.state(toolCallId, ledger);
 		// Finalized ledgers freeze evidence; deferred-terminal (still working)
 		// stays open so the agent_end audit drain can publish verified rows.
 		if (!state || !this.#evidenceMutable(state)) return undefined;
@@ -792,8 +785,9 @@ export class RuntimeSessionState {
 	setGit(
 		toolCallId: string,
 		git: GitMessageDetails | undefined,
+		ledger?: TurnLedger,
 	): RenderableBlock | undefined {
-		const state = this.#states.get(toolCallId);
+		const state = this.state(toolCallId, ledger);
 		// Finalized ledgers freeze evidence; deferred-terminal (still working)
 		// stays open so the agent_end audit drain can publish verified rows.
 		if (!state || !git || !this.#evidenceMutable(state)) return undefined;
@@ -972,9 +966,36 @@ export class RuntimeSessionState {
 		return ledger.finalize(event, this.modeFor(ledger).mode);
 	}
 
-	/** State record by toolCallId. */
-	state(id: string): ToolState | undefined {
-		return this.#states.get(id);
+	/** Latest live/event state, or the exact owner when a ledger is supplied. */
+	state(id: string, ledger?: TurnLedger): ToolState | undefined {
+		return ledger
+			? this.#statesByLedger.get(ledger)?.get(id)
+			: this.#latestStates.get(id);
+	}
+
+	#indexState(state: ToolState): void {
+		let states = this.#statesByLedger.get(state.ledger);
+		if (!states) {
+			states = new Map();
+			this.#statesByLedger.set(state.ledger, states);
+		}
+		states.set(state.id, state);
+		this.#states.set(`${state.ledger.runId}\0${state.id}`, state);
+		const latest = this.#latestStates.get(state.id);
+		if (
+			!this.#replayingBranch ||
+			!latest ||
+			latest.ledger !== this.#ledger ||
+			latest.ledger.phase !== "working"
+		)
+			this.#latestStates.set(state.id, state);
+	}
+
+	#forgetState(state: ToolState, id = state.id): void {
+		const states = this.#statesByLedger.get(state.ledger);
+		if (states?.get(id) === state) states.delete(id);
+		this.#states.delete(`${state.ledger.runId}\0${id}`);
+		if (this.#latestStates.get(id) === state) this.#latestStates.delete(id);
 	}
 
 	/**
@@ -987,9 +1008,7 @@ export class RuntimeSessionState {
 
 	/** States belonging to one ledger. */
 	ledgerStates(ledger: TurnLedger): readonly ToolState[] {
-		return [...this.#states.values()].filter(
-			(state) => state.ledger === ledger,
-		);
+		return [...(this.#statesByLedger.get(ledger)?.values() ?? [])];
 	}
 
 	/**

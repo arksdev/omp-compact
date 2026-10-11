@@ -1,6 +1,9 @@
 import { afterAll, expect } from "bun:test";
 import { mkdir, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { SessionManager, Settings } from "@oh-my-pi/pi-coding-agent";
+import { EditTool } from "@oh-my-pi/pi-coding-agent/edit/index";
+import { WriteTool } from "@oh-my-pi/pi-coding-agent/tools/write";
 import {
 	addAnswer,
 	addTool,
@@ -16,6 +19,153 @@ import {
 } from "./integration-harness";
 
 afterAll(cleanupGeneratedDirs);
+
+stockTest(
+	"native edit create upserts retain only the true before/after delta",
+	async () => {
+		for (const [name, before, expected] of [
+			["missing", undefined, { added: 1, removed: 0 }],
+			["noop", "\n", undefined],
+			["overwrite", "old\nsecond\n", { added: 1, removed: 2 }],
+			["unproven", "x".repeat(1_048_577), undefined],
+		] as const) {
+			const cwd = fixtureDir(`edit-create-${name}`);
+			await mkdir(cwd, { recursive: true });
+			const path = join(cwd, ".gitkeep");
+			if (before !== undefined) await Bun.write(path, before);
+			const manager = SessionManager.create(cwd, join(cwd, "sessions"));
+			const editor = new EditTool(
+				{
+					cwd,
+					hasUI: false,
+					sessionManager: manager,
+					settings: Settings.isolated(),
+					getSessionFile: () => manager.getSessionFile() ?? null,
+					getSessionId: () => manager.getSessionId(),
+					getSessionSpawns: () => null,
+				},
+				"patch",
+			);
+			const booted = await bootWithTranscript(cwd);
+			try {
+				await beginRun(booted);
+				const args = {
+					path: ".gitkeep",
+					edits: [{ op: "create" as const, diff: "" }],
+				};
+				const call = await addTool(booted, "edit", args, `create-${name}`);
+				const result = await editor.execute(`create-${name}`, args);
+				expect(await Bun.file(path).text()).toBe("\n");
+				await finishTool(booted, call, {
+					toolCallId: `create-${name}`,
+					toolName: "edit",
+					result,
+					isError: false,
+				});
+				await finishRun(booted, "done");
+				if (expected) {
+					expect(booted.appendedEntries[0]).toMatchObject({
+						customType: "omp-compact-write",
+						data: { toolName: "edit", ...expected, exact: true },
+					});
+					expect(visibleRows(booted.transcript).join("\n")).toContain(
+						`+${expected.added}|${expected.removed}`,
+					);
+				} else {
+					expect(booted.appendedEntries).toEqual([]);
+					expect(visibleRows(booted.transcript).join("\n")).not.toContain(
+						"edit:",
+					);
+				}
+			} finally {
+				await shutdown(booted);
+				await rm(cwd, { recursive: true, force: true });
+			}
+		}
+	},
+);
+
+stockTest(
+	"native write and edit cannot publish each other's overlapping counts",
+	async () => {
+		const cwd = fixtureDir("native-write-edit-overlap");
+		await mkdir(cwd, { recursive: true });
+		const path = join(cwd, ".gitkeep");
+		await Bun.write(path, "old\n");
+		const manager = SessionManager.create(cwd, join(cwd, "sessions"));
+		const session = {
+			cwd,
+			hasUI: false,
+			sessionManager: manager,
+			settings: Settings.isolated(),
+			getSessionFile: () => manager.getSessionFile() ?? null,
+			getSessionId: () => manager.getSessionId(),
+			getSessionSpawns: () => null,
+		};
+		const writer = new WriteTool(session);
+		const editor = new EditTool(session, "patch");
+		const booted = await bootWithTranscript(cwd);
+		try {
+			await beginRun(booted);
+			const writeArgs = { path: ".gitkeep", content: "first\n" };
+			const write = await addTool(
+				booted,
+				"write",
+				writeArgs,
+				"overlapping-write",
+			);
+			const writeResult = await writer.execute("overlapping-write", writeArgs);
+			// Native write ended, but its end event/audit has not drained yet.
+			const editArgs = {
+				path: ".gitkeep",
+				edits: [{ op: "create" as const, diff: "" }],
+			};
+			const edit = await addTool(booted, "edit", editArgs, "overlapping-edit");
+			const editResult = await editor.execute("overlapping-edit", editArgs);
+			await finishTool(booted, edit, {
+				toolCallId: "overlapping-edit",
+				toolName: "edit",
+				result: editResult,
+				isError: false,
+			});
+			await finishTool(booted, write, {
+				toolCallId: "overlapping-write",
+				toolName: "write",
+				result: writeResult,
+				isError: false,
+			});
+			await finishRun(booted, "done");
+			expect(await Bun.file(path).text()).toBe("\n");
+			expect(booted.appendedEntries).toEqual([]);
+			await beginRun(booted);
+			const recovered = await addTool(
+				booted,
+				"write",
+				writeArgs,
+				"recovered-write",
+			);
+			const result = await writer.execute("recovered-write", writeArgs);
+			await finishTool(booted, recovered, {
+				toolCallId: "recovered-write",
+				toolName: "write",
+				result,
+				isError: false,
+			});
+			await finishRun(booted, "recovered");
+			expect(booted.appendedEntries[0]).toMatchObject({
+				data: {
+					toolCallId: "recovered-write",
+					added: 1,
+					removed: 1,
+					exact: true,
+				},
+			});
+		} finally {
+			await shutdown(booted);
+			await rm(cwd, { recursive: true, force: true });
+		}
+	},
+);
 
 stockTest(
 	"todo remains in the live log and disappears after the answer",

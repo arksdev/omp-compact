@@ -110,6 +110,11 @@ export interface HostTheme {
 /** Opaque stock advisor card: `createAdvisorMessageCard` returns one. */
 export interface AdvisorCardInstance extends Renderable {
 	invalidate(): void;
+	handleNativeEvent?(event: {
+		type: "toggle";
+		key: string;
+		collapsed: boolean;
+	}): unknown;
 }
 
 export interface HostModules {

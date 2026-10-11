@@ -8,11 +8,13 @@ import {
 	beginRun,
 	bootPlugin,
 	cleanupGeneratedDirs,
+	bootWithMode,
 	dispatch,
 	fakeTool,
 	finishRun,
 	finishTool,
 	rebuildHarness,
+	groupedRead,
 	shutdown,
 	stockTest,
 	toolUi,
@@ -21,6 +23,30 @@ import {
 import type { TranscriptInstance } from "./test-stock-host";
 
 afterAll(cleanupGeneratedDirs);
+
+stockTest(
+	"reusing a read ID cannot resurrect a finished native group",
+	async () => {
+		const booted = await bootWithMode("live");
+		try {
+			await beginRun(booted);
+			await groupedRead(booted, "old.ts", "reused-read");
+			await finishRun(booted, "first answer");
+			expect(visibleRows(booted.transcript).join("\n")).not.toContain("old.ts");
+			await beginRun(booted);
+			await groupedRead(booted, "new.ts", "reused-read");
+			const working = visibleRows(booted.transcript).join("\n");
+			expect(working).toContain("new.ts");
+			expect(working).not.toContain("old.ts");
+			await finishRun(booted, "second answer");
+			const finished = visibleRows(booted.transcript).join("\n");
+			expect(finished).not.toContain("old.ts");
+			expect(finished).not.toContain("new.ts");
+		} finally {
+			await shutdown(booted);
+		}
+	},
+);
 
 stockTest("shutdown restores own descriptors exactly", async () => {
 	let transcript: TranscriptInstance | undefined;

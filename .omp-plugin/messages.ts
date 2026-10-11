@@ -130,7 +130,7 @@ export function isMutationMessageDetails(
 	if (
 		details.created !== undefined &&
 		(details.created !== true ||
-			details.toolName !== "write" ||
+			(details.toolName !== "write" && details.toolName !== "edit") ||
 			details.exact !== true ||
 			details.added !== 0 ||
 			details.removed !== 0)

@@ -160,6 +160,8 @@ agent_start
 
 Local snapshot audit не выводит `exact: true` только из предположения для URI, archive, SQLite, oversized или несовпавших targets. Для `edit` каждый успешный native `perFileResults` может дать exact per-file evidence, включая multi-file operation. Если изменение нельзя честно подтвердить, плагин оставляет нейтральный/inexact status либо не удерживает строку.
 
+Native `edit` с `op: create` — это upsert, а его all-add diff не доказывает отсутствие старого файла. Плагин синхронно фиксирует bounded pre-image и сравнивает его с native `newText`: неизменённый файл не получает mutation row, overwrite учитывает удалённые строки. Неподтверждённый или pruned before/after не заменяется оценкой из all-add diff. `write` и `edit` разделяют canonical-target claims: пересекающаяся атрибуция отбрасывается, последующая непересекающаяся операция снова может дать exact evidence.
+
 Если terminal `agent_end` приходит раньше, чем `tool_execution_end` успел забрать pending write/edit/git audit-запись, lifecycle сразу abandon'ит эти pending records (terminal purge). Drain всё равно settles, чтобы adapter мог финализировать run, но `evidenceReady` остаётся `false`: для этого turn нет persisted `+N/−M` / Git evidence, и post-turn auto-shake не запускается. Completions, которые уже in flight к моменту `agent_end`, ждутся до внутреннего порога ~5s; сам порог не вынесен в настройки. Это fail-closed by design — лучше не показать stats, чем выдумать их при lag или reordering host events.
 
 Ошибка completion или сохранения write/edit/Git evidence тоже блокирует auto-shake. Lifecycle сохраняет неуспешный token через continuation-события до terminal drain, даже если ошибка завершилась до `agent_end`; drain старого run не очищает ошибки следующего. Синхронные ошибки публикации edit/Git передаются event runner, но не мешают отдельной финализации ответа. Право на shake и epoch run фиксируются сразу при `agent_end`, до ожидания drain: если за время ожидания начался следующий run или сменилась сессия, старый shake пропускается.
@@ -346,6 +348,8 @@ Menu save не записывает env overrides в JSON. Если env маск
 
 Каждый ledger сохраняет собственные `cwd` и `compactPaths` при создании. Новый run не меняет пути предыдущих строк при resize/перерисовке; newly hydrated history получает текущие restore-view настройки. Этот UI snapshot не добавляется в session journal.
 
+`toolCallId` идентифицирует вызов внутри ledger, а не всей сессии. Повтор ID в новом run не меняет старые read-группы, результаты и carriers. Replay выбирает владельца в соответствующем ledger; только последний незавершённый сегмент ветви может восстановить сохранённый active run. Неоднозначные native ID без ledger/identity/order proof остаются native.
+
 Без изменений остаются:
 
 - paths вне `cwd` и похожие prefix paths с другой segment boundary;
@@ -468,9 +472,11 @@ message renderer, а напрямую: host сам добавляет в тра�
   совпадает ни с одним кандидатом, и на остальные карточки не влияют. Отдельно от этого
   стоит бюджет: суммарный payload заметок сверх 1 МиБ даёт такой же отказ, который
   снимается следующей гидрацией.
-- **Раскрытие всегда выигрывает.** При включённом tool-output expansion обёртка отдаёт
-  native-карточку целиком: компактная строка существует только в свёрнутом состоянии, и
-  полный текст заметки всегда доступен одним переключением.
+- **Раскрытие всегда выигрывает.** Для раскрываемых advisor-карточек обёртка читает
+  native `describe().p.collapsed` на каждом кадре, поэтому локальный toggle и уже
+  раскрытая до вставки карточка сохраняют весь native body при resize. Для явно
+  non-collapsible карточек с 1–3 заметками используется известный global expansion.
+  Если раскрытие не наблюдаемо, карточка остаётся native.
 - **Ничего не мутируется.** Сообщение, `details`, сессия и контекст модели не
   переписываются: компактный вид — это только набор строк, возвращаемых `render`.
 - **Не подтверждённые карточки остаются native.** Живая карточка, добавленная до

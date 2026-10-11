@@ -296,6 +296,7 @@ export function occupiedShortcuts(): ReadonlySet<string> {
 	for (const key of DEFAULT_HOST_APP_CHORDS) keys.add(canonicalize(key));
 	for (const key of CROSS_PLATFORM_PASTE_KEYS) keys.add(key);
 	for (const key of RESERVED_SHORTCUTS) keys.add(canonicalize(key));
+	occupiedCache = keys;
 	return keys;
 }
 

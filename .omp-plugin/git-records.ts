@@ -301,7 +301,7 @@ function tokenizeCommands(source: string, depth = 0): string[][] | undefined {
 		if (character === "\\") {
 			const escaped = source[index + 1];
 			if (escaped === "\n" || escaped === "\r") {
-				if (!finishWord(index)) return undefined;
+				if (tokenStarted) appendRaw(index);
 				index += escaped === "\r" && source[index + 2] === "\n" ? 3 : 2;
 				rawStart = index;
 				continue;

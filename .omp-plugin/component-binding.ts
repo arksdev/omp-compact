@@ -47,6 +47,10 @@ import type { TurnLedger } from "./turn-ledger";
 export type BindingStatus = "bound" | "ambiguous" | "unmapped";
 
 export interface BindingDelegates {
+	/** Raw event lookup, or exact ledger-owned lookup for replay/groups. */
+	state(id: string, ledger?: TurnLedger): ToolState | undefined;
+	forgetState(state: ToolState): void;
+	rekeyState(state: ToolState, previousId: string): void;
 	/** Register a state as pending (in-flight component update). */
 	markPending(state: ToolState): void;
 	/** Unregister a pending state; true when it was pending. */
@@ -132,7 +136,8 @@ export class ComponentBinding {
 	 * ids stay out of this set so order pairing and exact-ID tool binds
 	 * treat them like any other tool. Cleared with association reset.
 	 */
-	#groupPresentationReads = new Set<string>();
+	#groupPresentationReads = new Set<ToolState>();
+	#replayStates: Map<string, ToolState | undefined> | undefined;
 	/**
 	 * Real toolCallIds announced by still-unbound tool components through
 	 * `updateResult(result, isPartial, id)` before their state existed. A
@@ -194,13 +199,36 @@ export class ComponentBinding {
 	 * ReadToolGroup). Non-groupable internal-URL reads must never be marked
 	 * — they bind through the tool-component path.
 	 */
-	markGroupPresentationRead(toolCallId: string): void {
-		this.#groupPresentationReads.add(toolCallId);
+	markGroupPresentationRead(state: ToolState): void {
+		this.#groupPresentationReads.add(state);
 	}
 
 	/** Whether a read state pairs only with ReadToolGroup components. */
-	isGroupPresentationRead(toolCallId: string): boolean {
-		return this.#groupPresentationReads.has(toolCallId);
+	isGroupPresentationRead(state: ToolState): boolean {
+		return this.#groupPresentationReads.has(state);
+	}
+
+	#observedState(
+		id: string,
+		component: object,
+		ledger?: TurnLedger,
+	): ToolState | undefined {
+		if (ledger) return this.#delegates.state(id, ledger);
+		const bound = this.#componentStates.get(component);
+		if (bound?.id === id) return bound;
+		const state = this.#replayStates
+			? this.#replayStates.get(id)
+			: this.#delegates.state(id);
+		// During native repopulation, an ID cannot distinguish a historical
+		// card from the preserved run. Wait for scoped replay or identity.
+		if (
+			!this.#replayStates &&
+			this.#preservedActive &&
+			state?.ledger.phase === "working" &&
+			state.component !== component
+		)
+			return undefined;
+		return state;
 	}
 
 	/**
@@ -230,7 +258,10 @@ export class ComponentBinding {
 	 */
 	registerUnboundComponent(component: RenderableBlock): void {
 		const preserved = this.#preservedActive?.get(component);
-		if (preserved && this.#states.get(preserved.id) === preserved) {
+		if (
+			preserved &&
+			this.#delegates.state(preserved.id, preserved.ledger) === preserved
+		) {
 			this.bind(component, preserved);
 			return;
 		}
@@ -358,9 +389,9 @@ export class ComponentBinding {
 			// eligible so they pair like ordinary tools.
 			if (
 				state.toolName === "read" &&
-				this.#groupPresentationReads.has(state.id)
+				this.#groupPresentationReads.has(state)
 			) {
-				if (!this.#observedByGroup(state.id)) orphanedReads.push(state);
+				if (!this.#observedByGroup(state)) orphanedReads.push(state);
 				continue;
 			}
 			unboundStates.push(state);
@@ -399,10 +430,14 @@ export class ComponentBinding {
 		return bound ? "bound" : "unmapped";
 	}
 
-	/** Whether any live group announced this id through the host surface. */
-	#observedByGroup(toolCallId: string): boolean {
+	/** Whether a compatible live group announced this ledger-owned state. */
+	#observedByGroup(state: ToolState): boolean {
 		for (const group of this.#groups) {
-			if (group.observedIds.has(toolCallId)) return true;
+			if (
+				group.observedIds.has(state.id) &&
+				(!group.ledger || group.ledger === state.ledger)
+			)
+				return true;
 		}
 		return false;
 	}
@@ -426,31 +461,36 @@ export class ComponentBinding {
 	 */
 	bindHydrated(allowOrder = true, restoredArmed = true): boolean {
 		if (this.#states.size === 0) return true;
-		this.#pairToolComponents(allowOrder, restoredArmed);
-		this.#pairReadGroups(allowOrder, restoredArmed);
-		// The queue drains unconditionally: components that could not be
-		// paired stay native rather than re-attempting later. Only visible
-		// surfaces that failed to pair are unresolved — hidden-prefix states
-		// (collapsed history) have no rendered component and must not make a
-		// fully paired visible presentation report unmapped.
-		const unresolvedStates = this.#unboundComponents.length > 0;
-		const unresolvedGroups = [...this.#groups].some(
-			(group) => group.ledger === undefined,
-		);
-		const mapped = !unresolvedStates && !unresolvedGroups;
-		// Drain both queues unconditionally: components and segments that
-		// could not be paired stay native. Segments not cleared would corrupt
-		// the next hydration's cardinality check.
-		if (unresolvedStates || unresolvedGroups) {
-			traceNative(
-				() =>
-					`rebuild pairing left ${String(this.#unboundComponents.length)} card(s) and ${String([...this.#groups].filter((group) => group.ledger === undefined).length)} read group(s) native`,
+		// Repeated IDs are not exact session-wide evidence. Only an unclaimed
+		// unique owner can bind without a ledger/order proof.
+		this.#replayStates = new Map();
+		for (const state of this.#states.values()) {
+			if (state.component) continue;
+			this.#replayStates.set(
+				state.id,
+				this.#replayStates.has(state.id) ? undefined : state,
 			);
 		}
-		this.#unboundComponents.length = 0;
-		this.#observedToolIds.clear();
-		this.#hydratedReadSegments.length = 0;
-		return mapped;
+		try {
+			this.#pairToolComponents(allowOrder, restoredArmed);
+			this.#pairReadGroups(allowOrder, restoredArmed);
+			const unresolvedStates = this.#unboundComponents.length > 0;
+			const unresolvedGroups = [...this.#groups].some(
+				(group) => group.ledger === undefined,
+			);
+			if (unresolvedStates || unresolvedGroups) {
+				traceNative(
+					() =>
+						`rebuild pairing left ${String(this.#unboundComponents.length)} card(s) and ${String([...this.#groups].filter((group) => group.ledger === undefined).length)} read group(s) native`,
+				);
+			}
+			return !unresolvedStates && !unresolvedGroups;
+		} finally {
+			this.#replayStates = undefined;
+			this.#unboundComponents.length = 0;
+			this.#observedToolIds.clear();
+			this.#hydratedReadSegments.length = 0;
+		}
 	}
 
 	/**
@@ -469,10 +509,7 @@ export class ComponentBinding {
 		const toolStates = [...this.#states.values()].filter(
 			(state) =>
 				!state.component &&
-				!(
-					state.toolName === "read" &&
-					this.#groupPresentationReads.has(state.id)
-				),
+				!(state.toolName === "read" && this.#groupPresentationReads.has(state)),
 		);
 		const components = [...this.#unboundComponents];
 		if (allowOrder && toolStates.length === components.length) {
@@ -523,12 +560,9 @@ export class ComponentBinding {
 		for (const component of [...this.#unboundComponents]) {
 			const id = this.#observedToolIds.get(component);
 			if (id === undefined) continue;
-			const state = this.#states.get(id);
+			const state = this.#observedState(id, component);
 			if (!state || state.component) continue;
-			if (
-				state.toolName === "read" &&
-				this.#groupPresentationReads.has(state.id)
-			)
+			if (state.toolName === "read" && this.#groupPresentationReads.has(state))
 				continue;
 			this.bind(component, state);
 		}
@@ -618,7 +652,7 @@ export class ComponentBinding {
 					// group ambiguous — it stays native.
 					let ambiguous = false;
 					for (const id of group.observedIds) {
-						const state = this.#states.get(id);
+						const state = this.#delegates.state(id, segment.ledger);
 						if (
 							state !== undefined &&
 							(state.toolName !== "read" ||
@@ -649,7 +683,7 @@ export class ComponentBinding {
 		group.ledger = segment.ledger;
 		const claimed: string[] = [];
 		for (const id of segment.stateIds) {
-			const state = this.#states.get(id);
+			const state = this.#delegates.state(id, segment.ledger);
 			if (
 				state?.toolName === "read" &&
 				state.ledger === segment.ledger &&
@@ -687,7 +721,7 @@ export class ComponentBinding {
 			let ledger: TurnLedger | undefined;
 			let complete = true;
 			for (const id of group.observedIds) {
-				const state = this.#states.get(id);
+				const state = this.#observedState(id, group.component);
 				if (
 					state?.toolName !== "read" ||
 					(state.component !== undefined &&
@@ -728,11 +762,11 @@ export class ComponentBinding {
 		let conflict = false;
 		for (const group of this.#groups) {
 			if (!group.observedIds.has(toolCallId)) continue;
-			if (state.component && state.component !== group.component) {
-				conflict = true;
+			if (group.ledger !== undefined && group.ledger !== state.ledger) {
+				if (!this.groupCompletelyMapped(group)) conflict = true;
 				continue;
 			}
-			if (group.ledger !== undefined && group.ledger !== state.ledger) {
+			if (state.component && state.component !== group.component) {
 				conflict = true;
 				continue;
 			}
@@ -779,7 +813,7 @@ export class ComponentBinding {
 				);
 				if (status !== "bound") return status;
 			} else if (id) {
-				const state = this.#states.get(id);
+				const state = this.#observedState(id, component);
 				if (state) {
 					const bindStatus = this.bind(component, state);
 					if (bindStatus !== "bound") return bindStatus;
@@ -811,12 +845,12 @@ export class ComponentBinding {
 			// reads stay on the group path exclusively.
 			const id = updateResultToolCallId(args);
 			if (id) {
-				const candidate = this.#states.get(id);
+				const candidate = this.#observedState(id, component);
 				if (
 					candidate &&
 					!(
 						candidate.toolName === "read" &&
-						this.#groupPresentationReads.has(candidate.id)
+						this.#groupPresentationReads.has(candidate)
 					)
 				) {
 					const bindStatus = this.bind(component, candidate);
@@ -885,7 +919,9 @@ export class ComponentBinding {
 				name === "updateArgs"
 					? updateArgsToolCallId(args)
 					: updateResultToolCallId(args);
-			const state = id ? this.#states.get(id) : undefined;
+			const state = id
+				? this.#observedState(id, component, group.ledger)
+				: undefined;
 			if (id !== undefined) group.observedIds.add(id);
 			// Only claim unclaimed read states to avoid corrupting an existing
 			// tool binding (e.g., a state already bound to another component).
@@ -893,13 +929,8 @@ export class ComponentBinding {
 			// surface: only typed, unclaimed read states can be claimed,
 			// otherwise this group remains native.
 			//
-			// No ledger-conflict guard here (unlike bindByObservedId): an
-			// unclaimed read has no component and therefore no competing
-			// ledger binding yet, so adopting `state.ledger` is a first claim,
-			// not a re-point. The sites are asymmetric by design — first claim
-			// vs. moving an already-bound group — not by omission.
-			// observeToolMethod's updateResult bind excludes reads entirely
-			// (`toolName !== "read"`), so unclaimed reads never arrive there.
+			// A group with a ledger resolves IDs only in that ledger. A new
+			// group may first claim an unowned state from the current run.
 			if (state?.toolName === "read" && !state.component) {
 				group.ledger = state.ledger;
 				state.component = component;
@@ -907,7 +938,7 @@ export class ComponentBinding {
 				// plugin's mirror had classified as a full card belongs to
 				// this group, so it must stop competing for tool cards in
 				// order pairing.
-				this.#groupPresentationReads.add(state.id);
+				this.#groupPresentationReads.add(state);
 			}
 		} else if (name === "renameEntry") {
 			const { oldId, newId } = renameEntryIds(args);
@@ -918,7 +949,7 @@ export class ComponentBinding {
 				group.version++;
 				return "bound";
 			}
-			const state = this.#states.get(oldId);
+			const state = this.#observedState(oldId, component, group.ledger);
 			// The native rename re-keys this group's entry oldId → newId: the
 			// group now owns the new id exclusively, so the observed set
 			// follows it unconditionally.
@@ -938,7 +969,7 @@ export class ComponentBinding {
 				// No tracked state under the old id (host-first ordering may
 				// have already created the final-id state): bind it if it is
 				// unbound — it is this group's only entry now.
-				const newState = this.#states.get(newId);
+				const newState = this.#observedState(newId, component, group.ledger);
 				if (newState && newState.toolName === "read" && !newState.component) {
 					group.ledger = newState.ledger;
 					newState.component = group.component;
@@ -950,7 +981,7 @@ export class ComponentBinding {
 			// only a missing argument skips the removal.
 			if (id !== undefined) {
 				group.observedIds.delete(id);
-				const state = this.#states.get(id);
+				const state = this.#observedState(id, component, group.ledger);
 				if (
 					state &&
 					state.toolName === "read" &&
@@ -980,7 +1011,9 @@ export class ComponentBinding {
 	mappedReadStates(group: GroupState): ToolState[] {
 		const states: ToolState[] = [];
 		for (const id of group.observedIds) {
-			const state = this.#states.get(id);
+			const state = group.ledger
+				? this.#delegates.state(id, group.ledger)
+				: undefined;
 			// Same membership as the full-map scan: typed read claimed by
 			// this group's component. Missing ids stay out (native gate).
 			if (state?.toolName !== "read" || state.component !== group.component)
@@ -1004,7 +1037,9 @@ export class ComponentBinding {
 	groupCompletelyMapped(group: GroupState): boolean {
 		if (group.observedIds.size === 0) return false;
 		for (const id of group.observedIds) {
-			const state = this.#states.get(id);
+			const state = group.ledger
+				? this.#delegates.state(id, group.ledger)
+				: undefined;
 			if (state?.toolName !== "read" || state.component !== group.component)
 				return false;
 		}
@@ -1057,7 +1092,7 @@ export class ComponentBinding {
 				if (
 					activeSet.has(state) &&
 					state.component === undefined &&
-					this.#states.get(state.id) === state &&
+					this.#delegates.state(state.id, state.ledger) === state &&
 					!preserved.has(component)
 				) {
 					preserved.set(component, state);
@@ -1110,7 +1145,7 @@ export class ComponentBinding {
 		realId: string,
 		args: unknown,
 	): BindingStatus {
-		const existing = this.#states.get(realId);
+		const existing = this.#delegates.state(realId, state.ledger);
 		if (existing && existing !== state) {
 			if (existing.component && existing.component !== state.component)
 				return "ambiguous";
@@ -1129,22 +1164,20 @@ export class ComponentBinding {
 			}
 			if (state.entry.state !== "success" && state.entry.state !== "error")
 				state.entry.state = existing.entry.state;
-			if (this.#states.get(existing.id) === existing)
-				this.#states.delete(existing.id);
+			if (this.#groupPresentationReads.has(existing))
+				this.#groupPresentationReads.add(state);
+			this.#groupPresentationReads.delete(existing);
+			this.#delegates.forgetState(existing);
 			existing.ledger.removeEntry(existing.entry);
 		}
-		if (this.#states.get(state.id) === state) this.#states.delete(state.id);
-		if (this.#groupPresentationReads.has(state.id)) {
-			this.#groupPresentationReads.delete(state.id);
-			this.#groupPresentationReads.add(realId);
-		}
+		const previousId = state.id;
 		state.id = realId;
 		state.entry.id = realId;
 		state.entry.toolCallId = realId;
 		// Migration carries the observed payload onto the real id; same
 		// retained-payload budget as every other args write.
 		state.args = isPayloadWithinBudget(args) ? args : undefined;
-		this.#states.set(realId, state);
+		this.#delegates.rekeyState(state, previousId);
 		return "bound";
 	}
 }

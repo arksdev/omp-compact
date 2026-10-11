@@ -83,7 +83,9 @@ Session-scoped state manager. Owns:
 
 **Core collections:**
 - `#ledgers: TurnLedger[]` — sequence of logical runs
-- `#states: Map<toolCallId, ToolState>` — all tool calls in session
+- `#states` — all ledger-owned calls, keyed by ledger/run plus raw tool ID
+- `#statesByLedger: WeakMap<TurnLedger, Map<string, ToolState>>` — exact owner lookup for groups, replay and migration
+- `#latestStates: Map<string, ToolState>` — latest raw-ID lookup for live events; never replaces historical ownership
 - `#pendingStates: Set<ToolState>` — in-flight subset for spinner
 - `#terminalProjections: Map<TurnLedger, TerminalProjection>` — aggregate Git hashes per finalized run
 - `#liveStatsLines`, `#hydratedStatsEvidence` — stats row placement guards
@@ -122,6 +124,8 @@ active ledger, a rebuild commit passes the preserved one. The seam back into
 session state is the `RebuildLifecycleAccess` interface, built inside
 `RuntimeSessionState` over its private fields — the class's public surface is
 unchanged by the extraction.
+
+Raw IDs may repeat between logical runs. Only the final unfinished branch segment adopts the preserved active ledger; earlier completed runs allocate independent states. Active identity and live evidence remain authoritative. Replayed results and carriers use the walk ledger, and duplicate unscoped native IDs need identity/scoped/order proof rather than claiming the latest state.
 
 ---
 
@@ -177,7 +181,7 @@ A stock read group is one native card. Compact rows are built only from
 plugin `ToolState`s that the group has claimed. `groupCompletelyMapped`
 (and the first rule of `decideReadGroupRender`) require **every** id the
 group observed through `updateArgs` / `updateResult` / `renameEntry` to
-resolve to a read state mapped to *this* group. One untracked observed id
+resolve to a read state in the group's owning ledger and mapped to *this* group. One untracked observed id
 keeps the **entire** group on the raw native renderer in every phase
 (working, filtered, full) — permanently for that incomplete observation
 set.
@@ -273,7 +277,7 @@ The per-component restore runs from one shared list, so a new patch kind cannot 
 
 The stock advisor card (`customType: "advisor"`) is rendered straight into the transcript by `modes/utils/ui-helpers.ts` — before the registered message-renderer lookup — as an opaque object literal over `details` with no readable back-reference to its message. `AdvisorNotes` therefore binds a card to its payload by proof, never by child order or header text: it reconstructs the stock renderer's visible rows (header meta, per-severity rail, badge, advisor attribution, 110-column body cap, three-note collapsed limit, hidden-count row) from bounded parsed metadata and claims a card only when the card's own stripped rows equal that layout for exactly one candidate.
 
-**Fail-open ladder (every step keeps the whole card native):** unknown chrome on the live theme → a card that renders no advisor header → a `blocker`, unknown severity or control-bearing note → unreadable metadata on a card that would still paint notes (the whole generation refuses: that card can hide the unreadable entry and repaint another proof's rows) → over-budget payload → two candidates producing identical rows (ambiguous). Wrapping is not a fail-open case: the reconstruction wraps through the host's own `wrapTextWithAnsi` with the stock first/continuation widths, so long notes keep the stock break points. `RuntimeAdapter` keeps the per-instance proof in a `WeakMap` (`#advisorBound`) with the captured native renderer (`#advisorNative`), invalidates it whenever the candidate set changes, and reads the preference, the theme and `getToolsExpanded()` live on every render; `undefined` from `getToolsExpanded` is "expansion state unknown" and stays native. Patches live in `PresentationPatches.advisor`, so rebuild detach, rollback and dispose restore the stock renderer.
+**Fail-open ladder (every step keeps the whole card native):** unknown chrome, an unproven layout, blockers/unknown severity/control text, unreadable metadata, over-budget payload, or colliding candidates. Long notes wrap through the host's own helpers. `RuntimeAdapter` caches the per-instance layout proof, invalidates it when candidates change, and reads the live theme/preference plus native `describe().p.collapsed` on every paint. A local native toggle therefore wins over global Ctrl+O. Explicitly non-collapsible 1–3-note cards use the known global expansion baseline; unobservable expansion stays native. Rebuild detach, rollback and dispose restore the original renderer.
 
 ---
 ## Decision Flow
@@ -391,17 +395,21 @@ export function completeEditMutations(
     toolCallId: string,
     result: unknown,
     _isError: boolean,
+    createEntry?: (file: Record<string, unknown>) => MutationMessageDetails | undefined,
 ): DeleteMutationEvidence[] {
     // Prefers details.perFileResults; falls back to single-path details.diff / delete.
 }
 ```
 
 **Evidence required:**
-- Native `diff` or `perFileResults` on the tool result
+- Native applied `diff` or `perFileResults` for ordinary updates/deletes
+- For `op: create`, a synchronous bounded pre-image and bounded native `newText`; the all-add diff alone proves no delta
 - Only `@@` hunk body lines counted (`+` / `-`, not file headers)
 - Per-file success tracked even for multi-file operations
 
 **Fallback:** If diff unavailable or over budget, no exact counts; deletes may still surface as count-less (`exact: false`) rows when the path is valid.
+
+`captureEditCandidates` reuses the write audit's confined regular-file snapshot reader. Native create/upsert compares real before/after text through the same budgeted delta helper: unchanged existing files disappear, overwrites include removals, and unknown/pruned snapshots produce no exact row. Structured patch targets and bounded textual edit paths share canonical claims with writes. Multi-file pre-images retain at most 4 MiB; completion, conflict, terminal purge, supersede and dispose release the retained bytes and every target claim. Native edit execution and journals remain unchanged.
 
 ---
 
@@ -472,6 +480,8 @@ ordinary diagnostics do not return on abort.
 ### Bounded Parsing (config.ts)
 
 Both synchronous shortcut startup and asynchronous config load/save open with `O_NONBLOCK` and inspect the opened descriptor. Non-regular targets and sizes above `MAX_CONFIG_BYTES` are refused before any content read. The existing exact-size snapshot helpers read at most the accepted size plus one byte and reject growth/shrink; the parser still bounds UTF-8 text, depth and the merged write record. Load is fail-open, strict save is fail-closed, and config symlink behavior is unchanged.
+
+The same descriptor reader protects host YAML pre-images before host setters/flush. Only `ENOENT` falls through to the next YAML filename. Config version diagnostics never coerce untrusted values. Monotonic snapshot publication prevents an older load from replacing a newer reload or committed save.
 
 ```typescript
 type BoundedParseResult =

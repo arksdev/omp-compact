@@ -1,15 +1,14 @@
-import type { MutationCandidate, WriteTargetObserver } from "./audit";
+import type {
+	AuditCaptureInput,
+	MutationCandidate,
+	WriteTargetObserver,
+} from "./audit";
 import type { MutationMessageDetails } from "./messages";
 import { defaultWarn } from "./warn-sink";
 
 export interface AuditLifecycleOptions {
 	capture(
-		input: {
-			toolCallId: string;
-			args: unknown;
-			cwd: string;
-			root?: string;
-		},
+		input: AuditCaptureInput,
 		acceptTarget?: WriteTargetObserver,
 	): Promise<MutationCandidate | undefined>;
 	complete(
@@ -56,14 +55,6 @@ export type AuditFailureClass =
 	| "completion-failed"
 	| "barrier-drop"
 	| "chain-failed";
-
-export interface WriteStartInput {
-	toolCallId: string;
-	args: unknown;
-	cwd: string;
-	/** Optional confinement root; defaults to cwd inside capture. */
-	root?: string;
-}
 
 export interface WriteEndInput {
 	toolCallId: string;
@@ -118,7 +109,8 @@ interface AuditRecord extends AuditRunToken {
 	/** A terminal drain owns this token; later failures need no tombstone. */
 	terminal: boolean;
 	/** Claimed until the native call and its audit have both settled. */
-	target?: string;
+	targets?: Set<string>;
+	release?: () => void;
 }
 
 interface ResolvedOptions {
@@ -153,6 +145,9 @@ function releaseCandidatePreImage(
  * the diff). Attaching here would race with those `before` reads.
  */
 function releaseRecordPreImage(record: AuditRecord): void {
+	const release = record.release;
+	record.release = undefined;
+	release?.();
 	if (!record.capture || record.completion) return;
 	void record.capture.then(releaseCandidatePreImage, () => undefined);
 }
@@ -234,7 +229,7 @@ export class AuditLifecycle {
 	 * capture in the background. Must be called before the first await of the
 	 * `tool_execution_start` handler.
 	 */
-	startWrite(input: WriteStartInput, payload?: unknown): void {
+	startWrite(input: AuditCaptureInput, payload?: unknown): void {
 		const record = this.#register(input.toolCallId, { payload });
 		record.capture = this.#options
 			.capture(input, (target) => this.#claimTarget(record, target))
@@ -251,8 +246,16 @@ export class AuditLifecycle {
 	 * Synchronously registers a synchronous edit/Git record. The
 	 * payload is handed back to the completion work at `tool_execution_end`.
 	 */
-	startSync(toolCallId: string, payload?: unknown): void {
-		this.#register(toolCallId, { payload });
+	startSync(
+		toolCallId: string,
+		payload?: unknown,
+		resources?: { targets: ReadonlySet<string>; release(): void },
+	): void {
+		const record = this.#register(toolCallId, { payload });
+		record.release = resources?.release;
+		if (resources)
+			for (const target of resources.targets)
+				this.#claimTarget(record, target, true);
 	}
 
 	/**
@@ -316,6 +319,7 @@ export class AuditLifecycle {
 		if (!record || record.capture !== undefined) return;
 		this.#pending.delete(toolCallId);
 		this.#trackCompletion(record, Promise.resolve());
+		this.#releaseTarget(record);
 		if (record.abandoned) return;
 		try {
 			work(record.payload);
@@ -326,6 +330,8 @@ export class AuditLifecycle {
 				"omp-compact: sync audit completion-failed (evidence dropped)",
 			);
 			throw error;
+		} finally {
+			releaseRecordPreImage(record);
 		}
 	}
 
@@ -580,9 +586,14 @@ export class AuditLifecycle {
 		return record;
 	}
 
-	#claimTarget(record: AuditRecord, target: string): boolean {
-		if (record.abandoned) return false;
-		record.target = target;
+	#claimTarget(
+		record: AuditRecord,
+		target: string,
+		declareAll = false,
+	): boolean {
+		if (record.abandoned && !declareAll) return false;
+		record.targets ??= new Set();
+		record.targets.add(target);
 		let claims = this.#targets.get(target);
 		if (claims?.size) {
 			for (const prior of claims) {
@@ -599,16 +610,19 @@ export class AuditLifecycle {
 	}
 
 	#releaseTarget(record: AuditRecord): void {
-		if (record.target === undefined) return;
-		const claims = this.#targets.get(record.target);
-		claims?.delete(record);
-		if (claims?.size === 0) this.#targets.delete(record.target);
-		record.target = undefined;
+		if (!record.targets) return;
+		for (const target of record.targets) {
+			const claims = this.#targets.get(target);
+			claims?.delete(record);
+			if (claims?.size === 0) this.#targets.delete(target);
+		}
+		record.targets = undefined;
 	}
 
 	#failCompletion(record: AuditRecord): void {
 		if (record.abandoned) return;
 		record.abandoned = true;
+		releaseRecordPreImage(record);
 		// Only an unended native call must keep its claim after abandonment.
 		if (record.completion) this.#releaseTarget(record);
 		if (!record.terminal) this.#failedRecords.add(record);

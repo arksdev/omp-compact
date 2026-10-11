@@ -2476,15 +2476,6 @@ describe("RuntimeSessionState: hydration bounds (F01)", () => {
 		expect(
 			isMutationMessageDetails({
 				...base,
-				toolName: "edit",
-				added: 0,
-				removed: 0,
-				created: true,
-			}),
-		).toBe(false);
-		expect(
-			isMutationMessageDetails({
-				...base,
 				sourceEntryId: "s".repeat(MAX_TOOL_CALL_ID_LENGTH),
 			}),
 		).toBe(true);
@@ -3143,4 +3134,168 @@ describe("RuntimeSessionState: settle-time frame clock", () => {
 		// historical segment owns no spinner.
 		expect(pendingStates(session)).toEqual([]);
 	});
+});
+
+test("replay keeps repeated tool IDs in their own completed ledgers", () => {
+	const session = makeSession();
+	const branch = ["old.ts", "new.ts"].flatMap((path) => [
+		{ type: "message", message: { role: "user", content: [] } },
+		{
+			type: "message",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "toolCall", id: "reused", name: "read", arguments: { path } },
+				],
+			},
+		},
+		{
+			type: "message",
+			message: {
+				role: "toolResult",
+				toolCallId: "reused",
+				content: [{ type: "text", text: path }],
+				isError: false,
+			},
+		},
+		{ type: "message", message: assistant(`answer for ${path}`) },
+	]);
+	expect(session.hydrateBranch(branch)).toBe(true);
+	const old = session
+		.allStates()
+		.find(
+			(state) =>
+				state.args &&
+				typeof state.args === "object" &&
+				"path" in state.args &&
+				state.args.path === "old.ts",
+		);
+	const current = session.state("reused");
+	expect(old?.result).toMatchObject({ content: [{ text: "old.ts" }] });
+	expect(current?.result).toMatchObject({ content: [{ text: "new.ts" }] });
+	expect(old?.ledger).not.toBe(current?.ledger);
+	expect(old?.ledger.phase).toBe("filtered");
+	expect(current?.ledger.phase).toBe("filtered");
+});
+
+test("mixed rebuild keeps old reused IDs separate from active evidence", () => {
+	for (const withUser of [true, false]) {
+		const session = makeSession();
+		session.beginRun();
+		const active = mustStart(session, {
+			toolCallId: "reused",
+			toolName: "read",
+			args: { path: "live.ts" },
+		});
+		active.result = { content: ["partial live result"] };
+		const snapshot = session.beginRebuild();
+		session.commitRebuild(snapshot, {
+			branchEntries: [
+				{ type: "message", message: { role: "user", content: [] } },
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "reused",
+								name: "read",
+								arguments: { path: "old.ts" },
+							},
+						],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						toolCallId: "reused",
+						content: ["old result"],
+						isError: false,
+					},
+				},
+				{ type: "message", message: assistant("old answer") },
+				...(withUser
+					? [{ type: "message", message: { role: "user", content: [] } }]
+					: []),
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: "reused",
+								name: "read",
+								arguments: { path: "stale-live.ts" },
+							},
+						],
+					},
+				},
+				{
+					type: "message",
+					message: {
+						role: "toolResult",
+						toolCallId: "reused",
+						content: ["stale live result"],
+						isError: false,
+					},
+				},
+			],
+		});
+		expect(session.state("reused")).toBe(active);
+		expect(active.args).toEqual({ path: "live.ts" });
+		expect(active.result).toEqual({ content: ["partial live result"] });
+		expect(active.isPartial).toBe(true);
+		expect(
+			session
+				.allStates()
+				.filter((state) => state.ledger !== active.ledger)
+				.map((state) => state.args),
+		).toEqual([{ path: "old.ts" }]);
+		const old = session
+			.allStates()
+			.find((state) => state.ledger !== active.ledger);
+		expect(old?.args).toEqual({ path: "old.ts" });
+		expect(old?.result).toMatchObject({ content: ["old result"] });
+		expect(old?.ledger.phase).toBe("filtered");
+	}
+});
+
+test("provisional migration cannot borrow a completed run's reused ID", () => {
+	const session = makeSession();
+	session.beginRun();
+	const old = mustStart(session, {
+		toolCallId: "reused",
+		toolName: "bash",
+		args: { command: "old" },
+	});
+	session.finishTool({
+		toolCallId: "reused",
+		toolName: "bash",
+		result: { content: ["old result"] },
+		isError: true,
+	});
+	session.finishFull();
+	session.beginRun();
+	const current = mustStart(session, {
+		toolCallId: "",
+		toolName: "bash",
+		args: { command: "current" },
+	});
+	const component = new FakeToolComponent();
+	session.binding.bind(component, current);
+	expect(
+		session.binding.observeToolMethod(component, "updateArgs", [
+			{ command: "current" },
+			"reused",
+		]),
+	).toBe("bound");
+	expect(session.state("reused")).toBe(current);
+	expect(session.state("reused", old.ledger)).toBe(old);
+	expect(current.result).toBeUndefined();
+	expect(current.isError).toBe(false);
+	expect(old.result).toEqual({ content: ["old result"] });
+	expect(old.entry.state).toBe("error");
 });

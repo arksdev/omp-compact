@@ -20,13 +20,19 @@ import {
 	lineCount,
 	trimmedMiddleLines,
 } from "./audit-diff";
+import { editPathsFromInput } from "./compact";
 
 import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
 import type { MutationMessageDetails } from "./messages";
 import { objectRecord } from "./object-record";
 import { isPathInsideRoot } from "./path-inside-root";
 
-import { MAX_DELETE_LINES, MAX_DIFF_BYTES } from "./audit-diff";
+import {
+	MAX_DELETE_LINES,
+	MAX_DIFF_BYTES,
+	MAX_PER_FILE_RESULTS,
+	MAX_TOTAL_SCAN_BYTES,
+} from "./audit-diff";
 export {
 	completeEditMutations,
 	DIFF_MAX_REMAINING_LINES,
@@ -47,7 +53,7 @@ const SNAPSHOT_OPEN_FLAGS =
 
 export interface MutationCandidate {
 	toolCallId: string;
-	toolName: "write";
+	toolName: "write" | "edit";
 	displayPath: string;
 	absolutePath: string;
 	canonicalPath: string;
@@ -304,33 +310,46 @@ function boundedTextSync(path: string): string | undefined {
 	}
 }
 
+export interface AuditCaptureInput {
+	toolCallId: string;
+	args: unknown;
+	cwd: string;
+	root?: string;
+}
+
 export async function captureWriteCandidate(
-	input: {
-		toolCallId: string;
-		args: unknown;
-		cwd: string;
-		/**
-		 * Confinement root for overwrite pre-image reads. Defaults to `cwd`.
-		 * Injectable so tests can state the root explicitly instead of depending
-		 * on `process.cwd()` (fixtures live under OS temp, outside the project).
-		 * Production passes the live session cwd from `resolveSessionCwd`.
-		 */
-		root?: string;
-	},
+	input: AuditCaptureInput,
 	acceptTarget?: WriteTargetObserver,
 ): Promise<MutationCandidate | undefined> {
 	const args = objectRecord(input.args);
 	if (typeof args.path !== "string" || typeof args.content !== "string")
 		return undefined;
-	// Internal-URL targets (with or without a read selector) keep their scheme
-	// and are rejected by URI_SCHEME below; the host never peels selectors
-	// from plain paths, so no selector peeling is needed here.
-	const displayPath = unwrapHashlineHeaderPath(args.path);
+	const candidate = captureFileCandidate(
+		input,
+		args.path,
+		"write",
+		true,
+		acceptTarget,
+	);
+	// Keep the existing asynchronous capture boundary after the synchronous
+	// pre-image; native completion must follow the start handler's return.
+	if (candidate) await canonicalPath(candidate.absolutePath);
+	return candidate;
+}
+
+function captureFileCandidate(
+	input: AuditCaptureInput,
+	path: string,
+	toolName: "write" | "edit",
+	readBefore: boolean,
+	acceptTarget?: WriteTargetObserver,
+): MutationCandidate | undefined {
+	const displayPath = unwrapHashlineHeaderPath(path);
 	if (
 		!displayPath ||
 		URI_SCHEME.test(displayPath) ||
 		COMPOUND_FILE_TARGET.test(displayPath) ||
-		args.path.includes(":conflicts")
+		path.includes(":conflicts")
 	) {
 		return undefined;
 	}
@@ -405,6 +424,7 @@ export async function captureWriteCandidate(
 				// concurrent re-point of the link (or any later hop) could
 				// exfiltrate an outside secret into the pre-image. Opening the
 				// destination itself refuses a swap-to-symlink at that path.
+				if (!readBefore) return undefined;
 				const text = boundedTextSync(destination);
 				if (text === undefined) return undefined;
 				before = text;
@@ -422,6 +442,7 @@ export async function captureWriteCandidate(
 			if (acceptTarget?.(pathCanonical) === false) return undefined;
 			const rootCanonical = canonicalPathSync(rootPath);
 			if (!isPathInsideRoot(pathCanonical, rootCanonical)) return undefined;
+			if (!readBefore) return undefined;
 			const text = boundedTextSync(absolutePath);
 			if (text === undefined) return undefined;
 			before = text;
@@ -439,16 +460,10 @@ export async function captureWriteCandidate(
 		snapshotCanonical = canonicalPathSync(absolutePath);
 		if (acceptTarget?.(snapshotCanonical) === false) return undefined;
 	}
-	// Pre-image is fixed. The trailing await keeps the capture promise
-	// pending across the start handler's return so a fire-and-forget
-	// tool_execution_end cannot run the post-image read before the native
-	// write lands (integration race tests: settle start → writeFileSync →
-	// settle end). Identity stays the snapshot-time value (destination for
-	// symlinks); the await is only a happens-before yield, matching HEAD.
-	await canonicalPath(absolutePath);
+	if (!readBefore) return undefined;
 	return {
 		toolCallId: input.toolCallId,
-		toolName: "write",
+		toolName,
 		displayPath,
 		absolutePath,
 		canonicalPath: snapshotCanonical,
@@ -499,50 +514,8 @@ export async function completeWriteCandidate(
 			return [];
 		const after = await boundedText(effectiveResult);
 		if (after === undefined) return [];
-		// Equal bytes are a no-op only for an already-existing target.
-		if (!candidate.created && after === candidate.before) return [];
-		const middle = trimmedMiddleLines(candidate.before, after);
-		if (
-			!candidate.created &&
-			middle.beforeLines === 0 &&
-			middle.afterLines === 0
-		)
-			return [];
-		// Diff complexity budget: the native Myers-style diff is quadratic
-		// in its *remaining* tokens after it strips common leading/trailing
-		// line tokens internally (jsdiff-compatible). Budgeting on
-		// `trimmedMiddleLines` is therefore sound even though
-		// `exactLineChanges` still hands the full before/after texts to
-		// `diffLines` — the native call pays for the middle, not the file.
-		// Verified 2026-08-19 against `@oh-my-pi/pi-natives@17.3.1`
-		// (`pi_natives.darwin-arm64`): same-size pairs with one mid-file
-		// edit stay ~O(scan) (N=10k → ~1.4 ms) while all-different pairs
-		// are quadratic (N=10k → ~18 s). The d.ts only documents jsdiff
-		// semantics, not the affix strip; the timing is the ground truth.
-		// A wholly added/removed middle already counts exactly here, so
-		// those never need the native diff at all.
-		const canCountWithoutDiff =
-			middle.beforeLines === 0 || middle.afterLines === 0;
-		if (
-			!canCountWithoutDiff &&
-			middle.beforeLines + middle.afterLines > DIFF_MAX_REMAINING_LINES
-		)
-			return [];
-		const { added, removed } = canCountWithoutDiff
-			? { added: middle.afterLines, removed: middle.beforeLines }
-			: exactLineChanges(candidate.before, after);
-		if (!candidate.created && added === 0 && removed === 0) return [];
-		const entry: MutationMessageDetails = {
-			version: 1,
-			toolCallId: candidate.toolCallId,
-			toolName: "write",
-			path: candidate.displayPath,
-			added,
-			removed,
-			exact: true,
-		};
-		if (candidate.created && added === 0 && removed === 0) entry.created = true;
-		return [entry];
+		const entry = completeTextCandidate(candidate, after);
+		return entry ? [entry] : [];
 	} finally {
 		// Drop the pre-image once the exact diff path has finished (success,
 		// early bail, or throw). Consumers of `before` are only the equality
@@ -550,4 +523,134 @@ export async function completeWriteCandidate(
 		// up to SNAPSHOT_MAX_BYTES resident for the session is unnecessary.
 		candidate.before = "";
 	}
+}
+
+/** Shared exact before/after comparison after both snapshots are bounded. */
+function completeTextCandidate(
+	candidate: MutationCandidate,
+	after: string,
+): MutationMessageDetails | undefined {
+	if (!candidate.created && after === candidate.before) return undefined;
+	const middle = trimmedMiddleLines(candidate.before, after);
+	if (!candidate.created && middle.beforeLines === 0 && middle.afterLines === 0)
+		return undefined;
+	// Budget the changed middle before native Myers diff (quadratic there).
+	const canCountWithoutDiff =
+		middle.beforeLines === 0 || middle.afterLines === 0;
+	if (
+		!canCountWithoutDiff &&
+		middle.beforeLines + middle.afterLines > DIFF_MAX_REMAINING_LINES
+	)
+		return undefined;
+	const { added, removed } = canCountWithoutDiff
+		? { added: middle.afterLines, removed: middle.beforeLines }
+		: exactLineChanges(candidate.before, after);
+	if (!candidate.created && added === 0 && removed === 0) return undefined;
+	const entry: MutationMessageDetails = {
+		version: 1,
+		toolCallId: candidate.toolCallId,
+		toolName: candidate.toolName,
+		path: candidate.displayPath,
+		added,
+		removed,
+		exact: true,
+	};
+	if (candidate.created && added === 0 && removed === 0) entry.created = true;
+	return entry;
+}
+
+export interface EditCapture {
+	readonly cwd: string;
+	readonly candidates: Map<string, MutationCandidate>;
+	readonly targets: Set<string>;
+}
+
+/** Capture native create/upsert before-images without changing edit execution. */
+export function captureEditCandidates(input: AuditCaptureInput): EditCapture {
+	const args = objectRecord(input.args);
+	const paths =
+		typeof args.path === "string"
+			? [args.path]
+			: typeof args.input === "string"
+				? editPathsFromInput(args.input)
+				: [];
+	let readBefore = typeof args.input === "string";
+	if (Array.isArray(args.edits)) {
+		for (
+			let index = 0;
+			index < Math.min(args.edits.length, MAX_PER_FILE_RESULTS);
+			index++
+		) {
+			if (objectRecord(args.edits[index]).op === "create") {
+				readBefore = true;
+				break;
+			}
+		}
+	}
+	const capture: EditCapture = {
+		cwd: input.cwd,
+		candidates: new Map(),
+		targets: new Set(),
+	};
+	let retainedBytes = 0;
+	for (const path of paths) {
+		const candidate = captureFileCandidate(
+			input,
+			path,
+			"edit",
+			readBefore,
+			(target) => {
+				if (capture.targets.has(target)) {
+					capture.candidates.delete(target);
+					return false;
+				}
+				capture.targets.add(target);
+				return retainedBytes < MAX_TOTAL_SCAN_BYTES;
+			},
+		);
+		if (!candidate) continue;
+		const bytes = Buffer.byteLength(candidate.before, "utf8");
+		if (retainedBytes + bytes > MAX_TOTAL_SCAN_BYTES) {
+			candidate.before = "";
+			continue;
+		}
+		retainedBytes += bytes;
+		capture.candidates.set(candidate.canonicalPath, candidate);
+	}
+	return capture;
+}
+
+export function releaseEditCandidates(capture: EditCapture): void {
+	for (const candidate of capture.candidates.values()) candidate.before = "";
+	capture.candidates.clear();
+}
+
+/** Native create diffs omit the pre-image; only a captured before is exact. */
+export function completeEditCreateCandidate(
+	capture: EditCapture,
+	file: Record<string, unknown>,
+): MutationMessageDetails | undefined {
+	if (
+		typeof file.path !== "string" ||
+		!file.path ||
+		file.path.length > MAX_EVIDENCE_PATH_LENGTH ||
+		typeof file.newText !== "string" ||
+		file.snapshotsPruned
+	)
+		return undefined;
+	const target = canonicalPathSync(resolve(capture.cwd, file.path));
+	const candidate = capture.candidates.get(target);
+	if (
+		!candidate ||
+		canonicalPathSync(candidate.absolutePath) !== candidate.canonicalPath
+	)
+		return undefined;
+	const after = file.newText;
+	if (
+		after.length > SNAPSHOT_MAX_BYTES ||
+		Buffer.byteLength(after, "utf8") > SNAPSHOT_MAX_BYTES ||
+		lineCount(after) > SNAPSHOT_MAX_LINES
+	)
+		return undefined;
+	return completeTextCandidate(candidate, after);
 }

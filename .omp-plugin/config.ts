@@ -114,7 +114,10 @@ function readConfigSync(path: string): string {
 }
 
 /** Bounded UTF-8 settings text shared by JSON config and host YAML. */
-export async function readSettingsText(path: string, encoding: "utf8"): Promise<string> {
+export async function readSettingsText(
+	path: string,
+	encoding: "utf8",
+): Promise<string> {
 	const handle = await open(path, CONFIG_OPEN_FLAGS);
 	try {
 		const size = configReadSize(await handle.stat());

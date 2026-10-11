@@ -6,6 +6,14 @@ import {
 	listValue,
 	stringValue,
 } from "../../.omp-plugin/compact";
+import { describeHub } from "../../.omp-plugin/tool-rule-describers";
+
+test("unknown HUB operations never inherit launch classification", () => {
+	for (const op of ["constructor", "toString", "__proto__"]) {
+		expect(describeHub({ op, name: "sample" }).title).toBe("hub");
+	}
+	expect(describeHub({ op: "start", name: "sample" }).title).toBe("launch");
+});
 
 describe("editPathsFromInput", () => {
 	test("extracts bounded hashline edit targets", () => {

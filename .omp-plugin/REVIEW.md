@@ -16,6 +16,8 @@
 
 **Пятый пакет, 2026-10-11:** оба P3 воспроизведены и исправлены. Writer-less FIFO больше не блокирует синхронную регистрацию shortcut или async load/save; oversized/non-regular config проверяется по открытому descriptor до чтения и не заменяется при сохранении. Проверены 256 MiB sparse file и UTF-8 граница 65 536/65 537 bytes. Mutation rendering возвращает строки по ширине: когда head и counts не помещаются вместе, counts переносятся отдельно. Native `TranscriptContainer` и финальный truncator сохранили все цифры на ширинах 1/5/10/14/20/40/80/120. Все замечания первого ревью закрыты; отдельный полный второй цикл проводится ниже по текущему коду, без сабагентов.
 
+**Итог двух циклов, 2026-10-11:** закрыты все 14 замечаний первого и все 10 новых находок второго ревью. Оба полных прохода выполнены основным агентом без сабагентов. На итоговом коде `bun run check` прошёл typecheck, lint, format-check и **1706 тестов / 0 ошибок / 9379 expect-вызовов / 72 файла**. Native/platform проверки перечислены в итоговой верификации ниже; незакрытых находок нет.
+
 **Гейт после полного первого цикла:** `bun run check` — typecheck, lint и format успешно; **1694 passing tests, 0 failures, 72 files**. Все 14 замечаний (2 P1, 10 P2, 2 P3) закрыты с before/after regression и native/platform smoke evidence.
 
 ## P1 — высокий приоритет
@@ -168,18 +170,31 @@ Decision table разрешает итоговую Git-сводку для `clea
 
 | Находка | Приоритет | Подтверждение до исправления | Статус |
 |---|---|---|---|
-| R2.1 — unsafe coercion config version | P2 | JSON version с `toString: null` / `valueOf: null` вызывает TypeError вместо default load / ConfigUpdateError | Открыто |
-| R2.2 — поздний load откатывает snapshot | P2 | После save compact память снова live; следующий запрос save live не меняет compact на диске | Открыто |
-| R2.3 — host YAML FIFO | P2 | Real FIFO: `exists=true`, `size=Infinity`, pre-image reader остановлен watchdog через 3 s | Открыто |
-| R2.4 — raw tool ID не является session-wide identity | P2 | Новый run с тем же ID возвращает native `Read old.ts` перед старым ответом; replay также смешивает владельцев разных ledgers | Открыто |
-| R2.5 — advisor per-card override игнорируется | P2 | Native toggle даёт `describe().p.collapsed=false`, но compact rows всё ещё скрывают четвёртый note и detail | Открыто |
-| R2.6 — escaped newline разрывает shell word | P2 | Реальный `git co\` + LF + `mmit` создаёт commit, scanner читает subcommand `co` и теряет hash summary | Открыто |
-| R2.7 — native create/upsert не доказывает delta | P2 | Native patch create поверх неизменённого файла сообщает `+1|0`; overwrite не учитывает удалённую старую строку | Открыто |
-| R2.8 — HUB operation наследует prototype keys | P3 | `constructor`, `toString`, `__proto__` отображаются как launch, хотя это неизвестные операции | Открыто |
-| R2.9 — occupied shortcuts cache не заполняется | P3 | Повторное построение default keyset; 3000 вызовов в smoke — 119 ms | Открыто |
-| R2.10 — prefix копирует весь input | P3 | `Array.from` для 200 000 emoji ради 160-point prefix; 100 вызовов в smoke — 1732 ms | Открыто |
+| R2.1 — unsafe coercion config version | P2 | JSON version с `toString: null` / `valueOf: null` вызывает TypeError вместо default load / ConfigUpdateError | Закрыто: non-coercing warning; load defaults и strict save сохраняют источник |
+| R2.2 — поздний load откатывает snapshot | P2 | После save compact память снова live; следующий запрос save live не меняет compact на диске | Закрыто: monotonic publication; старый read не заменяет более новый reload/save |
+| R2.3 — host YAML FIFO | P2 | Real FIFO: `exists=true`, `size=Infinity`, pre-image reader остановлен watchdog через 3 s | Закрыто: bounded descriptor reader, fail-closed до set/flush; только ENOENT допускает fallback |
+| R2.4 — raw tool ID не является session-wide identity | P2 | Новый run с тем же ID возвращает native `Read old.ts` перед старым ответом; replay также смешивает владельцев разных ledgers | Закрыто: scoped owner index, scoped results/carriers/groups/migration; active identity сохранена, в том числе без нового user entry |
+| R2.5 — advisor per-card override игнорируется | P2 | Native toggle даёт `describe().p.collapsed=false`, но compact rows всё ещё скрывают четвёртый note и detail | Закрыто: semantic native collapse читается live; initial/local expansion и resize сохраняют полный body |
+| R2.6 — escaped newline разрывает shell word | P2 | Реальный `git co\` + LF + `mmit` создаёт commit, scanner читает subcommand `co` и теряет hash summary | Закрыто: continuation не завершает токен; настоящий commit/hash сохраняется |
+| R2.7 — native create/upsert не доказывает delta | P2 | Native patch create поверх неизменённого файла сообщает `+1\|0`; overwrite не учитывает удалённую старую строку | Закрыто: bounded before + native newText, общий budgeted delta; no-op исчезает, overwrite +1\|2, unknown before без exact row; write/edit contention и recovery проверены |
+| R2.8 — HUB operation наследует prototype keys | P3 | `constructor`, `toString`, `__proto__` отображаются как launch, хотя это неизвестные операции | Закрыто: own-key membership; неизвестные операции отображаются как hub |
+| R2.9 — occupied shortcuts cache не заполняется | P3 | Повторное построение default keyset; 3000 вызовов в smoke — 119 ms | Закрыто: существующий cache заполнен; тот же тёплый smoke ≈1 ms |
+| R2.10 — prefix копирует весь input | P3 | `Array.from` для 200 000 emoji ради 160-point prefix; 100 вызовов в smoke — 1732 ms | Закрыто: bounded UTF-16 walk без whole-input array; Unicode/slice semantics сохранены; тот же smoke <1 ms |
 
 Проверенные гипотезы, **не ставшие новыми находками**: поздний native end освобождает claim и следующая запись восстанавливается; final-file symlink overlap уже отвергает оба audit и запрещает shake; 12 native write-сценариев фиксируют правильный pre-image. Capture без доказанной строки остаётся отличен от сбоя публикации, как зафиксировано в текущем контракте. Session-wide failure latch не добавляется: сохраняется принятая per-run recovery semantics.
 
-**План исправления:** failing consumer regressions → минимальные изменения в существующих механизмах → passing regressions и native/platform smoke → полный гейт, обновление статусов и коммиты. Native tool execution, journal entries/parent IDs и model messages не изменяются.
+**Исполнение:** подтверждённые consumer-регрессии воспроизведены до исправления, затем прошли после минимальных изменений существующих механизмов. Для performance-only изменений сохранены Unicode/collision проверки и before/after smoke без timing assertions в постоянных тестах. Native tool execution, journal entries/parent IDs и model messages не изменяются.
+
+### Итоговая верификация второго цикла
+
+- **Общий гейт:** `bun run check`, Bun 1.3.14 / OMP 18.8.9: typecheck, lint и format-check прошли; 1706 pass, 0 fail, 9379 expect-вызовов, 72 файла, тестовая фаза 8.70 s. Предупреждения integration-boot-degrade — ожидаемый сценарий отсутствующих optional host capabilities.
+- **Config/host YAML:** object-valued version возвращает defaults и ConfigUpdateError без замены источника; delayed load не откатывает commit/reload; настоящий writer-less FIFO не блокирует чтение и не вызывает host set/flush или fallback поверх unreadable `.yml`.
+- **Native transcript ownership:** actual TranscriptContainer/ReadToolGroup сохраняет old.ts скрытым после нового run с тем же ID; новый read исчезает после своего terminal drain. Pure replay, mixed rebuild и provisional migration не заимствуют результаты другого ledger; active tail не дублируется при отсутствии нового user entry.
+- **Native disclosure:** actual advisor, раскрытый до вставки или локальным handleNativeEvent при global false, сохраняет четвёртую заметку и detail на 120/80 columns; collapse возвращает compact rows. Неизвестная metadata остаётся native.
+- **Настоящий Git:** escaped newline внутри commit subcommand выполнен во временном репозитории; сохранённый summary содержит фактический HEAD hash. Ограничения success-gated grammar и quiet HEAD-log proof не ослаблены.
+- **Native EditTool/WriteTool:** patch create даёт реальный +1\|0 при missing target, никакой mutation при unchanged LF и +1\|2 при overwrite. Oversized/unproven before не даёт exact row. Apply-patch multi-file create сохраняет оба delta. Пустой native create действительно создаёт LF и даёт +1\|0 — неподдерживаемое zero-byte поведение не приписывается инструменту.
+- **Overlap/recovery:** readonly edit target claim отклоняет неоднозначные write/edit counts и запрещает shake затронутого run; после завершения конфликтующих операций настоящая запись снова даёт +1\|1 и ready gate. Все claims и retained pre-images освобождаются существующим lifecycle.
+- **Горячие пути:** actual occupied keys/collision validation и Unicode prefix проверены отдельно; большие строки, surrogate pairs/lone surrogates, отрицательные/дробные пределы, Infinity/NaN сохраняют прежние slice semantics. Приведённые времена — локальные smoke-замеры, не SLA и не flaky test thresholds.
+
+Обновлены CHANGELOG, configuration/full/architecture contracts и решения в `context/`. Новых зависимостей и сабагентов нет. Возможная неоднозначность native surface по-прежнему приводит к native fallback, а не к догадке о владельце.
 

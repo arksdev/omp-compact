@@ -25,6 +25,12 @@
 - Отменённый session switch больше не разбирает текущий transcript и audit. Teardown выполняется после подтверждённого перехода; pending shake отменяется уже на proposal, а старое write-evidence не попадает в заменённый session journal.
 - Config проверяется до чтения содержимого: oversized и non-regular files не блокируют startup/load/save и не заменяются при сохранении. Для допустимого файла чтение ограничено размером плюс один байт.
 - В очень узком терминале mutation-counts больше не обрезаются справа: когда title и stats не помещаются вместе, полные счётчики переносятся на отдельные строки, включая legacy carriers.
+- Некорректный object-valued config version больше не вызывает coercion error; запоздалый load не откатывает более новый settings snapshot. Host YAML pre-image ограничен до чтения и отклоняет FIFO/non-regular без сохранения поверх них.
+- Повторный tool ID принадлежит своему ledger: старые read-группы не возвращаются в native-виде, а replay и provisional migration не заимствуют чужие результаты и счётчики.
+- Локальное native раскрытие advisor и начальный per-card override сохраняют полный текст независимо от global Ctrl+O; resize не возвращает компактное представление раскрытой карточки.
+- Shell continuation внутри слова больше не разрывает Git subcommand и сохраняет подтверждённый commit/hash.
+- Native edit create/upsert использует реальный before/after delta вместо all-add diff: no-op исчезает, overwrite учитывает удалённые строки, непроверенный before не даёт exact counts. Write/edit contention использует общий lifecycle guard.
+- HUB больше не принимает prototype keys за launch operations. Default shortcut keyset кэшируется, а короткий Unicode prefix не копирует весь большой input.
 
 ---
 
@@ -47,6 +53,12 @@
 - A vetoed session switch no longer tears down the current transcript or audit. Teardown waits for commit, pending shake is cancelled at proposal, and old write evidence cannot publish into a replaced session journal.
 - Config is checked before content reads: oversized and non-regular files cannot block startup/load/save or be replaced by a save. Accepted reads are bounded to the file size plus one byte.
 - Very narrow terminals no longer truncate mutation counts on the right. When title and stats do not fit together, complete counts move to their own wrapped rows, including legacy carriers.
+- Invalid object-valued config versions no longer trigger coercion errors, and delayed loads cannot roll back newer settings snapshots. Host YAML pre-images reject oversized and non-regular files before reading content or changing settings.
+- Reused tool IDs remain ledger-owned: old read groups do not reappear natively, and replay/provisional migration cannot borrow another run's results or counts.
+- Local native advisor expansion and initial per-card overrides preserve the full body independently of global Ctrl+O, including resize.
+- Shell continuations within words no longer split Git subcommands or discard proven commit hashes.
+- Native edit create/upsert uses the actual before/after delta instead of its all-add diff: no-ops disappear, overwrites count removed lines, and unproven pre-images cannot yield exact counts. Write/edit contention shares the lifecycle guard.
+- HUB no longer treats prototype keys as launch operations. Default shortcut keys are cached, and short Unicode prefixes no longer copy the entire input.
 
 ---
 

@@ -508,7 +508,7 @@ const HUB_LAUNCH_OPS: Readonly<Record<string, true>> = Object.freeze({
 function isHubLaunchStyleArgs(args: Record<string, unknown>): boolean {
 	const op = stringValue(args, "op");
 	if (!op) return false;
-	if (HUB_LAUNCH_OPS[op]) return true;
+	if (Object.hasOwn(HUB_LAUNCH_OPS, op)) return true;
 	if (op !== "send" && op !== "wait") return false;
 	return (
 		stringValue(args, "name").length > 0 &&

@@ -358,6 +358,9 @@ export function completeEditMutations(
 	toolCallId: string,
 	result: unknown,
 	isError: boolean,
+	createEntry?: (
+		file: Record<string, unknown>,
+	) => MutationMessageDetails | undefined,
 ): DeleteMutationEvidence[] {
 	const resultRecord = objectRecord(result);
 	const details = objectRecord(resultRecord.details);
@@ -372,7 +375,12 @@ export function completeEditMutations(
 			if (file.isError === true) continue;
 			const diff = typeof file.diff === "string" ? file.diff : "";
 			const oldText = typeof file.oldText === "string" ? file.oldText : "";
-			const cost = diff.length + oldText.length;
+			const cost =
+				diff.length +
+				oldText.length +
+				(file.op === "create" && typeof file.newText === "string"
+					? file.newText.length
+					: 0);
 			// Skip an oversized file but keep scanning the rest within budget. A
 			// delete's path is evidence on its own, so it stays as a count-less
 			// row, the same as an oversized single-file delete.
@@ -393,7 +401,9 @@ export function completeEditMutations(
 							file.oldText,
 							file.snapshotsPruned,
 						)
-					: editEntry(toolCallId, file.path, file.diff);
+					: file.op === "create"
+						? createEntry?.(file)
+						: editEntry(toolCallId, file.path, file.diff);
 			if (entry) entries.push(entry);
 		}
 		return entries;
@@ -408,6 +418,8 @@ export function completeEditMutations(
 					details.oldText,
 					details.snapshotsPruned,
 				)
-			: editEntry(toolCallId, details.path, details.diff);
+			: details.op === "create"
+				? createEntry?.(details)
+				: editEntry(toolCallId, details.path, details.diff);
 	return entry ? [entry] : [];
 }

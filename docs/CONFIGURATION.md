@@ -137,6 +137,8 @@ the pinned value instead of claiming a change the environment forbids.
 
 - **File size:** Max 65,536 bytes (64 KB)
 - **Native reads:** Nonblocking open and descriptor stat reject non-regular files and oversized files before reading content. Accepted files read at most their stat size plus one byte; growth/shrink is rejected. Startup/load fall back to defaults; save refuses to replace an unreadable or invalid existing file.
+- **Host YAML pre-images:** Host-setting saves use the same bounded nonblocking regular-file reader before mutating OMP settings. A FIFO or invalid `.yml` fails closed; only a missing file permits trying `.yaml`.
+- **Snapshot publication:** A delayed load cannot replace a newer reload or committed save. Subsequent updates always compose against the authoritative snapshot.
 - **Nesting depth:** Max 16 levels
 - **thresholdTokens:** Integer 0–10,000,000
 - **Invalid fields:** Fall back to defaults with one warning

@@ -23,8 +23,17 @@ const MAX_ARG_TEXT = 4_096;
  */
 export function truncateCodePoints(value: string, limit: number): string {
 	if (value.length <= limit) return value;
-	const chars = Array.from(value);
-	return chars.length <= limit ? value : chars.slice(0, limit).join("");
+	limit = Math.trunc(limit);
+	if (limit < 0) limit = Math.max(0, codePointLength(value) + limit);
+	let end = 0;
+	for (let count = 0; count < limit && end < value.length; count++) {
+		const code = value.charCodeAt(end++);
+		if (code >= 0xd800 && code <= 0xdbff && end < value.length) {
+			const next = value.charCodeAt(end);
+			if (next >= 0xdc00 && next <= 0xdfff) end++;
+		}
+	}
+	return end === value.length ? value : value.slice(0, end);
 }
 
 /**

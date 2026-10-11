@@ -134,15 +134,19 @@ export interface RebuildLifecycleAccess {
 	): TurnLedgerResult;
 	/** Create (or re-key-update) the state record of one tool call. */
 	stateForLedger(input: ToolStartInput, ledger: TurnLedger): ToolState;
+	state(id: string, ledger?: TurnLedger): ToolState | undefined;
+	forgetState(state: ToolState): void;
 	/** Verified write/edit/delete mutation evidence (retention `mutation`). */
 	setMutations(
 		toolCallId: string,
 		entries: (MutationMessageDetails | LegacyMutationMessageDetails)[],
+		ledger?: TurnLedger,
 	): RenderableBlock | undefined;
 	/** Recognized Git invocation evidence (retention class `git`). */
 	setGit(
 		toolCallId: string,
 		git: GitMessageDetails | undefined,
+		ledger?: TurnLedger,
 	): RenderableBlock | undefined;
 	/** States belonging to one ledger. */
 	ledgerStates(ledger: TurnLedger): readonly ToolState[];
@@ -190,9 +194,9 @@ export class RebuildLifecycle {
 	 * otherwise the visible group count exceeds the segment count and
 	 * `bindHydrated` pairs nothing, leaving every restored read native.
 	 */
-	#readSegmentBreaks = new Set<string>();
-	/** Newest grouped-read state id seen by the current branch walk. */
-	#lastGroupedRead: string | undefined;
+	#readSegmentBreaks = new Set<ToolState>();
+	/** Newest grouped-read state seen by the current branch walk. */
+	#lastGroupedRead: ToolState | undefined;
 
 	constructor(access: RebuildLifecycleAccess) {
 		this.#access = access;
@@ -261,7 +265,7 @@ export class RebuildLifecycle {
 			access.ledger?.phase === "working" ? access.ledger : undefined;
 		const activeStates = activeLedger ? access.ledgerStates(activeLedger) : [];
 		for (const state of [...access.states.values()]) {
-			if (state.ledger !== activeLedger) access.states.delete(state.id);
+			if (state.ledger !== activeLedger) access.forgetState(state);
 		}
 		access.terminalProjections.clear();
 		access.liveStatsLines.clear();
@@ -335,7 +339,34 @@ export class RebuildLifecycle {
 		access.replayingBranch = true;
 		try {
 			let walkLedger: TurnLedger | undefined;
+			// Only the last unfinished branch run can own preserved active
+			// states. Earlier completed runs may reuse every raw tool ID.
+			let activeStart = 0;
+			if (options.activeLedger) {
+				for (let index = entries.length - 1; index >= 0; index--) {
+					const entry = objectRecord(entries[index]);
+					if (entry.type !== "message") continue;
+					const message = objectRecord(entry.message);
+					if (message.role === "user") {
+						activeStart = index;
+						break;
+					}
+					if (
+						message.role === "assistant" &&
+						classifyAgentEnd({ messages: [message], willContinue: false }) ===
+							"filtered"
+					) {
+						activeStart = index + 1;
+						break;
+					}
+				}
+			}
+			let entryIndex = 0;
 			const ensureLedger = (): TurnLedger => {
+				if (options.activeLedger && entryIndex >= activeStart) {
+					walkLedger = options.activeLedger;
+					return walkLedger;
+				}
 				if (walkLedger?.phase !== "working") {
 					walkLedger = access.createLedger("omp-compact-replay-");
 				}
@@ -344,7 +375,8 @@ export class RebuildLifecycle {
 			this.#readSegmentBreaks.clear();
 			this.#lastGroupedRead = undefined;
 
-			for (const value of entries) {
+			for (; entryIndex < entries.length; entryIndex++) {
+				const value = entries[entryIndex];
 				const entry = objectRecord(value);
 				if (entry.type === "message") {
 					const message = objectRecord(entry.message);
@@ -358,7 +390,8 @@ export class RebuildLifecycle {
 								willContinue: false,
 							});
 						}
-						walkLedger = access.createLedger("omp-compact-replay-");
+						walkLedger = undefined;
+						ensureLedger();
 						continue;
 					}
 					if (message.role === "assistant") {
@@ -377,7 +410,7 @@ export class RebuildLifecycle {
 								) {
 									continue;
 								}
-								access.stateForLedger(
+								const state = access.stateForLedger(
 									{
 										toolCallId: call.id,
 										toolName: call.name,
@@ -387,9 +420,9 @@ export class RebuildLifecycle {
 								);
 								if (
 									call.name === "read" &&
-									access.binding.isGroupPresentationRead(call.id)
+									access.binding.isGroupPresentationRead(state)
 								)
-									this.#lastGroupedRead = call.id;
+									this.#lastGroupedRead = state;
 							}
 						}
 						if (
@@ -410,7 +443,9 @@ export class RebuildLifecycle {
 						message.role === "toolResult" &&
 						isBoundedString(message.toolCallId, MAX_TOOL_CALL_ID_LENGTH)
 					) {
-						const state = access.states.get(message.toolCallId);
+						const state = walkLedger
+							? access.state(message.toolCallId, walkLedger)
+							: undefined;
 						// Active ownership wins: the live event stream settles the
 						// preserved run's states; branch results must never
 						// replace pending/partial evidence.
@@ -571,14 +606,14 @@ export class RebuildLifecycle {
 			// pair through the tool-component path instead.
 			if (
 				state.toolName === "read" &&
-				access.binding.isGroupPresentationRead(state.id)
+				access.binding.isGroupPresentationRead(state)
 			) {
 				if (state.ledger !== previousReadLedger) {
 					flushSegment();
 					previousReadLedger = state.ledger;
 				}
 				segmentIds.push(state.id);
-				if (this.#readSegmentBreaks.has(state.id)) flushSegment();
+				if (this.#readSegmentBreaks.has(state)) flushSegment();
 			} else {
 				flushSegment();
 			}
@@ -614,7 +649,9 @@ export class RebuildLifecycle {
 			customType === MUTATION_MESSAGE_TYPE &&
 			isMutationMessageDetails(details)
 		) {
-			const state = access.states.get(details.toolCallId);
+			const state = ledger
+				? access.state(details.toolCallId, ledger)
+				: undefined;
 			// Rebuild: active states keep their live evidence; the event
 			// stream delivers it again on completion.
 			if (state && state.ledger !== skipLedger) {
@@ -625,14 +662,20 @@ export class RebuildLifecycle {
 					this.markMutationInexact(state);
 					return;
 				}
-				access.setMutations(details.toolCallId, [...state.mutations, details]);
+				access.setMutations(
+					details.toolCallId,
+					[...state.mutations, details],
+					state.ledger,
+				);
 			}
 			return;
 		}
 		if (customType === GIT_MESSAGE_TYPE && isGitMessageDetails(details)) {
-			const state = access.states.get(details.toolCallId);
+			const state = ledger
+				? access.state(details.toolCallId, ledger)
+				: undefined;
 			if (state && state.ledger !== skipLedger)
-				access.setGit(details.toolCallId, details);
+				access.setGit(details.toolCallId, details, state.ledger);
 			return;
 		}
 		if (customType === STATS_MESSAGE_TYPE && isRunStatsEvidence(details)) {

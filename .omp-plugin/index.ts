@@ -3,8 +3,12 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@oh-my-pi/pi-coding-agent";
+import type { EditCapture } from "./audit";
 
 import {
+	captureEditCandidates,
+	completeEditCreateCandidate,
+	releaseEditCandidates,
 	captureWriteCandidate,
 	completeEditMutations,
 	completeWriteCandidate,
@@ -1010,9 +1014,20 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					);
 				}
 				break;
-			case "edit":
-				auditLifecycle.startSync(event.toolCallId);
+			case "edit": {
+				const cwd = resolveSessionCwd(context);
+				const capture = captureEditCandidates({
+					toolCallId: event.toolCallId,
+					args: event.args,
+					cwd,
+					root: cwd,
+				});
+				auditLifecycle.startSync(event.toolCallId, capture, {
+					targets: capture.targets,
+					release: () => releaseEditCandidates(capture),
+				});
 				break;
+			}
 			case "git-bash": {
 				const command = objectRecord(event.args).command;
 				if (typeof command === "string" && recognizeGitCommands(command)) {
@@ -1079,11 +1094,16 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				);
 				return;
 			case "edit":
-				auditLifecycle.endSync(event.toolCallId, () => {
+				auditLifecycle.endSync(event.toolCallId, (payload) => {
+					// Only the edit-start path constructs this in-process payload.
+					const capture = payload as EditCapture | undefined;
 					const mutations = completeEditMutations(
 						event.toolCallId,
 						event.result,
 						event.isError,
+						capture
+							? (file) => completeEditCreateCandidate(capture, file)
+							: undefined,
 					);
 					if (mutations.length > 0) {
 						installed.setMutations(event.toolCallId, mutations);

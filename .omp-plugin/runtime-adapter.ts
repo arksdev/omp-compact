@@ -1045,7 +1045,7 @@ export class RuntimeAdapter {
 		nativeFinalized: (() => boolean) | undefined,
 	): boolean {
 		if (this.#session.modeFor(state.ledger).mode === "clear") return false;
-		if (this.#session.binding.isGroupPresentationRead(state.id)) return false;
+		if (this.#session.binding.isGroupPresentationRead(state)) return false;
 		// A write/edit audit publishes its mutation rows after the call
 		// returned — `endWrite` runs inside the lifecycle the `agent_end`
 		// drain awaits — so the row can still grow once stock already calls
@@ -1401,14 +1401,34 @@ export class RuntimeAdapter {
 					configurable: true,
 					writable: true,
 					value(this: object, width: number): readonly string[] {
-						// All reads stay live: dispose, the preference and the
-						// host's expansion flag each end compaction on the spot.
-						if (
-							adapter.#disposed ||
-							adapter.#compactAdvisorNotes?.() !== true ||
-							adapter.#ui.getToolsExpanded?.() !== false
-						)
+						if (adapter.#disposed || adapter.#compactAdvisorNotes?.() !== true)
 							return original.call(this, width);
+						// Local native toggles bypass setExpanded. Read the semantic
+						// card at paint time; unknown expansion must remain native.
+						let collapsed: unknown;
+						try {
+							const describe = objectRecord(this).describe;
+							const node = objectRecord(
+								typeof describe === "function"
+									? describe.call(this)
+									: undefined,
+							);
+							if (node.k === "card") {
+								const props = objectRecord(node.p);
+								// Native emits collapsed only for >3 notes. Smaller cards
+								// have no local disclosure; use the known global baseline.
+								collapsed =
+									typeof props.collapsed === "boolean"
+										? props.collapsed
+										: props.collapsible === false &&
+												adapter.#ui.getToolsExpanded?.() === false
+											? true
+											: undefined;
+							}
+						} catch {
+							/* Native metadata failure is not proof of collapse. */
+						}
+						if (collapsed !== true) return original.call(this, width);
 						const theme = adapter.#ui.theme;
 						const bound = adapter.#advisorBound.get(this);
 						if (!theme || !bound) return original.call(this, width);

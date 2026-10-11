@@ -96,6 +96,17 @@ function makeBinding(options?: {
 	const states = new Map<string, ToolState>();
 	const pending = new Set<ToolState>();
 	const delegates: BindingDelegates = {
+		state: (id, ledger) => {
+			const state = states.get(id);
+			return !ledger || state?.ledger === ledger ? state : undefined;
+		},
+		forgetState: (state) => {
+			if (states.get(state.id) === state) states.delete(state.id);
+		},
+		rekeyState: (state, previousId) => {
+			if (states.get(previousId) === state) states.delete(previousId);
+			states.set(state.id, state);
+		},
 		markPending: (state) => {
 			pending.add(state);
 		},
@@ -398,7 +409,7 @@ describe("ComponentBinding: exact-ID binding", () => {
 			args: { path: "/a" },
 		});
 		states.set("read-1", read);
-		binding.markGroupPresentationRead("read-1");
+		binding.markGroupPresentationRead(read);
 		expect(
 			binding.observeToolMethod(toolCard, "updateResult", [
 				{ content: [] },
@@ -525,7 +536,11 @@ describe("ComponentBinding: provisional → real ID migration", () => {
 		const { binding, states, pending } = makeBinding();
 		const component = new FakeToolComponent();
 		const provisional = makeState({ id: "", toolName: "read" });
-		const real = makeState({ id: "real-1", toolName: "read" });
+		const real = makeState({
+			id: "real-1",
+			toolName: "read",
+			ledger: provisional.ledger,
+		});
 		real.result = { content: [] };
 		states.set("", provisional);
 		states.set("real-1", real);
@@ -542,7 +557,7 @@ describe("ComponentBinding: provisional → real ID migration", () => {
 		expect(provisional.result).toEqual({ content: [] });
 		expect(pending.has(real)).toBe(false);
 		expect(pending.has(provisional)).toBe(true);
-		expect(real.ledger.entries).toEqual([]);
+		expect(real.ledger.entries).toEqual([provisional.entry]);
 	});
 
 	test("an existing real-ID state bound elsewhere is ambiguous", () => {
@@ -551,7 +566,11 @@ describe("ComponentBinding: provisional → real ID migration", () => {
 		const real = makeState({ id: "real-1", toolName: "read" });
 		states.set("real-1", real);
 		binding.bind(otherComponent, real);
-		const provisional = makeState({ id: "", toolName: "read" });
+		const provisional = makeState({
+			id: "",
+			toolName: "read",
+			ledger: real.ledger,
+		});
 		states.set("", provisional);
 		const component = new FakeToolComponent();
 		binding.bind(component, provisional);
@@ -569,7 +588,11 @@ describe("ComponentBinding: provisional → real ID migration", () => {
 		const real = makeState({ id: "real-1", toolName: "bash" });
 		states.set("real-1", real);
 		binding.bind(otherComponent, real);
-		const provisional = makeState({ id: "", toolName: "bash" });
+		const provisional = makeState({
+			id: "",
+			toolName: "bash",
+			ledger: real.ledger,
+		});
 		states.set("", provisional);
 		const component = new FakeToolComponent();
 		binding.bind(component, provisional);
@@ -885,7 +908,7 @@ describe("ComponentBinding: order fallbacks", () => {
 		const group = binding.createGroup(groupComponent, false);
 		const read = makeState({ id: "read-1", toolName: "read" });
 		states.set("read-1", read);
-		binding.markGroupPresentationRead("read-1");
+		binding.markGroupPresentationRead(read);
 		// The group announced this id through the host surface, so it owns the
 		// row: the state must never pair with a tool card positionally, even
 		// when the cardinality would match.
@@ -910,7 +933,7 @@ describe("ComponentBinding: order fallbacks", () => {
 		const component = new FakeToolComponent();
 		const read = makeState({ id: "read-1", toolName: "read" });
 		states.set("read-1", read);
-		binding.markGroupPresentationRead("read-1");
+		binding.markGroupPresentationRead(read);
 		binding.registerUnboundComponent(component);
 		expect(binding.tryBindByOrder(read.ledger)).toBe("bound");
 		expect(read.component).toBe(component);
@@ -940,7 +963,7 @@ describe("ComponentBinding: order fallbacks", () => {
 
 		const read = makeState({ id: "read-1", toolName: "read", ledger });
 		states.set("read-1", read);
-		binding.markGroupPresentationRead("read-1");
+		binding.markGroupPresentationRead(read);
 
 		const other = makeState({
 			id: "other-1",
@@ -1028,7 +1051,7 @@ describe("ComponentBinding: order fallbacks", () => {
 		});
 		states.set("bash-1", bash);
 		states.set("read-1", fileRead);
-		binding.markGroupPresentationRead("read-1");
+		binding.markGroupPresentationRead(fileRead);
 		binding.createGroup(groupComponent, false);
 		binding.addHydratedReadSegment(fileRead.ledger, [fileRead.id]);
 		binding.registerUnboundComponent(bashComponent);
@@ -1656,42 +1679,6 @@ describe("ComponentBinding: frozen-state mutation guard", () => {
 		expect(pending.has(provisional)).toBe(false);
 		expect(pending.has(real)).toBe(true);
 		expect(real.result).toEqual({ content: [] });
-	});
-
-	test("a live provisional migration reads but never rewrites a settled real-id duplicate", () => {
-		const { binding, states } = makeBinding();
-		const component = new FakeToolComponent();
-		const provisional = makeState({ id: "", toolName: "read" });
-		states.set("", provisional);
-		binding.bind(component, provisional);
-		// The real-id duplicate belongs to a settled run; the provisional is
-		// still live (working ledger). Live migration keeps its documented
-		// absorb-and-drop behavior...
-		const real = makeState({ id: "real-1", toolName: "read" });
-		real.result = { content: ["settled"] };
-		real.isError = true;
-		real.isPartial = false;
-		states.set("real-1", real);
-		real.ledger.finalize(undefined, "live");
-		expect(real.ledger.phase).toBe("full");
-		expect(
-			binding.observeToolMethod(component, "updateArgs", [
-				{ path: "/live" },
-				"real-1",
-			]),
-		).toBe("bound");
-		expect(states.get("real-1")).toBe(provisional);
-		expect(states.get("")).toBeUndefined();
-		expect(provisional.id).toBe("real-1");
-		expect(provisional.args).toEqual({ path: "/live" });
-		expect(provisional.result).toEqual({ content: ["settled"] });
-		expect(provisional.isError).toBe(true);
-		// ...while the settled duplicate's own evidence fields are read,
-		// never rewritten.
-		expect(real.id).toBe("real-1");
-		expect(real.result).toEqual({ content: ["settled"] });
-		expect(real.isError).toBe(true);
-		expect(real.isPartial).toBe(false);
 	});
 
 	test("setExpanded stays presentation-only on frozen state", () => {

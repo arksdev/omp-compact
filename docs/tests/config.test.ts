@@ -690,11 +690,16 @@ describe("store load fail-open", () => {
 	test("object-valued version falls back on load and cannot be overwritten", async () => {
 		const dir = await tempDir();
 		const file = join(dir, "config.json");
-		const text = JSON.stringify({ version: { toString: null, valueOf: null }, mode: "compact" });
+		const text = JSON.stringify({
+			version: { toString: null, valueOf: null },
+			mode: "compact",
+		});
 		await writeFile(file, text);
 		const store = createSettingsStore({ path: file, env: {}, warn() {} });
 		expect(await store.load()).toEqual(DEFAULT_SETTINGS);
-		await expect(store.update({ mode: "clear" })).rejects.toThrow(ConfigUpdateError);
+		await expect(store.update({ mode: "clear" })).rejects.toThrow(
+			ConfigUpdateError,
+		);
 		expect(await readFile(file, "utf8")).toBe(text);
 	});
 
@@ -702,14 +707,23 @@ describe("store load fail-open", () => {
 		test(`an older load cannot roll back a newer ${newer} or make a later save a no-op`, async () => {
 			const dir = await tempDir();
 			const file = join(dir, "config.json");
-			await writeFile(file, JSON.stringify({ ...DEFAULT_SETTINGS, mode: "live" }));
+			await writeFile(
+				file,
+				JSON.stringify({ ...DEFAULT_SETTINGS, mode: "live" }),
+			);
 			let pauseNext = false;
 			let captured!: () => void;
 			let resume!: () => void;
-			const didCapture = new Promise<void>(resolve => { captured = resolve; });
-			const release = new Promise<void>(resolve => { resume = resolve; });
+			const didCapture = new Promise<void>((resolve) => {
+				captured = resolve;
+			});
+			const release = new Promise<void>((resolve) => {
+				resume = resolve;
+			});
 			const store = createSettingsStore({
-				path: file, env: {}, warn() {},
+				path: file,
+				env: {},
+				warn() {},
 				readFile: async (path, encoding) => {
 					const text = await readFile(path, encoding);
 					if (pauseNext) {
@@ -726,7 +740,10 @@ describe("store load fail-open", () => {
 			await didCapture;
 			if (newer === "save") await store.update({ mode: "compact" });
 			else {
-				await writeFile(file, JSON.stringify({ ...DEFAULT_SETTINGS, mode: "compact" }));
+				await writeFile(
+					file,
+					JSON.stringify({ ...DEFAULT_SETTINGS, mode: "compact" }),
+				);
 				await store.load();
 			}
 			resume();
