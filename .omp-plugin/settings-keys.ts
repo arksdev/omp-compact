@@ -17,11 +17,11 @@ const ARROW_FINAL_BYTES: Partial<Record<string, ArrowDirection>> = {
 };
 
 /**
- * Parameter bytes of an *unmodified* arrow in the kitty parameterized form:
- * the modifier field is exactly `1` (no modifiers held), with an optional
- * event-type sub-field restricted to `1` (press) and `2` (repeat).
+ * Parameter bytes of a kitty arrow with no held modifiers. The modifier field
+ * is 1 + the lock bits (CapsLock=64, NumLock=128), with an optional event-type
+ * sub-field restricted to `1` (press) and `2` (repeat).
  */
-const KITTY_UNMODIFIED_ARROW_PARAMS = /^1;1(?::[12])?$/;
+const KITTY_UNMODIFIED_ARROW_PARAMS = /^1;(?:1|65|129|193)(?::[12])?$/;
 
 export type ArrowDirection = "up" | "down" | "left" | "right";
 
@@ -35,13 +35,13 @@ export type ArrowDirection = "up" | "down" | "left" | "right";
  * alone drops every arrow that arrives in one of the other two encodings, on
  * terminals OMP itself fully supports.
  *
- * Only unmodified press and repeat events count as arrows:
- * - With no modifiers held the kitty protocol omits the parameter field and
- *   sends the short form, so a parameterized arrow carries either a real
- *   modifier (`ESC [ 1;3 B` is alt+down, `ESC [ 1;2 C` is shift+right) or an
- *   event-type sub-field the terminal adds once event reporting was asked
- *   for. Accepting any modifier mask would let shift+up move the cursor and
- *   ctrl+right rewrite a value, which no stock component does.
+ * Only press and repeat events with no held modifiers count as arrows:
+ * - CapsLock and NumLock are lock states, not held modifiers, so their bits
+ *   are accepted alone or together. A parameterized arrow can also carry a
+ *   real modifier (`ESC [ 1;3 B` is alt+down, `ESC [ 1;2 C` is shift+right)
+ *   or an event-type sub-field. Accepting any modifier mask would let
+ *   shift+up move the cursor and ctrl+right rewrite a value, which no stock
+ *   component does.
  * - Release events (event type `3`) are rejected right here. The host's TUI
  *   also filters them for components that do not opt into key-release
  *   delivery, but this dialog does not lean on that: a release must never

@@ -12,6 +12,7 @@
 
 ### Исправлено
 
+- В `/compact-settings` стрелки снова работают при включённых Num Lock или Caps Lock. Исправлена регрессия после #2: состояния блокировки больше не считаются модификаторами. Комбинации с Shift, Alt, Ctrl и события отпускания клавиш по-прежнему игнорируются.
 - Auto-shake больше не запускается после ошибки сохранения write/edit/Git evidence, даже если ошибка произошла до завершения ответа. Следующий run может снова выполнить shake после успешного сохранения.
 - Отложенный drain предыдущего ответа больше не запускает shake внутри следующего run и не расходует его единственный разрешённый shake.
 - Quiet commit больше не получает чужой hash из отфильтрованного `git log`, другого revision или другого репозитория. Hash подтверждается только по HEAD в том же контексте Git.
@@ -40,6 +41,7 @@
 
 ### Fixed
 
+- Restored `/compact-settings` arrow navigation with Num Lock or Caps Lock enabled. Fixed a regression after #2 by accepting lock-state bits without accepting held modifiers or key-release events.
 - Auto-shake no longer runs after write/edit/Git evidence persistence fails, including failures settled before the answer ends. A later run can shake after successful persistence.
 - A delayed prior-answer drain no longer shakes during the next run or consumes that run's once-per-run shake.
 - Quiet commits no longer borrow hashes from filtered logs, other revisions, or other repositories. Only a HEAD log in the same Git context can confirm the hash.
