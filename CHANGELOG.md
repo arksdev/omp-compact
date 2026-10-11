@@ -8,7 +8,7 @@
 
 ### Изменено
 
-- Обновлена проверяемая версия OMP до 18.8.9. Добавлена поддержка распознавания карточек советника с методом `releaseRenderCaches`. Поддержка OMP 18.0.1 и выше сохранена.
+- Обновлена проверяемая версия OMP до 18.9.1. Добавлена поддержка распознавания карточек советника с методом `releaseRenderCaches`. Поддержка OMP 18.0.1 и выше сохранена.
 
 ### Исправлено
 
@@ -36,7 +36,7 @@
 
 ### Changed
 
-- Updated the verified OMP version to 18.8.9. Added recognition for advisor cards with `releaseRenderCaches`. Support for OMP 18.0.1 and later is unchanged.
+- Updated the verified OMP version to 18.9.1. Added recognition for advisor cards with `releaseRenderCaches`. Support for OMP 18.0.1 and later is unchanged.
 
 ### Fixed
 
