@@ -4,6 +4,30 @@
 
 ---
 
+## Не выпущено
+
+### Изменено
+
+- Обновлена проверяемая версия OMP до 18.10.3. Поддержка OMP 18.0.1 и выше сохранена.
+
+### Исправлено
+
+- При частичном переносе завершённого хода в scrollback больше не пропадают последние компактные строки и статистика. Современный OMP сам размещает остаток блока на экране; fallback для ранних версий сохранён.
+- Переключение режима нельзя назначить на `Alt+H`, занятый новой командой OMP для скрытия диалога `ask`.
+
+---
+
+### Changed
+
+- Updated the verified OMP version to 18.10.3. Support for OMP 18.0.1 and later is unchanged.
+
+### Fixed
+
+- Preserved the final compact rows and stats when part of a completed turn moves to scrollback. Modern OMP now owns the remaining block's viewport; older hosts retain the legacy fallback.
+- Prevented display-mode shortcuts from using `Alt+H`, now reserved by OMP for hiding the `ask` dialog.
+
+---
+
 ## 1.4.8 — 11 октября 2026
 
 ### Изменено

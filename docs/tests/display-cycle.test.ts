@@ -189,7 +189,13 @@ describe("display cycle: reserved-shortcut copy against the host", () => {
 
 describe("display cycle: default host app chords against the host", () => {
 	test("app-level chords from the host are refused by validation", () => {
-		for (const key of ["alt+a", "alt+shift+v", "alt+shift+l", "ctrl+enter"]) {
+		for (const key of [
+			"alt+a",
+			"alt+h",
+			"alt+shift+v",
+			"alt+shift+l",
+			"ctrl+enter",
+		]) {
 			expect(validateDisplayCycleKey(key)).toBe(
 				`${key} is already taken by OMP; pick another shortcut`,
 			);

@@ -790,7 +790,7 @@ The host-supplied agent directory and the live session `Settings` object sit
 - **Two version numbers, different jobs.** `package.json` `engines.omp`
   (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
   code-review pass). `marketplace.json` carries plugin version/description only.
-  The root `package.json` devDependency (`18.9.1`, mirrored by
+  The root `package.json` devDependency (`18.10.3`, mirrored by
   `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`) records
   the **verified** critical private-surface contract the adapter was written
   against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
@@ -798,11 +798,11 @@ The host-supplied agent directory and the live session `Settings` object sit
   capability probe (`isToolComponent`, `isTodoReminderComponent`,
   `transcriptCapabilities`, …).
 - **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.9.1.
+  shapes: written against 17.3.1 and re-verified on the current pin 18.10.3.
   Optional compact chrome (TTSR inject, todo reminder, skill card, late
   diagnostics, user `!`/`$` execution): method fingerprints checked against
   17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.9.1 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
+  the 18.10.3 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
   late-diagnostics **without** `setToolActivityVisible`, so those
   fingerprints miss and the stock card stays native (no misclassification
   into tool paths). User bash/eval and skill surfaces are present on
@@ -910,10 +910,10 @@ The host-supplied agent directory and the live session `Settings` object sit
   Compatibility is judged by changed files, never by diff size.
   So the floor stays at `>=18.0.1` while the gate pin follows the newest release.
 
-- **Rows retire, blocks fill the screen.** The container retires history by
-  rows, but its pressure fallback keys on block count: past the transcript
-  height it prints each live block's first row, and a folded member has none.
-  Folding shrinks rows without shrinking blocks, so the fold does two things.
+- **Legacy viewport fallback.** Older containers retire history by rows, but
+  their pressure fallback keys on block count: past the transcript height it
+  prints each live block's first row, and a folded member has none. Folding
+  shrinks rows without shrinking blocks, so the fold does two things.
   It reports the live tail's own height (minus one row) as the room for a
   history batch while blocks outnumber rows *and* the rows still fit the
   screen, which keeps retirement making progress instead of stalling as soon
@@ -927,6 +927,13 @@ The host-supplied agent directory and the live session `Settings` object sit
   but not yet acknowledged; a block that published part of its rows answers
   false there too, so the fold keeps it live by its published-row count and
   no row is painted twice.
+  On containers exposing `getLastViewportSpans`, the host composes the viewport
+  instead: it filters zero-row members and owns hit-testing, frame closure,
+  and partial physical-row retirement. OMP 18.10.3 can commit only a prefix of
+  a settled carrier; `canRemoveBlock` then returns false while its remaining
+  rows are still live, and `emittedStableRows` cannot describe that split.
+  Reusing the host compositor preserves those rows without a second ledger
+  or a version-string branch. The legacy fallback remains for the public floor.
 
 - **A carrier publishes what its run can no longer change.** A run still open
   is never settled, so retirement alone could never rescue a single long turn:

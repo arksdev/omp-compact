@@ -190,24 +190,10 @@ stockTest(
 		await foldedRun(booted, "open", 2);
 		const transcript = booted.transcript;
 		const capacity = 8;
-		// Frames until retirement settles: history accumulates, the viewport
-		// keeps the live tail. A row printed in both would show up twice in
-		// the terminal's scrollback; a row printed in neither would be lost.
-		const history: string[] = [];
-		for (let frame = 0; frame < 40; frame++) {
-			const batch = transcript.peekFinalizedBatch(120, capacity);
-			if (!batch) break;
-			history.push(...batch.rows);
-			transcript.acknowledgeFinalizedBatch(batch.id);
-		}
 		const plain = (rows: readonly string[]): string[] =>
 			rows
 				.map((line) => Bun.stripANSI(line).trimEnd())
 				.filter((line) => line.trim().length > 0);
-		const printed = [
-			...plain(history),
-			...plain(transcript.renderViewport(120, capacity, { tick: 0, now: 0 })),
-		];
 		const expected = [
 			...Array.from(
 				{ length: 24 },
@@ -218,7 +204,25 @@ stockTest(
 			"• bash: printf open-0",
 			"• bash: printf open-1",
 		];
-		expect(printed).toEqual(expected);
+		// Frames until retirement settles: history accumulates, the viewport
+		// keeps the live tail. A row printed in both would show up twice in
+		// the terminal's scrollback; a row printed in neither would be lost.
+		const history: string[] = [];
+		const printed = (): string[] => [
+			...plain(history),
+			...plain(transcript.renderViewport(120, capacity, { tick: 0, now: 0 })),
+		];
+		for (let frame = 0; frame < 40; frame++) {
+			const batch = transcript.peekFinalizedBatch(120, capacity);
+			if (!batch) break;
+			history.push(...batch.rows);
+			// An offered physical-row prefix and its acknowledged form must
+			// both leave the rest of a settled carrier reachable exactly once.
+			expect(printed()).toEqual(expected);
+			transcript.acknowledgeFinalizedBatch(batch.id);
+			expect(printed()).toEqual(expected);
+		}
+		expect(printed()).toEqual(expected);
 		await shutdown(booted);
 	},
 );

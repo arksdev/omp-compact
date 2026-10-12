@@ -41,6 +41,8 @@ export interface TranscriptHost extends RenderableBlock {
 	 */
 	clear?(): void;
 	renderViewport(width: number, rows: number, frame: AnimationFrame): Lines;
+	/** Newer hosts own blank filtering, row splits, and click hit-testing. */
+	getLastViewportSpans?(): readonly unknown[];
 	/**
 	 * Live, un-emitted tail height at `width`.
 	 *
@@ -309,6 +311,12 @@ export class TranscriptFold {
 		rows: number,
 		frame: AnimationFrame,
 	): Lines | undefined {
+		// A hit-tested viewport must be composed by the host: it already
+		// filters silent blocks and tracks partial physical-row retirement,
+		// which emittedStableRows cannot describe. Keep this fallback only
+		// for older containers without native viewport ownership.
+		if (typeof this.#transcript.getLastViewportSpans === "function")
+			return undefined;
 		const capacity = Math.max(0, Math.trunc(rows));
 		if (capacity === 0 || this.#patches.size === 0) return undefined;
 		const children = this.#transcript.children;

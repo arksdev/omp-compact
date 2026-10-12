@@ -46,7 +46,7 @@ export function nextDisplayCycleState(
 /**
  * COPY of `ExtensionRunner.#RESERVED_SHORTCUTS`
  * (`@oh-my-pi/pi-coding-agent/src/extensibility/extensions/runner.ts`), taken
- * from version 18.0.8, re-checked against the pinned 18.9.1 — `runner.ts` has
+ * from version 18.0.8, re-checked against the pinned 18.10.3 — `runner.ts` has
  * since gained `emitBeforeSubagentSpawn` (and the `before_subagent_spawn`
  * event), but the `#RESERVED_SHORTCUTS` map itself is unchanged.
  *
@@ -128,6 +128,7 @@ const SPECIAL_KEYS: Record<string, true> = {
  */
 const DEFAULT_HOST_APP_CHORDS: readonly string[] = Object.freeze([
 	"alt+a",
+	"alt+h",
 	"alt+p",
 	"alt+shift+c",
 	"alt+shift+l",
