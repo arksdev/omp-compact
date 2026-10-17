@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.11.3 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.12.0 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -544,7 +544,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.11.3
+4. Manual smoke test on OMP 18.12.0
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -621,6 +621,11 @@ and extension runner reserved shortcuts are byte-identical or signature-compatib
 no adapter changes were required.
 
 18.11.3 changed 361 package files relative to 18.11.1 (32 added, 4 removed). All critical patch
+surfaces, leaf components, advisor cards, find renderer, transcript container,
+and extension runner reserved shortcuts are byte-identical or signature-compatible;
+no adapter changes were required.
+
+18.12.0 changed 263 package files relative to 18.11.3 (26 added, 5 removed). All critical patch
 surfaces, leaf components, advisor cards, find renderer, transcript container,
 and extension runner reserved shortcuts are byte-identical or signature-compatible;
 no adapter changes were required.
