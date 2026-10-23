@@ -1706,8 +1706,7 @@ export class RuntimeAdapter {
 				const node = objectRecord(
 					typeof describe === "function" ? describe.call(component) : undefined,
 				);
-				const collapsed =
-					node.k === "card" ? objectRecord(node.p).collapsed : undefined;
+				const collapsed = findCollapsedFlag(node);
 				const initial =
 					typeof collapsed === "boolean"
 						? !collapsed
@@ -1943,6 +1942,31 @@ export class RuntimeAdapter {
 			// Owner notification is best-effort.
 		}
 	}
+}
+
+/**
+ * Stock 18.12.6 moved the skill card's `collapsed` flag from the card node
+ * (`card.p.collapsed`, OMP <= 18.12.2) into its collapsible prompt section
+ * (`section.p.collapsed`). Walk the describe tree so either shape resolves;
+ * the walk is depth-first and stops at the first flag, so a description
+ * without a collapsible node stays unknown and the global toggle wins.
+ */
+function findCollapsedFlag(node: unknown): boolean | undefined {
+	const record =
+		node && typeof node === "object"
+			? (node as Record<string, unknown>)
+			: undefined;
+	if (!record) return undefined;
+	const params = objectRecord(record.p);
+	if (typeof params.collapsed === "boolean") return params.collapsed;
+	const children = record.c;
+	if (Array.isArray(children)) {
+		for (const child of children) {
+			const found = findCollapsedFlag(child);
+			if (found !== undefined) return found;
+		}
+	}
+	return undefined;
 }
 
 export function captureHostRoot(ui: AdapterUI): unknown {
