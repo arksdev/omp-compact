@@ -3,6 +3,20 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено
+
+### Исправлено
+
+- Завершённые вызовы инструментов теперь финализируются в процессе длинного логического запуска (раньше они удерживали границу сброса истории до завершения всего рана, из-за чего ответы ассистента схлопывались до одной строки в аварийном режиме).
+
+---
+
+### Fixed
+
+- Settle completed tool blocks mid-run instead of holding them until the run finishes, preventing long logical runs from pinning the retirement frontier and triggering emergency one-row-per-block fallback.
+
+---
+
 ## 1.4.13 — 27 октября 2026
 
 ### Изменено

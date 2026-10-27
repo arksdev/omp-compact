@@ -1005,7 +1005,16 @@ export class RuntimeAdapter {
 		nativeFinalized: (() => boolean) | undefined,
 	): boolean {
 		const state = this.#session.binding.componentState(block);
-		if (state) return state.ledger.phase !== "working";
+		if (state) {
+			if (state.ledger.phase !== "working") return true;
+			// A call whose row can no longer change settles mid-run. Holding it
+			// until the run ends pins the container's retirement frontier: every
+			// later block stays live, and once live blocks outnumber the screen
+			// the container prints only the first row of each one. Rows a later
+			// terminal projection drops are rewritten by
+			// `replayAfterTerminalProjection`.
+			return this.#settledMidRun(state, nativeFinalized);
+		}
 		const group = this.#session.binding.groupState(block);
 		if (group?.ledger) return group.ledger.phase !== "working";
 		// A notice the host already calls final commits its row to native

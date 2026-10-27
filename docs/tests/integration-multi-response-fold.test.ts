@@ -430,3 +430,70 @@ stockTest(
 		await shutdown(enabled);
 	},
 );
+
+stockTest(
+	"settled tool blocks in a multi-turn logical run do not pin transcript retirement",
+	async () => {
+		for (const mode of ["compact", "live"] as const) {
+			const booted = await bootWithMode(mode);
+			const transcript = booted.transcript;
+			const capacity = 8;
+			await beginRun(booted);
+
+			for (let step = 1; step <= 12; step++) {
+				const reply = new booted.ContainerBase();
+				reply.addChild({
+					render: () => [
+						`answer ${step} line 1`,
+						`answer ${step} line 2`,
+						`answer ${step} line 3`,
+					],
+				});
+				transcript.addChild(reply);
+
+				const call = await addTool(
+					booted,
+					"bash",
+					{ command: `printf step-${step}` },
+					`step-${step}`,
+				);
+				await finishTool(booted, call, {
+					toolCallId: `step-${step}`,
+					toolName: "bash",
+					result: { content: [{ type: "text", text: "ok" }], details: {} },
+					isError: false,
+				});
+
+				await finishRun(booted, `answer ${step}`, "toolUse", true);
+			}
+
+			const finalReply = new booted.ContainerBase();
+			finalReply.addChild({
+				render: () => [
+					"answer 13 line 1",
+					"answer 13 line 2",
+					"answer 13 line 3",
+				],
+			});
+			transcript.addChild(finalReply);
+
+			for (let frame = 0; frame < 100; frame++) {
+				const batch = transcript.peekFinalizedBatch(120, capacity);
+				if (!batch) break;
+				transcript.acknowledgeFinalizedBatch?.(batch.id);
+			}
+
+			const viewport = transcript
+				.renderViewport(120, capacity, { tick: 0, now: 0 })
+				.map((line) => Bun.stripANSI(line).trimEnd());
+
+			expect(
+				viewport.some((line) => line.includes("transcript blocks active")),
+			).toBe(false);
+			expect(viewport).toContain("answer 13 line 2");
+			expect(viewport).toContain("answer 13 line 3");
+
+			await shutdown(booted);
+		}
+	},
+);
