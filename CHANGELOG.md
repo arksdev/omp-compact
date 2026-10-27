@@ -3,17 +3,17 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
-## Не выпущено
+## 1.4.14 — 27 октября 2026
 
 ### Исправлено
 
-- Завершённые вызовы инструментов теперь финализируются в процессе длинного логического запуска (раньше они удерживали границу сброса истории до завершения всего рана, из-за чего ответы ассистента схлопывались до одной строки в аварийном режиме).
+- Исправлено схлопывание текста ответов в аварийный режим одной строки: завершённые вызовы инструментов теперь сбрасываются в историю прямо во время длинных составных ответов модели, не блокируя прокрутку до конца рана.
 
 ---
 
 ### Fixed
 
-- Settle completed tool blocks mid-run instead of holding them until the run finishes, preventing long logical runs from pinning the retirement frontier and triggering emergency one-row-per-block fallback.
+- Fixed assistant replies collapsing into emergency one-row layout: completed tool calls are now settled into history mid-run during multi-step model responses, preventing the scroll frontier from being pinned until the run ends.
 
 ---
 
@@ -21,16 +21,15 @@
 
 ### Изменено
 
-- Обновлена проверяемая версия OMP до 18.13.1. Поддержка OMP 18.0.1 и выше сохранена.
-- Сочетание клавиш `Alt+G` (открытие `local://` во внешнем редакторе в OMP 18.13.1) зарезервировано в цикле переключения отображения.
+- Обновлена поддерживаемая версия OMP до 18.13.1. 
+- Сочетание клавиш `Alt+G` (открытие `local://` во внешнем редакторе в OMP 18.13.1) зарезервировано как занятое системой и и не может быть выбрано в цикле переключения режимов плагина.
 
 ---
 
 ### Changed
 
-- Updated the verified OMP version to 18.13.1. Support for OMP 18.0.1 and later is unchanged.
-- Reserved the `Alt+G` shortcut (host `app.local.open` introduced in OMP 18.13.1) against display cycle conflicts.
-
+- Updated the supported OMP version to 18.13.1.
+- Reserved the Alt+G shortcut (opening local:// in an external editor in OMP 18.13.1) as system-occupied, preventing it from being selected in the plugin's mode-switching cycle.
 ---
 
 ## 1.4.12 — 19 октября 2026
