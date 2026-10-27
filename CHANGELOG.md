@@ -3,6 +3,22 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено
+
+### Изменено
+
+- Обновлена проверяемая версия OMP до 18.13.1. Поддержка OMP 18.0.1 и выше сохранена.
+- Сочетание клавиш `Alt+G` (открытие `local://` во внешнем редакторе в OMP 18.13.1) зарезервировано в цикле переключения отображения.
+
+---
+
+### Changed
+
+- Updated the verified OMP version to 18.13.1. Support for OMP 18.0.1 and later is unchanged.
+- Reserved the `Alt+G` shortcut (host `app.local.open` introduced in OMP 18.13.1) against display cycle conflicts.
+
+---
+
 ## 1.4.12 — 19 октября 2026
 
 ### Изменено

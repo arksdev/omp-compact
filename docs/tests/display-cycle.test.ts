@@ -191,6 +191,7 @@ describe("display cycle: default host app chords against the host", () => {
 	test("app-level chords from the host are refused by validation", () => {
 		for (const key of [
 			"alt+a",
+			"alt+g",
 			"alt+h",
 			"alt+shift+v",
 			"alt+shift+l",
