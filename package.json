@@ -1,6 +1,6 @@
 {
 	"name": "omp-compact",
-	"version": "1.4.15",
+	"version": "1.4.16",
 	"description": "Compact, evidence-preserving tool presentation for OMP",
 	"type": "module",
 	"main": ".omp-plugin/index.ts",
