@@ -232,7 +232,7 @@ export function readArgsTarget(args: unknown): string | undefined {
  * more than the states explain fails order pairing for every card.
  */
 const FULL_CARD_READ_SCHEME =
-	/^(?:skill|agent|memory|vault|history|artifact|omp|rule|security|mcp|issue|pr|mr|local|ssh|proc|cfg|attachment|conflict):\/\//i;
+	/^(?:skill|agent|memory|vault|history|artifact|omp|rule|security|mcp|issue|pr|mr|local|ssh|proc|cfg|attachment|conflict|out):\/\//i;
 
 export function readArgsCollapseIntoGroup(args: unknown): boolean {
 	const target = readArgsTarget(args);

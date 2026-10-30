@@ -3,6 +3,24 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено
+
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.14.0. Поддержка OMP 18.0.1 и выше сохранена.
+- Добавлена поддержка схемы `out://` (протокол промежуточных ответов агента OMP 18.14.0).
+- Сочетания клавиш `Alt+K`, `Alt+Shift+K` (закрепление сессий) и `Alt+O` (выбор ссылок расширений) зарезервированы в цикле переключения отображения.
+
+---
+
+### Changed
+
+- Updated the supported OMP version to 18.14.0. Support for OMP 18.0.1 and later is preserved.
+- Added support for the `out://` scheme (OMP 18.14.0 interim reply protocol).
+- Reserved `Alt+K`, `Alt+Shift+K` (session pin/unpin) and `Alt+O` (extension links hint) shortcuts in the display cycle.
+
+---
+
 ## 1.4.16 — 29 октября 2026
 
 ### Изменено
