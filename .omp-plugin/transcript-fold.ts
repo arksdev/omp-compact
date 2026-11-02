@@ -7,6 +7,8 @@ import {
 	describeWidth,
 	HIDDEN_NODE,
 	type NativeDescribe,
+	type NativeHandle,
+	type RowsSegment,
 	RowsNodes,
 	stockDescribe,
 	terminalColumns,
@@ -100,6 +102,7 @@ export interface TranscriptHost extends RenderableBlock {
 interface NativeBlockMethods {
 	render: (width: number) => Lines;
 	describe?: NativeDescribe;
+	handleNativeEvent?: NativeHandle;
 	finalized?: () => boolean;
 	displaceable?: () => boolean;
 	seal?: () => void;
@@ -170,12 +173,14 @@ interface BlockPatch {
 
 /**
  * How one fold-owned block presents itself to a TSP terminal: its stock
- * description, nothing, or the compact rows of the members it speaks for.
+ * description, nothing, the compact rows of the members it speaks for, or
+ * its own compact rows over its stock card once a click revealed it.
  */
 type NativeChoice =
 	| { readonly kind: "native" }
 	| { readonly kind: "hidden" }
-	| { readonly kind: "rows"; readonly lines: Lines };
+	| { readonly kind: "rows"; readonly segments: readonly RowsSegment[] }
+	| { readonly kind: "revealed"; readonly lines: Lines };
 
 interface NativeRunPlan {
 	readonly frame: number;
@@ -733,6 +738,7 @@ export class TranscriptFold {
 		return {
 			render: inheritedMethod(block, "render") ?? (() => EMPTY_LINES),
 			describe: stockDescribe(block),
+			handleNativeEvent: inheritedMethod(block, "handleNativeEvent"),
 			finalized: inheritedMethod(block, "isTranscriptBlockFinalized"),
 			displaceable: inheritedMethod(block, "isDisplaceableBlock"),
 			seal: inheritedMethod(block, "seal"),
@@ -885,7 +891,13 @@ export class TranscriptFold {
 					const choice = fold.#nativeChoice(this, width, cx);
 					if (choice.kind === "hidden") return HIDDEN_NODE;
 					if (choice.kind === "rows")
-						return fold.#rowsNodes.node(this, choice.lines, width);
+						return fold.#rowsNodes.compact(this, choice.segments, width);
+					if (choice.kind === "revealed")
+						return fold.#rowsNodes.revealed(this, choice.lines, width, {
+							describe: stock,
+							render: native.render,
+							handle: native.handleNativeEvent,
+						});
 					const described = stock?.call(this, cx);
 					if (described) return described;
 					return fold.#rowsNodes.node(
@@ -893,6 +905,17 @@ export class TranscriptFold {
 						trimBlankEdges(native.render.call(this, width)),
 						width,
 					);
+				},
+			};
+			// A click on compact rows reveals the member they belong to, which
+			// may be another member of this block's stretch (see RowsNodes);
+			// the terminal repaints after every event, which replans the run.
+			wrappers.handleNativeEvent = {
+				configurable: true,
+				writable: true,
+				value(this: RenderableBlock, event: unknown): void {
+					if (!fold.#rowsNodes.handle(this, event))
+						native.handleNativeEvent?.call(this, event);
 				},
 			};
 		}
@@ -911,7 +934,9 @@ export class TranscriptFold {
 	 * run instead: a member the presentation leaves native keeps its stock
 	 * description, each stretch of compact members between them becomes one
 	 * node on its first member, and the rest of the stretch describes
-	 * nothing. Retirement and publication are row concerns and stay out.
+	 * nothing. A member a click revealed leaves the stretch and describes as
+	 * its own rows over its stock card. Retirement and publication are row
+	 * concerns and stay out.
 	 */
 	#nativeChoice(
 		block: RenderableBlock,
@@ -921,9 +946,11 @@ export class TranscriptFold {
 		const role = this.#roles.get(block);
 		if (!role) {
 			const rows = this.#callbacks.render(block, width, () => NATIVE_MARKER);
-			return rows === NATIVE_MARKER
-				? NATIVE_CHOICE
-				: { kind: "rows", lines: trimBlankEdges(rows) };
+			if (rows === NATIVE_MARKER) return NATIVE_CHOICE;
+			const lines = trimBlankEdges(rows);
+			return this.#rowsNodes.isRevealed(block)
+				? { kind: "revealed", lines }
+				: { kind: "rows", segments: [{ owner: block, lines }] };
 		}
 		let plan = this.#nativeRuns.get(role.run);
 		if (
@@ -950,11 +977,11 @@ export class TranscriptFold {
 	): ReadonlyMap<RenderableBlock, NativeChoice> {
 		const choices = new Map<RenderableBlock, NativeChoice>();
 		let owner: RenderableBlock | undefined;
-		let rows: string[] = [];
+		let segments: RowsSegment[] = [];
 		const close = (): void => {
-			if (owner) choices.set(owner, { kind: "rows", lines: rows });
+			if (owner) choices.set(owner, { kind: "rows", segments });
 			owner = undefined;
-			rows = [];
+			segments = [];
 		};
 		for (const member of run.members) {
 			if (!this.#callbacks.isFoldable(member)) {
@@ -981,9 +1008,15 @@ export class TranscriptFold {
 				choices.set(member, NATIVE_CHOICE);
 				continue;
 			}
+			const lines = trimBlankEdges(presented);
+			if (this.#rowsNodes.isRevealed(member)) {
+				close();
+				choices.set(member, { kind: "revealed", lines });
+				continue;
+			}
 			if (owner) choices.set(member, HIDDEN_CHOICE);
 			else owner = member;
-			for (const line of trimBlankEdges(presented)) rows.push(line);
+			segments.push({ owner: member, lines });
 		}
 		close();
 		return choices;

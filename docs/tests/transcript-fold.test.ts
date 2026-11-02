@@ -751,8 +751,26 @@ describe("TranscriptFold on a Tern Surface Protocol host", () => {
 	}
 
 	/** The host's `rowsText` node: pre-rendered rows as one unwrapped text. */
-	function rows(...lines: string[]): unknown {
+	function plain(...lines: string[]): Record<string, unknown> {
 		return { k: "text", p: { text: lines.join("\n"), wrap: "none" } };
+	}
+
+	/** Compact rows, one clickable text per member's row. */
+	function rows(...members: string[]): unknown {
+		return {
+			k: "col",
+			p: {},
+			c: members.map((line, index) => ({
+				k: "text",
+				p: {
+					text: line,
+					wrap: "none",
+					actions: { click: "omp-compact.reveal" },
+					title: "Show the full card",
+				},
+				key: String(index),
+			})),
+		};
 	}
 
 	const HIDDEN = { k: "col", p: { hidden: true } };
@@ -834,7 +852,7 @@ describe("TranscriptFold on a Tern Surface Protocol host", () => {
 		]);
 		expect(frame(transcript)).toEqual([
 			rows("• write a.ts"),
-			rows("[ 3 actions ]"),
+			plain("[ 3 actions ]"),
 		]);
 	});
 
@@ -857,7 +875,7 @@ describe("TranscriptFold on a Tern Surface Protocol host", () => {
 		]);
 		expect(frame(transcript)).toEqual([
 			rows("• write a.ts"),
-			rows("custom row"),
+			plain("custom row"),
 		]);
 	});
 
@@ -940,5 +958,64 @@ describe("TranscriptFold on a Tern Surface Protocol host", () => {
 			k: "card",
 			p: { title: "read a.ts" },
 		});
+	});
+
+	/** A stock card that records the events its stock handler receives. */
+	class ClickableBlock extends DescribedBlock {
+		events: unknown[] = [];
+
+		handleNativeEvent(event: unknown): void {
+			this.events.push(event);
+		}
+	}
+
+	const click = (key: string, act: string) => ({
+		type: "action",
+		key,
+		act,
+		mods: [],
+	});
+
+	test("a click on a row reveals that member's stock card under its row, and a second click compacts it", () => {
+		const read = new ClickableBlock("read a.ts");
+		const grep = new ClickableBlock("grep foo");
+		const bash = new ClickableBlock("bash: ls");
+		const transcript = install([read, grep, bash]);
+		frame(transcript);
+		// The click lands on the carrier, at the clicked member's row.
+		read.handleNativeEvent(click("1", "omp-compact.reveal"));
+		const [first, revealed, rest] = frame(transcript);
+		expect(first).toEqual(rows("• read a.ts"));
+		expect(rest).toEqual(rows("• bash: ls"));
+		const [row, card] = (revealed as { c: unknown[] }).c;
+		expect(row).toMatchObject({
+			key: "r",
+			p: { text: "• grep foo", actions: { click: "omp-compact.conceal" } },
+		});
+		// The stock card sits in a proxy, so its own events reach the stock
+		// handler under its own key paths.
+		const proxy = card as unknown as ClickableBlock;
+		expect(proxy.describe(CX)).toEqual({ k: "card", p: { title: "grep foo" } });
+		proxy.handleNativeEvent({ type: "toggle", key: "", collapsed: false });
+		expect(grep.events).toEqual([
+			{ type: "toggle", key: "", collapsed: false },
+		]);
+		// The plugin's clicks never reach a stock handler.
+		expect(read.events).toEqual([]);
+
+		grep.handleNativeEvent(click("r", "omp-compact.conceal"));
+		expect(frame(transcript)).toEqual([
+			rows("• read a.ts", "• grep foo", "• bash: ls"),
+			HIDDEN,
+			HIDDEN,
+		]);
+	});
+
+	test("other events on a compact block go to its stock handler", () => {
+		const read = new ClickableBlock("read a.ts");
+		const transcript = install([read]);
+		frame(transcript);
+		read.handleNativeEvent(click("0", "copy"));
+		expect(read.events).toEqual([click("0", "copy")]);
 	});
 });

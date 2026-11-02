@@ -73,10 +73,11 @@ const EXPECTED_ARITY: Readonly<Record<string, number>> = Object.freeze({
 	peekFlushBatch: 1,
 	// Tern Surface Protocol (18.4.4): the transcript's per-frame block list and
 	// the block members it patches (`describe(cx?)`, late diagnostics routed
-	// into write/edit cards), measured on 18.14.2.
+	// into write/edit cards, clicks on described nodes), measured on 18.14.2.
 	nativeBlocks: 0,
 	describe: 1,
 	attachLateDiagnostics: 1,
+	handleNativeEvent: 1,
 	updateArgs: 2,
 	// isPartial has a default — see the table comment above.
 	updateResult: 1,

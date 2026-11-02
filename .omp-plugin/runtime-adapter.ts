@@ -34,7 +34,11 @@ import type {
 	MutationMessageDetails,
 } from "./messages";
 import type { ModePolicy } from "./mode-policy";
-import { compactDescribe, RowsNodes, stockDescribe } from "./native-describe";
+import {
+	compactNativeMembers,
+	RowsNodes,
+	stockDescribe,
+} from "./native-describe";
 import { objectRecord } from "./object-record";
 import { DescriptorPatch } from "./patch-kit";
 import {
@@ -1450,8 +1454,10 @@ export class RuntimeAdapter {
 					},
 				},
 			};
-			const describe = compactDescribe(component, compactRows, this.#rowsNodes);
-			if (describe) wrappers.describe = describe;
+			Object.assign(
+				wrappers,
+				compactNativeMembers(component, compactRows, this.#rowsNodes),
+			);
 			const patch = new DescriptorPatch(component, Object.keys(wrappers));
 			patch.install(wrappers);
 			this.#patches.advisor.set(component, patch);
@@ -1587,8 +1593,10 @@ export class RuntimeAdapter {
 					},
 				},
 			};
-			const describe = compactDescribe(component, compactRows, this.#rowsNodes);
-			if (describe) wrappers.describe = describe;
+			Object.assign(
+				wrappers,
+				compactNativeMembers(component, compactRows, this.#rowsNodes),
+			);
 			const patch = new DescriptorPatch(component, Object.keys(wrappers));
 			patch.install(wrappers);
 			patches.set(component, patch);
@@ -1792,8 +1800,10 @@ export class RuntimeAdapter {
 					},
 				};
 			}
-			const describe = compactDescribe(component, compactRows, this.#rowsNodes);
-			if (describe) wrappers.describe = describe;
+			Object.assign(
+				wrappers,
+				compactNativeMembers(component, compactRows, this.#rowsNodes),
+			);
 			const patch = new DescriptorPatch(component, Object.keys(wrappers));
 			patch.install(wrappers);
 			patches.set(component, patch);

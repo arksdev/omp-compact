@@ -1214,16 +1214,31 @@ const TSP_CX = { cols: 120, supports: () => false };
 interface Describable {
 	describe(cx?: unknown): unknown;
 	setExpanded(value: boolean): void;
+	handleNativeEvent(event: unknown): void;
 }
 
-/** The visible text of a compact node, or `undefined` for a stock one. */
-function compactText(node: unknown): string | undefined {
-	const record = objectRecord(node);
-	if (record.k !== "text") return undefined;
-	const props = objectRecord(record.p);
+/** The visible text of one clickable compact row, else `undefined`. */
+function rowText(node: unknown): string | undefined {
+	const row = objectRecord(node);
+	const props = objectRecord(row.p);
+	if (row.k !== "text" || objectRecord(props.actions).click === undefined)
+		return undefined;
 	if (typeof props.text === "string") return props.text;
 	if (!Array.isArray(props.spans)) return undefined;
 	return props.spans.map((span) => String(objectRecord(span).t)).join("");
+}
+
+/**
+ * The visible text of a compact node (a column of clickable rows), or
+ * `undefined` for a stock one.
+ */
+function compactText(node: unknown): string | undefined {
+	const record = objectRecord(node);
+	if (record.k !== "col" || !Array.isArray(record.c)) return undefined;
+	const texts = record.c.map(rowText);
+	return texts.every((text) => text !== undefined)
+		? texts.join("\n")
+		: undefined;
 }
 
 function stockRole(node: unknown): unknown {
@@ -1279,6 +1294,26 @@ stockTest(
 
 			for (const block of [skill, late, bash]) block.setExpanded(false);
 			expect(compactText(skill.describe(TSP_CX))).toMatch(/^• skill /);
+			expect(compactText(bash.describe(TSP_CX))).toBe("• bash: ls tern");
+
+			// A click on the compact row reveals the stock card under it; a
+			// click on that row compacts it again.
+			bash.handleNativeEvent({
+				type: "action",
+				key: "0",
+				act: "omp-compact.reveal",
+				mods: [],
+			});
+			const revealed = objectRecord(bash.describe(TSP_CX));
+			const [row, proxy] = revealed.c as [unknown, Describable];
+			expect(rowText(row)).toBe("• bash: ls tern");
+			expect(stockRole(proxy.describe(TSP_CX))).toBe(stock.bash);
+			bash.handleNativeEvent({
+				type: "action",
+				key: "r",
+				act: "omp-compact.conceal",
+				mods: [],
+			});
 			expect(compactText(bash.describe(TSP_CX))).toBe("• bash: ls tern");
 		} finally {
 			booted.adapter.dispose();

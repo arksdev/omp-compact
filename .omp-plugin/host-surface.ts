@@ -154,10 +154,13 @@ export const BLOCK_FOLD_METHODS = [
  *   with the block's compact rows.
  * - `attachLateDiagnostics(files)`: where late LSP diagnostics go on that
  *   path; a fold-owned card refuses them so they keep their own message.
+ * - `handleNativeEvent(event)`: where a click on a node lands; a click on
+ *   compact rows reveals the stock card, everything else stays stock.
  */
 export const BLOCK_NATIVE_METHODS = [
 	"describe",
 	"attachLateDiagnostics",
+	"handleNativeEvent",
 ] as const;
 
 /**
