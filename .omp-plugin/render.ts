@@ -535,39 +535,79 @@ export function renderCompactToolRows(
 	// Explicit rule lookup only — render never invents a rule for unknown
 	// names. Unknown tools fall back to the bounded generic description; the
 	// runtime adapter decides whether an unresolved tool renders natively.
+	const spec = compactRowSpec(view, displayPaths);
+	if (!view.isPartial) return paintCompactRow(spec, theme, width);
+	// One activity indicator: braille frame + "Working…", then the summary
+	// so the pending live-log row keeps the tool identity.
+	const line = `${theme.fg("dim", pendingFrame(theme, view.tick ?? 0))} ${theme.fg(
+		"dim",
+		"Working…",
+	)} ${paintSummary(spec, theme)}`;
+	return [fitTransparentLine(line, width)];
+}
+
+/**
+ * The theme-free content of one generic compact tool row: everything
+ * `renderCompactToolRows` derives from the call's arguments and result,
+ * already sanitized and bounded, so it can outlive them. Mutation, Git and
+ * vibe rows are not described here; a vibe call gets the generic summary.
+ */
+export interface CompactRowSpec {
+	readonly title: string;
+	readonly titleColor?: string;
+	readonly separator: string;
+	readonly description: string;
+	/** Settled metadata; empty while the call is still in flight. */
+	readonly meta: readonly string[];
+	readonly isError: boolean;
+}
+
+export function compactRowSpec(
+	view: CompactToolView,
+	displayPaths?: DisplayPathOptions,
+): CompactRowSpec {
 	const rule = resolveToolRule(view.toolName);
 	const summary = rule
 		? rule.describe(view.args, displayPaths)
 		: genericToolDescription(view.toolName, view.args);
-	const sanitizedTitle = sanitizeOneLine(summary.title, 40).toLowerCase();
-	const title = summary.titleColor
-		? fixedForeground(summary.titleColor, sanitizedTitle)
-		: theme.fg("dim", sanitizedTitle);
-	const description = sanitizeOneLine(summary.description);
-	// Read rows drop the colon separator: `• read <path>`.
-	const separator = rule?.route === "read-group" ? " " : ": ";
-	const suffix = description
-		? `${separator}${theme.fg("dim", description)}`
+	return {
+		title: sanitizeOneLine(summary.title, 40).toLowerCase(),
+		...(summary.titleColor && { titleColor: summary.titleColor }),
+		// Read rows drop the colon separator: `• read <path>`.
+		separator: rule?.route === "read-group" ? " " : ": ",
+		description: sanitizeOneLine(summary.description),
+		meta: view.isPartial
+			? []
+			: [
+					...summary.meta.map((value) => sanitizeOneLine(value, 100)),
+					...settledMeta(view, rule),
+				].filter(Boolean),
+		isError: view.isError,
+	};
+}
+
+function paintSummary(spec: CompactRowSpec, theme: Theme): string {
+	const title = spec.titleColor
+		? fixedForeground(spec.titleColor, spec.title)
+		: theme.fg("dim", spec.title);
+	const suffix = spec.description
+		? `${spec.separator}${theme.fg("dim", spec.description)}`
 		: "";
-	let line: string;
-	if (view.isPartial) {
-		// One activity indicator: braille frame + "Working…", then the summary
-		// so the pending live-log row keeps the tool identity.
-		line = `${theme.fg("dim", pendingFrame(theme, view.tick ?? 0))} ${theme.fg(
-			"dim",
-			"Working…",
-		)} ${title}${suffix}`;
-	} else {
-		const icon = view.isError ? theme.fg("error", "✗") : theme.fg("dim", "•");
-		const pieces = [`${icon} ${title}${suffix}`];
-		const meta = [
-			...summary.meta.map((value) => sanitizeOneLine(value, 100)),
-			...settledMeta(view, rule),
-		].filter(Boolean);
-		if (meta.length > 0) pieces.push(theme.fg("dim", ` · ${meta.join(" · ")}`));
-		line = pieces.join("");
-	}
-	return [fitTransparentLine(line, width)];
+	return `${title}${suffix}`;
+}
+
+/** The settled row a spec describes, at the current theme and width. */
+export function paintCompactRow(
+	spec: CompactRowSpec,
+	theme: Theme,
+	width?: number,
+): readonly string[] {
+	const icon = spec.isError ? theme.fg("error", "✗") : theme.fg("dim", "•");
+	const meta =
+		spec.meta.length > 0 ? theme.fg("dim", ` · ${spec.meta.join(" · ")}`) : "";
+	return [
+		fitTransparentLine(`${icon} ${paintSummary(spec, theme)}${meta}`, width),
+	];
 }
 
 export function mutationMessageComponent(

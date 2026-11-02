@@ -49,6 +49,7 @@ import {
 	injectRulesFromTtsrComponent,
 	isVibeToolName,
 	lateDiagnosticsFromComponent,
+	paintCompactRow,
 	renderCompactToolRows,
 	renderInjectRuleRows,
 	renderLateDiagnosticsRow,
@@ -100,6 +101,20 @@ export type {
 } from "./runtime-session-state";
 
 const EMPTY_LINES: readonly string[] = Object.freeze([]);
+
+/**
+ * Whether a run's presentation leaves out the call's own row: hidden
+ * outright, or filtered to nothing but the aggregate Git summary line (a
+ * routine call, or every call in `clear`).
+ */
+function hidesOwnRow(state: ToolState, decision: ToolRenderDecision): boolean {
+	if (decision.kind === "empty") return true;
+	return (
+		decision.kind === "tool-rows" &&
+		decision.filtered &&
+		(decision.summaryOnly || state.mutations.length === 0)
+	);
+}
 
 export interface AdapterUI {
 	theme?: Theme;
@@ -272,6 +287,12 @@ export class RuntimeAdapter {
 	 * `OMP_COMPACT_TRACE` line fires once per card instead of once per frame.
 	 */
 	readonly #tracedNative = new WeakSet<object>();
+	/**
+	 * Finished runs whose hidden calls a click on the stats row put back on
+	 * screen (Tern only), and whether each finished run hid any call at all.
+	 */
+	readonly #shownHidden = new WeakSet<TurnLedger>();
+	readonly #hidesCalls = new WeakMap<TurnLedger, boolean>();
 
 	constructor(options: RuntimeAdapterOptions) {
 		this.#host = new StockHostAdapter(options.root);
@@ -288,6 +309,15 @@ export class RuntimeAdapter {
 			statsRenderer: options.statsRenderer,
 			placeStatsCarrier: (transcript, index, carrier, options) =>
 				this.#host.insertTranscriptChildAt(transcript, index, carrier, options),
+			statsReveal: (ledger) => ({
+				available: () => this.#hidesCallsIn(ledger),
+				shown: () => this.#shownHidden.has(ledger),
+				toggle: () => {
+					if (this.#disposed) return;
+					if (!this.#shownHidden.delete(ledger)) this.#shownHidden.add(ledger);
+					this.#requestLedgerRender(ledger);
+				},
+			}),
 
 			getToolsExpanded: options.ui.getToolsExpanded
 				? () => options.ui.getToolsExpanded?.() === true
@@ -853,15 +883,11 @@ export class RuntimeAdapter {
 		const state = this.#session.binding.componentState(block);
 		if (state) {
 			const phase = state.ledger.phase;
-			const projection =
-				phase === "filtered" ||
-				(phase === "full" &&
-					this.#session.modeFor(state.ledger).mode === "clear")
-					? this.#session.terminalProjection(state.ledger)
-					: undefined;
+			const projection = this.#projectionFor(state.ledger);
 			const decision = this.#toolDecision(state, phase, projection);
 			if (decision.kind === "native") return nativeRender(width);
-			if (decision.kind === "empty") return EMPTY_LINES;
+			if (decision.kind === "empty")
+				return this.#shownHiddenRows(state.ledger, [state], width);
 			const theme = this.#ui.theme;
 			if (!theme) return nativeRender(width);
 			if (decision.kind === "tool-rows") {
@@ -881,17 +907,19 @@ export class RuntimeAdapter {
 					// collapse into one aggregate commit-summary line
 					// appended after the last retained row of the run. Git
 					// evidence without any created commit hash contributes
-					// no row at all.
-					const rows: string[] = [];
-					if (state.mutations.length > 0 && !decision.summaryOnly)
-						rows.push(
-							...renderCompactToolRows(
-								toolStateProps,
-								theme,
-								width,
-								this.#session.displayPathsFor(state.ledger),
-							),
-						);
+					// no row at all. A call whose own row the retention
+					// leaves out comes back only when its stats row shows the
+					// run's hidden calls, above the summary it may carry.
+					const rows: string[] = hidesOwnRow(state, decision)
+						? [...this.#shownHiddenRows(state.ledger, [state], width)]
+						: [
+								...renderCompactToolRows(
+									toolStateProps,
+									theme,
+									width,
+									this.#session.displayPathsFor(state.ledger),
+								),
+							];
 					if (decision.summary && projection)
 						rows.push(terminalGitSummaryLine(projection.hashes, theme, width));
 					return rows;
@@ -924,7 +952,8 @@ export class RuntimeAdapter {
 				readCount: readStates.length,
 			});
 			if (decision.kind === "native") return nativeRender(width);
-			if (decision.kind === "empty") return EMPTY_LINES;
+			if (decision.kind === "empty")
+				return this.#shownHiddenRows(group.ledger, readStates, width);
 			const theme = this.#ui.theme;
 			if (!theme) return nativeRender(width);
 			const rows: string[] = [];
@@ -961,7 +990,10 @@ export class RuntimeAdapter {
 					: this.#session.unownedMode.mode,
 				phase: ledger?.phase,
 			});
-			if (decision.kind === "empty") return EMPTY_LINES;
+			if (decision.kind === "empty")
+				return ledger && this.#shownHidden.has(ledger)
+					? nativeRender(width)
+					: EMPTY_LINES;
 			return nativeRender(width);
 		}
 		// Last stop: a patched surface with no binding at all. This is the
@@ -975,6 +1007,70 @@ export class RuntimeAdapter {
 			);
 		}
 		return nativeRender(width);
+	}
+
+	/** The terminal projection a ledger's rows render against, if any. */
+	#projectionFor(ledger: TurnLedger): TerminalProjection | undefined {
+		return ledger.phase === "filtered" ||
+			(ledger.phase === "full" &&
+				this.#session.modeFor(ledger).mode === "clear")
+			? this.#session.terminalProjection(ledger)
+			: undefined;
+	}
+
+	/**
+	 * The rows of calls the run's presentation hides, once a click on its
+	 * stats row showed them: each call's settled compact row, as `compact`
+	 * mode would keep it. A filtered run already retired the payloads, so a
+	 * call without mutation rows paints the row it kept (`retiredRow`).
+	 */
+	#shownHiddenRows(
+		ledger: TurnLedger | undefined,
+		states: readonly ToolState[],
+		width: number,
+	): readonly string[] {
+		if (!ledger || !this.#shownHidden.has(ledger)) return EMPTY_LINES;
+		const theme = this.#ui.theme;
+		if (!theme) return EMPTY_LINES;
+		const displayPaths = this.#session.displayPathsFor(ledger);
+		return states.flatMap((state) =>
+			state.mutations.length === 0 && state.retiredRow
+				? paintCompactRow(state.retiredRow, theme, width)
+				: renderCompactToolRows(
+						{
+							toolName: state.toolName,
+							args: state.args,
+							result: state.result,
+							isError: state.isError,
+							isPartial: state.isPartial,
+							tick: state.version,
+							settledAt: state.settledAt,
+							mutationEntries: state.mutations,
+						},
+						theme,
+						width,
+						displayPaths,
+					),
+		);
+	}
+
+	/**
+	 * Whether a finished run hid any of its calls, which is when its stats
+	 * row offers to show them. Settled once the run ends: its mode is frozen
+	 * and its calls no longer change.
+	 */
+	#hidesCallsIn(ledger: TurnLedger): boolean {
+		if (ledger.phase === "working") return false;
+		const known = this.#hidesCalls.get(ledger);
+		if (known !== undefined) return known;
+		const projection = this.#projectionFor(ledger);
+		const hides = this.#session
+			.ledgerStates(ledger)
+			.some((state) =>
+				hidesOwnRow(state, this.#toolDecision(state, ledger.phase, projection)),
+			);
+		this.#hidesCalls.set(ledger, hides);
+		return hides;
 	}
 
 	/**

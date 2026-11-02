@@ -48,8 +48,12 @@ import {
 	RebuildLifecycle,
 	type RebuildLifecycleAccess,
 } from "./rebuild-lifecycle";
-import { gitCommitHashes } from "./render";
-import { createStatsCarrier, type RunStatsEvidence } from "./run-stats";
+import { type CompactRowSpec, compactRowSpec, gitCommitHashes } from "./render";
+import {
+	createStatsCarrier,
+	type RunStatsEvidence,
+	type StatsReveal,
+} from "./run-stats";
 import type { RenderableBlock, TranscriptHost } from "./transcript-fold";
 import {
 	type AgentEndEvent,
@@ -118,6 +122,12 @@ export interface ToolState {
 	 * committed scrollback.
 	 */
 	settledAt?: number;
+	/**
+	 * The settled compact row, kept when a filtered terminal projection
+	 * retires `args` and `result`: a click on the run's stats row in Tern can
+	 * still show the call's row. Theme-free and bounded (see CompactRowSpec).
+	 */
+	retiredRow?: CompactRowSpec;
 	version: number;
 }
 
@@ -185,6 +195,12 @@ export interface SessionStateOptions {
 	 */
 	getToolsExpanded?: () => boolean;
 
+	/**
+	 * What a click on a run's stats row does: show or hide the calls the
+	 * run's presentation hid. Absent: the row is not clickable.
+	 */
+	statsReveal?: (ledger: TurnLedger) => StatsReveal;
+
 	/** Injectable clock for deterministic tests. */
 	now?: () => number;
 }
@@ -236,6 +252,7 @@ export class RuntimeSessionState {
 		| undefined;
 
 	readonly #getToolsExpanded: (() => boolean) | undefined;
+	readonly #statsReveal: ((ledger: TurnLedger) => StatsReveal) | undefined;
 	readonly #now: () => number;
 	/** Component ↔ state associations (see ComponentBinding). */
 	readonly binding: ComponentBinding;
@@ -287,6 +304,7 @@ export class RuntimeSessionState {
 		this.#getToolsExpanded = options.getToolsExpanded;
 		this.#now = options.now ?? Date.now;
 		this.#placeStatsCarrier = options.placeStatsCarrier;
+		this.#statsReveal = options.statsReveal;
 		this.binding = new ComponentBinding(this.#states, {
 			state: (id, ledger) => this.state(id, ledger),
 			forgetState: (state) => this.#forgetState(state),
@@ -1065,7 +1083,9 @@ export class RuntimeSessionState {
 	 * args/results and per-call Git payloads. The immutable terminal projection
 	 * is materialized first, so mutation rows and the aggregate commit summary
 	 * keep rendering exactly as before; compact-mode/full diagnostics are never
-	 * retired. Returns true only when this call released retained payload data.
+	 * retired. Each released call keeps its bounded compact row
+	 * (`retiredRow`), never the payloads behind it. Returns true only when
+	 * this call released retained payload data.
 	 */
 	retireFilteredPayloads(runId: string): boolean {
 		if (this.#disposed) return false;
@@ -1075,6 +1095,17 @@ export class RuntimeSessionState {
 		let retired = false;
 		for (const state of this.#states.values()) {
 			if (state.ledger !== ledger) continue;
+			if (state.args !== undefined || state.result !== undefined)
+				state.retiredRow = compactRowSpec(
+					{
+						toolName: state.toolName,
+						args: state.args,
+						result: state.result,
+						isError: state.isError,
+						isPartial: false,
+					},
+					this.displayPathsFor(ledger),
+				);
 			let stateRetired = false;
 			if (state.args !== undefined) {
 				state.args = undefined;
@@ -1171,7 +1202,7 @@ export class RuntimeSessionState {
 		const children = transcript.children;
 		const place = this.#placeStatsCarrier;
 		if (!place) return false;
-		const carrier = createStatsCarrier(line);
+		const carrier = createStatsCarrier(line, this.#statsReveal?.(ledger));
 
 		// Prefer the last bound tool/read-group block of this ledger.
 		for (let i = children.length - 1; i >= 0; i--) {

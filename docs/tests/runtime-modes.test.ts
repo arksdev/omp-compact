@@ -36,6 +36,8 @@ interface AdapterModule {
 		}): void;
 		setMutations(toolCallId: string, entries: unknown[]): void;
 		setGit(toolCallId: string, git: unknown): void;
+		showStats(runId: string, line: string): boolean;
+		retireFilteredPayloads(runId: string): boolean;
 		observeAssistantMessage(message: unknown): void;
 		captureTerminalRunId(): string | undefined;
 		releaseTerminalRun(runId: string | undefined): void;
@@ -607,6 +609,60 @@ describe("runtime modes", () => {
 		expect(terminal).toContain("git commit:");
 		expect(terminal).toContain("abc1234");
 		expect(terminal).not.toContain("kept.ts");
+	});
+
+	test("Tern: a live turn with a commit keeps its summary and shows its routine calls on a stats click", async () => {
+		const booted = await boot({ mode: "live", retainGitLive: true });
+		await beginRun(booted);
+		addTool(booted, "bash", "bash-1", { command: "bun test" });
+		settle(booted, "bash-1", "bash", {
+			content: [{ type: "text", text: "ok" }],
+		});
+		addTool(booted, "bash", "git-1", { command: "git commit abc1234 Fix" });
+		booted.adapter.setGit("git-1", {
+			version: 1,
+			toolCallId: "git-1",
+			subcommand: "commit",
+			text: "git commit abc1234 Fix",
+			isError: false,
+		});
+		settle(booted, "git-1", "bash", {
+			content: [{ type: "text", text: "committed" }],
+		});
+		booted.adapter.endRun(terminalAnswer());
+		booted.adapter.retireFilteredPayloads("omp-compact-run-1");
+		expect(booted.adapter.showStats("omp-compact-run-1", "[ 2 actions ]")).toBe(
+			true,
+		);
+		const hidden = visibleRows(booted);
+		expect(hidden.join("\n")).toContain("git commit:");
+		expect(hidden.join("\n")).not.toContain("bun test");
+
+		const carrier = booted.transcript.children.find(
+			(child) =>
+				(child as { message?: { customType?: string } }).message?.customType ===
+				"omp-compact-stats",
+		) as {
+			describe(cx: unknown): unknown;
+			handleNativeEvent(event: unknown): void;
+		};
+		// The aggregate summary alone stands in for two calls: the row offers
+		// to show them.
+		expect(carrier.describe({ cols: 120 })).toBeDefined();
+		const toggle = { type: "action", key: "", act: "omp-compact.hidden-calls" };
+		carrier.handleNativeEvent(toggle);
+		const shown = visibleRows(booted);
+		const test = shown.findIndex((row) => row.startsWith("• bash: bun test"));
+		const commit = shown.findIndex((row) =>
+			row.startsWith("• bash: git commit abc1234 Fix"),
+		);
+		const summary = shown.findIndex((row) => row.includes("git commit:"));
+		expect(test).toBeGreaterThanOrEqual(0);
+		expect(commit).toBeGreaterThan(test);
+		expect(summary).toBeGreaterThan(commit);
+
+		carrier.handleNativeEvent(toggle);
+		expect(visibleRows(booted)).toEqual(hidden);
 	});
 
 	test("clear drops the commit summary when Git rows are not retained", async () => {

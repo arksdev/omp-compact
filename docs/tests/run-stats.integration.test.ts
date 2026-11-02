@@ -64,6 +64,7 @@ interface AdapterModule {
 			willContinue?: boolean;
 		}): "working" | "filtered" | "full";
 		showStats(runId: string, line: string): boolean;
+		retireFilteredPayloads(runId: string): boolean;
 		ledgerActions(runId: string): number | undefined;
 		ledgerHasError(runId: string): boolean | undefined;
 		hydrateBranch(entries: readonly unknown[]): void;
@@ -612,5 +613,95 @@ stockTest(
 		// Idle install never arms the spinner; dispose still clears if armed.
 		expect(booted.clearedTimers.length).toBe(0);
 		expect(booted.notifications).toEqual([]);
+	},
+);
+
+interface ClickableStats {
+	message: { customType: string };
+	describe?(cx?: unknown): unknown;
+	handleNativeEvent?(event: unknown): void;
+}
+
+function statsCarrier(transcript: TranscriptInstance): ClickableStats {
+	const carrier = transcript.children.find(
+		(child) =>
+			(child as Partial<ClickableStats>).message?.customType ===
+			"omp-compact-stats",
+	);
+	if (!carrier) throw new Error("no stats carrier");
+	return carrier as ClickableStats;
+}
+
+const TOGGLE = { type: "action", key: "", act: "omp-compact.hidden-calls" };
+
+stockTest(
+	"Tern: a click on the stats row shows the calls live mode hid, a second click hides them",
+	async () => {
+		const booted = await bootAdapter();
+		booted.adapter.beginRun();
+		addTool(booted, "bash", { command: "bun test" }, "tool-1");
+		addTool(booted, "grep", { pattern: "TODO", path: "src" }, "tool-2");
+		for (const [toolCallId, toolName] of [
+			["tool-1", "bash"],
+			["tool-2", "grep"],
+		] as const)
+			booted.adapter.finishTool({
+				toolCallId,
+				toolName,
+				result: { content: [{ type: "text", text: "ok" }], details: {} },
+				isError: false,
+			});
+		addAnswer(booted, "done");
+		expect(finishRun(booted, "done")).toBe("filtered");
+		// The filtered projection frees the payloads before the stats row
+		// exists: the shown rows must not need them.
+		expect(booted.adapter.retireFilteredPayloads("omp-compact-run-1")).toBe(
+			true,
+		);
+		const line = "[ 2 actions · 300 prompt · 50 received · 4s ]";
+		expect(booted.adapter.showStats("omp-compact-run-1", line)).toBe(true);
+		const hidden = visibleRows(booted.transcript);
+		expect(hidden).toEqual([line, "done"]);
+
+		const carrier = statsCarrier(booted.transcript);
+		const node = carrier.describe?.({ cols: 120 }) as {
+			p: { actions?: { click?: string } };
+		};
+		expect(node.p.actions?.click).toBe("omp-compact.hidden-calls");
+
+		carrier.handleNativeEvent?.(TOGGLE);
+		const shown = visibleRows(booted.transcript);
+		expect(shown[0]).toStartWith("• bash: bun test");
+		expect(shown[1]).toStartWith("• grep");
+		expect(shown[1]).toContain("TODO");
+		expect(shown.slice(2)).toEqual([line, "done"]);
+
+		carrier.handleNativeEvent?.(TOGGLE);
+		expect(visibleRows(booted.transcript)).toEqual(hidden);
+		await booted.adapter.dispose();
+	},
+);
+
+stockTest(
+	"Tern: the stats row of a run that hid nothing is not clickable",
+	async () => {
+		const booted = await bootAdapter({ mode: "compact" });
+		booted.adapter.beginRun();
+		addTool(booted, "bash", { command: "bun test" }, "tool-1");
+		booted.adapter.finishTool({
+			toolCallId: "tool-1",
+			toolName: "bash",
+			result: { content: [{ type: "text", text: "ok" }], details: {} },
+			isError: false,
+		});
+		addAnswer(booted, "done");
+		finishRun(booted, "done");
+		expect(booted.adapter.showStats("omp-compact-run-1", "[ 1 actions ]")).toBe(
+			true,
+		);
+		expect(statsCarrier(booted.transcript).describe?.({ cols: 120 })).toBe(
+			undefined,
+		);
+		await booted.adapter.dispose();
 	},
 );

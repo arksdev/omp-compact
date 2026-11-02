@@ -69,6 +69,8 @@ export type NativeHandle = (this: object, event: unknown) => void;
 export const REVEAL_ACTION = "omp-compact.reveal";
 /** What a click on a revealed card's compact row sends: compact it again. */
 export const CONCEAL_ACTION = "omp-compact.conceal";
+/** What a click on a run's stats row sends: show or hide the calls it hid. */
+export const HIDDEN_CALLS_ACTION = "omp-compact.hidden-calls";
 
 /** One component's compact rows inside a node; a click on them names it. */
 export interface RowsSegment {
@@ -172,13 +174,23 @@ function clickable(
 	base: Record<string, unknown>,
 	act: string,
 	title: string,
-	key: string,
+	key?: string,
 ): object {
 	return {
 		...base,
 		p: { ...objectRecord(base.p), actions: { click: act }, title },
-		key,
+		...(key !== undefined && { key }),
 	};
+}
+
+/** Rows as one text node a click on sends `act` to its owner. */
+export function clickableRows(
+	lines: Lines,
+	cols: number,
+	act: string,
+	title: string,
+): object {
+	return clickable(textNode(lines, cols), act, title);
 }
 
 /**

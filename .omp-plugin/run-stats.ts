@@ -4,6 +4,11 @@ import { type Component, truncateToWidth } from "@oh-my-pi/pi-tui";
 import type { CompactStatsSettings } from "./config";
 import { fitTransparentLine } from "./fit-transparent-line";
 import { isBoundedCount } from "./hydration-bounds";
+import {
+	clickableRows,
+	describeWidth,
+	HIDDEN_CALLS_ACTION,
+} from "./native-describe";
 import { objectRecord } from "./object-record";
 import { fixedForeground } from "./render";
 
@@ -68,6 +73,21 @@ export interface RunStatsEvidence {
 export interface StatsCarrier {
 	render(width: number): readonly string[];
 	readonly message: { readonly customType: string };
+	/** Tern Surface Protocol only: the line as a show/hide toggle. */
+	describe?(cx?: unknown): unknown;
+	handleNativeEvent?(event: unknown): void;
+}
+
+/**
+ * The run's hidden calls behind its stats row: what `live` and `clear`
+ * leave off the screen once the run ends.
+ */
+export interface StatsReveal {
+	/** Whether the run hid any call a click could show. */
+	available(): boolean;
+	/** Whether the hidden calls are on screen now. */
+	shown(): boolean;
+	toggle(): void;
 }
 
 const STATS_SEPARATOR_COLOR = "#A4D734";
@@ -436,11 +456,39 @@ export function isRunStatsEvidence(value: unknown): value is RunStatsEvidence {
  * rows and the optional Git summary, directly above the native answer); on
  * no-tool answers it is a single-member run in the same position.
  */
-export function createStatsCarrier(line: string): StatsCarrier {
-	return {
+export function createStatsCarrier(
+	line: string,
+	reveal?: StatsReveal,
+): StatsCarrier {
+	const carrier: StatsCarrier = {
 		message: { customType: STATS_MESSAGE_TYPE },
 		render: (width: number) => [fitTransparentLine(line, width)],
 	};
+	if (!reveal) return carrier;
+	// In a Tern pane a click on the line shows the calls the run hid, in
+	// their own places, and a second click hides them again. A run that hid
+	// nothing describes nothing, so the fold paints the plain line.
+	let cached: { cols: number; shown: boolean; node: object } | undefined;
+	carrier.describe = (cx?: unknown): unknown => {
+		if (!reveal.available()) return undefined;
+		const cols = describeWidth(cx);
+		const shown = reveal.shown();
+		if (cached?.cols === cols && cached.shown === shown) return cached.node;
+		const node = clickableRows(
+			[fitTransparentLine(line, cols)],
+			cols,
+			HIDDEN_CALLS_ACTION,
+			shown ? "Hide the calls this turn hid" : "Show the calls this turn hid",
+		);
+		cached = { cols, shown, node };
+		return node;
+	};
+	carrier.handleNativeEvent = (event: unknown): void => {
+		const record = objectRecord(event);
+		if (record.type === "action" && record.act === HIDDEN_CALLS_ACTION)
+			reveal.toggle();
+	};
+	return carrier;
 }
 
 const ALL_STATS_SEGMENTS: CompactStatsSettings = {
