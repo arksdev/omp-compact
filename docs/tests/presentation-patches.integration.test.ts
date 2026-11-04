@@ -1,6 +1,8 @@
 import { beforeAll, expect, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 
+import { objectRecord } from "../../.omp-plugin/object-record";
+
 import {
 	type HostModules,
 	loadStockHost,
@@ -1203,6 +1205,127 @@ stockTest(
 		} finally {
 			booted.adapter.dispose();
 		}
+	},
+);
+
+/** The stock describe context a Tern frame passes, at a fixed width. */
+const TSP_CX = { cols: 120, supports: () => false };
+
+interface Describable {
+	describe(cx?: unknown): unknown;
+	setExpanded(value: boolean): void;
+	handleNativeEvent(event: unknown): void;
+}
+
+/** The visible text of one clickable compact row, else `undefined`. */
+function rowText(node: unknown): string | undefined {
+	const row = objectRecord(node);
+	const props = objectRecord(row.p);
+	if (row.k !== "text" || objectRecord(props.actions).click === undefined)
+		return undefined;
+	if (typeof props.text === "string") return props.text;
+	if (!Array.isArray(props.spans)) return undefined;
+	return props.spans.map((span) => String(objectRecord(span).t)).join("");
+}
+
+/**
+ * The visible text of a compact node (a column of clickable rows), or
+ * `undefined` for a stock one.
+ */
+function compactText(node: unknown): string | undefined {
+	const record = objectRecord(node);
+	if (record.k !== "col" || !Array.isArray(record.c)) return undefined;
+	const texts = record.c.map(rowText);
+	return texts.every((text) => text !== undefined)
+		? texts.join("\n")
+		: undefined;
+}
+
+function stockRole(node: unknown): unknown {
+	return objectRecord(objectRecord(node).p).role;
+}
+
+stockTest(
+	"Tern describe: skill, late diagnostics and user bash compact when collapsed, stock when expanded",
+	async () => {
+		const booted = await bootAdapter();
+		const skill = new host.SkillMessageComponent({
+			role: "custom",
+			customType: "skill-prompt",
+			content: "skill-prompt-body",
+			display: true,
+			details: { name: "tern-skill", path: "/s/tern", lineCount: 1 },
+		}) as Renderable & Describable;
+		const late = new host.LateDiagnosticsMessageComponent([
+			{ summary: "1 error", errored: true, messages: ["a.ts:1:1: boom"] },
+		]) as Renderable & Describable;
+		const bash = new host.BashExecutionComponent("ls tern", {
+			terminalWidth: 120,
+			requestRender() {},
+			requestComponentRender() {},
+		}) as Renderable &
+			Describable & {
+				setComplete(exitCode: number | undefined, cancelled: boolean): void;
+			};
+		const stock = {
+			skill: stockRole(skill.describe(TSP_CX)),
+			late: stockRole(late.describe(TSP_CX)),
+			bash: stockRole(bash.describe(TSP_CX)),
+		};
+		try {
+			for (const block of [skill, late, bash])
+				booted.transcript.addChild(block);
+			await Promise.resolve();
+			await Promise.resolve();
+
+			expect(compactText(skill.describe(TSP_CX))).toMatch(/^• skill /);
+			expect(compactText(late.describe(TSP_CX))).toMatch(/^• late diagnostics/);
+			expect(compactText(bash.describe(TSP_CX))).toMatch(
+				/Working… bash: ls tern$/,
+			);
+			bash.setComplete(0, false);
+			expect(compactText(bash.describe(TSP_CX))).toBe("• bash: ls tern");
+
+			// Expanded: the stock description, so the full body stays readable.
+			for (const block of [skill, late, bash]) block.setExpanded(true);
+			expect(stockRole(skill.describe(TSP_CX))).toBe(stock.skill);
+			expect(stockRole(late.describe(TSP_CX))).toBe(stock.late);
+			expect(stockRole(bash.describe(TSP_CX))).toBe(stock.bash);
+
+			for (const block of [skill, late, bash]) block.setExpanded(false);
+			expect(compactText(skill.describe(TSP_CX))).toMatch(/^• skill /);
+			expect(compactText(bash.describe(TSP_CX))).toBe("• bash: ls tern");
+
+			// A click on the compact row reveals the stock card under it; a
+			// click on that row compacts it again.
+			bash.handleNativeEvent({
+				type: "action",
+				key: "0",
+				act: "omp-compact.reveal",
+				mods: [],
+			});
+			const revealed = objectRecord(bash.describe(TSP_CX));
+			const [row, proxy] = revealed.c as [unknown, Describable];
+			expect(rowText(row)).toBe("• bash: ls tern");
+			expect(stockRole(proxy.describe(TSP_CX))).toBe(stock.bash);
+			bash.handleNativeEvent({
+				type: "action",
+				key: "r",
+				act: "omp-compact.conceal",
+				mods: [],
+			});
+			expect(compactText(bash.describe(TSP_CX))).toBe("• bash: ls tern");
+		} finally {
+			booted.adapter.dispose();
+		}
+		// Dispose restores the stock description on every leaf.
+		for (const block of [skill, late, bash]) {
+			expect(
+				Object.getOwnPropertyDescriptor(block, "describe"),
+			).toBeUndefined();
+			expect(compactText(block.describe(TSP_CX))).toBeUndefined();
+		}
+		expect(stockRole(bash.describe(TSP_CX))).toBe(stock.bash);
 	},
 );
 

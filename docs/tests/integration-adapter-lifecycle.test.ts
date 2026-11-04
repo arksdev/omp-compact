@@ -1,4 +1,6 @@
 import { afterAll, expect } from "bun:test";
+import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
 	addTool,
 	addToolComponent,
@@ -11,6 +13,7 @@ import {
 	bootWithMode,
 	dispatch,
 	fakeTool,
+	flushMicrotasks,
 	finishRun,
 	finishTool,
 	rebuildHarness,
@@ -533,5 +536,53 @@ stockTest(
 		// the critical contract is sibling tools stay compact, not native boxes.
 		expect(rows).not.toMatch(/[╭╰]/);
 		await shutdown(booted);
+	},
+);
+
+stockTest(
+	"Tern: a write card rebuilt by clear refuses late diagnostics before settlement",
+	async () => {
+		// Stock routes late diagnostics into write/edit cards only while a TSP
+		// terminal renders (`isNativeRendering`); the module is the host's own.
+		const tuiRoot = resolve(
+			dirname(process.env.OMP_STOCK_BIN ?? ""),
+			"..",
+			"@oh-my-pi",
+			"pi-tui",
+		);
+		const nativeState = (await import(
+			pathToFileURL(join(tuiRoot, "src/native/state.ts")).href
+		)) as { setNativeRendering(on: boolean): void };
+		const booted = await bootForRebuild("compact");
+		nativeState.setNativeRendering(true);
+		try {
+			// The rebuild: clear, re-add the card, route its diagnostics, all
+			// synchronously before the settlement microtask reinstalls the fold.
+			booted.transcript.clear();
+			const write = addToolComponent(
+				booted,
+				"write",
+				{ path: "a.ts", content: "x" },
+				"write-1",
+			);
+			write.updateResult(
+				{ content: [{ type: "text", text: "ok" }], details: {} },
+				false,
+				"write-1",
+			);
+			const diagnosed: { attachLateDiagnostics(files: unknown): boolean } =
+				write as unknown as typeof diagnosed;
+			const files = [
+				{ path: "a.ts", summary: "1 error", errored: true, messages: ["boom"] },
+			];
+			expect(diagnosed.attachLateDiagnostics(files)).toBe(false);
+			await flushMicrotasks();
+			expect(diagnosed.attachLateDiagnostics(files)).toBe(false);
+			await shutdown(booted);
+			// Once the plugin is gone the stock card takes them again.
+			expect(diagnosed.attachLateDiagnostics(files)).toBe(true);
+		} finally {
+			nativeState.setNativeRendering(false);
+		}
 	},
 );

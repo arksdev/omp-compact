@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Container } from "@oh-my-pi/pi-tui";
 
 import {
 	type AnimationFrame,
@@ -133,6 +134,7 @@ function callbacks(): FoldCallbacks {
 		// Default: no block is history mid-run, so these tests keep exercising
 		// the whole-run grouping the fold has always planned.
 		isRetirable: () => false,
+		isPresenting: () => true,
 	};
 }
 
@@ -660,5 +662,360 @@ describe("TranscriptFold: the plan does not re-probe what cannot change", () => 
 
 		transcript.renderViewport(100, 10, FRAME);
 		expect(renders()).toBe(afterFirstPlan + 1);
+	});
+});
+
+describe("TranscriptFold on a Tern Surface Protocol host", () => {
+	/** A stock card that describes itself, as every 18.4.4+ tool card does. */
+	class DescribedBlock extends FakeBlock {
+		constructor(
+			readonly name: string,
+			readonly stock = false,
+		) {
+			super();
+		}
+
+		describe(_cx?: unknown): unknown {
+			return { k: "card", p: { title: this.name } };
+		}
+	}
+
+	/** The composer asks for the blocks once per TSP frame. */
+	class NativeTranscript extends FakeTranscript {
+		nativeBlocks(): readonly unknown[] {
+			return this.children;
+		}
+	}
+
+	const CX = { cols: 80 };
+
+	/** A block the fold only absorbs because its rows are blank. */
+	class ThinkingBlock extends FakeBlock {
+		readonly name = "thinking";
+		readonly stock = true;
+
+		override render(_width: number): Lines {
+			return [""];
+		}
+
+		describe(_cx?: unknown): unknown {
+			return { k: "section", p: { collapsed: true } };
+		}
+	}
+
+	/** A tool-only assistant turn: blank rows, an empty description. */
+	class EmptyTurnBlock extends ThinkingBlock {
+		override describe(_cx?: unknown): unknown {
+			return { k: "col", p: { role: "omp.assistant" } };
+		}
+	}
+
+	/** A stock block with no description of its own, like the stats line. */
+	class StatsBlock extends FakeBlock {
+		readonly name = "stats";
+		readonly stock = true;
+
+		override render(_width: number): Lines {
+			return ["[ 3 actions ]"];
+		}
+	}
+
+	type Block = DescribedBlock | ThinkingBlock | StatsBlock;
+
+	function install(blocks: readonly Block[]): NativeTranscript {
+		const transcript = new NativeTranscript();
+		for (const block of blocks) transcript.addChild(block);
+		const fold = new TranscriptFold(transcript, {
+			...callbacks(),
+			// Every test block but the blank one the run only absorbs.
+			isFoldable: (block): block is RenderableBlock =>
+				block instanceof DescribedBlock ||
+				block instanceof StatsBlock ||
+				block instanceof PaintedContainer,
+			// Like the adapter: a card the presentation leaves stock answers
+			// with its native rows, every other one with its compact row.
+			render: (block, width, nativeRender) =>
+				(block as Block).stock
+					? nativeRender(width)
+					: [`• ${(block as Block).name}`],
+		});
+		fold.install();
+		return transcript;
+	}
+
+	/** One TSP frame: the block list, then each block's description. */
+	function frame(transcript: NativeTranscript): unknown[] {
+		return transcript
+			.nativeBlocks()
+			.map((block) => (block as DescribedBlock).describe(CX));
+	}
+
+	/** The host's `rowsText` node: pre-rendered rows as one unwrapped text. */
+	function plain(...lines: string[]): Record<string, unknown> {
+		return { k: "text", p: { text: lines.join("\n"), wrap: "none" } };
+	}
+
+	/** Compact rows, one clickable text per member's row. */
+	function rows(...members: string[]): unknown {
+		return {
+			k: "col",
+			p: {},
+			c: members.map((line, index) => ({
+				k: "text",
+				p: {
+					text: line,
+					wrap: "none",
+					actions: { click: "omp-compact.reveal" },
+					title: "Show the full card",
+				},
+				key: String(index),
+			})),
+		};
+	}
+
+	const HIDDEN = { k: "col", p: { hidden: true } };
+
+	test("a run describes as one text node on its carrier and nothing on its members", () => {
+		const transcript = install([
+			new DescribedBlock("read a.ts"),
+			new DescribedBlock("grep foo"),
+			new DescribedBlock("bash: ls"),
+		]);
+		expect(frame(transcript)).toEqual([
+			rows("• read a.ts", "• grep foo", "• bash: ls"),
+			HIDDEN,
+			HIDDEN,
+		]);
+	});
+
+	test("a stock card inside a run keeps its own description and splits the rows around it", () => {
+		const transcript = install([
+			new DescribedBlock("read a.ts"),
+			new DescribedBlock("task", true),
+			new DescribedBlock("grep foo"),
+			new DescribedBlock("bash: ls"),
+		]);
+		expect(frame(transcript)).toEqual([
+			rows("• read a.ts"),
+			{ k: "card", p: { title: "task" } },
+			rows("• grep foo", "• bash: ls"),
+			HIDDEN,
+		]);
+	});
+
+	test("a blank block absorbed into a run keeps its own description", () => {
+		// Its rows are blank, but its description may not be: hiding it
+		// would drop what stock Tern shows.
+		const transcript = install([
+			new DescribedBlock("read a.ts"),
+			new ThinkingBlock(),
+			new DescribedBlock("grep foo"),
+		]);
+		expect(frame(transcript)).toEqual([
+			rows("• read a.ts"),
+			{ k: "section", p: { collapsed: true } },
+			rows("• grep foo"),
+		]);
+	});
+
+	test("a blank block that describes nothing stays inside the stretch", () => {
+		// A tool-only assistant turn between two calls must not split their
+		// rows into two blocks with a gap between them.
+		const transcript = install([
+			new DescribedBlock("read a.ts"),
+			new EmptyTurnBlock(),
+			new DescribedBlock("grep foo"),
+		]);
+		expect(frame(transcript)).toEqual([
+			rows("• read a.ts", "• grep foo"),
+			HIDDEN,
+			HIDDEN,
+		]);
+	});
+
+	test("unchanged rows describe as the same node, so the terminal gets no update", () => {
+		const transcript = install([
+			new DescribedBlock("read a.ts"),
+			new DescribedBlock("grep foo"),
+		]);
+		const [first] = frame(transcript);
+		const [second] = frame(transcript);
+		expect(second).toBe(first);
+	});
+
+	test("a stock block without a description of its own keeps its rows inside a run", () => {
+		// The reconciler would paint it through `render`, where a run member
+		// answers nothing because the row path's carrier speaks for it.
+		const transcript = install([
+			new DescribedBlock("write a.ts"),
+			new StatsBlock(),
+		]);
+		expect(frame(transcript)).toEqual([
+			rows("• write a.ts"),
+			plain("[ 3 actions ]"),
+		]);
+	});
+
+	/** An extension block painting its own rows on a plain `Container`. */
+	class PaintedContainer extends Container {
+		readonly name = "custom";
+		readonly stock = true;
+
+		override render(_width: number): readonly string[] {
+			return ["custom row"];
+		}
+	}
+
+	test("a Container that paints its own rows describes as those rows, like the reconciler decides", () => {
+		// It inherits `Container.prototype.describe`, which the reconciler
+		// ignores for such a block; calling it would show its bare children.
+		const transcript = install([
+			new DescribedBlock("write a.ts"),
+			new PaintedContainer() as unknown as Block,
+		]);
+		expect(frame(transcript)).toEqual([
+			rows("• write a.ts"),
+			plain("custom row"),
+		]);
+	});
+
+	/** A write/edit card that takes late diagnostics, as stock 18.4.4+ does. */
+	class DiagnosedBlock extends DescribedBlock {
+		attached: unknown[] = [];
+
+		attachLateDiagnostics(files: unknown): boolean {
+			this.attached.push(files);
+			return true;
+		}
+	}
+
+	test("fold-owned cards refuse late diagnostics, so they keep their own message", () => {
+		// A card shown stock now (expanded, still working) may turn compact
+		// later, and the host never re-routes what it attached: so even the
+		// stock card refuses.
+		const compact = new DiagnosedBlock("write a.ts");
+		const stock = new DiagnosedBlock("edit b.ts", true);
+		const transcript = install([compact, stock]);
+		frame(transcript);
+		const files = [{ path: "a.ts" }];
+		expect(compact.attachLateDiagnostics(files)).toBe(false);
+		expect(stock.attachLateDiagnostics(files)).toBe(false);
+		expect(compact.attached).toEqual([]);
+		expect(stock.attached).toEqual([]);
+	});
+
+	test("a card added during a rebuild refuses late diagnostics before the fold is back", () => {
+		// A session rebuild disposes the fold, adds every card back and routes
+		// its diagnostics, all before the settlement reinstalls the fold.
+		let presenting = true;
+		const transcript = new NativeTranscript();
+		const fold = new TranscriptFold(transcript, {
+			...callbacks(),
+			isPresenting: () => presenting,
+		});
+		fold.install();
+		fold.dispose();
+		const card = new DiagnosedBlock("write a.ts");
+		fold.observeChild(card);
+		transcript.addChild(card);
+		const files = [{ path: "a.ts" }];
+		expect(card.attachLateDiagnostics(files)).toBe(false);
+		expect(card.attached).toEqual([]);
+		// Once the plugin is gone the card takes them like stock again.
+		presenting = false;
+		expect(card.attachLateDiagnostics(files)).toBe(true);
+		expect(card.attached).toEqual([files]);
+	});
+
+	test("a block joining a run between frames is planned with it, not shown stock", () => {
+		// The row path replans on `render` too, without a new TSP frame.
+		const transcript = install([
+			new DescribedBlock("read a.ts"),
+			new DescribedBlock("grep foo"),
+		]);
+		frame(transcript);
+		transcript.addChild(new DescribedBlock("bash: ls"));
+		transcript.render(CX.cols);
+		const described = transcript.children.map((block) =>
+			(block as DescribedBlock).describe(CX),
+		);
+		expect(described).toEqual([
+			rows("• read a.ts", "• grep foo", "• bash: ls"),
+			HIDDEN,
+			HIDDEN,
+		]);
+	});
+
+	test("a released block describes natively again", () => {
+		const block = new DescribedBlock("read a.ts");
+		const transcript = new NativeTranscript();
+		transcript.addChild(block);
+		const fold = new TranscriptFold(transcript, callbacks());
+		fold.install();
+		frame(transcript);
+		fold.dispose();
+		expect(block.describe(CX)).toEqual({
+			k: "card",
+			p: { title: "read a.ts" },
+		});
+	});
+
+	/** A stock card that records the events its stock handler receives. */
+	class ClickableBlock extends DescribedBlock {
+		events: unknown[] = [];
+
+		handleNativeEvent(event: unknown): void {
+			this.events.push(event);
+		}
+	}
+
+	const click = (key: string, act: string) => ({
+		type: "action",
+		key,
+		act,
+		mods: [],
+	});
+
+	test("a click on a row reveals that member's stock card under its row, and a second click compacts it", () => {
+		const read = new ClickableBlock("read a.ts");
+		const grep = new ClickableBlock("grep foo");
+		const bash = new ClickableBlock("bash: ls");
+		const transcript = install([read, grep, bash]);
+		frame(transcript);
+		// The click lands on the carrier, at the clicked member's row.
+		read.handleNativeEvent(click("1", "omp-compact.reveal"));
+		const [first, revealed, rest] = frame(transcript);
+		expect(first).toEqual(rows("• read a.ts"));
+		expect(rest).toEqual(rows("• bash: ls"));
+		const [row, card] = (revealed as { c: unknown[] }).c;
+		expect(row).toMatchObject({
+			key: "r",
+			p: { text: "• grep foo", actions: { click: "omp-compact.conceal" } },
+		});
+		// The stock card sits in a proxy, so its own events reach the stock
+		// handler under its own key paths.
+		const proxy = card as unknown as ClickableBlock;
+		expect(proxy.describe(CX)).toEqual({ k: "card", p: { title: "grep foo" } });
+		proxy.handleNativeEvent({ type: "toggle", key: "", collapsed: false });
+		expect(grep.events).toEqual([
+			{ type: "toggle", key: "", collapsed: false },
+		]);
+		// The plugin's clicks never reach a stock handler.
+		expect(read.events).toEqual([]);
+
+		grep.handleNativeEvent(click("r", "omp-compact.conceal"));
+		expect(frame(transcript)).toEqual([
+			rows("• read a.ts", "• grep foo", "• bash: ls"),
+			HIDDEN,
+			HIDDEN,
+		]);
+	});
+
+	test("other events on a compact block go to its stock handler", () => {
+		const read = new ClickableBlock("read a.ts");
+		const transcript = install([read]);
+		frame(transcript);
+		read.handleNativeEvent(click("0", "copy"));
+		expect(read.events).toEqual([click("0", "copy")]);
 	});
 });

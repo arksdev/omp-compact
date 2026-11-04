@@ -1,8 +1,18 @@
 import {
-	BLOCK_FOLD_METHODS,
 	BLOCK_PUBLICATION_MEMBERS,
 	TRANSCRIPT_FOLD_METHODS,
 } from "./host-adapter";
+import {
+	describesNothing,
+	describeWidth,
+	HIDDEN_NODE,
+	type NativeDescribe,
+	type NativeHandle,
+	type RowsSegment,
+	RowsNodes,
+	stockDescribe,
+	terminalColumns,
+} from "./native-describe";
 import { DescriptorPatch } from "./patch-kit";
 
 type Lines = readonly string[];
@@ -80,10 +90,19 @@ export interface TranscriptHost extends RenderableBlock {
 	 * viewport needs them so a published row is never painted twice.
 	 */
 	emittedStableRows?(): readonly number[];
+	/**
+	 * The blocks a Tern Surface Protocol frame describes, one per transcript
+	 * child (18.4.4). The native path renders no rows through the methods
+	 * above, so the fold replans here instead. Optional: hosts without the
+	 * protocol never call it.
+	 */
+	nativeBlocks?(): readonly unknown[];
 }
 
 interface NativeBlockMethods {
 	render: (width: number) => Lines;
+	describe?: NativeDescribe;
+	handleNativeEvent?: NativeHandle;
 	finalized?: () => boolean;
 	displaceable?: () => boolean;
 	seal?: () => void;
@@ -96,6 +115,11 @@ interface AllocatableBlock {
 
 export interface FoldCallbacks {
 	isFoldable(block: unknown): block is RenderableBlock;
+	/**
+	 * The block's presentation. Return the `nativeRender(width)` result
+	 * itself, never a copy, whenever the block stays stock: the TSP path
+	 * recognizes the stock choice by that identity.
+	 */
 	render(
 		block: RenderableBlock,
 		width: number,
@@ -116,6 +140,12 @@ export interface FoldCallbacks {
 		block: RenderableBlock,
 		nativeFinalized: (() => boolean) | undefined,
 	): boolean;
+	/**
+	 * Whether the plugin still presents this transcript. True across the
+	 * rebuild detach, when the fold is disposed until the settlement
+	 * reinstalls it; false only once the adapter is gone for good.
+	 */
+	isPresenting(): boolean;
 }
 
 interface FoldRun {
@@ -141,7 +171,31 @@ interface BlockPatch {
 	native: NativeBlockMethods;
 }
 
+/**
+ * How one fold-owned block presents itself to a TSP terminal: its stock
+ * description, nothing, the compact rows of the members it speaks for, or
+ * its own compact rows over its stock card once a click revealed it.
+ */
+type NativeChoice =
+	| { readonly kind: "native" }
+	| { readonly kind: "hidden" }
+	| { readonly kind: "rows"; readonly segments: readonly RowsSegment[] }
+	| { readonly kind: "revealed"; readonly lines: Lines };
+
+interface NativeRunPlan {
+	readonly frame: number;
+	readonly width: number;
+	/** The run's member list it was planned from; a replan replaces it. */
+	readonly members: readonly RenderableBlock[];
+	readonly choices: ReadonlyMap<RenderableBlock, NativeChoice>;
+}
+
 const EMPTY_LINES: Lines = Object.freeze([]);
+// What `callbacks.render` returns when it chose the stock presentation on
+// the native path: identity, never contents, tells it apart from rows.
+const NATIVE_MARKER: Lines = Object.freeze([]);
+const NATIVE_CHOICE: NativeChoice = Object.freeze({ kind: "native" });
+const HIDDEN_CHOICE: NativeChoice = Object.freeze({ kind: "hidden" });
 const EMPTY_STABLE_ROWS: readonly StableRow[] = Object.freeze([]);
 // Cross-module-instance marker: a plugin may be both user-linked and loaded
 // explicitly with `-e`. The fold mutates only this exact transcript instance,
@@ -184,6 +238,19 @@ function inheritedMethod<T extends (...args: never[]) => unknown>(
 	return undefined;
 }
 
+/** The host's `attachLateDiagnostics`, skipping any own refusal. */
+function stockAttachDiagnostics(
+	block: object,
+): ((files: unknown) => unknown) | undefined {
+	const prototype = Object.getPrototypeOf(block) as object | null;
+	return prototype
+		? inheritedMethod<(files: unknown) => unknown>(
+				prototype,
+				"attachLateDiagnostics",
+			)
+		: undefined;
+}
+
 export class TranscriptFold {
 	readonly #callbacks: FoldCallbacks;
 	readonly #transcript: TranscriptHost;
@@ -211,6 +278,17 @@ export class TranscriptFold {
 	 */
 	#emittedHistory = false;
 	#installed = false;
+	/**
+	 * TSP frame counter, bumped each time the terminal asks for the blocks:
+	 * every block of one frame shares its run's presentation plan, so a
+	 * keystroke repaint costs one pass over each run, not one per member.
+	 */
+	#nativeFrame = 0;
+	/** Surface width the last TSP describe reported; plans the next frame. */
+	#nativeWidth: number | undefined;
+	/** Per-run presentation plans for the current TSP frame. Fold-owned. */
+	#nativeRuns = new WeakMap<FoldRun, NativeRunPlan>();
+	readonly #rowsNodes = new RowsNodes();
 
 	constructor(transcript: TranscriptHost, callbacks: FoldCallbacks) {
 		this.#transcript = transcript;
@@ -444,8 +522,13 @@ export class TranscriptFold {
 	 * no role yet, the wrappers answer exactly as they did before.
 	 */
 	observeChild(child: unknown): void {
-		if (!this.#installed) return;
 		if (!this.#callbacks.isFoldable(child)) return;
+		// Before the install check: a session rebuild disposes the fold, adds
+		// every card back and routes their diagnostics before it reinstalls.
+		try {
+			this.#declareDiagnosticsRefusal(child as RenderableBlock);
+		} catch {}
+		if (!this.#installed) return;
 		// Best effort: a block that cannot take the declaration simply never
 		// publishes, and the plan reports real capability skew on its own.
 		try {
@@ -589,6 +672,24 @@ export class TranscriptFold {
 				};
 				patched.push("peekFlushBatch");
 			}
+			const hostNativeBlocks = this.#transcript.nativeBlocks;
+			if (typeof hostNativeBlocks === "function") {
+				// A TSP terminal describes the blocks instead of rendering the
+				// transcript, and asks for them once per frame. The plan runs at
+				// the width the previous frame's descriptions reported: it only
+				// probes blankness there, while every block's rows are measured
+				// at the live width when it describes itself.
+				wrappers.nativeBlocks = {
+					configurable: true,
+					writable: true,
+					value: (): readonly unknown[] => {
+						this.#nativeFrame++;
+						this.#plan(this.#nativeWidth ?? terminalColumns());
+						return hostNativeBlocks.call(this.#transcript);
+					},
+				};
+				patched.push("nativeBlocks");
+			}
 			this.#transcriptPatch = new DescriptorPatch(this.#transcript, patched);
 			this.#transcriptPatch.install(wrappers);
 			this.#installed = true;
@@ -610,6 +711,7 @@ export class TranscriptFold {
 		this.#runs = new WeakMap();
 		this.#roles = new WeakMap();
 		this.#probedBlankAt = new WeakMap();
+		this.#nativeRuns = new WeakMap();
 		if (
 			!this.#installed &&
 			this.#patches.size === 0 &&
@@ -635,6 +737,8 @@ export class TranscriptFold {
 		if (patch) return patch.native;
 		return {
 			render: inheritedMethod(block, "render") ?? (() => EMPTY_LINES),
+			describe: stockDescribe(block),
+			handleNativeEvent: inheritedMethod(block, "handleNativeEvent"),
 			finalized: inheritedMethod(block, "isTranscriptBlockFinalized"),
 			displaceable: inheritedMethod(block, "isDisplaceableBlock"),
 			seal: inheritedMethod(block, "seal"),
@@ -770,10 +874,152 @@ export class TranscriptFold {
 				},
 			},
 		};
-		const patch = new DescriptorPatch(block, BLOCK_FOLD_METHODS);
+		// Only a TSP host calls `describe`, and there every block needs one:
+		// a block without it is painted through `render`, which answers a
+		// member with nothing because the row path's carrier speaks for it.
+		// A block that stays stock but describes nothing of its own gets its
+		// stock rows, as the reconciler would paint them, minus the blank
+		// edges and the fallback badge.
+		if (typeof this.#transcript.nativeBlocks === "function") {
+			const stock = native.describe;
+			wrappers.describe = {
+				configurable: true,
+				writable: true,
+				value(this: RenderableBlock, cx?: unknown): unknown {
+					const width = describeWidth(cx);
+					fold.#nativeWidth = width;
+					const choice = fold.#nativeChoice(this, width, cx);
+					if (choice.kind === "hidden") return HIDDEN_NODE;
+					if (choice.kind === "rows")
+						return fold.#rowsNodes.compact(this, choice.segments, width);
+					if (choice.kind === "revealed")
+						return fold.#rowsNodes.revealed(this, choice.lines, width, {
+							describe: stock,
+							render: native.render,
+							handle: native.handleNativeEvent,
+						});
+					const described = stock?.call(this, cx);
+					if (described) return described;
+					return fold.#rowsNodes.node(
+						this,
+						trimBlankEdges(native.render.call(this, width)),
+						width,
+					);
+				},
+			};
+			// A click on compact rows reveals the member they belong to, which
+			// may be another member of this block's stretch (see RowsNodes);
+			// the terminal repaints after every event, which replans the run.
+			wrappers.handleNativeEvent = {
+				configurable: true,
+				writable: true,
+				value(this: RenderableBlock, event: unknown): void {
+					if (!fold.#rowsNodes.handle(this, event))
+						native.handleNativeEvent?.call(this, event);
+				},
+			};
+		}
+		const patch = new DescriptorPatch(block, Object.keys(wrappers));
 		patch.install(wrappers);
 		this.#patches.set(block, { patch, native });
 		this.#declarePublication(block);
+		this.#declareDiagnosticsRefusal(block);
+	}
+
+	/**
+	 * How a fold-owned block describes itself in the current TSP frame.
+	 *
+	 * The row path hands a whole run to its carrier, native cards included.
+	 * A TSP terminal draws stock cards itself, so the native path splits the
+	 * run instead: a member the presentation leaves native keeps its stock
+	 * description, each stretch of compact members between them becomes one
+	 * node on its first member, and the rest of the stretch describes
+	 * nothing. A member a click revealed leaves the stretch and describes as
+	 * its own rows over its stock card. Retirement and publication are row
+	 * concerns and stay out.
+	 */
+	#nativeChoice(
+		block: RenderableBlock,
+		width: number,
+		cx: unknown,
+	): NativeChoice {
+		const role = this.#roles.get(block);
+		if (!role) {
+			const rows = this.#callbacks.render(block, width, () => NATIVE_MARKER);
+			if (rows === NATIVE_MARKER) return NATIVE_CHOICE;
+			const lines = trimBlankEdges(rows);
+			return this.#rowsNodes.isRevealed(block)
+				? { kind: "revealed", lines }
+				: { kind: "rows", segments: [{ owner: block, lines }] };
+		}
+		let plan = this.#nativeRuns.get(role.run);
+		if (
+			!plan ||
+			plan.frame !== this.#nativeFrame ||
+			plan.width !== width ||
+			plan.members !== role.run.members
+		) {
+			plan = {
+				frame: this.#nativeFrame,
+				width,
+				members: role.run.members,
+				choices: this.#planNativeRun(role.run, width, cx),
+			};
+			this.#nativeRuns.set(role.run, plan);
+		}
+		return plan.choices.get(block) ?? NATIVE_CHOICE;
+	}
+
+	#planNativeRun(
+		run: FoldRun,
+		width: number,
+		cx: unknown,
+	): ReadonlyMap<RenderableBlock, NativeChoice> {
+		const choices = new Map<RenderableBlock, NativeChoice>();
+		let owner: RenderableBlock | undefined;
+		let segments: RowsSegment[] = [];
+		const close = (): void => {
+			if (owner) choices.set(owner, { kind: "rows", segments });
+			owner = undefined;
+			segments = [];
+		};
+		for (const member of run.members) {
+			if (!this.#callbacks.isFoldable(member)) {
+				// The plan absorbed it only because its rows are blank. Its
+				// description may still draw something (a collapsed thinking
+				// section): then it stays stock like a native card. A tool-only
+				// assistant turn draws nothing and keeps the stretch whole.
+				const stock = this.#native(member).describe;
+				if (describesNothing(stock?.call(member, cx))) {
+					choices.set(member, HIDDEN_CHOICE);
+					continue;
+				}
+				close();
+				choices.set(member, NATIVE_CHOICE);
+				continue;
+			}
+			const presented = this.#callbacks.render(
+				member,
+				width,
+				() => NATIVE_MARKER,
+			);
+			if (presented === NATIVE_MARKER) {
+				close();
+				choices.set(member, NATIVE_CHOICE);
+				continue;
+			}
+			const lines = trimBlankEdges(presented);
+			if (this.#rowsNodes.isRevealed(member)) {
+				close();
+				choices.set(member, { kind: "revealed", lines });
+				continue;
+			}
+			if (owner) choices.set(member, HIDDEN_CHOICE);
+			else owner = member;
+			segments.push({ owner: member, lines });
+		}
+		close();
+		return choices;
 	}
 
 	/**
@@ -821,6 +1067,43 @@ export class TranscriptFold {
 			},
 		});
 	}
+
+	/**
+	 * On a TSP host omp attaches late LSP diagnostics to the write/edit card
+	 * they belong to and drops their own message. A fold-owned card can turn
+	 * compact at any time (collapse, turn end), and a compact row cannot show
+	 * them, so it refuses them all: they keep their own message, which the
+	 * plugin compacts, as on the row path, where the host never attaches
+	 * them.
+	 *
+	 * Declared when the card is observed, not when the plan first patches it,
+	 * and kept while the fold is disposed for a rebuild: a session rebuild
+	 * routes diagnostics right after adding their card, before any frame and
+	 * before the fold is reinstalled. Like the publication members it
+	 * outlives the patch, and answers like stock once the plugin is gone.
+	 */
+	#declareDiagnosticsRefusal(block: RenderableBlock): void {
+		if (typeof this.#transcript.nativeBlocks !== "function") return;
+		const own = Object.getOwnPropertyDescriptor(block, "attachLateDiagnostics");
+		if (own?.value === this.#refuseDiagnostics) return;
+		if (!stockAttachDiagnostics(block)) return;
+		Object.defineProperty(block, "attachLateDiagnostics", {
+			configurable: true,
+			writable: true,
+			value: this.#refuseDiagnostics,
+		});
+	}
+
+	readonly #refuseDiagnostics = (() => {
+		const fold = this;
+		return function attachLateDiagnostics(
+			this: object,
+			files: unknown,
+		): boolean {
+			if (fold.#callbacks.isPresenting()) return false;
+			return stockAttachDiagnostics(this)?.call(this, files) === true;
+		};
+	})();
 
 	#restoreBlock(block: RenderableBlock): void {
 		const patch = this.#patches.get(block);

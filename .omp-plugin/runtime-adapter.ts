@@ -34,6 +34,11 @@ import type {
 	MutationMessageDetails,
 } from "./messages";
 import type { ModePolicy } from "./mode-policy";
+import {
+	compactNativeMembers,
+	RowsNodes,
+	stockDescribe,
+} from "./native-describe";
 import { objectRecord } from "./object-record";
 import { DescriptorPatch } from "./patch-kit";
 import {
@@ -44,6 +49,7 @@ import {
 	injectRulesFromTtsrComponent,
 	isVibeToolName,
 	lateDiagnosticsFromComponent,
+	paintCompactRow,
 	renderCompactToolRows,
 	renderInjectRuleRows,
 	renderLateDiagnosticsRow,
@@ -95,6 +101,20 @@ export type {
 } from "./runtime-session-state";
 
 const EMPTY_LINES: readonly string[] = Object.freeze([]);
+
+/**
+ * Whether a run's presentation leaves out the call's own row: hidden
+ * outright, or filtered to nothing but the aggregate Git summary line (a
+ * routine call, or every call in `clear`).
+ */
+function hidesOwnRow(state: ToolState, decision: ToolRenderDecision): boolean {
+	if (decision.kind === "empty") return true;
+	return (
+		decision.kind === "tool-rows" &&
+		decision.filtered &&
+		(decision.summaryOnly || state.mutations.length === 0)
+	);
+}
 
 export interface AdapterUI {
 	theme?: Theme;
@@ -213,6 +233,8 @@ export class RuntimeAdapter {
 	 * transcript wrappers and the discovery watcher).
 	 */
 	readonly #patches = new PresentationPatches();
+	/** Nodes the leaf patches hand a TSP terminal (native-describe.ts). */
+	readonly #rowsNodes = new RowsNodes();
 	#transcript: TranscriptHost | undefined;
 	#fold: TranscriptFold | undefined;
 	#timer: unknown;
@@ -265,6 +287,12 @@ export class RuntimeAdapter {
 	 * `OMP_COMPACT_TRACE` line fires once per card instead of once per frame.
 	 */
 	readonly #tracedNative = new WeakSet<object>();
+	/**
+	 * Finished runs whose hidden calls a click on the stats row put back on
+	 * screen (Tern only), and whether each finished run hid any call at all.
+	 */
+	readonly #shownHidden = new WeakSet<TurnLedger>();
+	readonly #hidesCalls = new WeakMap<TurnLedger, boolean>();
 
 	constructor(options: RuntimeAdapterOptions) {
 		this.#host = new StockHostAdapter(options.root);
@@ -281,6 +309,15 @@ export class RuntimeAdapter {
 			statsRenderer: options.statsRenderer,
 			placeStatsCarrier: (transcript, index, carrier, options) =>
 				this.#host.insertTranscriptChildAt(transcript, index, carrier, options),
+			statsReveal: (ledger) => ({
+				available: () => this.#hidesCallsIn(ledger),
+				shown: () => this.#shownHidden.has(ledger),
+				toggle: () => {
+					if (this.#disposed) return;
+					if (!this.#shownHidden.delete(ledger)) this.#shownHidden.add(ledger);
+					this.#requestLedgerRender(ledger);
+				},
+			}),
 
 			getToolsExpanded: options.ui.getToolsExpanded
 				? () => options.ui.getToolsExpanded?.() === true
@@ -829,6 +866,7 @@ export class RuntimeAdapter {
 				isTerminal: (block) => this.#isTerminal(block),
 				isRetirable: (block, nativeFinalized) =>
 					this.#isRetirable(block, nativeFinalized),
+				isPresenting: () => !this.#disposed,
 			});
 		}
 		// Idempotent: the fold re-patches the transcript instance after a
@@ -845,15 +883,11 @@ export class RuntimeAdapter {
 		const state = this.#session.binding.componentState(block);
 		if (state) {
 			const phase = state.ledger.phase;
-			const projection =
-				phase === "filtered" ||
-				(phase === "full" &&
-					this.#session.modeFor(state.ledger).mode === "clear")
-					? this.#session.terminalProjection(state.ledger)
-					: undefined;
+			const projection = this.#projectionFor(state.ledger);
 			const decision = this.#toolDecision(state, phase, projection);
 			if (decision.kind === "native") return nativeRender(width);
-			if (decision.kind === "empty") return EMPTY_LINES;
+			if (decision.kind === "empty")
+				return this.#shownHiddenRows(state.ledger, [state], width);
 			const theme = this.#ui.theme;
 			if (!theme) return nativeRender(width);
 			if (decision.kind === "tool-rows") {
@@ -873,17 +907,19 @@ export class RuntimeAdapter {
 					// collapse into one aggregate commit-summary line
 					// appended after the last retained row of the run. Git
 					// evidence without any created commit hash contributes
-					// no row at all.
-					const rows: string[] = [];
-					if (state.mutations.length > 0 && !decision.summaryOnly)
-						rows.push(
-							...renderCompactToolRows(
-								toolStateProps,
-								theme,
-								width,
-								this.#session.displayPathsFor(state.ledger),
-							),
-						);
+					// no row at all. A call whose own row the retention
+					// leaves out comes back only when its stats row shows the
+					// run's hidden calls, above the summary it may carry.
+					const rows: string[] = hidesOwnRow(state, decision)
+						? [...this.#shownHiddenRows(state.ledger, [state], width)]
+						: [
+								...renderCompactToolRows(
+									toolStateProps,
+									theme,
+									width,
+									this.#session.displayPathsFor(state.ledger),
+								),
+							];
 					if (decision.summary && projection)
 						rows.push(terminalGitSummaryLine(projection.hashes, theme, width));
 					return rows;
@@ -916,7 +952,8 @@ export class RuntimeAdapter {
 				readCount: readStates.length,
 			});
 			if (decision.kind === "native") return nativeRender(width);
-			if (decision.kind === "empty") return EMPTY_LINES;
+			if (decision.kind === "empty")
+				return this.#shownHiddenRows(group.ledger, readStates, width);
 			const theme = this.#ui.theme;
 			if (!theme) return nativeRender(width);
 			const rows: string[] = [];
@@ -953,7 +990,10 @@ export class RuntimeAdapter {
 					: this.#session.unownedMode.mode,
 				phase: ledger?.phase,
 			});
-			if (decision.kind === "empty") return EMPTY_LINES;
+			if (decision.kind === "empty")
+				return ledger && this.#shownHidden.has(ledger)
+					? nativeRender(width)
+					: EMPTY_LINES;
 			return nativeRender(width);
 		}
 		// Last stop: a patched surface with no binding at all. This is the
@@ -967,6 +1007,70 @@ export class RuntimeAdapter {
 			);
 		}
 		return nativeRender(width);
+	}
+
+	/** The terminal projection a ledger's rows render against, if any. */
+	#projectionFor(ledger: TurnLedger): TerminalProjection | undefined {
+		return ledger.phase === "filtered" ||
+			(ledger.phase === "full" &&
+				this.#session.modeFor(ledger).mode === "clear")
+			? this.#session.terminalProjection(ledger)
+			: undefined;
+	}
+
+	/**
+	 * The rows of calls the run's presentation hides, once a click on its
+	 * stats row showed them: each call's settled compact row, as `compact`
+	 * mode would keep it. A filtered run already retired the payloads, so a
+	 * call without mutation rows paints the row it kept (`retiredRow`).
+	 */
+	#shownHiddenRows(
+		ledger: TurnLedger | undefined,
+		states: readonly ToolState[],
+		width: number,
+	): readonly string[] {
+		if (!ledger || !this.#shownHidden.has(ledger)) return EMPTY_LINES;
+		const theme = this.#ui.theme;
+		if (!theme) return EMPTY_LINES;
+		const displayPaths = this.#session.displayPathsFor(ledger);
+		return states.flatMap((state) =>
+			state.mutations.length === 0 && state.retiredRow
+				? paintCompactRow(state.retiredRow, theme, width)
+				: renderCompactToolRows(
+						{
+							toolName: state.toolName,
+							args: state.args,
+							result: state.result,
+							isError: state.isError,
+							isPartial: state.isPartial,
+							tick: state.version,
+							settledAt: state.settledAt,
+							mutationEntries: state.mutations,
+						},
+						theme,
+						width,
+						displayPaths,
+					),
+		);
+	}
+
+	/**
+	 * Whether a finished run hid any of its calls, which is when its stats
+	 * row offers to show them. Settled once the run ends: its mode is frozen
+	 * and its calls no longer change.
+	 */
+	#hidesCallsIn(ledger: TurnLedger): boolean {
+		if (ledger.phase === "working") return false;
+		const known = this.#hidesCalls.get(ledger);
+		if (known !== undefined) return known;
+		const projection = this.#projectionFor(ledger);
+		const hides = this.#session
+			.ledgerStates(ledger)
+			.some((state) =>
+				hidesOwnRow(state, this.#toolDecision(state, ledger.phase, projection)),
+			);
+		this.#hidesCalls.set(ledger, hides);
+		return hides;
 	}
 
 	/**
@@ -1402,49 +1506,56 @@ export class RuntimeAdapter {
 		) => readonly string[];
 		const card = this.#advisorProbe(component, original);
 		if (!card) return;
-		const adapter = this;
+		const nativeDescribe = stockDescribe(component);
+		const compactRows = (
+			block: object,
+			width: number,
+		): readonly string[] | undefined => {
+			if (this.#disposed || this.#compactAdvisorNotes?.() !== true)
+				return undefined;
+			// Local native toggles bypass setExpanded. Read the semantic card
+			// at paint time; unknown expansion must remain native. The stock
+			// describe is the captured one: the instance's own is patched.
+			let collapsed: unknown;
+			try {
+				const node = objectRecord(nativeDescribe?.call(block));
+				if (node.k === "card") {
+					const props = objectRecord(node.p);
+					// Native emits collapsed only for >3 notes. Smaller cards have
+					// no local disclosure; use the known global baseline.
+					collapsed =
+						typeof props.collapsed === "boolean"
+							? props.collapsed
+							: props.collapsible === false &&
+									this.#ui.getToolsExpanded?.() === false
+								? true
+								: undefined;
+				}
+			} catch {
+				/* Native metadata failure is not proof of collapse. */
+			}
+			if (collapsed !== true) return undefined;
+			const theme = this.#ui.theme;
+			const bound = this.#advisorBound.get(block);
+			if (!theme || !bound) return undefined;
+			return renderAdvisorRows(bound, theme, width);
+		};
 		try {
-			const patch = new DescriptorPatch(component, ["render"]);
-			patch.install({
+			const wrappers: Record<string, PropertyDescriptor> = {
 				render: {
 					configurable: true,
 					writable: true,
 					value(this: object, width: number): readonly string[] {
-						if (adapter.#disposed || adapter.#compactAdvisorNotes?.() !== true)
-							return original.call(this, width);
-						// Local native toggles bypass setExpanded. Read the semantic
-						// card at paint time; unknown expansion must remain native.
-						let collapsed: unknown;
-						try {
-							const describe = objectRecord(this).describe;
-							const node = objectRecord(
-								typeof describe === "function"
-									? describe.call(this)
-									: undefined,
-							);
-							if (node.k === "card") {
-								const props = objectRecord(node.p);
-								// Native emits collapsed only for >3 notes. Smaller cards
-								// have no local disclosure; use the known global baseline.
-								collapsed =
-									typeof props.collapsed === "boolean"
-										? props.collapsed
-										: props.collapsible === false &&
-												adapter.#ui.getToolsExpanded?.() === false
-											? true
-											: undefined;
-							}
-						} catch {
-							/* Native metadata failure is not proof of collapse. */
-						}
-						if (collapsed !== true) return original.call(this, width);
-						const theme = adapter.#ui.theme;
-						const bound = adapter.#advisorBound.get(this);
-						if (!theme || !bound) return original.call(this, width);
-						return renderAdvisorRows(bound, theme, width);
+						return compactRows(this, width) ?? original.call(this, width);
 					},
 				},
-			});
+			};
+			Object.assign(
+				wrappers,
+				compactNativeMembers(component, compactRows, this.#rowsNodes),
+			);
+			const patch = new DescriptorPatch(component, Object.keys(wrappers));
+			patch.install(wrappers);
 			this.#patches.advisor.set(component, patch);
 			this.#advisorNative.set(component, original);
 			this.#advisorBound.set(component, card);
@@ -1558,23 +1669,32 @@ export class RuntimeAdapter {
 			this: RenderableBlock,
 			width: number,
 		) => readonly string[];
-		const adapter = this;
+		const compactRows = (
+			block: object,
+			width: number,
+		): readonly string[] | undefined => {
+			if (this.#disposed) return undefined;
+			const theme = this.#ui.theme;
+			if (!theme) return undefined;
+			const view = extract(block);
+			return view ? renderRow(view, theme, width) : undefined;
+		};
 		try {
-			const patch = new DescriptorPatch(component, ["render"]);
-			patch.install({
+			const wrappers: Record<string, PropertyDescriptor> = {
 				render: {
 					configurable: true,
 					writable: true,
 					value(this: RenderableBlock, width: number): readonly string[] {
-						if (adapter.#disposed) return original.call(this, width);
-						const theme = adapter.#ui.theme;
-						if (!theme) return original.call(this, width);
-						const view = extract(this);
-						if (!view) return original.call(this, width);
-						return renderRow(view, theme, width);
+						return compactRows(this, width) ?? original.call(this, width);
 					},
 				},
-			});
+			};
+			Object.assign(
+				wrappers,
+				compactNativeMembers(component, compactRows, this.#rowsNodes),
+			);
+			const patch = new DescriptorPatch(component, Object.keys(wrappers));
+			patch.install(wrappers);
 			patches.set(component, patch);
 		} catch {
 			// Capability skew fails open: leave the stock card alone.
@@ -1705,7 +1825,6 @@ export class RuntimeAdapter {
 			) => unknown;
 		}
 
-		const adapter = this;
 		const state = states.get(component) ?? ({} as TState);
 		if (state.expanded === undefined) {
 			try {
@@ -1727,27 +1846,25 @@ export class RuntimeAdapter {
 		}
 		states.set(component, state);
 
-		// Capture order matches the three former sites: render, optional
-		// setComplete, setExpanded. DescriptorPatch install follows this order.
-		const methodNames = observeComplete
-			? (["render", "setComplete", "setExpanded"] as const)
-			: (["render", "setExpanded"] as const);
-
+		const compactRows = (
+			block: object,
+			width: number,
+		): readonly string[] | undefined => {
+			if (this.#disposed) return undefined;
+			const theme = this.#ui.theme;
+			if (!theme) return undefined;
+			const view = extract(block, states.get(block));
+			// Expanded or unknown keeps the complete native body readable.
+			if (view?.expanded !== false) return undefined;
+			return renderRow(view, theme, width);
+		};
 		try {
-			const patch = new DescriptorPatch(component, methodNames);
 			const wrappers: Record<string, PropertyDescriptor> = {
 				render: {
 					configurable: true,
 					writable: true,
 					value(this: RenderableBlock, width: number): readonly string[] {
-						if (adapter.#disposed) return render.call(this, width);
-						const theme = adapter.#ui.theme;
-						if (!theme) return render.call(this, width);
-						const view = extract(this, states.get(this));
-						if (!view) return render.call(this, width);
-						// Expanded or unknown keeps the complete native body readable.
-						if (view.expanded !== false) return render.call(this, width);
-						return renderRow(view, theme, width);
+						return compactRows(this, width) ?? render.call(this, width);
 					},
 				},
 				setExpanded: {
@@ -1779,6 +1896,11 @@ export class RuntimeAdapter {
 					},
 				};
 			}
+			Object.assign(
+				wrappers,
+				compactNativeMembers(component, compactRows, this.#rowsNodes),
+			);
+			const patch = new DescriptorPatch(component, Object.keys(wrappers));
 			patch.install(wrappers);
 			patches.set(component, patch);
 		} catch {

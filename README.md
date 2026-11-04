@@ -297,6 +297,8 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 Поддерживаемый диапазон — **OMP 18.0.1 и выше**. Release gate закреплён на stock OMP 18.16.0; будущие версии считаются совместимыми, пока не изменят private TUI shape. При таком изменении capability checks fail-open возвращают native rendering — укажите версию OMP и reproduction в GitHub issue.
 
+Компактные строки работают и в панелях [Tern](https://stencil.so): там OMP 18.4.4 и выше передаёт transcript нативному представлению Tern (Tern Surface Protocol), а не рисует строки сам. Щелчок по компактной строке показывает под ней полную карточку инструмента, повторный щелчок снова сворачивает её. В режимах `live` и `clear` щелчок по строке статистики хода возвращает скрытые вызовы этого хода на их места, и каждый из них тоже открывает полную карточку; повторный щелчок снова их скрывает.
+
 - [Полная документация](docs/FULL-DOCUMENTATION.md)
 - [Конфигурация](docs/CONFIGURATION.md)
 - [Архитектура](docs/ARCHITECTURE.md)

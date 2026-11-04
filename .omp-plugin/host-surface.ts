@@ -75,10 +75,13 @@ export const TRANSCRIPT_FOLD_METHODS = [
 
 /**
  * Fold-patched transcript methods that only newer hosts expose. Each renders
- * blocks, so each must replan like the rest of the critical surface:
+ * or describes blocks, so each must replan like the rest of the critical
+ * surface:
  * - `peekReplayBatch` (18.0.6): complete-history replay via `resetDisplay`.
  * - `renderTail`: the terminal's resize repaint of the trailing rows.
  * - `peekFlushBatch`: the zero-capacity shutdown flush of remaining history.
+ * - `nativeBlocks` (18.4.4): the blocks a Tern Surface Protocol frame
+ *   describes, the only transcript entry point on that path.
  * Patched only when the instance really has them: defining a method the host
  * never had would invent a capability the rest of the adapter probes for.
  */
@@ -86,6 +89,7 @@ export const TRANSCRIPT_FOLD_OPTIONAL_METHODS = [
 	"peekReplayBatch",
 	"renderTail",
 	"peekFlushBatch",
+	"nativeBlocks",
 ] as const;
 
 /** OMP 17.3.1 tool execution component surface. */
@@ -140,6 +144,23 @@ export const BLOCK_FOLD_METHODS = [
 	"isTranscriptBlockFinalized",
 	"isDisplaceableBlock",
 	"seal",
+] as const;
+
+/**
+ * Block members the fold patches only on Tern Surface Protocol hosts
+ * (18.4.4), on every fold-owned block that has them once the transcript
+ * exposes `nativeBlocks`; other hosts keep painting through `render`:
+ * - `describe(cx)`: what a TSP terminal calls instead of `render`, answered
+ *   with the block's compact rows.
+ * - `attachLateDiagnostics(files)`: where late LSP diagnostics go on that
+ *   path; a fold-owned card refuses them so they keep their own message.
+ * - `handleNativeEvent(event)`: where a click on a node lands; a click on
+ *   compact rows reveals the stock card, everything else stays stock.
+ */
+export const BLOCK_NATIVE_METHODS = [
+	"describe",
+	"attachLateDiagnostics",
+	"handleNativeEvent",
 ] as const;
 
 /**

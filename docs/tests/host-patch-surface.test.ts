@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 import {
 	BLOCK_FOLD_METHODS,
+	BLOCK_NATIVE_METHODS,
 	isBashExecutionComponent,
 	isEvalExecutionComponent,
 	isLateDiagnosticsMessageComponent,
@@ -70,6 +71,13 @@ const EXPECTED_ARITY: Readonly<Record<string, number>> = Object.freeze({
 	peekReplayBatch: 1,
 	renderTail: 2,
 	peekFlushBatch: 1,
+	// Tern Surface Protocol (18.4.4): the transcript's per-frame block list and
+	// the block members it patches (`describe(cx?)`, late diagnostics routed
+	// into write/edit cards, clicks on described nodes), measured on 18.14.2.
+	nativeBlocks: 0,
+	describe: 1,
+	attachLateDiagnostics: 1,
+	handleNativeEvent: 1,
 	updateArgs: 2,
 	// isPartial has a default — see the table comment above.
 	updateResult: 1,
@@ -237,6 +245,7 @@ describe("live host patch surface", () => {
 			// The fold reads block methods through the prototype chain and falls
 			// back to native when absent — hence the optional rule.
 			expectOptionalSurface(tool, BLOCK_FOLD_METHODS);
+			expectOptionalSurface(tool, BLOCK_NATIVE_METHODS);
 		},
 	);
 
@@ -258,6 +267,25 @@ describe("live host patch surface", () => {
 		if (!tuiModule.TUI) return;
 		expectOptionalSurface(tuiModule.TUI.prototype, TUI_OPTIONAL_METHODS);
 	});
+
+	stockTest(
+		"pi-tui rowsText turns styled rows into one text node",
+		async () => {
+			if (!binary) return;
+			// native-describe.ts describes compact rows through this helper; a
+			// rename would silently fall back to badged `rows` nodes in Tern.
+			// Dynamic for the same reason as the TUI probe above.
+			const tuiRoot = resolve(dirname(binary), "..", "@oh-my-pi", "pi-tui");
+			const spans = (await import(
+				pathToFileURL(join(tuiRoot, "src/native/spans.ts")).href
+			)) as { rowsText?: (lines: readonly string[]) => unknown };
+			expect(typeof spans.rowsText).toBe("function");
+			expect(spans.rowsText?.(["• read a.ts", "• grep foo"])).toEqual({
+				k: "text",
+				p: { text: "• read a.ts\n• grep foo", wrap: "none" },
+			});
+		},
+	);
 });
 
 /**

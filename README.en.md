@@ -297,6 +297,8 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 The supported range is **OMP 18.0.1 and later**. The release gate is pinned to stock OMP 18.16.0; newer versions are treated as compatible unless they change the private TUI shape. If that happens, capability checks fail open to native rendering—please report the OMP version and reproduction in a GitHub issue.
 
+The compact rows also appear in [Tern](https://stencil.so) panes, where OMP 18.4.4 and later hand the transcript to Tern's native view (Tern Surface Protocol) instead of painting rows. Click a compact row there to show the tool's full card under it, and click the row again to compact it. In `live` and `clear`, click a turn's stats row to bring back the calls the turn hid, each in its own place and clickable for its full card; a second click hides them again.
+
 - [Full documentation](docs/FULL-DOCUMENTATION.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
