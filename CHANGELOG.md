@@ -3,6 +3,24 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## 1.4.20 — 4 ноября 2026
+
+### Добавлено
+
+- Поддержка Tern Surface Protocol (TSP) в эмуляторе Tern (OMP 18.4.4+): компактные строки инструментов теперь отображаются через семантический метод `describe(cx)` вместо штатных карточек.
+- Клик по компактной строке в Tern открывает полную карточку инструмента, повторный клик возвращает компактный вид.
+- Клик по строке статистики скрытых вызовов в Tern раскрывает скрытые вызовы инструментов завершённого рана.
+
+---
+
+### Added
+
+- Support for the Tern Surface Protocol (TSP) inside the Tern terminal (OMP 18.4.4+): compact tool rows are now rendered via semantic `describe(cx)` instead of native stock cards.
+- Clicking a compact row in Tern reveals the full stock tool card, clicking it again compacts it back.
+- Clicking the stats row of a completed run in Tern toggles the view of routine tool calls hidden by the run.
+
+---
+
 ## 1.4.19 — 4 ноября 2026
 
 ### Изменено
