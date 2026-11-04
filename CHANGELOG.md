@@ -7,13 +7,15 @@
 
 ### Изменено
 
-- Обновлена поддерживаемая версия OMP до 18.15.0. Поддержка OMP 18.0.1 и выше сохранена.
+- Обновлена поддерживаемая версия OMP до 18.16.0. Поддержка OMP 18.0.1 и выше сохранена.
+- Сочетание клавиш `Alt+I` (отправка ответа `/btw` в основную сессию в OMP 18.16.0) зарезервировано в цикле переключения отображения.
 
 ---
 
 ### Changed
 
-- Updated the supported OMP version to 18.15.0. Support for OMP 18.0.1 and later is preserved.
+- Updated the supported OMP version to 18.16.0. Support for OMP 18.0.1 and later is preserved.
+- Reserved the `Alt+I` shortcut (host `app.btw.inject` introduced in OMP 18.16.0) against display cycle conflicts.
 
 ---
 

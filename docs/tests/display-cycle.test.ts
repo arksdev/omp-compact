@@ -193,6 +193,7 @@ describe("display cycle: default host app chords against the host", () => {
 			"alt+a",
 			"alt+g",
 			"alt+h",
+			"alt+i",
 			"alt+k",
 			"alt+o",
 			"alt+shift+k",

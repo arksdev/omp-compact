@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.15.0 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.16.0 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -544,7 +544,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.15.0
+4. Manual smoke test on OMP 18.16.0
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -673,6 +673,11 @@ plugin compact find describer is unchanged.
 surfaces, leaf components, advisor cards, transcript container, URL router
 schemes, and keybindings remain compatible; read-tool-group and find path
 styling were refined with formatStyledPath without changing patched methods.
+
+18.16.0 changed 445 package files relative to 18.15.0. Critical patch surfaces,
+leaf components, advisor cards, transcript container, and keybindings remain
+compatible; app.btw.inject added alt+i (reserved in display cycle), and bash/eval
+execution cards updated loader/status rendering on dynamic bottom borders.
 
 Then `diff -u` scoped per file. All paths are relative to
 `node_modules/@oh-my-pi/pi-coding-agent/`:
