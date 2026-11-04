@@ -11,6 +11,8 @@
 - Клик по компактной строке в Tern открывает полную карточку инструмента, повторный клик возвращает компактный вид.
 - Клик по строке статистики скрытых вызовов в Tern раскрывает скрытые вызовы инструментов завершённого рана.
 
+Спасибо @materemias за реализацию поддержки Tern Surface Protocol в #17.
+
 ---
 
 ### Added
@@ -18,6 +20,8 @@
 - Support for the Tern Surface Protocol (TSP) inside the Tern terminal (OMP 18.4.4+): compact tool rows are now rendered via semantic `describe(cx)` instead of native stock cards.
 - Clicking a compact row in Tern reveals the full stock tool card, clicking it again compacts it back.
 - Clicking the stats row of a completed run in Tern toggles the view of routine tool calls hidden by the run.
+
+Thanks to @materemias for contributing Tern Surface Protocol support in #17.
 
 ---
 
