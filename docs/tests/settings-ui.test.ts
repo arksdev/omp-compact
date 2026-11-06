@@ -1,32 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import {
-	chmod,
-	mkdir,
-	mkdtemp,
-	readFile,
-	rm,
-	writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-	type CompactHostSettings,
 	type CompactSettings,
 	createSettingsStore,
 	DEFAULT_SETTINGS,
 	type EnvOverrides,
-	MAX_THRESHOLD_TOKENS,
 } from "../../.omp-plugin/config";
 import {
-	createHostSettingsBridge,
-	type HostSettingsApi,
-} from "../../.omp-plugin/host-settings";
-import {
 	DEFAULT_DISPLAY_CYCLE_KEY,
+	describeShortcutConflict,
 	formatDisplayCycleStatus,
 	nextDisplayCycleState,
-	RESERVED_SHORTCUTS,
 	validateDisplayCycleKey,
 } from "../../.omp-plugin/display-cycle";
 import {
@@ -34,8 +21,6 @@ import {
 	type ComponentLike,
 	cycleDisplayState,
 	chooseSettingsCommandName,
-	type HostBridgeLike,
-	humanizeThreshold,
 	KEY_BACKSPACE,
 	KEY_ENTER,
 	KEY_ESCAPE,
@@ -75,8 +60,6 @@ const FOCUSABLE_LABELS = [
 	"vibe-compact",
 	"Advisor nit/concern",
 	"Cycle shortcut",
-	"Auto-shake",
-	"Shake threshold",
 	"Run statistics",
 	"Actions",
 	"Fresh input",
@@ -84,8 +67,6 @@ const FOCUSABLE_LABELS = [
 	"Cached tokens",
 	"Time",
 	"Add local time",
-	"Recap summary",
-	"Thinking blocks",
 ];
 
 function fakeTheme(): ThemeLike {
@@ -105,34 +86,31 @@ interface Harness {
 	dialog: SettingsDialog;
 	doneResult: CompactSettings | undefined;
 	saves: CompactSettings[];
-	hostCalls: Array<{ recapEnabled?: boolean; thinkingBlocksVisible?: boolean }>;
 	warnings: string[];
 }
 
 function makeDialog(
 	settings: CompactSettings = DEFAULT_SETTINGS,
-	hostAvailable = true,
 	getTerminalRows?: () => number | undefined,
+	checkShortcut?: (chord: string) => string | undefined,
 ): Harness {
 	const harness: Harness = {
 		dialog: undefined as never,
 		doneResult: undefined,
 		saves: [],
-		hostCalls: [],
 		warnings: [],
 	};
 	const dialog = new SettingsDialog(
 		{
 			settings,
-			hostAvailable,
 			onSave: async (next) => {
 				harness.saves.push(next);
 			},
-			onHostSettingsChanged: (host) => harness.hostCalls.push(host),
 			warn: (message) => harness.warnings.push(message),
 			theme: fakeTheme(),
 			keybindings: noopKeybindings(),
 			getTerminalRows,
+			checkShortcut,
 		},
 		(result) => {
 			harness.doneResult = result;
@@ -244,21 +222,6 @@ describe("command registration", () => {
 			}),
 		).toBe("compact-settings");
 	});
-
-	test("registerSettingsCommand tolerates a throwing registerCommand", () => {
-		const pi = {
-			getCommands: () => [],
-			registerCommand: () => {
-				throw new Error("RPC shim: command registration unavailable");
-			},
-		};
-		expect(
-			registerSettingsCommand(pi, {
-				description: "d",
-				handler: async () => {},
-			}),
-		).toBeUndefined();
-	});
 });
 
 describe("keyboard navigation", () => {
@@ -277,10 +240,8 @@ describe("keyboard navigation", () => {
 		expect(focusedRow(dialog)).toContain("Advisor nit/concern");
 		dialog.handleInput(KEY_DOWN);
 		expect(focusedRow(dialog)).toContain("Cycle shortcut");
-		dialog.handleInput(KEY_DOWN);
-		expect(focusedRow(dialog)).toContain("Auto-shake");
 		// wrap from the bottom back to the top
-		for (let i = 0; i < FOCUSABLE_LABELS.length - 7; i++) {
+		for (let i = 0; i < FOCUSABLE_LABELS.length - 6; i++) {
 			dialog.handleInput(KEY_DOWN);
 		}
 		expect(focusedRow(dialog)).toContain("Global compact");
@@ -289,9 +250,9 @@ describe("keyboard navigation", () => {
 	test("up/k move backwards and wrap from the top", () => {
 		const { dialog } = makeDialog();
 		dialog.handleInput(KEY_UP);
-		expect(focusedRow(dialog)).toContain("Thinking blocks");
+		expect(focusedRow(dialog)).toContain("Add local time");
 		dialog.handleInput(KEY_K);
-		expect(focusedRow(dialog)).toContain("Recap summary");
+		expect(focusedRow(dialog)).toContain("Time");
 	});
 
 	test("navigation skips stats children when the stats row is off", () => {
@@ -299,7 +260,8 @@ describe("keyboard navigation", () => {
 		focus(dialog, "Run statistics");
 		dialog.handleInput(KEY_SPACE); // stats off
 		dialog.handleInput(KEY_DOWN);
-		expect(focusedRow(dialog)).toContain("Recap summary");
+		// Nothing below: the cursor wraps to the top.
+		expect(focusedRow(dialog)).toContain("Global compact");
 		// children are still rendered, just not navigable
 		expect(lines(dialog).some((l) => l.includes("Actions"))).toBe(true);
 		expect(dialog.current.stats.actions).toBe(true);
@@ -307,19 +269,18 @@ describe("keyboard navigation", () => {
 
 	test("focus stays on the same row when stats children collapse under it", () => {
 		const { dialog } = makeDialog();
-		// Land on a trailing host row while the six stats children are still
-		// focusable (cursor index 14 of 15). Shrinking the focusable set must
-		// not remap that high index onto an unrelated earlier row.
-		focus(dialog, "Thinking blocks");
-		expect(focusedRow(dialog)).toContain("Thinking blocks");
+		// Land on a row before the stats group; shrinking the focusable set
+		// must not remap the cursor onto an unrelated row.
+		focus(dialog, "Cycle shortcut");
+		expect(focusedRow(dialog)).toContain("Cycle shortcut");
 		// Collapse via the draft so the focusable set shrinks without move()
 		// rewriting the cursor — the same length change activate() causes when
 		// the stats parent is toggled, isolated from navigation side effects.
 		dialog.current.stats.enabled = false;
-		expect(focusedRow(dialog)).toContain("Thinking blocks");
-		// Re-expanding must still leave focus on Thinking blocks by id.
+		expect(focusedRow(dialog)).toContain("Cycle shortcut");
+		// Re-expanding must still leave focus on the same row by id.
 		dialog.current.stats.enabled = true;
-		expect(focusedRow(dialog)).toContain("Thinking blocks");
+		expect(focusedRow(dialog)).toContain("Cycle shortcut");
 	});
 
 	test("focus on a stats child retreats to the parent when children collapse", () => {
@@ -428,149 +389,6 @@ describe("mode cycling", () => {
 		dialog.handleInput(KEY_DOWN);
 		dialog.handleInput(KEY_ENTER);
 		expect(renderedValue(dialog, "Mode")).toBe("clear");
-	});
-});
-
-describe("threshold editing", () => {
-	const zeroThreshold = {
-		...DEFAULT_SETTINGS,
-		autoShake: { enabled: false, thresholdTokens: 0 },
-	};
-
-	test("enter starts editing, digits commit via enter", async () => {
-		const { dialog, saves } = makeDialog(zeroThreshold);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		for (const digit of "25000") dialog.handleInput(digit);
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(25000);
-		dialog.handleInput(KEY_S);
-		await dialog.settled();
-		expect(saves[0]?.autoShake.thresholdTokens).toBe(25000);
-	});
-
-	test("non-digit input is ignored while editing", () => {
-		const { dialog } = makeDialog(zeroThreshold);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		dialog.handleInput("a");
-		dialog.handleInput("-");
-		dialog.handleInput("1");
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(1);
-	});
-
-	test("multi-character paste with non-digits is ignored entirely", () => {
-		const { dialog } = makeDialog(zeroThreshold);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		// String-range checks accept chunks that merely start below "9"
-		// ("1a" >= "0" && "1a" <= "9"), then parseInt silently keeps the
-		// leading digits. The whole chunk must be rejected instead.
-		dialog.handleInput("1a");
-		dialog.handleInput("12x3");
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
-		expect(lines(dialog).some((l) => l.includes("threshold must"))).toBe(false);
-	});
-
-	test("all-digit paste is accepted as a single chunk", () => {
-		const { dialog } = makeDialog(zeroThreshold);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		dialog.handleInput("25000");
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(25000);
-	});
-
-	test("a long digit paste is capped at the digit limit", () => {
-		// The value is bounded at 10 million, so a 20-digit paste is a paste
-		// accident. The cap keeps the buffer at ten digits; the exact length
-		// matters because an off-by-one in the room calculation would still
-		// look "shorter than pasted".
-		const { dialog } = makeDialog(zeroThreshold);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		dialog.handleInput("1".repeat(20));
-		expect(renderedValue(dialog, "Shake threshold")).toHaveLength(10);
-		dialog.handleInput(KEY_ENTER);
-		// Ten ones exceed the bound, so the commit is refused and the editor
-		// stays open with the error — the cap is a paste guard, not validation.
-		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
-	});
-
-	test("commit rejects a buffer that is not entirely digits", () => {
-		const { dialog } = makeDialog(zeroThreshold);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		// SettingsDialog keeps editBuffer private. Force a polluted buffer past
-		// the keystroke gate so commitEdit's whole-buffer check is exercised
-		// in isolation from the all-digits paste guard.
-		const privateState = dialog as unknown as { editBuffer: string };
-		privateState.editBuffer = "1a";
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
-		expect(
-			lines(dialog).some((l) =>
-				l.includes("threshold must be a non-negative integer"),
-			),
-		).toBe(true);
-		// Still editing after the rejected commit — same as oversized.
-		expect(lines(dialog).some((l) => l.includes("[1a]"))).toBe(true);
-	});
-
-	test("oversized threshold is rejected and editing continues", () => {
-		const { dialog } = makeDialog();
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		for (const digit of "9999999999") dialog.handleInput(digit);
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(
-			DEFAULT_SETTINGS.autoShake.thresholdTokens,
-		);
-		expect(
-			lines(dialog).some((l) => l.includes("threshold") && l.includes("max")),
-		).toBe(true);
-		dialog.handleInput(KEY_ESCAPE); // cancel editing, clear the error
-		expect(
-			lines(dialog).some((l) => l.includes("threshold") && l.includes("max")),
-		).toBe(false);
-	});
-
-	test("backspace removes digits, zero is accepted", () => {
-		const { dialog } = makeDialog(zeroThreshold);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		dialog.handleInput("1");
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(1);
-		dialog.handleInput(KEY_ENTER);
-		dialog.handleInput(KEY_BACKSPACE);
-		dialog.handleInput("0");
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(0);
-	});
-
-	test("the max threshold boundary is pinned to MAX_THRESHOLD_TOKENS", () => {
-		const { dialog } = makeDialog(zeroThreshold);
-		// The exact config maximum is accepted…
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		for (const digit of String(MAX_THRESHOLD_TOKENS)) dialog.handleInput(digit);
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(MAX_THRESHOLD_TOKENS);
-		// …one token over is rejected with the derived message, and the
-		// draft keeps the previous value.
-		dialog.handleInput(KEY_ENTER);
-		for (const digit of String(MAX_THRESHOLD_TOKENS + 1))
-			dialog.handleInput(digit);
-		dialog.handleInput(KEY_ENTER);
-		expect(dialog.current.autoShake.thresholdTokens).toBe(MAX_THRESHOLD_TOKENS);
-		expect(
-			lines(dialog).some((l) =>
-				l.includes(`threshold exceeds max ${MAX_THRESHOLD_TOKENS}`),
-			),
-		).toBe(true);
 	});
 });
 
@@ -690,8 +508,6 @@ describe("save vs cancel", () => {
 		// Nested objects are snapshots too: mutating the live draft after
 		// confirmation must not rewrite the queued payload by reference.
 		expect(saves[0]?.stats).not.toBe(dialog.current.stats);
-		expect(saves[0]?.autoShake).not.toBe(dialog.current.autoShake);
-		expect(saves[0]?.host).not.toBe(dialog.current.host);
 		// Successful save still resolves with the confirmed snapshot.
 		expect(doneResult?.enabled).toBe(false);
 		expect(doneResult?.mode).toBe(DEFAULT_SETTINGS.mode);
@@ -738,24 +554,6 @@ function flowHarness(overrides: {
 			overrides.envOverrides ?? { enabledBy: [], modeBy: undefined },
 	} as unknown as CompactSettingsStore;
 	const deps = {
-		bridge: {
-			apply: async (host: CompactHostSettings) => {
-				order.push(`bridge.apply:${host.recapEnabled}`);
-				const applied = overrides.apply
-					? await overrides.apply()
-					: { restartRequired: false };
-				return {
-					restartRequired: applied.restartRequired,
-					// Models the real bridge's one-shot compensating rollback
-					// (restores the raw persistent pre-image captured before
-					// the forward mutation).
-					rollback: async () => {
-						order.push("bridge.rollback");
-						if (overrides.rollback) return overrides.rollback();
-					},
-				};
-			},
-		},
 		store,
 		notify: (level: "info" | "warning", message: string) => {
 			notifies.push([level, message]);
@@ -764,394 +562,8 @@ function flowHarness(overrides: {
 	return { deps, order, notifies };
 }
 
-describe("save flow ordering and failure contract", () => {
-	const draft: CompactSettings = {
-		...DEFAULT_SETTINGS,
-		host: { recapEnabled: false, thinkingBlocksVisible: false },
-	};
-
-	test("host apply runs before store.update; unmasked save emits the plain success", async () => {
-		const { deps, order, notifies } = flowHarness({});
-		const result = await saveSettingsFlow(draft, deps);
-		expect(order).toEqual(["bridge.apply:false", "store.update"]);
-		expect(result.restartRequired).toBe(false);
-		expect(result.masked).toBe(false);
-		expect(result.masks).toEqual([]);
-		// unmasked save: exactly the plain success, nothing else
-		expect(notifies).toEqual([["info", "omp-compact settings saved"]]);
-	});
-
-	test("thinking change persists JSON then notifies honestly without reloading", async () => {
-		// Stock has no safe live refresh for hideThinkingBlock; the flow must
-		// NOT invoke any session reload. It persists host first, then JSON,
-		// then reports the honest restart requirement through notify().
-		const { deps, order, notifies } = flowHarness({
-			apply: async () => ({ restartRequired: true }),
-		});
-		const result = await saveSettingsFlow(draft, deps);
-		expect(order).toEqual(["bridge.apply:false", "store.update"]);
-		expect(result.restartRequired).toBe(true);
-		expect(notifies).toEqual([
-			["info", "omp-compact settings saved"],
-			["info", "Thinking blocks take effect after restarting OMP"],
-		]);
-	});
-
-	test("host apply failure leaves the store untouched and skips notify", async () => {
-		const { deps, order, notifies } = flowHarness({
-			apply: async () => {
-				throw new Error("host flush failed");
-			},
-		});
-		await expect(saveSettingsFlow(draft, deps)).rejects.toThrow(
-			"host flush failed",
-		);
-		expect(order).toEqual(["bridge.apply:false"]);
-		expect(notifies).toEqual([]);
-	});
-
-	test("JSON persist failure rolls host settings back, skips the notify and reports no success", async () => {
-		const { deps, order, notifies } = flowHarness({
-			apply: async () => ({ restartRequired: true }),
-			update: async () => {
-				throw new Error("disk full");
-			},
-		});
-		await expect(saveSettingsFlow(draft, deps)).rejects.toThrow("disk full");
-		// The failed save's apply ran, the store rejected, and the
-		// compensating rollback from the apply result ran — the host side
-		// never diverges from the JSON.
-		expect(order).toEqual([
-			"bridge.apply:false",
-			"store.update",
-			"bridge.rollback",
-		]);
-		expect(notifies).toEqual([]);
-	});
-
-	test("rollback failure warns and preserves the original store error", async () => {
-		const { deps, order, notifies } = flowHarness({
-			update: async () => {
-				throw new Error("disk full");
-			},
-			rollback: async () => {
-				throw new Error("restore failed");
-			},
-		});
-		// The ORIGINAL store error must surface — never the rollback error —
-		// with exactly one honest warning naming both.
-		await expect(saveSettingsFlow(draft, deps)).rejects.toThrow("disk full");
-		expect(order).toEqual([
-			"bridge.apply:false",
-			"store.update",
-			"bridge.rollback",
-		]);
-		expect(notifies).toEqual([
-			[
-				"warning",
-				expect.stringContaining("Host settings could not be restored"),
-			],
-		]);
-		expect(notifies[0]?.[1]).toContain("disk full");
-		expect(notifies[0]?.[1]).toContain("restore failed");
-	});
-
-	test("without a bridge only the store is touched", async () => {
-		const { deps, order, notifies } = flowHarness({});
-		const result = await saveSettingsFlow(draft, {
-			...deps,
-			bridge: undefined,
-		});
-		expect(order).toEqual(["store.update"]);
-		expect(result.restartRequired).toBe(false);
-		expect(notifies).toEqual([["info", "omp-compact settings saved"]]);
-	});
-
-	test("store write failure after host apply rolls host settings back; JSON unchanged, no success notice", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "omp-compact-flow-"));
-		const configDir = join(dir, "omp-compact");
-		const configPath = join(configDir, "config.json");
-		const store = createSettingsStore({ path: configPath, warn: () => {} });
-		const order: string[] = [];
-		const notifies: Array<[string, string]> = [];
-		// Stateful fake of the real bridge: apply() performs set (in-memory)
-		// + flush (persistent), and its result carries a one-shot rollback
-		// that restores the exact pre-apply state captured before mutation.
-		let live: CompactHostSettings = { recapEnabled: true };
-		const applied: CompactHostSettings[] = [];
-		const bridge: HostBridgeLike = {
-			apply: async (host) => {
-				order.push("bridge.apply");
-				applied.push(host);
-				const previous = { ...live };
-				live = { ...host };
-				return {
-					restartRequired: false,
-					rollback: async () => {
-						order.push("bridge.rollback");
-						live = previous;
-					},
-				};
-			},
-		};
-		const saveDraft: CompactSettings = {
-			...DEFAULT_SETTINGS,
-			host: { recapEnabled: false, thinkingBlocksVisible: true },
-		};
-		try {
-			// Seed a real JSON so "unchanged" is observable, then make the
-			// config dir read-only: host apply succeeds, plugin persist fails.
-			await store.update({ host: { recapEnabled: true } });
-			const before = await readFile(configPath, "utf8");
-			await chmod(configDir, 0o500);
-			await expect(
-				saveSettingsFlow(saveDraft, {
-					bridge,
-					store,
-					notify: (level, message) => notifies.push([level, message]),
-				}),
-			).rejects.toThrow();
-			await chmod(configDir, 0o700);
-			// The host apply ran, the store rejected, and the compensating
-			// rollback from the apply result restored the pre-save state.
-			expect(order).toEqual(["bridge.apply", "bridge.rollback"]);
-			expect(applied).toEqual([
-				{ recapEnabled: false, thinkingBlocksVisible: true },
-			]);
-			expect(notifies).toEqual([]);
-			// Persistent (plugin JSON) is byte-identical: the new host
-			// values were never recorded.
-			expect(await readFile(configPath, "utf8")).toBe(before);
-			expect(store.snapshot().host.recapEnabled).toBe(true);
-			// In-memory host settings restored to the pre-save values too:
-			// host state and plugin JSON agree again.
-			expect(live).toEqual({ recapEnabled: true });
-		} finally {
-			await chmod(configDir, 0o700).catch(() => undefined);
-			await rm(dir, { recursive: true, force: true });
-		}
-	});
-
-	test("store update failure restores the RAW persistent pre-image, never effective read values", async () => {
-		// Simulated project/runtime override: the live effective value
-		// (recapEnabled false) differs from the raw persistent global config
-		// (recap.enabled true). The bridge's rollback closure is bound to the
-		// RAW pre-image captured before the forward apply — a rollback built
-		// from read() would write the masked effective value into the global
-		// config and corrupt it (see context/host-settings-rollback.md).
-		const rawBefore: CompactHostSettings = { recapEnabled: true };
-		const effectiveBefore: CompactHostSettings = { recapEnabled: false };
-		const order: string[] = [];
-		const notifies: Array<[string, string]> = [];
-		let raw: CompactHostSettings = { ...rawBefore };
-		let effective: CompactHostSettings = { ...effectiveBefore };
-		const bridge: HostBridgeLike = {
-			apply: async (host) => {
-				order.push("bridge.apply");
-				// Forward mutation changes BOTH layers to the request.
-				raw = { ...host };
-				effective = { ...host };
-				return {
-					restartRequired: false,
-					// Models the real bridge's one-shot rollback: restores the
-					// RAW persistent pre-image captured before the apply; the
-					// override then masks the effective view again.
-					rollback: async () => {
-						order.push("bridge.rollback");
-						raw = { ...rawBefore };
-						effective = { ...effectiveBefore };
-					},
-				};
-			},
-		};
-		const store = {
-			update: async () => {
-				order.push("store.update");
-				throw new Error("disk full");
-			},
-			overrides: () => ({ enabledBy: [], modeBy: undefined }),
-		} as unknown as CompactSettingsStore;
-		const saveDraft: CompactSettings = {
-			...DEFAULT_SETTINGS,
-			host: { recapEnabled: false },
-		};
-		await expect(
-			saveSettingsFlow(saveDraft, {
-				bridge,
-				store,
-				notify: (level, message) => notifies.push([level, message]),
-			}),
-		).rejects.toThrow("disk full");
-		// 1. the failed save applied and flushed the new host values,
-		// 2. the plugin JSON persist rejected,
-		// 3. the one-shot compensating rollback restored the pre-image.
-		expect(order).toEqual(["bridge.apply", "store.update", "bridge.rollback"]);
-		// The RAW persistent layer is back to its exact pre-image — NOT the
-		// effective values a read()-based rollback would have written.
-		expect(raw).toEqual({ recapEnabled: true });
-		// The simulated override still masks the effective view, as before.
-		expect(effective).toEqual({ recapEnabled: false });
-		// No success notification for a failed save.
-		expect(notifies).toEqual([]);
-	});
-
-	test("overlapping saves on one bridge apply each save's own payload in order", async () => {
-		// One bridge, two overlapping flows with different host payloads.
-		// The bridge coalesces concurrent applies; without serialization the
-		// second flow's payload is silently dropped while both callers report
-		// success, leaving host config and plugin JSON divergent.
-		const order: string[] = [];
-		const notifies: Array<[string, string]> = [];
-		const values = new Map<string, unknown>([
-			["recap.enabled", true],
-			["hideThinkingBlock", false],
-		]);
-		const bridge = createHostSettingsBridge({
-			api: {
-				get: (path) => values.get(path),
-				set: (path, value) => values.set(path, value),
-				flush: async () => {
-					order.push("flush");
-				},
-				persistent: async () => ({
-					"recap.enabled": {
-						present: true,
-						value: values.get("recap.enabled"),
-					},
-					hideThinkingBlock: {
-						present: true,
-						value: values.get("hideThinkingBlock"),
-					},
-				}),
-			} satisfies HostSettingsApi,
-		});
-		const persistedHost: CompactHostSettings = {};
-		const store = {
-			update: async (next: CompactSettings) => {
-				order.push(`store.update:${next.host.recapEnabled}`);
-				Object.assign(persistedHost, next.host);
-				return next;
-			},
-			overrides: () => ({ enabledBy: [], modeBy: undefined }),
-		} as unknown as CompactSettingsStore;
-		const first: CompactSettings = {
-			...DEFAULT_SETTINGS,
-			host: { recapEnabled: false, thinkingBlocksVisible: true },
-		};
-		const second: CompactSettings = {
-			...DEFAULT_SETTINGS,
-			host: { recapEnabled: true, thinkingBlocksVisible: false },
-		};
-		const notify = (level: string, message: string) =>
-			notifies.push([level, message]);
-		await Promise.all([
-			saveSettingsFlow(first, { bridge, store, notify }),
-			saveSettingsFlow(second, { bridge, store, notify }),
-		]);
-		const hostState: CompactHostSettings = {
-			recapEnabled: values.get("recap.enabled") === true,
-			thinkingBlocksVisible: values.get("hideThinkingBlock") !== true,
-		};
-		// Neither call lost its payload: host config and plugin JSON agree on
-		// the second save's values, and both callers reported success.
-		expect(hostState).toEqual(second.host);
-		expect(persistedHost).toEqual(second.host);
-		const saved = notifies.filter(
-			([level, message]) =>
-				level === "info" && message === "omp-compact settings saved",
-		);
-		expect(saved).toHaveLength(2);
-	});
-
-	test("a failed save never rolls back another save's successful write", async () => {
-		// Two bridge instances (two dialogs) over one shared host config.
-		// Without serialization both capture the same pre-image, the failing
-		// save's compensating rollback restores a state that predates the
-		// other save's already-successful write — host and JSON diverge.
-		const order: string[] = [];
-		const notifies: Array<[string, string]> = [];
-		const values = new Map<string, unknown>([
-			["recap.enabled", true],
-			["hideThinkingBlock", false],
-		]);
-		const makeApi = (tag: string): HostSettingsApi => ({
-			get: (path) => values.get(path),
-			set: (path, value) => {
-				order.push(`${tag}.set`);
-				values.set(path, value);
-			},
-			flush: async () => {
-				order.push(`${tag}.flush`);
-			},
-			persistent: async () => ({
-				"recap.enabled": { present: true, value: values.get("recap.enabled") },
-				hideThinkingBlock: {
-					present: true,
-					value: values.get("hideThinkingBlock"),
-				},
-			}),
-		});
-		let updateCount = 0;
-		const persistedHost: CompactHostSettings = {};
-		const store = {
-			update: async (next: CompactSettings) => {
-				updateCount++;
-				order.push(`store.update:${next.host.recapEnabled}`);
-				// The first (earlier) save fails its JSON persist; the second
-				// succeeds after the host side already applied.
-				if (updateCount === 1) throw new Error("disk full");
-				Object.assign(persistedHost, next.host);
-				return next;
-			},
-			overrides: () => ({ enabledBy: [], modeBy: undefined }),
-		} as unknown as CompactSettingsStore;
-		const first: CompactSettings = {
-			...DEFAULT_SETTINGS,
-			host: { recapEnabled: false, thinkingBlocksVisible: true },
-		};
-		const second: CompactSettings = {
-			...DEFAULT_SETTINGS,
-			host: { recapEnabled: true, thinkingBlocksVisible: false },
-		};
-		const notify = (level: string, message: string) =>
-			notifies.push([level, message]);
-		const [firstOutcome, secondOutcome] = await Promise.allSettled([
-			saveSettingsFlow(first, {
-				bridge: createHostSettingsBridge({ api: makeApi("A") }),
-				store,
-				notify,
-			}),
-			saveSettingsFlow(second, {
-				bridge: createHostSettingsBridge({ api: makeApi("B") }),
-				store,
-				notify,
-			}),
-		]);
-		// The failed save surfaced its error honestly — no success
-		// notification for it.
-		expect(firstOutcome.status).toBe("rejected");
-		const saved = notifies.filter(
-			([level, message]) =>
-				level === "info" && message === "omp-compact settings saved",
-		);
-		expect(saved).toHaveLength(1);
-		// Its compensating rollback restored only ITS pre-image: the second
-		// save's successful write survives and host + JSON agree.
-		const hostState: CompactHostSettings = {
-			recapEnabled: values.get("recap.enabled") === true,
-			thinkingBlocksVisible: values.get("hideThinkingBlock") !== true,
-		};
-		expect(hostState).toEqual(second.host);
-		expect(persistedHost).toEqual(second.host);
-		expect(secondOutcome.status).toBe("fulfilled");
-	});
-});
-
 describe("env override notification on save", () => {
-	const draft: CompactSettings = {
-		...DEFAULT_SETTINGS,
-		host: { recapEnabled: false, thinkingBlocksVisible: false },
-	};
+	const draft: CompactSettings = DEFAULT_SETTINGS;
 
 	test("masked enabled emits one info notification naming OMP_COMPACT_PLUGIN and still saves", async () => {
 		const { deps, order, notifies } = flowHarness({
@@ -1160,7 +572,7 @@ describe("env override notification on save", () => {
 		});
 		const result = await saveSettingsFlow(draft, deps);
 		// the save itself still succeeds and persists the requested values
-		expect(order).toEqual(["bridge.apply:false", "store.update"]);
+		expect(order).toEqual(["store.update"]);
 		expect(result.restartRequired).toBe(false);
 		expect(result.masked).toBe(true);
 		expect(result.masks).toEqual([
@@ -1408,8 +820,6 @@ describe("dialog save notification contract", () => {
 		update?: (next: CompactSettings) => CompactSettings;
 		/** Effective snapshot the menu opens with (store.load contract). */
 		initial?: CompactSettings;
-		/** Optional host bridge, as the command handler wires in index.ts. */
-		bridge?: HostBridgeLike;
 	}): FlowDialog {
 		const harness: FlowDialog = {
 			dialog: undefined as never,
@@ -1430,7 +840,6 @@ describe("dialog save notification contract", () => {
 				settings: overrides.initial ?? DEFAULT_SETTINGS,
 				onSave: async (next) => {
 					await saveSettingsFlow(next, {
-						bridge: overrides.bridge,
 						store,
 						notify: (level, message) => {
 							harness.notifies.push([level, message]);
@@ -1480,152 +889,6 @@ describe("dialog save notification contract", () => {
 		expect(harness.doneResult?.enabled).toBe(false);
 		expect(harness.notifies).toEqual([["info", "omp-compact settings saved"]]);
 	});
-
-	test("failed save after a flushed host apply rolls the host back and keeps the dialog open with the error shown", async () => {
-		// Stateful fake of the real bridge: apply() = set (in-memory) +
-		// flush (persistent); its result carries a one-shot rollback that
-		// restores the exact pre-apply state.
-		let live: CompactHostSettings = {
-			recapEnabled: true,
-			thinkingBlocksVisible: true,
-		};
-		const bridge: HostBridgeLike = {
-			apply: async (host) => {
-				const previous = { ...live };
-				live = { ...host };
-				return {
-					restartRequired: false,
-					rollback: async () => {
-						live = previous;
-					},
-				};
-			},
-		};
-		const harness = dialogWithFlow({
-			bridge,
-			initial: {
-				...DEFAULT_SETTINGS,
-				host: { recapEnabled: true, thinkingBlocksVisible: true },
-			},
-			// The host bridge applied and flushed, then the plugin JSON
-			// persist fails — the compensating rollback must restore the
-			// pre-save host values and the dialog must surface the error.
-			update: () => {
-				throw new Error("disk full");
-			},
-		});
-		focus(harness.dialog, "Recap summary");
-		harness.dialog.handleInput(KEY_SPACE); // recap off in the draft
-		harness.dialog.handleInput(KEY_S);
-		await harness.dialog.settled();
-		// Host settings restored: persistent (apply re-flushed the pre-save
-		// values) and in-memory (read() mirrors them again).
-		expect(live).toEqual({ recapEnabled: true, thinkingBlocksVisible: true });
-		// UI stayed consistent: the dialog did NOT finish with the failed
-		// draft — unsaved state is kept and the error is shown.
-		expect(harness.doneResult).toBeUndefined();
-		expect(lines(harness.dialog).some((l) => l.includes("disk full"))).toBe(
-			true,
-		);
-		expect(harness.warnings.some((w) => w.includes("disk full"))).toBe(true);
-		// No success notification for a failed save.
-		expect(harness.notifies).toEqual([]);
-	});
-});
-
-describe("host settings seam", () => {
-	test("onHostSettingsChanged fires with changed fields after save", async () => {
-		const harness = makeDialog({
-			...DEFAULT_SETTINGS,
-			host: { recapEnabled: true, thinkingBlocksVisible: true },
-		});
-		const { dialog } = harness;
-		focus(dialog, "Recap summary");
-		dialog.handleInput(KEY_SPACE); // recap off
-		focus(dialog, "Thinking blocks");
-		dialog.handleInput(KEY_SPACE); // thinking hidden
-		dialog.handleInput(KEY_S);
-		await dialog.settled();
-		expect(harness.hostCalls).toEqual([
-			{ recapEnabled: false, thinkingBlocksVisible: false },
-		]);
-	});
-
-	test("no host callback when host fields unchanged", async () => {
-		const harness = makeDialog();
-		harness.dialog.handleInput(KEY_SPACE); // toggle Global compact only
-		harness.dialog.handleInput(KEY_S);
-		await harness.dialog.settled();
-		expect(harness.hostCalls).toEqual([]);
-	});
-});
-
-describe("unavailable host settings", () => {
-	const HOST_UNAVAILABLE_ROW = /Recap summary|Thinking blocks/;
-
-	test("host rows render n/a, are non-focusable, and are skipped by navigation", () => {
-		const { dialog } = makeDialog(DEFAULT_SETTINGS, false);
-		const output = lines(dialog);
-		const recap = output.find((l) => l.includes("Recap summary"));
-		expect(recap).toBeDefined();
-		expect(recap).toContain("n/a");
-		const thinking = output.find((l) => l.includes("Thinking blocks"));
-		expect(thinking).toBeDefined();
-		expect(thinking).toContain("n/a");
-		// Navigation never lands on an unavailable host row.
-		for (let i = 0; i < FOCUSABLE_LABELS.length + 2; i++) {
-			expect(focusedRow(dialog)).not.toMatch(HOST_UNAVAILABLE_ROW);
-			dialog.handleInput(KEY_DOWN);
-		}
-	});
-
-	test("space on unavailable host rows cannot change the draft", () => {
-		const { dialog } = makeDialog(DEFAULT_SETTINGS, false);
-		for (let i = 0; i < 40; i++) {
-			dialog.handleInput(KEY_DOWN);
-			dialog.handleInput(KEY_SPACE);
-		}
-		expect(dialog.current.host).toEqual(DEFAULT_SETTINGS.host);
-	});
-
-	test("saving a plugin-only change succeeds with host JSON untouched", async () => {
-		const harness = makeDialog(DEFAULT_SETTINGS, false);
-		const { dialog } = harness;
-		dialog.handleInput(KEY_SPACE); // Global compact off
-		dialog.handleInput(KEY_S);
-		await dialog.settled();
-		expect(harness.saves).toHaveLength(1);
-		expect(harness.saves[0]?.host).toEqual(DEFAULT_SETTINGS.host);
-		expect(harness.saves[0]?.enabled).toBe(false);
-		expect(harness.hostCalls).toEqual([]);
-		expect(harness.doneResult?.enabled).toBe(false);
-	});
-
-	test("attempting a host change while unavailable fails visibly with JSON untouched", async () => {
-		const harness = makeDialog(DEFAULT_SETTINGS, false);
-		const { dialog } = harness;
-		// Direct draft mutation is the only way a host change could exist
-		// while the rows are locked; the save must fail visibly and must not
-		// reach the store (plugin JSON keeps the old host preferences).
-		dialog.current.host.recapEnabled = false;
-		dialog.handleInput(KEY_S);
-		await dialog.settled();
-		expect(harness.saves).toHaveLength(0);
-		expect(harness.doneResult).toBeUndefined();
-		expect(harness.warnings.some((w) => /unavailable/i.test(w))).toBe(true);
-		expect(
-			lines(dialog).some((l) => /unavailable/i.test(l) && /host/i.test(l)),
-		).toBe(true);
-	});
-
-	test("cancel writes nothing when host settings are unavailable", async () => {
-		const harness = makeDialog(DEFAULT_SETTINGS, false);
-		harness.dialog.handleInput(KEY_ESCAPE);
-		await harness.dialog.settled();
-		expect(harness.saves).toHaveLength(0);
-		expect(harness.doneResult).toBeUndefined();
-		expect(harness.hostCalls).toEqual([]);
-	});
 });
 
 describe("menu labels and layout", () => {
@@ -1649,38 +912,35 @@ describe("menu labels and layout", () => {
 			"vibe-compact",
 			"Advisor nit/concern",
 			"Cycle shortcut",
-			"Auto-shake",
-			"Shake threshold",
 			"Run statistics",
 			"Actions",
 			"Fresh input",
 			"Received tokens",
 			"Cached tokens",
 			"Time",
-			"Recap summary",
-			"Thinking blocks",
 		]) {
 			expect(output.some((l) => l.includes(label))).toBe(true);
 		}
 	});
 
-	test("one blank line separates the five groups", () => {
+	test("one blank line separates the groups", () => {
 		const { dialog } = makeDialog();
 		const output = lines(dialog, 80);
 		const blanks = output
 			.map((line, index) => (line === "" ? index : -1))
 			.filter((index) => index >= 0);
-		// header, global (2 rows), display (5 rows), shake (2 rows),
-		// stats (7 rows), host (2 rows), help
-		expect(blanks).toEqual([3, 9, 12, 20]);
+		// header, global (2 rows), display (5 rows), stats (7 rows), help
+		expect(blanks).toEqual([3, 9]);
 	});
 });
 
 describe("short-terminal viewport", () => {
 	const SHORT = 8;
+	/** Header, three groups with their blank lines, help. */
+	const FULL_FRAME_ROWS = 18;
 
 	test("focused row stays visible at the top, middle, and end of the list", () => {
-		const { dialog } = makeDialog(DEFAULT_SETTINGS, true, () => SHORT);
+		const { dialog } = makeDialog(DEFAULT_SETTINGS, () => SHORT);
 		// Top of the list: the first rows are visible, the tail is clipped.
 		focus(dialog, "Global compact");
 		let out = lines(dialog);
@@ -1694,10 +954,10 @@ describe("short-terminal viewport", () => {
 		expect(out.join("\n")).toContain("Actions");
 		expect(out.filter((line) => line === "…")).toHaveLength(2);
 		// End of the list: the last rows are visible, the head is clipped.
-		focus(dialog, "Thinking blocks");
+		focus(dialog, "Add local time");
 		out = lines(dialog);
 		expect(out).toHaveLength(SHORT);
-		expect(out.join("\n")).toContain("Thinking blocks");
+		expect(out.join("\n")).toContain("Add local time");
 		expect(out[1]).toBe("…");
 	});
 
@@ -1705,21 +965,21 @@ describe("short-terminal viewport", () => {
 		// 1 and 2 are the degenerate heights: the header plus the pinned help
 		// line already fill two rows, so anything but a hard clamp overflows.
 		for (const height of [1, 2, 3, 4, 5, 6, 7, 8, 9, 12]) {
-			const { dialog } = makeDialog(DEFAULT_SETTINGS, true, () => height);
-			focus(dialog, "Shake threshold");
+			const { dialog } = makeDialog(DEFAULT_SETTINGS, () => height);
+			focus(dialog, "Advisor nit/concern");
 			const out = lines(dialog);
 			expect(out).toHaveLength(height);
 			// The focused row is never cut off by the host's bottom-anchored
 			// window.
-			expect(out.join("\n")).toContain("Shake threshold");
+			expect(out.join("\n")).toContain("Advisor nit/concern");
 		}
 	});
 
 	test("focus near the list end keeps the window pinned at the bottom", () => {
-		const { dialog } = makeDialog(DEFAULT_SETTINGS, true, () => SHORT);
-		focus(dialog, "Recap summary");
+		const { dialog } = makeDialog(DEFAULT_SETTINGS, () => SHORT);
+		focus(dialog, "Cached tokens");
 		const first = lines(dialog);
-		focus(dialog, "Thinking blocks");
+		focus(dialog, "Time");
 		const second = lines(dialog);
 		// Same visible rows (bottom-pinned window); only the focus marker
 		// moves — the window is stable under one-step cursor moves. The
@@ -1731,8 +991,8 @@ describe("short-terminal viewport", () => {
 				.filter((line) => line !== "…")
 				.map((line) => line.replace(/^›\s*/, "").replace(/^\s\s/, ""));
 		expect(stripRowDecoration(second)).toEqual(stripRowDecoration(first));
-		expect(first.join("\n")).toContain("› Recap summary");
-		expect(second.join("\n")).toContain("› Thinking blocks");
+		expect(first.join("\n")).toContain("Cached tokens");
+		expect(second.join("\n")).toContain("› ├─ Time");
 	});
 
 	test("the save error line stays visible inside the viewport", async () => {
@@ -1787,80 +1047,25 @@ describe("short-terminal viewport", () => {
 
 	test("sufficient terminal height renders the full dialog unchanged", () => {
 		const full = lines(makeDialog().dialog);
-		const tall = lines(makeDialog(DEFAULT_SETTINGS, true, () => 40).dialog);
+		const tall = lines(makeDialog(DEFAULT_SETTINGS, () => 40).dialog);
 		expect(tall).toEqual(full);
-		expect(full).toHaveLength(24);
+		expect(full).toHaveLength(FULL_FRAME_ROWS);
 		expect(full.join("\n")).not.toContain("…");
 	});
 
 	test("non-positive or non-finite terminal height renders the full frame", () => {
 		const full = lines(makeDialog().dialog);
-		expect(full).toHaveLength(24);
+		expect(full).toHaveLength(FULL_FRAME_ROWS);
 
 		for (const degenerate of [0, -1, Number.NaN]) {
-			const dialog = makeDialog(
-				DEFAULT_SETTINGS,
-				true,
-				() => degenerate,
-			).dialog;
+			const dialog = makeDialog(DEFAULT_SETTINGS, () => degenerate).dialog;
 			const rendered = lines(dialog);
 			expect(rendered).toEqual(full);
-			expect(rendered).toHaveLength(24);
+			expect(rendered).toHaveLength(FULL_FRAME_ROWS);
 		}
 
-		const undefinedRows = makeDialog(
-			DEFAULT_SETTINGS,
-			true,
-			() => undefined,
-		).dialog;
+		const undefinedRows = makeDialog(DEFAULT_SETTINGS, () => undefined).dialog;
 		expect(lines(undefinedRows)).toEqual(full);
-	});
-});
-
-describe("threshold display", () => {
-	function withThreshold(tokens: number): Harness {
-		return makeDialog({
-			...DEFAULT_SETTINGS,
-			autoShake: { enabled: false, thresholdTokens: tokens },
-		});
-	}
-
-	test("renders human units when not editing", () => {
-		expect(
-			renderedValue(withThreshold(2_000_000).dialog, "Shake threshold"),
-		).toBe("2m tokens");
-		expect(
-			renderedValue(withThreshold(200_000).dialog, "Shake threshold"),
-		).toBe("200k tokens");
-		expect(renderedValue(withThreshold(25_000).dialog, "Shake threshold")).toBe(
-			"25k tokens",
-		);
-	});
-
-	test("zero renders as every-run semantics", () => {
-		expect(renderedValue(withThreshold(0).dialog, "Shake threshold")).toBe(
-			"0 (every run)",
-		);
-	});
-
-	test("editing shows raw validated digits, not the human form", () => {
-		const { dialog } = withThreshold(2_000_000);
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		expect(lines(dialog).some((l) => l.includes("[2000000]"))).toBe(true);
-		expect(lines(dialog).some((l) => l.includes("2m tokens"))).toBe(false);
-		// cancel the edit: the human form returns
-		dialog.handleInput(KEY_ESCAPE);
-		expect(lines(dialog).some((l) => l.includes("2m tokens"))).toBe(true);
-	});
-
-	test("humanizeThreshold exports the display contract", () => {
-		expect(humanizeThreshold(0)).toBe("0 (every run)");
-		expect(humanizeThreshold(2_000_000)).toBe("2m tokens");
-		expect(humanizeThreshold(200_000)).toBe("200k tokens");
-		expect(humanizeThreshold(25_000)).toBe("25k tokens");
-		expect(humanizeThreshold(999)).toBe("999 tokens");
-		expect(humanizeThreshold(10_000_000)).toBe("10m tokens");
 	});
 });
 
@@ -1870,13 +1075,9 @@ describe("contextual help line", () => {
 		expect(lines(dialog)[lines(dialog).length - 1]).toContain(
 			"Toggles the compact runtime",
 		);
-		focus(dialog, "Shake threshold");
-		expect(lines(dialog)[lines(dialog).length - 1]).toContain(
-			"Shakes once the run passes this many tokens",
-		);
-		focus(dialog, "Recap summary");
-		expect(lines(dialog)[lines(dialog).length - 1]).toContain(
-			"Stock recap summary visibility",
+		focus(dialog, "Cycle shortcut");
+		expect(lines(dialog)[lines(dialog).length - 1]).not.toContain(
+			"Toggles the compact runtime",
 		);
 	});
 
@@ -1886,13 +1087,6 @@ describe("contextual help line", () => {
 		expect(help).toContain("↑↓ move");
 		expect(help).toContain("s save");
 		expect(help).toContain("esc cancel");
-	});
-
-	test("editing keeps the digit-edit help", () => {
-		const { dialog } = makeDialog();
-		focus(dialog, "Shake threshold");
-		dialog.handleInput(KEY_ENTER);
-		expect(lines(dialog)[lines(dialog).length - 1]).toContain("digits edit");
 	});
 });
 
@@ -1931,24 +1125,6 @@ describe("muted rows", () => {
 		expect(stats).toBeDefined();
 		expect(stats).not.toContain("<muted>Run statistics</muted>");
 	});
-
-	test("unavailable host rows mute labels and values", () => {
-		const dialog = new SettingsDialog(
-			{
-				settings: DEFAULT_SETTINGS,
-				hostAvailable: false,
-				onSave: async () => {},
-				theme: markerTheme(),
-				keybindings: noopKeybindings(),
-			},
-			() => {},
-		);
-		const output = dialog.render(80);
-		const recap = output.find((l) => l.includes("Recap summary"));
-		expect(recap).toBeDefined();
-		expect(recap).toContain("<muted>Recap summary</muted>");
-		expect(recap).toContain("<muted>n/a</muted>");
-	});
 });
 
 describe("rendering safety", () => {
@@ -1970,7 +1146,7 @@ describe("rendering safety", () => {
 		expect(
 			output.some((l) => l.includes("Global compact") && l.includes("on")),
 		).toBe(true);
-		expect(output.some((l) => l.includes("Shake threshold"))).toBe(true);
+		expect(output.some((l) => l.includes("Advisor nit/concern"))).toBe(true);
 		expect(output.some((l) => l.includes("Actions"))).toBe(true);
 		expect(output.some((l) => l.includes("↑↓ move"))).toBe(true);
 	});
@@ -2342,31 +1518,23 @@ describe("display cycle: shortcut validation", () => {
 		expect(validateDisplayCycleKey("alt+c")).toBeUndefined();
 	});
 
-	test("a chord reserved by the extension runtime is refused by name", () => {
-		// Each of these would be dropped at registration with only a log line.
-		for (const chord of ["ctrl+c", "alt+m", "shift+tab", "alt+enter"]) {
-			expect(validateDisplayCycleKey(chord)).toBe(
-				`${chord} is already taken by OMP; pick another shortcut`,
-			);
-		}
-	});
-
-	test("a chord bound by the host's default keymap is refused too", () => {
-		// alt+p / alt+r come from the host keybinding table, read live rather
-		// than copied.
-		expect(validateDisplayCycleKey("alt+p")).toContain("already taken by OMP");
-		expect(validateDisplayCycleKey("alt+r")).toContain("already taken by OMP");
-	});
-
-	test("modifier order does not smuggle an occupied chord through", () => {
-		// The host canonicalizes chords, so ctrl+alt+x and alt+ctrl+x are one
-		// chord; validation must agree or a reordered spelling would slip past.
-		expect(validateDisplayCycleKey("shift+ctrl+p")).toContain(
-			"already taken by OMP",
+	test("taken chords are the host's answer, worded for the dialog", () => {
+		expect(describeShortcutConflict("ctrl+c", { kind: "reserved" })).toBe(
+			"ctrl+c is already taken by OMP; pick another shortcut",
 		);
-		expect(validateDisplayCycleKey("ctrl+shift+p")).toContain(
-			"already taken by OMP",
-		);
+		expect(
+			describeShortcutConflict("alt+p", {
+				kind: "keybinding",
+				keybindings: ["app.model.select"],
+			}),
+		).toBe("alt+p is already bound to app.model.select; pick another shortcut");
+		expect(
+			describeShortcutConflict("alt+x", {
+				kind: "extension",
+				extensionPath: "/x.ts",
+			}),
+		).toBe("alt+x is already used by another extension; pick another shortcut");
+		expect(describeShortcutConflict("alt+c", undefined)).toBeUndefined();
 	});
 
 	test("free chords are accepted", () => {
@@ -2388,30 +1556,6 @@ describe("display cycle: shortcut validation", () => {
 			'duplicate modifier "alt"',
 		);
 		expect(validateDisplayCycleKey("alt+nope")).toBe('unknown key "nope"');
-	});
-
-	test("the reserved copy matches the host list this pin ships", () => {
-		// The host field is private and unreadable at runtime, so this copy is
-		// the only thing standing between a user and a silently dead key. It
-		// must be re-checked whenever the agent pin moves.
-		expect([...RESERVED_SHORTCUTS]).toEqual([
-			"ctrl+c",
-			"ctrl+d",
-			"ctrl+z",
-			"ctrl+k",
-			"ctrl+p",
-			"ctrl+l",
-			"ctrl+o",
-			"ctrl+t",
-			"ctrl+g",
-			"alt+m",
-			"ctrl+q",
-			"shift+tab",
-			"shift+ctrl+p",
-			"alt+enter",
-			"escape",
-			"enter",
-		]);
 	});
 });
 
@@ -2441,28 +1585,14 @@ describe("display cycle: shortcut registration", () => {
 		]);
 	});
 
-	test("an occupied chord falls back to the default instead of dying silently", () => {
+	test("a malformed chord falls back to the default instead of dying silently", () => {
 		const { pi, registered } = shortcutApi();
-		const used = registerDisplayCycleShortcut(pi, "ctrl+c", {
+		const used = registerDisplayCycleShortcut(pi, "bogus", {
 			description: "cycle",
 			handler: () => {},
 		});
 		expect(used).toBe("alt+c");
 		expect(registered[0]?.chord).toBe("alt+c");
-	});
-
-	test("a host without shortcut support does not take the plugin down", () => {
-		const pi = {
-			registerShortcut: () => {
-				throw new Error("not supported");
-			},
-		};
-		expect(
-			registerDisplayCycleShortcut(pi, "alt+c", {
-				description: "cycle",
-				handler: () => {},
-			}),
-		).toBeUndefined();
 	});
 });
 
@@ -2618,7 +1748,11 @@ describe("display cycle: dialog row", () => {
 	});
 
 	test("an occupied chord is refused on the dialog's error line", () => {
-		const { dialog } = makeDialog();
+		const { dialog } = makeDialog(DEFAULT_SETTINGS, undefined, (chord) =>
+			chord === "ctrl+c"
+				? "ctrl+c is already taken by OMP; pick another shortcut"
+				: undefined,
+		);
 		focus(dialog, "Cycle shortcut");
 		dialog.handleInput(KEY_ENTER);
 		for (const ch of "ctrl+c") dialog.handleInput(ch);

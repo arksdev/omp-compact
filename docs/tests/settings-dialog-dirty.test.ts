@@ -41,12 +41,11 @@ function dialogRows(dialog: SettingsDialog): DialogRow[] {
 	return (dialog as unknown as { buildRows(): DialogRow[] }).buildRows();
 }
 
-/** Fresh dialog over the plugin defaults, host rows live (as in settings-ui.test.ts). */
+/** Fresh dialog over the plugin defaults, (as in settings-ui.test.ts). */
 function makeDialog(): SettingsDialog {
 	return new SettingsDialog(
 		{
 			settings: DEFAULT_SETTINGS,
-			hostAvailable: true,
 			onSave: async () => {},
 			theme: fakeTheme(),
 			keybindings: noopKeybindings(),

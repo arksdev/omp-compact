@@ -27,16 +27,6 @@ export interface CompactStatsSettings {
 	clock: boolean;
 }
 
-export interface CompactAutoShakeSettings {
-	enabled: boolean;
-	thresholdTokens: number;
-}
-
-export interface CompactHostSettings {
-	recapEnabled?: boolean;
-	thinkingBlocksVisible?: boolean;
-}
-
 /** Current persisted schema version. Every writer stamps it (update guard);
  * read accepts only this value (normalize guard). */
 export const SCHEMA_VERSION = 1 as const;
@@ -63,8 +53,6 @@ export interface CompactSettings {
 	 */
 	displayCycleKey: string;
 	stats: CompactStatsSettings;
-	autoShake: CompactAutoShakeSettings;
-	host: CompactHostSettings;
 }
 
 export interface CompactSettingsPatch {
@@ -76,18 +64,13 @@ export interface CompactSettingsPatch {
 	compactAdvisorNotes?: boolean;
 	displayCycleKey?: string;
 	stats?: Partial<CompactStatsSettings>;
-	autoShake?: Partial<CompactAutoShakeSettings>;
-	host?: Partial<CompactHostSettings>;
 }
 
 export type EnvLike = Record<string, string | undefined>;
 
-// Config JSON byte/depth budgets; MAX_CONFIG_BYTES is mirrored by the
-// host-settings YAML pre-image budget (MAX_HOST_SETTINGS_YAML_BYTES in
-// host-settings.ts) — keep both byte budgets in sync when either changes.
+// Config JSON byte/depth budgets.
 export const MAX_CONFIG_BYTES = 65_536;
 export const MAX_CONFIG_DEPTH = 16;
-export const MAX_THRESHOLD_TOKENS = 10_000_000;
 
 const CONFIG_OPEN_FLAGS = constants.O_RDONLY | constants.O_NONBLOCK;
 
@@ -113,7 +96,7 @@ function readConfigSync(path: string): string {
 	}
 }
 
-/** Bounded UTF-8 settings text shared by JSON config and host YAML. */
+/** Bounded UTF-8 config text: the default reader of the settings store. */
 export async function readSettingsText(
 	path: string,
 	encoding: "utf8",
@@ -139,23 +122,6 @@ const DEFAULT_STATS: CompactStatsSettings = Object.freeze({
 	clock: true,
 });
 
-const DEFAULT_AUTO_SHAKE: CompactAutoShakeSettings = Object.freeze({
-	enabled: false,
-	thresholdTokens: 120_000,
-});
-
-// Plugin-polarity defaults for the host toggles: "thinking blocks visible"
-// is the inverse of stock hideThinkingBlock. Deliberately separate from the
-// stock schema defaults in host-settings.ts (DEFAULT_RECAP_ENABLED /
-// DEFAULT_HIDE_THINKING_BLOCK, HOST_SETTING_DEFAULTS — stock polarity):
-// host-settings owns the stock truth in stock polarity, this file owns the
-// plugin config default in plugin polarity. Never merge the two — a
-// divergence between them is a decision, not a duplication.
-const DEFAULT_HOST: CompactHostSettings = Object.freeze({
-	recapEnabled: true,
-	thinkingBlocksVisible: true,
-});
-
 export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
 	version: SCHEMA_VERSION,
 	enabled: true,
@@ -168,8 +134,6 @@ export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
 	compactAdvisorNotes: false,
 	displayCycleKey: DEFAULT_DISPLAY_CYCLE_KEY,
 	stats: DEFAULT_STATS,
-	autoShake: DEFAULT_AUTO_SHAKE,
-	host: DEFAULT_HOST,
 });
 
 function isCompactMode(value: unknown): value is CompactMode {
@@ -184,14 +148,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isFiniteInteger(value: unknown): value is number {
-	return (
-		typeof value === "number" &&
-		Number.isInteger(value) &&
-		Number.isFinite(value)
-	);
-}
-
 function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 	const clone: CompactSettings = {
 		version: SCHEMA_VERSION,
@@ -203,8 +159,6 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 		compactAdvisorNotes: settings.compactAdvisorNotes,
 		displayCycleKey: settings.displayCycleKey,
 		stats: Object.freeze({ ...settings.stats }),
-		autoShake: Object.freeze({ ...settings.autoShake }),
-		host: Object.freeze({ ...settings.host }),
 	};
 	return Object.freeze(clone);
 }
@@ -482,8 +436,7 @@ function normalizeWithDiagnostics(
 		// id the host derives from the keypress (`canonicalize` mirrors the
 		// host's `canonicalKeyId`) — so an uppercase chord like `alt+Q` is
 		// persisted and shown as `shift+alt+q` instead of registering one id
-		// and firing another. `isDisplayCycleKey` already validated the
-		// canonical form, so this cannot produce an occupied chord.
+		// and firing another.
 		return canonicalize(value);
 	};
 	const mode =
@@ -522,8 +475,6 @@ function normalizeWithDiagnostics(
 		),
 		displayCycleKey: chord(raw.displayCycleKey),
 		stats: { ...DEFAULT_SETTINGS.stats },
-		autoShake: { ...DEFAULT_SETTINGS.autoShake },
-		host: { ...DEFAULT_SETTINGS.host },
 	};
 
 	if (isRecord(raw.stats)) {
@@ -550,53 +501,6 @@ function normalizeWithDiagnostics(
 		};
 	} else if (raw.stats !== undefined) {
 		invalid.push("stats");
-	}
-
-	if (isRecord(raw.autoShake)) {
-		const threshold = raw.autoShake.thresholdTokens;
-		let thresholdTokens = settings.autoShake.thresholdTokens;
-		if (threshold !== undefined) {
-			if (
-				isFiniteInteger(threshold) &&
-				threshold >= 0 &&
-				threshold <= MAX_THRESHOLD_TOKENS
-			) {
-				thresholdTokens = threshold;
-			} else {
-				invalid.push("autoShake.thresholdTokens");
-			}
-		}
-		settings.autoShake = {
-			enabled: field(
-				"autoShake.enabled",
-				raw.autoShake.enabled,
-				settings.autoShake.enabled,
-			),
-			thresholdTokens,
-		};
-	} else if (raw.autoShake !== undefined) {
-		invalid.push("autoShake");
-	}
-
-	if (isRecord(raw.host)) {
-		const host: CompactHostSettings = {};
-		if (raw.host.recapEnabled !== undefined) {
-			if (isBoolean(raw.host.recapEnabled)) {
-				host.recapEnabled = raw.host.recapEnabled;
-			} else {
-				invalid.push("host.recapEnabled");
-			}
-		}
-		if (raw.host.thinkingBlocksVisible !== undefined) {
-			if (isBoolean(raw.host.thinkingBlocksVisible)) {
-				host.thinkingBlocksVisible = raw.host.thinkingBlocksVisible;
-			} else {
-				invalid.push("host.thinkingBlocksVisible");
-			}
-		}
-		settings.host = host;
-	} else if (raw.host !== undefined) {
-		invalid.push("host");
 	}
 
 	if (invalid.length > 0) {
@@ -632,10 +536,6 @@ const STATS_FIELDS = [
 	"clock",
 ] as const;
 
-const AUTO_SHAKE_FIELDS = ["enabled", "thresholdTokens"] as const;
-
-const HOST_FIELDS = ["recapEnabled", "thinkingBlocksVisible"] as const;
-
 /**
  * In-process update queue per config path. The persisted format remains an
  * ordinary atomic JSON file (no lock file or fsync); serializing writers in
@@ -644,16 +544,10 @@ const HOST_FIELDS = ["recapEnabled", "thinkingBlocksVisible"] as const;
  */
 const withUpdateQueue = createKeyedQueue<string>();
 
-/**
- * The leaf fields an update actually changes. An explicit `undefined` entry
- * (host fields only) expresses removal: normalization drops absent host
- * keys, so `host: { recapEnabled: undefined }` clears the persisted value.
- */
+/** The leaf fields an update actually changes. */
 interface SettingsLeafPatch {
 	top: Partial<Pick<CompactSettings, (typeof TOP_LEVEL_FIELDS)[number]>>;
 	stats?: Partial<CompactStatsSettings>;
-	autoShake?: Partial<CompactAutoShakeSettings>;
-	host?: Partial<CompactHostSettings>;
 }
 
 /**
@@ -682,17 +576,9 @@ function deriveLeafPatch(
 ): SettingsLeafPatch {
 	const top = diffLeaves(base, desired, TOP_LEVEL_FIELDS);
 	const stats = diffLeaves(base.stats, desired.stats, STATS_FIELDS);
-	const autoShake = diffLeaves(
-		base.autoShake,
-		desired.autoShake,
-		AUTO_SHAKE_FIELDS,
-	);
-	const host = diffLeaves(base.host, desired.host, HOST_FIELDS);
 	return {
 		top,
 		...(Object.keys(stats).length > 0 ? { stats } : {}),
-		...(Object.keys(autoShake).length > 0 ? { autoShake } : {}),
-		...(Object.keys(host).length > 0 ? { host } : {}),
 	};
 }
 
@@ -700,9 +586,9 @@ function deriveLeafPatch(
  * Apply a leaf patch onto the fresh bounded reread's raw record. Fields
  * absent from the patch keep the latest persisted values, so distinct
  * concurrent edits compose; nested objects are rebuilt leaf-by-leaf.
- * Unknown keys of the raw record — top-level and inside stats/autoShake/
- * host — are carried through untouched, so a save never strips fields a
- * newer host wrote.
+ * Unknown keys of the raw record — top-level and inside stats — are carried
+ * through untouched, so a save never strips fields a newer release (or an
+ * older one, like the retired `autoShake` and `host` groups) wrote.
  */
 function applyLeafPatch(
 	latest: Record<string, unknown>,
@@ -714,20 +600,6 @@ function applyLeafPatch(
 		raw.stats = {
 			...(stats !== null && typeof stats === "object" ? stats : {}),
 			...patch.stats,
-		};
-	}
-	const autoShake = latest.autoShake;
-	if (patch.autoShake !== undefined) {
-		raw.autoShake = {
-			...(autoShake !== null && typeof autoShake === "object" ? autoShake : {}),
-			...patch.autoShake,
-		};
-	}
-	const host = latest.host;
-	if (patch.host !== undefined) {
-		raw.host = {
-			...(host !== null && typeof host === "object" ? host : {}),
-			...patch.host,
 		};
 	}
 	return raw;
@@ -853,12 +725,10 @@ export function readDisplayCycleKeySync(deps: StoreDeps = {}): string {
 }
 
 /**
- * Drop explicit `undefined` values from a patch object (top level or one of
- * the stats/autoShake groups): `undefined` means "leave the persisted value
- * alone", never "write absent" — a present-but-undefined key must not
- * overwrite what the file already holds. Host is the one deliberate
- * exception: `host: { key: undefined }` is the documented removal signal
- * (see `SettingsLeafPatch`), so callers merge the host group raw.
+ * Drop explicit `undefined` values from a patch object (top level or the
+ * stats group): `undefined` means "leave the persisted value alone", never
+ * "write absent" — a present-but-undefined key must not overwrite what the
+ * file already holds.
  */
 function omitUndefinedValues<T extends object>(
 	patch: T | undefined,
@@ -1102,15 +972,9 @@ export function createSettingsStore(
 		const merged: Record<string, unknown> = {
 			...persisted,
 			// Skip undefined keys in the patch so they don't overwrite persisted
-			// values. stats/autoShake groups get the same treatment; host is
-			// exempt because `host: { key: undefined }` is the removal signal.
+			// values; the stats group gets the same treatment.
 			...omitUndefinedValues(requested),
 			stats: { ...persisted.stats, ...omitUndefinedValues(patch.stats) },
-			autoShake: {
-				...persisted.autoShake,
-				...omitUndefinedValues(patch.autoShake),
-			},
-			host: { ...persisted.host, ...(patch.host ?? {}) },
 		};
 		const { settings: desired, invalid } = normalizeWithDiagnostics(
 			merged,
@@ -1191,7 +1055,7 @@ export function createSettingsStore(
 
 	function snapshot(): CompactSettings {
 		// `current` is deep-frozen at every assignment (load/update replace the
-		// whole object; nested stats/autoShake/host are frozen too). Returning
+		// whole object; the nested stats group is frozen too). Returning
 		// it avoids a per-call clone on hot paths (displayPaths, stats render).
 		return current;
 	}

@@ -1,5 +1,3 @@
-import { TUI_KEYBINDINGS } from "@oh-my-pi/pi-tui";
-
 import type { CompactMode } from "./config";
 
 // =============================================================================
@@ -8,8 +6,8 @@ import type { CompactMode } from "./config";
 
 /**
  * Default chord for the display-cycle shortcut. `alt+c` is free in the stock
- * keymap: absent from the host's built-in defaults (read live from
- * `KEYBINDINGS`, see {@link occupiedShortcuts}) and from the reserved copy.
+ * keymap; whether it still is in a given session is the host's answer
+ * (`getShortcutConflict`, see {@link describeShortcutConflict}).
  */
 export const DEFAULT_DISPLAY_CYCLE_KEY = "alt+c";
 
@@ -40,45 +38,8 @@ export function nextDisplayCycleState(
 }
 
 // =============================================================================
-// Occupied chords
+// Chord syntax
 // =============================================================================
-
-/**
- * COPY of `ExtensionRunner.#RESERVED_SHORTCUTS`
- * (`@oh-my-pi/pi-coding-agent/src/extensibility/extensions/runner.ts`), taken
- * from version 18.0.8, re-checked against the pinned 18.16.0 — `runner.ts` has
- * since gained `emitBeforeSubagentSpawn` (and the `before_subagent_spawn`
- * event), but the `#RESERVED_SHORTCUTS` map itself is unchanged.
- *
- * The host field is a `static readonly #RESERVED_SHORTCUTS` private class
- * member: it cannot be imported or read at runtime, so keeping this copy is
- * the only way to warn a user before they pick a dead chord. A shortcut that
- * lands on a reserved chord is dropped with nothing but a log line ("Extension
- * shortcut conflicts with built-in shortcut"), so the key would silently never
- * fire.
- *
- * MUST be re-checked against `runner.ts` whenever the
- * `@oh-my-pi/pi-coding-agent` pin moves. Declaration order matches the host.
- * Background: `context/display-cycle-reserved-copy.md`.
- */
-export const RESERVED_SHORTCUTS: readonly string[] = Object.freeze([
-	"ctrl+c",
-	"ctrl+d",
-	"ctrl+z",
-	"ctrl+k",
-	"ctrl+p",
-	"ctrl+l",
-	"ctrl+o",
-	"ctrl+t",
-	"ctrl+g",
-	"alt+m",
-	"ctrl+q",
-	"shift+tab",
-	"shift+ctrl+p",
-	"alt+enter",
-	"escape",
-	"enter",
-]);
 
 /**
  * Modifier order used for canonical spelling — the host's own order
@@ -121,65 +82,8 @@ const SPECIAL_KEYS: Record<string, true> = {
 	f12: true,
 };
 
-/**
- * Default app-level chords from the host keymap (`app.*` in stock keybindings).
- * Kept as an explicit list because OMP 18.2.5 moved `app-keybindings` to an
- * unexported subpath outside the compiled-binary Pi virtual module registry.
- */
-const DEFAULT_HOST_APP_CHORDS: readonly string[] = Object.freeze([
-	"alt+a",
-	"alt+g",
-	"alt+h",
-	"alt+i",
-	"alt+k",
-	"alt+o",
-	"alt+p",
-	"alt+shift+c",
-	"alt+shift+k",
-	"alt+shift+l",
-	"alt+shift+p",
-	"alt+shift+v",
-	"alt+up",
-	"shift+up",
-	"alt+l",
-	"alt+r",
-	"ctrl+backspace",
-	"ctrl+enter",
-	"ctrl+r",
-	"ctrl+s",
-	"ctrl+shift+o",
-	"ctrl+shift+v",
-	"ctrl+j",
-	"ctrl+y",
-	"ctrl+w",
-	"ctrl+u",
-	"ctrl+b",
-	"ctrl+f",
-	"ctrl+a",
-	"ctrl+e",
-	"ctrl+]",
-	"ctrl+alt+]",
-	"ctrl+-",
-	"ctrl+_",
-	"ctrl+.",
-	"f5",
-	"space",
-]);
-
 /** Single-character base keys beyond letters and digits (same `keys.ts` union). */
 const SYMBOL_KEYS = "`-=[]\\;',./!@#$%^&*()_+|~{}:<>?";
-
-/**
- * Platform-specific paste chords: `KEYBINDINGS` only carries the chord set for
- * the platform currently running (`getDefaultPasteImageKeys`), but a config
- * file travels between machines, so a chord that works here and dies on
- * Windows is not a chord worth accepting.
- */
-const CROSS_PLATFORM_PASTE_KEYS: readonly string[] = [
-	"ctrl+v",
-	"alt+v",
-	"super+v",
-];
 
 /** Exactly one ASCII letter A-Z — the only shape the host reads as "shifted"
  *  (`@oh-my-pi/pi-tui` `keybindings.ts` `isAsciiUppercaseLetter`). Deliberately
@@ -282,38 +186,44 @@ function isBaseKey(base: string): boolean {
 	);
 }
 
-let occupiedCache: ReadonlySet<string> | undefined;
+/**
+ * What already holds a chord, as the host reports it
+ * (`ExtensionAPI.getShortcutConflict`). A structural copy of the host's
+ * `ShortcutConflict`, so the dialog and its tests need no host import.
+ */
+export type ShortcutConflictLike =
+	| { readonly kind: "reserved" }
+	| { readonly kind: "keybinding"; readonly keybindings: readonly string[] }
+	| { readonly kind: "extension"; readonly extensionPath: string };
 
 /**
- * Every chord already taken: the host's live default keymap plus the reserved
- * copy above. The default keymap is read from the exported `KEYBINDINGS` table
- * rather than copied — that table is public, so there is nothing to keep in
- * sync. Computed once; the host table is module-level constant data.
+ * The dialog's rejection for a chord the host reports as taken, or
+ * `undefined` when it is free. A shortcut on a reserved chord is never bound
+ * and an `app.*` keybinding usually takes the key first, so either would hand
+ * the user a key that never fires; another extension's chord binds only one of
+ * the two.
  */
-export function occupiedShortcuts(): ReadonlySet<string> {
-	if (occupiedCache) return occupiedCache;
-	const keys = new Set<string>();
-	for (const definition of Object.values(TUI_KEYBINDINGS)) {
-		const declared = (definition as { defaultKeys?: unknown }).defaultKeys;
-		for (const key of Array.isArray(declared) ? declared : [declared]) {
-			if (typeof key === "string" && key.length > 0)
-				keys.add(canonicalize(key));
-		}
-	}
-	for (const key of DEFAULT_HOST_APP_CHORDS) keys.add(canonicalize(key));
-	for (const key of CROSS_PLATFORM_PASTE_KEYS) keys.add(key);
-	for (const key of RESERVED_SHORTCUTS) keys.add(canonicalize(key));
-	occupiedCache = keys;
-	return keys;
+export function describeShortcutConflict(
+	key: string,
+	conflict: ShortcutConflictLike | undefined,
+): string | undefined {
+	if (conflict === undefined) return undefined;
+	if (conflict.kind === "reserved")
+		return `${key} is already taken by OMP; pick another shortcut`;
+	if (conflict.kind === "keybinding")
+		return `${key} is already bound to ${conflict.keybindings.join(", ")}; pick another shortcut`;
+	return `${key} is already used by another extension; pick another shortcut`;
 }
 
 /**
  * Why a chord cannot be used, or `undefined` when it can. The message is shown
- * verbatim on the dialog's error line, so the wording is user-facing.
+ * verbatim on the dialog's error line, so the wording is user-facing. Syntax
+ * only: whether OMP or another extension already holds the chord is the
+ * host's answer at run time ({@link describeShortcutConflict}).
  *
- * A chord without a modifier is refused even when unoccupied: a bare letter
- * registered as an extension shortcut intercepts that letter everywhere in the
- * prompt editor, which reads as a broken keyboard rather than as a shortcut.
+ * A chord without a modifier is refused: a bare letter registered as an
+ * extension shortcut intercepts that letter everywhere in the prompt editor,
+ * which reads as a broken keyboard rather than as a shortcut.
  *
  * An uppercase ASCII base without an explicit `shift` (`alt+Q`) is accepted
  * and validated under its canonical spelling: the host reads an uppercase
@@ -335,20 +245,10 @@ export function validateDisplayCycleKey(key: string): string | undefined {
 		seen.add(modifier);
 	}
 	if (!isBaseKey(base)) return `unknown key "${base}"`;
-	// Occupancy is checked against the canonical spelling: `alt+Q` and
-	// `shift+alt+q` are one chord to the host, so a collision with a
-	// reserved or built-in chord must be caught under either spelling.
-	if (occupiedShortcuts().has(canonicalize(key))) {
-		return `${key} is already taken by OMP; pick another shortcut`;
-	}
 	return undefined;
 }
 
-/**
- * Narrowing guard for the persisted JSON field: a chord is usable only when it
- * parses AND is unoccupied, because an occupied chord is dropped by the host
- * with a log line and would silently never fire.
- */
+/** Narrowing guard for the persisted JSON field: a syntactically valid chord. */
 export function isDisplayCycleKey(value: unknown): value is string {
 	return (
 		typeof value === "string" && validateDisplayCycleKey(value) === undefined

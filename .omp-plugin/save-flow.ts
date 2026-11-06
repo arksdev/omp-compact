@@ -1,44 +1,11 @@
 import type {
-	CompactHostSettings,
 	CompactMode,
 	CompactSettings,
 	CompactSettingsStore,
 } from "./config";
 import { createKeyedQueue } from "./keyed-queue";
 
-/** Host-configuration bridge seam (wired by HostSettingsBridge's slice). */
-export interface HostBridgeLike {
-	/**
-	 * Persist host-facing toggles (set + flush) and return the outcome with
-	 * a one-shot compensating rollback that restores the exact raw
-	 * persistent pre-image of the changed host paths — never effective
-	 * values, which project/runtime overrides can mask.
-	 */
-	apply(host: CompactHostSettings): Promise<HostBridgeApplyResult>;
-	/**
-	 * Live effective host values (schema defaults when unset). Optional: the
-	 * cycle keypress seeds its saved host payload from it, so the bridge's
-	 * apply diff compares against the same baseline the menu mirrors; an
-	 * absent read seam fails open to the store's host group.
-	 */
-	read?(): CompactHostSettings;
-}
-
-/**
- * Structural slice of the real bridge's apply outcome: the restart
- * requirement plus a one-shot `rollback()` that restores the exact raw
- * persistent pre-image of the changed host paths (present -> raw value,
- * absent -> key removed) and flushes. No-op when the apply changed nothing;
- * throws when the restore itself cannot be persisted.
- */
-export interface HostBridgeApplyResult {
-	restartRequired: boolean;
-	rollback(): Promise<void>;
-}
-
 export interface SaveFlowDeps {
-	/** Optional host bridge; omitted when the host config surface is absent. */
-	bridge?: HostBridgeLike;
 	store: CompactSettingsStore;
 	/**
 	 * Settings as they were before this save, when the caller knows them. Used
@@ -51,20 +18,11 @@ export interface SaveFlowDeps {
 }
 
 /**
- * Per-target serialization of save flows, modeled on `withUpdateQueue` in
- * config.ts: overlapping saves on one target run strictly in order, each
- * seeing the actual state after the previous save settled — including a
- * failed save's compensating rollback, which runs inside ITS queue turn.
- * Without this, two overlapping saves could interleave: the host bridge
- * handles its own concurrent applies, but a failing save's compensating
- * rollback restores a pre-image that predates the other save's
- * already-successful write — so the rollback must run inside its own
- * queue turn.
- *
- * Keyed by the store identity: the store is the per-plugin-instance save
- * pipeline, and each flow couples exactly one host apply to one store
- * update, so serializing per store also serializes the shared host config
- * target (two dialogs build their own bridge but share the store).
+ * Per-store serialization of save flows, modeled on `withUpdateQueue` in
+ * config.ts: overlapping saves run strictly in order, each computing its
+ * next state from the settings the previous save left behind. The display
+ * cycle depends on this: two quick keypresses must advance two steps, not
+ * both save the step after the same snapshot.
  */
 const withSaveFlowQueue = createKeyedQueue<CompactSettingsStore>();
 
@@ -95,7 +53,7 @@ export interface SaveOutcome {
 	persisted: CompactSettings;
 	/** The effective snapshot with hard env overrides reapplied. */
 	effective: CompactSettings;
-	/** Host bridge restart requirement. */
+	/** True when the save changed the cycle chord, which needs a restart. */
 	restartRequired: boolean;
 	/** True when a hard env override masks a persisted enabled/mode value. */
 	masked: boolean;
@@ -104,32 +62,19 @@ export interface SaveOutcome {
 }
 
 /**
- * Persist a settings save with strict ordering:
- *   1. host bridge apply (throws => store untouched, no success)
- *   2. store.update (throws => compensating rollback invokes the apply
- *      result's one-shot rollback, restoring the exact raw persistent
- *      pre-image of the changed host paths — never effective values, which
- *      overrides can mask — so the host side never diverges from the
- *      unchanged plugin JSON; then the original error is rethrown: no
- *      notify, no false success)
- *   3. exactly one success notification through notify(): the plain
+ * Persist a settings save and report it once:
+ *   1. store.update (throws => no notification, the caller surfaces the
+ *      error and keeps its unsaved state)
+ *   2. exactly one success notification through notify(): the plain
  *      `omp-compact settings saved` for an unmasked save, or a single
  *      message carrying both facts (saved + effective) when a hard env
  *      override masks the just-persisted enabled/mode — never a separate
  *      warning plus a generic success
- *   4. when the host bridge reports restartRequired, notify honestly that a
- *      restart of OMP is required — no session reload is ever invoked
- *      (thinking visibility has no safe live refresh in stock).
- * Throws when either phase fails so the caller (dialog) surfaces the error
- * and keeps its unsaved state. Returns the structured persisted-versus-
- * effective outcome.
+ *   3. when the cycle chord changed, an honest note that it binds after a
+ *      restart of OMP.
  *
- * Overlapping calls serialize per target (see {@link withSaveFlowQueue}): each
- * save runs to completion — bridge apply, JSON persist, and on failure its
- * compensating rollback — before the next one starts, so no call silently
- * loses its arguments to the bridge's concurrent-apply coalescing and a
- * failed save's rollback never restores a state that predates a newer
- * save's successful write.
+ * `next` may be a function of the current settings; it then runs inside the
+ * store's queue turn (see {@link withSaveFlowQueue}).
  */
 export async function saveSettingsFlow(
 	next: CompactSettings | ((current: CompactSettings) => CompactSettings),
@@ -147,31 +92,7 @@ async function runSaveSettingsFlow(
 	next: CompactSettings,
 	deps: SaveFlowDeps,
 ): Promise<SaveOutcome> {
-	let restartRequired = false;
-	let rollbackHost: (() => Promise<void>) | undefined;
-	if (deps.bridge) {
-		const result = await deps.bridge.apply(next.host);
-		restartRequired = result.restartRequired === true;
-		// Keep the compensating rollback tied to THIS save: it restores the
-		// exact raw persistent pre-image the bridge captured before mutating
-		// host config (see context/host-settings-rollback.md) — never
-		// effective read() values, which overrides can mask.
-		rollbackHost = result.rollback;
-	}
-	let effective: CompactSettings;
-	try {
-		effective = await deps.store.update(next);
-	} catch (cause) {
-		// Compensating rollback: the host bridge already applied AND flushed
-		// the new host values, but the plugin JSON persist failed — the two
-		// would diverge. Restore the host side through the apply result's
-		// one-shot rollback (raw persistent pre-image + flush), then surface
-		// the original save error.
-		if (rollbackHost) {
-			await rollbackHostAfterFailedSave(rollbackHost, cause, deps.notify);
-		}
-		throw cause;
-	}
+	const effective = await deps.store.update(next);
 	const onDisk = deps.store.persistedSnapshot?.() ?? next;
 	const masks = maskedByEnv(onDisk, deps.store, effective);
 	const masked = masks.length > 0;
@@ -180,14 +101,10 @@ async function runSaveSettingsFlow(
 		masked ? maskedSaveMessage(masks) : "omp-compact settings saved",
 	);
 	// The chord changed: the host offers no way to unregister the old shortcut,
-	// so the new one only binds on the next start. Reuses the same honest
-	// restart channel as thinking visibility rather than a second mechanism.
+	// so the new one only binds on the next start.
 	const chordChanged =
 		deps.previous !== undefined &&
 		deps.previous.displayCycleKey !== next.displayCycleKey;
-	if (restartRequired) {
-		deps.notify?.("info", "Thinking blocks take effect after restarting OMP");
-	}
 	if (chordChanged) {
 		deps.notify?.(
 			"info",
@@ -197,33 +114,10 @@ async function runSaveSettingsFlow(
 	return {
 		persisted: onDisk,
 		effective,
-		restartRequired: restartRequired || chordChanged,
+		restartRequired: chordChanged,
 		masked,
 		masks,
 	};
-}
-
-/**
- * Best-effort compensating rollback after a failed plugin-JSON persist:
- * invokes the apply result's one-shot rollback (restores the exact raw
- * persistent pre-image of the changed host paths and flushes). When the
- * rollback itself fails, warns honestly through notify() and lets the
- * original save error surface — mirroring the bridge's own rollback-failure
- * warn-once pattern (host-settings.ts).
- */
-async function rollbackHostAfterFailedSave(
-	rollback: () => Promise<void>,
-	cause: unknown,
-	notify?: SaveFlowDeps["notify"],
-): Promise<void> {
-	try {
-		await rollback();
-	} catch (rollbackCause) {
-		notify?.(
-			"warning",
-			`Host settings could not be restored after the save failed (${cause instanceof Error ? cause.message : String(cause)}): ${rollbackCause instanceof Error ? rollbackCause.message : String(rollbackCause)}`,
-		);
-	}
 }
 
 /**

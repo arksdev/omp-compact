@@ -7,15 +7,11 @@ import {
 	nextDisplayCycleState,
 } from "./display-cycle";
 
-import type { HostBridgeLike } from "./save-flow";
-
 import { type SaveOutcome, saveSettingsFlow } from "./save-flow";
 
 export interface DisplayCycleDeps {
 	/** Same store the settings dialog saves through. */
 	store: CompactSettingsStore;
-	/** Host bridge, when a live host settings instance exists. */
-	bridge?: HostBridgeLike;
 	theme: CycleTheme;
 	/** Ephemeral status sink (`ctx.ui.notify`). */
 	notify(level: "info" | "warning", message: string): void;
@@ -24,8 +20,7 @@ export interface DisplayCycleDeps {
 /**
  * Handle one keypress: read the current settings, take one cycle step, and
  * persist through the shared save flow — never a direct file write, so the
- * keypress inherits the dialog's serialization, host-bridge ordering and
- * env-mask reporting for free.
+ * keypress inherits the dialog's serialization and env-mask reporting.
  *
  * The flow's own success notification is suppressed here: a keypress reports
  * the one status line the user asked for, not the dialog's "settings saved".
@@ -39,25 +34,10 @@ export async function cycleDisplayState(deps: DisplayCycleDeps): Promise<void> {
 		outcome = await saveSettingsFlow(
 			(current) => {
 				const next = nextDisplayCycleState(current);
-				return {
-					...current,
-					enabled: next.enabled,
-					mode: next.mode,
-					// Read the live host baseline in this same queue turn: a
-					// cycle keypress must not reconcile stale host settings.
-					host: deps.bridge?.read?.() ?? current.host,
-				};
+				return { ...current, enabled: next.enabled, mode: next.mode };
 			},
-			{
-				bridge: deps.bridge,
-				store: deps.store,
-				// The flow's success line would duplicate the status line below;
-				// only its failure warnings (a host rollback that could not be
-				// restored) are worth surfacing.
-				notify: (level, message) => {
-					if (level === "warning") deps.notify(level, message);
-				},
-			},
+			// The flow's success line would duplicate the status line below.
+			{ store: deps.store },
 		);
 	} catch (error) {
 		deps.notify(

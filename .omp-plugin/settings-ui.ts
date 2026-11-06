@@ -21,20 +21,10 @@ export {
 	registerDisplayCycleShortcut,
 	registerSettingsCommand,
 } from "./host-api";
-export type {
-	EnvMask,
-	HostBridgeApplyResult,
-	HostBridgeLike,
-	SaveFlowDeps,
-	SaveOutcome,
-} from "./save-flow";
+export type { EnvMask, SaveFlowDeps, SaveOutcome } from "./save-flow";
 export { saveSettingsFlow } from "./save-flow";
 export type { SettingsDialogDeps } from "./settings-dialog";
-export {
-	humanizeThreshold,
-	openSettingsDialog,
-	SettingsDialog,
-} from "./settings-dialog";
+export { openSettingsDialog, SettingsDialog } from "./settings-dialog";
 export type { ArrowDirection } from "./settings-keys";
 export {
 	KEY_BACKSPACE,

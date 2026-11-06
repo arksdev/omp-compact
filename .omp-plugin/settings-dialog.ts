@@ -1,12 +1,9 @@
 import { truncateAnsiSafe } from "./ansi-width";
 
-import {
-	type CompactHostSettings,
-	type CompactMode,
-	type CompactSettings,
-	type CompactStatsSettings,
-	DEFAULT_SETTINGS,
-	MAX_THRESHOLD_TOKENS,
+import type {
+	CompactMode,
+	CompactSettings,
+	CompactStatsSettings,
 } from "./config";
 
 import { canonicalize, validateDisplayCycleKey } from "./display-cycle";
@@ -31,20 +28,14 @@ import {
 export interface SettingsDialogDeps {
 	/** Initial immutable snapshot shown when the dialog opens. */
 	settings: CompactSettings;
-	/**
-	 * False when no verified live host settings instance exists: the host
-	 * rows are rendered `n/a`, are non-focusable, and a host change attempted
-	 * any other way fails visibly without reaching the store.
-	 */
-	hostAvailable?: boolean;
 	/** Persist the merged draft; awaited before the dialog resolves. */
 	onSave(next: CompactSettings): Promise<void>;
 	/**
-	 * Seam for host-configuration slices: fired after a successful save with
-	 * only the host fields that actually changed. The command handler may
-	 * omit it and compose host apply + persist itself (see saveSettingsFlow).
+	 * Why OMP or another extension already holds a chord, or `undefined`
+	 * when it is free (`getShortcutConflict` through
+	 * `describeShortcutConflict`). Absent: only the chord syntax is checked.
 	 */
-	onHostSettingsChanged?(host: CompactHostSettings): void;
+	checkShortcut?(chord: string): string | undefined;
 	warn?(message: string): void;
 	theme: ThemeLike;
 	keybindings: KeybindingsLike;
@@ -59,7 +50,6 @@ export interface SettingsDialogDeps {
 }
 
 const MODES: readonly CompactMode[] = ["compact", "live", "clear"];
-const MAX_EDIT_DIGITS = 10;
 /**
  * Cap for the free-text chord editor: the longest legal chord is
  * `ctrl+shift+alt+super+backspace` (30 characters), so 40 leaves room to
@@ -68,16 +58,14 @@ const MAX_EDIT_DIGITS = 10;
 const MAX_EDIT_CHARS = 40;
 
 // Row groups: one blank line separates the logical menu sections
-// (global, display, auto-shake, stats, host) — restrained separation only.
+// (global, display, stats) — restrained separation only.
 const GROUP_GLOBAL = 0;
 const GROUP_DISPLAY = 1;
-const GROUP_SHAKE = 2;
-const GROUP_STATS = 3;
-const GROUP_HOST = 4;
+const GROUP_STATS = 2;
 
 interface Row {
 	id: string;
-	kind: "toggle" | "cycle" | "number" | "text";
+	kind: "toggle" | "cycle" | "text";
 	label: string;
 	/** Tree decoration for nested rows ("" for top-level rows). */
 	prefix: string;
@@ -86,8 +74,6 @@ interface Row {
 	get(): unknown;
 	set(value: unknown): void;
 	focusable: boolean;
-	/** Row locked because its backing surface is unavailable (host settings). */
-	unavailable: boolean;
 }
 
 /**
@@ -102,8 +88,6 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	compactVibeRows: "Compact rows for vibe tools",
 	compactAdvisorNotes: "Compact nit/concern advisor notes; blockers stay full",
 	displayCycleKey: "Chord cycling compact / live / clear / off (needs restart)",
-	"autoShake.enabled": "Shakes the log after a successful answer",
-	"autoShake.thresholdTokens": "Shakes once the run passes this many tokens",
 	"stats.enabled": "Shows one usage row per completed run",
 	"stats.actions": "Action counts in the usage row",
 	"stats.sent": "Fresh (uncached) input tokens in the usage row",
@@ -112,23 +96,7 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 		"Cached tokens, share, and writes; fresh + cached + written = full prompt",
 	"stats.time": "Run time in the usage row",
 	"stats.clock": "Local time of the answer, beside the usage row",
-	"host.recapEnabled": "Stock recap summary visibility",
-	"host.thinkingBlocksVisible": "Stock thinking block visibility",
 };
-
-/**
- * Host-row defaults projected from the plugin config defaults. The schema
- * types the host keys optional (normalized host groups may omit them), but
- * DEFAULT_SETTINGS.host always carries both values, so the rows can read
- * plain booleans. Single source for the absent-key fallback: a default
- * change in config.ts flows here instead of drifting through literals.
- * Absent-key resolution sites (extend every one when a host field is added):
- * `hostRowsChanged` for the dirty/blocked comparison, `emitHostChanges`, and
- * the two host-row getters in `buildRows`.
- */
-const HOST_ROW_DEFAULTS = {
-	...DEFAULT_SETTINGS.host,
-} as Required<CompactHostSettings>;
 
 const STATS_CHILD_IDS = [
 	"stats.actions",
@@ -149,27 +117,7 @@ function cloneSettings(settings: CompactSettings): CompactSettings {
 	return {
 		...settings,
 		stats: { ...settings.stats },
-		autoShake: { ...settings.autoShake },
-		host: { ...settings.host },
 	};
-}
-
-/**
- * Display a shake threshold in human units: `2m tokens`, `200k tokens`, and
- * `0 (every run)` for zero. Display-only — editing always shows the raw
- * validated digits.
- */
-export function humanizeThreshold(tokens: number): string {
-	if (tokens === 0) return "0 (every run)";
-	if (tokens >= 1_000_000) return `${trimUnit(tokens / 1_000_000)}m tokens`;
-	if (tokens >= 1_000) return `${trimUnit(tokens / 1_000)}k tokens`;
-	return `${tokens} tokens`;
-}
-
-function trimUnit(value: number): string {
-	return Number.isInteger(value)
-		? String(value)
-		: String(Math.round(value * 10) / 10);
 }
 
 export class SettingsDialog implements ComponentLike {
@@ -177,8 +125,6 @@ export class SettingsDialog implements ComponentLike {
 	private readonly deps: SettingsDialogDeps;
 	private readonly done: (result: CompactSettings | undefined) => void;
 	private readonly draft: CompactSettings;
-	/** False when no verified live host settings instance exists. */
-	private readonly hostAvailable: boolean;
 	/** Stable id of the focused row; resolved against the live focusable set. */
 	private focusedId = "enabled";
 	private editing = false;
@@ -195,7 +141,6 @@ export class SettingsDialog implements ComponentLike {
 		this.deps = deps;
 		this.done = done;
 		this.initial = deps.settings;
-		this.hostAvailable = deps.hostAvailable !== false;
 		this.draft = cloneSettings(this.initial);
 	}
 
@@ -207,7 +152,6 @@ export class SettingsDialog implements ComponentLike {
 	get isDirty(): boolean {
 		const draft = this.draft;
 		const initial = this.initial;
-		const hostDirty = this.hostAvailable && this.hostRowsChanged();
 		return (
 			draft.enabled !== initial.enabled ||
 			draft.mode !== initial.mode ||
@@ -222,10 +166,7 @@ export class SettingsDialog implements ComponentLike {
 			draft.stats.received !== initial.stats.received ||
 			draft.stats.cache !== initial.stats.cache ||
 			draft.stats.time !== initial.stats.time ||
-			draft.stats.clock !== initial.stats.clock ||
-			draft.autoShake.enabled !== initial.autoShake.enabled ||
-			draft.autoShake.thresholdTokens !== initial.autoShake.thresholdTokens ||
-			hostDirty
+			draft.stats.clock !== initial.stats.clock
 		);
 	}
 
@@ -244,7 +185,6 @@ export class SettingsDialog implements ComponentLike {
 			group = GROUP_GLOBAL,
 			prefix = "",
 			focusable = true,
-			unavailable = false,
 		): Row => ({
 			id,
 			kind: "toggle",
@@ -254,7 +194,6 @@ export class SettingsDialog implements ComponentLike {
 			get,
 			set: (value) => set(value === true),
 			focusable,
-			unavailable,
 		});
 		return [
 			toggle(
@@ -278,7 +217,6 @@ export class SettingsDialog implements ComponentLike {
 					}
 				},
 				focusable: true,
-				unavailable: false,
 			},
 			toggle(
 				"compactPaths",
@@ -327,31 +265,6 @@ export class SettingsDialog implements ComponentLike {
 					if (typeof value === "string") draft.displayCycleKey = value;
 				},
 				focusable: true,
-				unavailable: false,
-			},
-			toggle(
-				"autoShake.enabled",
-				"Auto-shake",
-				() => draft.autoShake.enabled,
-				(v) => {
-					draft.autoShake.enabled = v;
-				},
-				GROUP_SHAKE,
-			),
-			{
-				id: "autoShake.thresholdTokens",
-				kind: "number",
-				label: "Shake threshold",
-				prefix: "",
-				group: GROUP_SHAKE,
-				get: () => draft.autoShake.thresholdTokens,
-				set: (value) => {
-					if (typeof value === "number") {
-						draft.autoShake.thresholdTokens = value;
-					}
-				},
-				focusable: true,
-				unavailable: false,
 			},
 			toggle(
 				"stats.enabled",
@@ -391,32 +304,6 @@ export class SettingsDialog implements ComponentLike {
 					draft.stats.enabled,
 				);
 			}),
-			toggle(
-				"host.recapEnabled",
-				"Recap summary",
-				() => draft.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled,
-				(v) => {
-					draft.host.recapEnabled = v;
-				},
-				GROUP_HOST,
-				"",
-				this.hostAvailable,
-				!this.hostAvailable,
-			),
-			toggle(
-				"host.thinkingBlocksVisible",
-				"Thinking blocks",
-				() =>
-					draft.host.thinkingBlocksVisible ??
-					HOST_ROW_DEFAULTS.thinkingBlocksVisible,
-				(v) => {
-					draft.host.thinkingBlocksVisible = v;
-				},
-				GROUP_HOST,
-				"",
-				this.hostAvailable,
-				!this.hostAvailable,
-			),
 		];
 	}
 
@@ -495,18 +382,12 @@ export class SettingsDialog implements ComponentLike {
 			row.set(row.get() !== true);
 		} else if (row.kind === "cycle") {
 			this.cycle(1);
-		} else if (row.kind === "text") {
+		} else {
 			// The chord editor starts empty: a chord is typed whole, not
-			// composed digit by digit, so pre-filling would force the user to
-			// erase the old chord before typing the new one.
+			// composed character by character, so pre-filling would force the
+			// user to erase the old chord before typing the new one.
 			this.editing = true;
 			this.editBuffer = "";
-			this.error = "";
-		} else {
-			// The number editor keeps the current value so a small correction
-			// does not mean retyping the whole threshold.
-			this.editing = true;
-			this.editBuffer = String(row.get());
 			this.error = "";
 		}
 	}
@@ -526,70 +407,36 @@ export class SettingsDialog implements ComponentLike {
 			this.error = "";
 			return;
 		}
-		if (this.focusedRow()?.kind === "text") {
-			// Chord text: printable ASCII only, whole-chunk. Every legal chord
-			// spells out as `modifier+base` in that range, so anything else is
-			// either a control sequence or a paste that cannot be a chord.
-			if (!/^[\x20-\x7e]+$/.test(data)) return;
-			if (this.editBuffer.length < MAX_EDIT_CHARS) {
-				const room = MAX_EDIT_CHARS - this.editBuffer.length;
-				this.editBuffer += data.slice(0, room);
-			}
-			return;
-		}
-		// Whole-chunk classification: a paste must be entirely digits or it is
-		// ignored the same way a single non-digit keystroke is. A string-range
-		// check (`data >= "0" && data <= "9"`) lets mixed chunks like "1a"
-		// through because lexicographic order only looks at the first differing
-		// character, and parseInt would then silently keep the leading digits.
-		if (/^[0-9]+$/.test(data)) {
-			if (this.editBuffer.length < MAX_EDIT_DIGITS) {
-				const room = MAX_EDIT_DIGITS - this.editBuffer.length;
-				this.editBuffer += data.slice(0, room);
-			}
+		// Chord text: printable ASCII only, whole-chunk. Every legal chord
+		// spells out as `modifier+base` in that range, so anything else is
+		// either a control sequence or a paste that cannot be a chord.
+		if (!/^[\x20-\x7e]+$/.test(data)) return;
+		if (this.editBuffer.length < MAX_EDIT_CHARS) {
+			const room = MAX_EDIT_CHARS - this.editBuffer.length;
+			this.editBuffer += data.slice(0, room);
 		}
 	}
 
 	private commitEdit(): void {
 		const row = this.focusedRow();
-		if (row?.kind === "text") {
-			this.commitChordEdit(row);
-			return;
-		}
-		// Reject anything that is not a pure digit string. parseInt("1a", 10)
-		// is 1 and Number.isInteger(1) is true, so leaning on parseInt alone
-		// would silently persist a value the user never typed.
-		if (this.editBuffer.length === 0 || !/^[0-9]+$/.test(this.editBuffer)) {
-			this.error = "threshold must be a non-negative integer";
-			return;
-		}
-		const value = Number(this.editBuffer);
-		if (!Number.isInteger(value) || value < 0) {
-			this.error = "threshold must be a non-negative integer";
-			return;
-		}
-		if (value > MAX_THRESHOLD_TOKENS) {
-			this.error = `threshold exceeds max ${MAX_THRESHOLD_TOKENS}`;
-			return;
-		}
-		row?.set(value);
-		this.editing = false;
-		this.editBuffer = "";
-		this.error = "";
+		if (row?.kind === "text") this.commitChordEdit(row);
 	}
 
 	/**
-	 * Commit the chord row. A chord occupied by OMP is refused here rather
-	 * than saved: the host drops a conflicting extension shortcut with only a
-	 * log line, so accepting one would hand the user a key that never fires.
-	 * The rejection keeps the editor open with the typed text intact. An
-	 * accepted chord is committed in canonical form (host modifier order and
-	 * the shift an uppercase base implies), so the row shows the spelling the
-	 * store persists and the host registers — one spelling on all surfaces.
+	 * Commit the chord row. A chord OMP or another extension already holds is
+	 * refused here rather than saved: a reserved chord is never bound and an
+	 * app keybinding takes the key first, so accepting one would hand the user
+	 * a key that never fires. The rejection keeps the editor open with the
+	 * typed text intact. An accepted chord is committed in canonical form
+	 * (host modifier order and the shift an uppercase base implies), so the
+	 * row shows the spelling the store persists and the host registers — one
+	 * spelling on all surfaces.
 	 */
 	private commitChordEdit(row: Row): void {
 		const chord = this.editBuffer.trim();
-		const rejection = validateDisplayCycleKey(chord);
+		const rejection =
+			validateDisplayCycleKey(chord) ??
+			this.deps.checkShortcut?.(canonicalize(chord));
 		if (rejection !== undefined) {
 			this.error = rejection;
 			return;
@@ -602,47 +449,10 @@ export class SettingsDialog implements ComponentLike {
 		this.error = "";
 	}
 
-	/**
-	 * True when the draft's host fields differ from the snapshot, both sides
-	 * resolved against HOST_ROW_DEFAULTS. The hostAvailable polarity is the
-	 * callers' concern: isDirty compares while the host rows are live,
-	 * hostChangesBlocked while they are not.
-	 */
-	private hostRowsChanged(): boolean {
-		return (
-			(this.draft.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) !==
-				(this.initial.host.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) ||
-			(this.draft.host.thinkingBlocksVisible ??
-				HOST_ROW_DEFAULTS.thinkingBlocksVisible) !==
-				(this.initial.host.thinkingBlocksVisible ??
-					HOST_ROW_DEFAULTS.thinkingBlocksVisible)
-		);
-	}
-
-	/**
-	 * True when the draft carries host changes that cannot be persisted: the
-	 * rows are locked when no verified live host settings instance exists, so
-	 * this can only arise from direct draft mutation.
-	 */
-	private hostChangesBlocked(): boolean {
-		if (this.hostAvailable) return false;
-		return this.hostRowsChanged();
-	}
-
 	private save(): void {
 		if (this.saving || this.editing) return;
-		const hostBlocked = this.hostChangesBlocked();
-		if (!this.isDirty && !hostBlocked) {
+		if (!this.isDirty) {
 			this.finish(undefined);
-			return;
-		}
-		if (hostBlocked) {
-			// Host rows must never claim success when unavailable: fail
-			// visibly and leave the plugin JSON untouched for host prefs.
-			const message =
-				"Host settings are unavailable; recap and thinking block changes cannot be saved";
-			this.error = message;
-			this.deps.warn?.(message);
 			return;
 		}
 		// Capture an immutable snapshot at confirmation time. Input may keep
@@ -655,7 +465,6 @@ export class SettingsDialog implements ComponentLike {
 			try {
 				await this.deps.onSave(confirmed);
 				this.saving = false;
-				this.emitHostChanges(confirmed.host);
 				this.finish(confirmed);
 			} catch (error) {
 				this.saving = false;
@@ -664,31 +473,6 @@ export class SettingsDialog implements ComponentLike {
 				this.deps.warn?.(message);
 			}
 		});
-	}
-
-	private emitHostChanges(after: CompactHostSettings = this.draft.host): void {
-		// Host rows must never claim success when unavailable: with no live
-		// host settings instance there is nothing to report.
-		if (!this.hostAvailable) return;
-		const before = this.initial.host;
-		const changed: CompactHostSettings = {};
-		let any = false;
-		if (
-			(after.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled) !==
-			(before.recapEnabled ?? HOST_ROW_DEFAULTS.recapEnabled)
-		) {
-			changed.recapEnabled = after.recapEnabled;
-			any = true;
-		}
-		if (
-			(after.thinkingBlocksVisible ??
-				HOST_ROW_DEFAULTS.thinkingBlocksVisible) !==
-			(before.thinkingBlocksVisible ?? HOST_ROW_DEFAULTS.thinkingBlocksVisible)
-		) {
-			changed.thinkingBlocksVisible = after.thinkingBlocksVisible;
-			any = true;
-		}
-		if (any) this.deps.onHostSettingsChanged?.(changed);
 	}
 
 	private finish(result: CompactSettings | undefined): void {
@@ -776,7 +560,7 @@ export class SettingsDialog implements ComponentLike {
 		lines.push(header);
 
 		// Restrained blank group separation: one empty line between logical
-		// menu sections (global, display, auto-shake, stats, host).
+		// menu sections (global, display, stats).
 		let previousGroup = rows[0]?.group;
 		for (const row of rows) {
 			if (row.group !== previousGroup) lines.push("");
@@ -788,12 +572,9 @@ export class SettingsDialog implements ComponentLike {
 				? theme.fg("muted", `${row.prefix}${row.label}`)
 				: `${row.prefix}${row.label}`;
 			let value: string;
-			if (row.unavailable) {
-				// No verified live host settings: show nothing as a value.
-				value = theme.fg("muted", "n/a");
-			} else if (row.kind === "toggle") {
+			if (row.kind === "toggle") {
 				const on = row.get() === true;
-				// Disabled/unavailable rows are fully muted — values included.
+				// Disabled rows are fully muted — values included.
 				value = muted
 					? theme.fg("muted", on ? "on" : "off")
 					: on
@@ -802,12 +583,9 @@ export class SettingsDialog implements ComponentLike {
 			} else if (row.kind === "cycle") {
 				value = theme.fg("accent", `[${String(row.get())}]`);
 			} else if (this.editing && isFocused) {
-				// Editing keeps the raw validated digits, never the human form.
 				value = `[${
 					theme.underline ? theme.underline(this.editBuffer) : this.editBuffer
 				}]`;
-			} else if (row.kind === "number") {
-				value = `[${humanizeThreshold(row.get() as number)}]`;
 			} else {
 				value = `[${String(row.get())}]`;
 			}
@@ -819,14 +597,10 @@ export class SettingsDialog implements ComponentLike {
 			lines.push(theme.fg("error", this.error));
 		}
 		// One contextual dim help line for the focused setting — never a
-		// comment on every row. Editing shows its own key hints instead, in the
-		// same telegraphic style, naming what this row accepts.
-		const editingChord =
-			this.editing && focusable[focusedIndex]?.kind === "text";
+		// comment on every row. Editing the chord shows its own key hints
+		// instead, in the same telegraphic style.
 		const help = this.editing
-			? editingChord
-				? "chord edit · enter ok · esc cancel"
-				: "digits edit · enter ok · esc cancel"
+			? "chord edit · enter ok · esc cancel"
 			: `${ROW_HELP[focusedId ?? ""] ?? ""} · ↑↓ move · s save · esc cancel${
 					this.isDirty ? " · unsaved" : ""
 				}`;

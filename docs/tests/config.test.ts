@@ -17,7 +17,6 @@ import {
 	createSettingsStore,
 	DEFAULT_SETTINGS,
 	MAX_CONFIG_BYTES,
-	MAX_THRESHOLD_TOKENS,
 	normalizeSettings,
 	readDisplayCycleKeySync,
 	resolveConfigPath,
@@ -64,9 +63,7 @@ describe("defaults", () => {
 		expect(DEFAULT_SETTINGS.enabled).toBe(true);
 		expect(DEFAULT_SETTINGS.mode).toBe("live");
 		expect(DEFAULT_SETTINGS.retainGitLive).toBe(true);
-		expect(DEFAULT_SETTINGS.autoShake.enabled).toBe(false);
 		expect(DEFAULT_SETTINGS.stats.enabled).toBe(true);
-		expect(DEFAULT_SETTINGS.autoShake.thresholdTokens).toBe(120_000);
 		expect(DEFAULT_SETTINGS.compactVibeRows).toBe(true);
 		expect(DEFAULT_SETTINGS.displayCycleKey).toBe("alt+c");
 	});
@@ -74,8 +71,6 @@ describe("defaults", () => {
 	test("defaults are deeply frozen", () => {
 		expect(Object.isFrozen(DEFAULT_SETTINGS)).toBe(true);
 		expect(Object.isFrozen(DEFAULT_SETTINGS.stats)).toBe(true);
-		expect(Object.isFrozen(DEFAULT_SETTINGS.autoShake)).toBe(true);
-		expect(Object.isFrozen(DEFAULT_SETTINGS.host)).toBe(true);
 	});
 
 	test("normalize rejects unsupported versions with warnings", () => {
@@ -96,8 +91,6 @@ describe("defaults", () => {
 				retainGitLive: 1,
 				compactPaths: "off",
 				stats: { enabled: "x", actions: true, sent: "y" },
-				autoShake: { enabled: "on", thresholdTokens: -5 },
-				host: { recapEnabled: "no", thinkingBlocksVisible: true },
 			},
 			(m) => warnings.push(m),
 		);
@@ -108,12 +101,6 @@ describe("defaults", () => {
 		expect(normalized.compactVibeRows).toBe(true);
 		expect(normalized.compactAdvisorNotes).toBe(false);
 		expect(normalized.stats).toEqual(DEFAULT_SETTINGS.stats);
-		expect(normalized.autoShake.enabled).toBe(false);
-		expect(normalized.autoShake.thresholdTokens).toBe(
-			DEFAULT_SETTINGS.autoShake.thresholdTokens,
-		);
-		expect(normalized.host.recapEnabled).toBeUndefined();
-		expect(normalized.host.thinkingBlocksVisible).toBe(true);
 		expect(warnings.length).toBeGreaterThan(0);
 	});
 
@@ -206,18 +193,14 @@ describe("defaults", () => {
 		]);
 	});
 
-	test("a chord occupied by OMP is rejected like any other bad value", () => {
-		// A chord the host reserves would be dropped at registration with only
-		// a log line, so the file value is refused here and the default stands.
+	test("a chord occupied by OMP stays: the session warns once it can ask", () => {
 		const warnings: string[] = [];
 		const normalized = normalizeSettings(
 			{ version: 1, displayCycleKey: "ctrl+c" },
 			(m) => warnings.push(m),
 		);
-		expect(normalized.displayCycleKey).toBe("alt+c");
-		expect(warnings).toEqual([
-			"invalid config field(s): displayCycleKey; using defaults",
-		]);
+		expect(normalized.displayCycleKey).toBe("ctrl+c");
+		expect(warnings).toEqual([]);
 	});
 
 	test("a free chord in the file normalizes to the host's modifier order", () => {
@@ -614,20 +597,6 @@ describe("resolveConfigPath", () => {
 			expect(store.snapshot().stats.time).toBe(false);
 			await rm(dir, { recursive: true, force: true });
 		});
-
-		test("autoShake group: persisted value survives an undefined patch key", async () => {
-			const dir = await tempDir();
-			const { store } = storeAt(dir);
-			await mkdir(join(dir, "omp-compact"), { recursive: true });
-			await writeFile(
-				join(dir, "omp-compact", "config.json"),
-				JSON.stringify({ autoShake: { thresholdTokens: 5000 } }),
-			);
-			await store.load();
-			await store.update({ autoShake: { thresholdTokens: undefined } });
-			expect(store.snapshot().autoShake.thresholdTokens).toBe(5000);
-			await rm(dir, { recursive: true, force: true });
-		});
 	});
 });
 
@@ -848,8 +817,6 @@ if (process.env.PROBE_OPERATION === "shortcut") {
 				retainGitLive: false,
 				compactPaths: false,
 				stats: { enabled: true, actions: true, sent: false },
-				autoShake: { enabled: true, thresholdTokens: 1000 },
-				host: { recapEnabled: false },
 			}),
 			"utf8",
 		);
@@ -873,8 +840,6 @@ if (process.env.PROBE_OPERATION === "shortcut") {
 			time: true,
 			clock: true,
 		});
-		expect(settings.autoShake.thresholdTokens).toBe(1000);
-		expect(settings.host.recapEnabled).toBe(false);
 	});
 
 	test("invalid env mode is ignored", async () => {
@@ -1314,11 +1279,14 @@ describe("unknown config keys survive bounded updates (raw-record preservation)"
 			JSON.stringify({
 				version: 1,
 				stats: { sent: false, sentUnknown: "keep-me" },
+				// Groups of settings this plugin no longer has: unknown, so kept.
 				autoShake: { enabled: false, shakeFuture: { x: 1 } },
 				host: { recapEnabled: true, hostFuture: "keep" },
 			}),
 			"utf8",
 		);
+		const loaded = await store.load();
+		expect(loaded.stats.sent).toBe(false);
 		await store.update({ stats: { actions: false } });
 		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
 			string,
@@ -1331,29 +1299,6 @@ describe("unknown config keys survive bounded updates (raw-record preservation)"
 		});
 		expect(raw.autoShake).toEqual({ enabled: false, shakeFuture: { x: 1 } });
 		expect(raw.host).toEqual({ recapEnabled: true, hostFuture: "keep" });
-		await rm(dir, { recursive: true, force: true });
-	});
-
-	test("removing a host leaf via undefined keeps unknown host keys", async () => {
-		const dir = await tempDir();
-		const { store } = storeAt(dir);
-		await mkdir(join(dir, "omp-compact"), { recursive: true });
-		const file = join(dir, "omp-compact", "config.json");
-		await writeFile(
-			file,
-			JSON.stringify({
-				version: 1,
-				host: { recapEnabled: true, futureHostFlag: "keep" },
-			}),
-			"utf8",
-		);
-		await store.load();
-		await store.update({ host: { recapEnabled: undefined } });
-		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
-			string,
-			unknown
-		>;
-		expect(raw.host).toEqual({ futureHostFlag: "keep" });
 		await rm(dir, { recursive: true, force: true });
 	});
 
@@ -1408,14 +1353,13 @@ describe("unknown config keys survive bounded updates (raw-record preservation)"
 		await mkdir(join(dir, "omp-compact"), { recursive: true });
 		const file = join(dir, "omp-compact", "config.json");
 		// The persisted file sits just under the limit; the patch
-		// (thresholdTokens 0 -> 9999999) grows the serialized merged record by
-		// 6 bytes plus the write's trailing newline and must be refused by the
-		// write-side bound before anything is persisted.
+		// (a new compactPaths key) grows the serialized merged record past it
+		// and must be refused by the write-side bound before anything is
+		// persisted.
 		const base: Record<string, unknown> = {
 			version: 1,
 			enabled: true,
 			mode: "live",
-			autoShake: { enabled: false, thresholdTokens: 0 },
 		};
 		const overhead = JSON.stringify({ ...base, unknown: "" }, null, 2).length;
 		const fileText = JSON.stringify(
@@ -1426,9 +1370,9 @@ describe("unknown config keys survive bounded updates (raw-record preservation)"
 		expect(Buffer.byteLength(fileText, "utf8")).toBe(MAX_CONFIG_BYTES - 5);
 		await writeFile(file, fileText, "utf8");
 		await store.load();
-		await expect(
-			store.update({ autoShake: { thresholdTokens: 9_999_999 } }),
-		).rejects.toThrow(ConfigUpdateError);
+		await expect(store.update({ compactPaths: false })).rejects.toThrow(
+			ConfigUpdateError,
+		);
 		expect(await readFile(file, "utf8")).toBe(fileText);
 		await rm(dir, { recursive: true, force: true });
 	});
@@ -1604,14 +1548,6 @@ describe("persistence is atomic", () => {
 		await expect(
 			store.update({ compactAdvisorNotes: "true" as never }),
 		).rejects.toThrow("compactAdvisorNotes");
-		await expect(
-			store.update({ autoShake: { thresholdTokens: -1 } }),
-		).rejects.toThrow();
-		await expect(
-			store.update({
-				autoShake: { thresholdTokens: MAX_THRESHOLD_TOKENS + 1 },
-			}),
-		).rejects.toThrow();
 		const files = await readdir(join(dir, "omp-compact")).catch(() => []);
 		expect(files).toEqual([]);
 		await rm(dir, { recursive: true, force: true });
@@ -1655,13 +1591,13 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		const { a, b } = await twoStores(dir);
 		await Promise.all([
 			a.store.update({ enabled: false, stats: { sent: false } }),
-			b.store.update({ mode: "clear", autoShake: { enabled: true } }),
+			b.store.update({ mode: "clear", compactPaths: false }),
 		]);
 		const raw = await readStored(dir);
 		expect(raw.enabled).toBe(false);
 		expect(raw.mode).toBe("clear");
 		expect(raw.stats.sent).toBe(false);
-		expect(raw.autoShake.enabled).toBe(true);
+		expect(raw.compactPaths).toBe(false);
 		await rm(dir, { recursive: true, force: true });
 	});
 
@@ -1702,7 +1638,7 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		// b's snapshot still says sent=true, so its save must not re-assert it.
 		await b.store.update({
 			stats: { time: false },
-			autoShake: { enabled: true },
+			compactPaths: false,
 		});
 		const raw = await readStored(dir);
 		expect(raw.stats.sent).toBe(false);
@@ -1710,24 +1646,7 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		// leaves neither writer touched stay at their persisted values
 		expect(raw.stats.actions).toBe(DEFAULT_SETTINGS.stats.actions);
 		expect(raw.stats.cache).toBe(DEFAULT_SETTINGS.stats.cache);
-		expect(raw.autoShake.enabled).toBe(true);
-		expect(raw.autoShake.thresholdTokens).toBe(
-			DEFAULT_SETTINGS.autoShake.thresholdTokens,
-		);
-		expect(raw.host).toEqual(DEFAULT_SETTINGS.host);
-		await rm(dir, { recursive: true, force: true });
-	});
-
-	test("host leaves merge independently", async () => {
-		const dir = await tempDir();
-		const { a, b } = await twoStores(dir);
-		await a.store.update({ host: { recapEnabled: false } });
-		await b.store.update({ host: { thinkingBlocksVisible: false } });
-		const raw = await readStored(dir);
-		expect(raw.host).toEqual({
-			recapEnabled: false,
-			thinkingBlocksVisible: false,
-		});
+		expect(raw.compactPaths).toBe(false);
 		await rm(dir, { recursive: true, force: true });
 	});
 
@@ -1757,11 +1676,13 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 	test("nested same-field conflict follows the same last-writer policy", async () => {
 		const dir = await tempDir();
 		const { a, b } = await twoStores(dir);
-		await a.store.update({ autoShake: { thresholdTokens: 1000 } });
-		// b's stale snapshot still has the 120000 default, so this save is a
-		// real writer of the same leaf a just wrote; its rename lands last and wins.
-		await b.store.update({ autoShake: { thresholdTokens: 500 } });
-		expect((await readStored(dir)).autoShake.thresholdTokens).toBe(500);
+		await a.store.update({ stats: { actions: false } });
+		// b's stale snapshot still has the default, so this save is a real
+		// writer of the same leaf a just wrote; its rename lands last and wins.
+		await b.store.update({ stats: { cache: false } });
+		await b.store.update({ stats: { actions: false } });
+		await a.store.update({ stats: { actions: true } });
+		expect((await readStored(dir)).stats.actions).toBe(true);
 		await rm(dir, { recursive: true, force: true });
 	});
 
@@ -1856,8 +1777,6 @@ describe("snapshots are immutable", () => {
 		expect(first.stats).toBe(second.stats);
 		expect(Object.isFrozen(first)).toBe(true);
 		expect(Object.isFrozen(first.stats)).toBe(true);
-		expect(Object.isFrozen(first.autoShake)).toBe(true);
-		expect(Object.isFrozen(first.host)).toBe(true);
 		await rm(dir, { recursive: true, force: true });
 	});
 });

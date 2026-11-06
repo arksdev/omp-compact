@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 
 import {
 	addKeyAliases,
@@ -13,12 +11,8 @@ import {
 	canonicalize,
 	DEFAULT_DISPLAY_CYCLE_KEY,
 	isDisplayCycleKey,
-	occupiedShortcuts,
-	RESERVED_SHORTCUTS,
 	validateDisplayCycleKey,
 } from "../../.omp-plugin/display-cycle";
-
-const REPO_ROOT = resolve(import.meta.dir, "../..");
 
 describe("display cycle: canonical chord agreement with the host", () => {
 	test("an uppercase base key is accepted and canonicalised rather than refused", () => {
@@ -33,9 +27,6 @@ describe("display cycle: canonical chord agreement with the host", () => {
 		expect(isDisplayCycleKey("alt+Q")).toBe(true);
 		expect(canonicalKeyId("Alt+C")).toBe("shift+alt+c");
 		expect(canonicalize("Alt+C")).toBe("shift+alt+c");
-		expect(validateDisplayCycleKey("Alt+C")).toBe(
-			"Alt+C is already taken by OMP; pick another shortcut",
-		);
 	});
 
 	test("an uppercase base with an explicit shift fires as itself and stays accepted", () => {
@@ -122,18 +113,6 @@ describe("display cycle: canonical spelling is the host's press identity", () =>
 		);
 	});
 
-	test("an uppercase chord that collides with a reserved chord is caught", () => {
-		// `ctrl+P` reads as `ctrl+shift+p` to the host — the reserved
-		// `shift+ctrl+p` built-in. The occupancy check must compare the
-		// canonical spelling, or the chord would be accepted, register as
-		// `ctrl+p` after the host lowercases it, and fire on a different key
-		// than the user meant.
-		expect(canonicalKeyId("ctrl+P")).toBe("ctrl+shift+p");
-		expect(validateDisplayCycleKey("ctrl+P")).toBe(
-			"ctrl+P is already taken by OMP; pick another shortcut",
-		);
-	});
-
 	test("an explicit shift with an uppercase base is never doubled", () => {
 		expect(canonicalize("alt+shift+Q")).toBe("shift+alt+q");
 		expect(canonicalize("shift+alt+q")).toBe("shift+alt+q");
@@ -141,102 +120,9 @@ describe("display cycle: canonical spelling is the host's press identity", () =>
 		expect(validateDisplayCycleKey("alt+shift+Q")).toBeUndefined();
 	});
 
-	test("esc/return alias to escape/enter and collide like the host", () => {
+	test("esc/return alias to escape/enter like the host", () => {
 		expect(canonicalize("alt+esc")).toBe("alt+escape");
 		expect(canonicalize("alt+return")).toBe("alt+enter");
-		// `alt+return` is the reserved `alt+enter` chord once canonicalized;
-		// validation must refuse it rather than register a chord that
-		// collides after the host rewrites it.
-		expect(validateDisplayCycleKey("alt+return")).toBe(
-			"alt+return is already taken by OMP; pick another shortcut",
-		);
 		expect(validateDisplayCycleKey("alt+esc")).toBeUndefined();
-	});
-});
-
-describe("display cycle: reserved-shortcut copy against the host", () => {
-	test("the copy matches the host's private reserved set", () => {
-		// Derive the expected set from the actual pinned host source instead
-		// of a literal: #RESERVED_SHORTCUTS is a private static class member
-		// (unreadable at runtime), and a bump of the pinned agent adds a
-		// reserved chord without any edit in this repo. The plugin copy is
-		// the only thing standing between a user and a silently dead key, so
-		// divergence between the copy and the host must fail loudly here.
-		const source = readFileSync(
-			resolve(
-				REPO_ROOT,
-				"node_modules/@oh-my-pi/pi-coding-agent/src/extensibility/extensions/runner.ts",
-			),
-			"utf8",
-		);
-		const block =
-			/static readonly #RESERVED_SHORTCUTS: Record<string, true> = \{([\s\S]*?)\n\t\};/.exec(
-				source,
-			);
-		expect(block).not.toBeNull();
-		const hostKeys = new Set(
-			[
-				...(block?.[1] ?? "").matchAll(/^\t+(?:"([^"]+)"|([a-z.]+)): true,$/gm),
-			].map(
-				// Each matching line has exactly one of the two alternatives.
-				(match) => (match[1] ?? match[2]) as string,
-			),
-		);
-		expect(hostKeys.size).toBeGreaterThan(0);
-		expect(new Set(RESERVED_SHORTCUTS)).toEqual(hostKeys);
-	});
-});
-
-describe("display cycle: default host app chords against the host", () => {
-	test("app-level chords from the host are refused by validation", () => {
-		for (const key of [
-			"alt+a",
-			"alt+g",
-			"alt+h",
-			"alt+i",
-			"alt+k",
-			"alt+o",
-			"alt+shift+k",
-			"alt+shift+v",
-			"alt+shift+l",
-			"ctrl+enter",
-		]) {
-			expect(validateDisplayCycleKey(key)).toBe(
-				`${key} is already taken by OMP; pick another shortcut`,
-			);
-		}
-		expect(occupiedShortcuts().has("f5")).toBe(true);
-	});
-
-	test("every chord in host KEYBINDINGS source is present in occupiedShortcuts", () => {
-		const source = readFileSync(
-			resolve(
-				REPO_ROOT,
-				"node_modules/@oh-my-pi/pi-tui/src/app-keybindings.ts",
-			),
-			"utf8",
-		);
-		const occupied = occupiedShortcuts();
-		for (const match of source.matchAll(
-			/defaultKeys:\s*(?:"([^"]+)"|\[([\s\S]*?)\])/g,
-		)) {
-			const rawKeys: string[] = [];
-			if (match[1]) {
-				rawKeys.push(match[1]);
-			} else if (match[2]) {
-				for (const inner of match[2].matchAll(/"([^"]+)"/g)) {
-					if (inner[1]) rawKeys.push(inner[1]);
-				}
-			}
-			for (const key of rawKeys) {
-				if (key.length > 0) {
-					const canonical = canonicalize(key);
-					expect(
-						occupied.has(canonical),
-						`host chord "${key}" (${canonical}) must be occupied`,
-					).toBe(true);
-				}
-			}
-		}
 	});
 });

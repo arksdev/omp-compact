@@ -71,12 +71,11 @@ function noopKeybindings(): KeybindingsLike {
 	return { matches: () => false };
 }
 
-/** Fresh dialog over the plugin defaults, host rows live (as in settings-dialog-dirty.test.ts). */
+/** Fresh dialog over the plugin defaults, (as in settings-dialog-dirty.test.ts). */
 function makeDialog(): SettingsDialog {
 	return new SettingsDialog(
 		{
 			settings: DEFAULT_SETTINGS,
-			hostAvailable: true,
 			onSave: async () => {},
 			theme: fakeTheme(),
 			keybindings: noopKeybindings(),

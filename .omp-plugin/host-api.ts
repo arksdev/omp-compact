@@ -95,9 +95,7 @@ export function chooseSettingsCommandName(
  * Register the settings command. Runs unconditionally — the command must stay
  * available even when the plugin runtime is globally disabled.
  *
- * Returns the name registered, or `undefined` when the host rejects the
- * registration: a host without command support (older runtime, RPC shim) must
- * not take the plugin down, every other feature keeps working.
+ * Returns the name registered.
  */
 export function registerSettingsCommand<Ctx>(
 	pi: CommandApiLike<Ctx>,
@@ -105,7 +103,7 @@ export function registerSettingsCommand<Ctx>(
 		description: string;
 		handler: (args: string, ctx: Ctx) => Promise<void>;
 	},
-): string | undefined {
+): string {
 	let names: readonly string[] = [];
 	try {
 		names = pi.getCommands().map((command) => command.name);
@@ -115,14 +113,7 @@ export function registerSettingsCommand<Ctx>(
 		names = [];
 	}
 	const name = chooseSettingsCommandName(names);
-	try {
-		pi.registerCommand(name, options);
-	} catch {
-		// A host without command registration support (older runtime, RPC
-		// shim) must not take the plugin down: every other feature keeps
-		// working.
-		return undefined;
-	}
+	pi.registerCommand(name, options);
 	return name;
 }
 
@@ -132,10 +123,10 @@ export function registerSettingsCommand<Ctx>(
  * that state is one step of the cycle, and a user who turned the plugin off
  * with the key has to be able to turn it back on with the same key.
  *
- * Returns the chord actually registered, or `undefined` when the persisted
- * chord is unusable. An occupied chord is dropped by the host with only a log
- * line, so it is refused here and the default is registered instead — a
- * working default beats a silently dead key.
+ * Returns the chord actually registered. A malformed persisted chord registers
+ * the default instead.
+ * Whether OMP already holds the chord can only be asked once the session runs
+ * (`getShortcutConflict` throws during load), so `session_start` warns then.
  */
 export function registerDisplayCycleShortcut<Ctx>(
 	pi: ShortcutApiLike<Ctx>,
@@ -144,17 +135,11 @@ export function registerDisplayCycleShortcut<Ctx>(
 		description: string;
 		handler: (ctx: Ctx) => Promise<void> | void;
 	},
-): string | undefined {
+): string {
 	const key =
 		validateDisplayCycleKey(chord) === undefined
 			? chord
 			: DEFAULT_DISPLAY_CYCLE_KEY;
-	try {
-		pi.registerShortcut(key, options);
-	} catch {
-		// A host without shortcut support (older runtime, RPC shim) must not
-		// take the plugin down: every other feature keeps working.
-		return undefined;
-	}
+	pi.registerShortcut(key, options);
 	return key;
 }
