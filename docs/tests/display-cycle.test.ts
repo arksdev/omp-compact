@@ -170,16 +170,13 @@ describe("display cycle: reserved-shortcut copy against the host", () => {
 			"utf8",
 		);
 		const block =
-			/static readonly #RESERVED_SHORTCUTS: Record<string, true> = \{([\s\S]*?)\n\t\};/.exec(
+			/static readonly #RESERVED_SHORTCUTS: ReadonlySet<string> = new Set\(([\s\S]*?)\n\t\);/.exec(
 				source,
 			);
 		expect(block).not.toBeNull();
 		const hostKeys = new Set(
-			[
-				...(block?.[1] ?? "").matchAll(/^\t+(?:"([^"]+)"|([a-z.]+)): true,$/gm),
-			].map(
-				// Each matching line has exactly one of the two alternatives.
-				(match) => (match[1] ?? match[2]) as string,
+			[...(block?.[1] ?? "").matchAll(/"([^"]+)"/g)].map(
+				(match) => match[1] as string,
 			),
 		);
 		expect(hostKeys.size).toBeGreaterThan(0);

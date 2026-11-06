@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The repository pins stock OMP 18.16.0 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The repository pins stock OMP 18.17.0 as its development and release-gate host while publicly supporting OMP 18.0.1 and later through capability-checked native fail-open behavior. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -544,7 +544,7 @@ finalize(mode: CompactMode, event: AgentEndEvent | undefined): LedgerPhase {
 1. All tests pass
 2. Type check clean
 3. Lint clean
-4. Manual smoke test on OMP 18.16.0
+4. Manual smoke test on OMP 18.17.0
 5. Update CHANGELOG.md
 6. Tag release: `git tag v1.2.3`
 7. Push: `git push origin v1.2.3`
@@ -678,6 +678,14 @@ styling were refined with formatStyledPath without changing patched methods.
 leaf components, advisor cards, transcript container, and keybindings remain
 compatible; app.btw.inject added alt+i (reserved in display cycle), and bash/eval
 execution cards updated loader/status rendering on dynamic bottom borders.
+
+18.17.0 changed 476 package source files relative to 18.16.0 (419 changed, 57
+added). Critical patch surfaces, leaf components, advisor cards, and
+keybindings remain signature-compatible; the transcript's `nativeBlocks` gained
+the frame's `DescribeContext` argument (the fold now forwards it),
+`#RESERVED_SHORTCUTS` became a canonicalized `Set` carrying the same chords, and
+the default-on `display.shellVisualization` paints bash cards as a live pseudo
+view, which the stock-host suites pin back to the plain command.
 
 Then `diff -u` scoped per file. All paths are relative to
 `node_modules/@oh-my-pi/pi-coding-agent/`:

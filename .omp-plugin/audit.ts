@@ -11,8 +11,8 @@ import {
 import type { FileHandle } from "node:fs/promises";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
-// External dependency: unwrapHashlineHeaderPath from @oh-my-pi/pi-coding-agent.
-import { unwrapHashlineHeaderPath } from "@oh-my-pi/pi-coding-agent/tools/plan-mode-guard";
+// unwrapHashlineHeaderPath: root export since 18.17.0, guard module before
+import * as agentApi from "@oh-my-pi/pi-coding-agent";
 import { diffLines } from "@oh-my-pi/pi-natives";
 
 import {
@@ -40,6 +40,33 @@ export {
 	trimmedMiddleLines,
 } from "./audit-diff";
 export { isPathInsideRoot } from "./path-inside-root";
+
+type UnwrapHashlineHeaderPath = (targetPath: string) => string;
+
+function isUnwrapHashlineHeaderPath(
+	value: unknown,
+): value is UnwrapHashlineHeaderPath {
+	return typeof value === "function";
+}
+
+// 18.16.0 compatibility; dynamic in case a later version may drop the guard module
+const legacyGuardExport = await import(
+	"@oh-my-pi/pi-coding-agent/tools/plan-mode-guard"
+).then(
+	(guard): UnwrapHashlineHeaderPath | undefined => {
+		const candidate = objectRecord(guard).unwrapHashlineHeaderPath;
+		return isUnwrapHashlineHeaderPath(candidate) ? candidate : undefined;
+	},
+	() => undefined,
+);
+
+/** Host helper, or identity when absent */
+const unwrapHashlineHeaderPath: UnwrapHashlineHeaderPath = (() => {
+	const fromRoot = objectRecord(agentApi).unwrapHashlineHeaderPath;
+	if (isUnwrapHashlineHeaderPath(fromRoot)) return fromRoot;
+	if (legacyGuardExport) return legacyGuardExport;
+	return (targetPath) => targetPath;
+})();
 
 const URI_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 const COMPOUND_FILE_TARGET =
