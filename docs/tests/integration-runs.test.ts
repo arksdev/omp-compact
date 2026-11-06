@@ -187,6 +187,29 @@ stockDescribe("a logical run", () => {
 		expect(rows(booted)).toBe("");
 	});
 
+	test("in Tern a row with Git evidence keeps the plugin's label", async () => {
+		const savedTerm = Bun.env.TERM_PROGRAM;
+		const savedNative = Bun.env.PI_TUI_NATIVE;
+		Bun.env.TERM_PROGRAM = "tern";
+		delete Bun.env.PI_TUI_NATIVE;
+		try {
+			const booted = await boot("compact");
+			await beginRun(booted);
+			await runTool(
+				booted,
+				"b1",
+				"bash",
+				{ command: "git commit -m change" },
+				COMMIT,
+			);
+			expect(rows(booted)).toContain("git commit abc1234 change");
+		} finally {
+			if (savedTerm === undefined) delete Bun.env.TERM_PROGRAM;
+			else Bun.env.TERM_PROGRAM = savedTerm;
+			if (savedNative !== undefined) Bun.env.PI_TUI_NATIVE = savedNative;
+		}
+	});
+
 	test("a repeated tool id leaves a compact run's row in place when a live run reuses it", async () => {
 		const booted = await boot("compact");
 		await beginRun(booted);

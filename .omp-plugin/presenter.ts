@@ -39,7 +39,9 @@ import {
 	renderSkillMessageRow,
 	renderTodoReminderRow,
 	renderUserExecutionRow,
+	repeatsStockTitle,
 	terminalGitSummaryLine,
+	type CompactToolView,
 } from "./render";
 import type { CallRecord, RunRecord, SessionLedger } from "./session-ledger";
 import type { Theme } from "./theme-types";
@@ -303,7 +305,10 @@ export class TranscriptPresenterState {
 			const rows = run.revealed
 				? [...renderCompactToolRows(view, theme, undefined, run.paths, head)]
 				: [];
-			if (decision.kind === "tool-rows" && decision.summary) {
+			const summary = decision.kind === "tool-rows" && decision.summary;
+			if (!summary && this.#stockHeadSuffices(call, view, rows, run))
+				return "compact";
+			if (summary) {
 				const projection = this.#deps.ledger.projection(run);
 				if (projection)
 					rows.push(terminalGitSummaryLine(projection.hashes, theme));
@@ -324,14 +329,36 @@ export class TranscriptPresenterState {
 			}
 			return compactAnswer(rows);
 		}
-		return compactAnswer(
-			renderCompactToolRows(
-				{ ...view, git: decision.includeGit ? call.git : undefined },
-				theme,
-				undefined,
-				run.paths,
-				head,
-			),
+		const shown = { ...view, git: decision.includeGit ? call.git : undefined };
+		const rows = renderCompactToolRows(
+			shown,
+			theme,
+			undefined,
+			run.paths,
+			head,
+		);
+		return this.#stockHeadSuffices(call, shown, rows, run)
+			? "compact"
+			: compactAnswer(rows);
+	}
+
+	/**
+	 * In Tern's native view omp's head already shows the target, its meta and
+	 * any error, so a lone row with no evidence and the same title adds nothing.
+	 */
+	#stockHeadSuffices(
+		call: CallRecord,
+		view: CompactToolView,
+		rows: readonly string[],
+		run: RunRecord,
+	): boolean {
+		return (
+			this.#deps.nativeView() &&
+			rows.length === 1 &&
+			!view.git &&
+			call.mutations.length === 0 &&
+			!isVibeToolName(view.toolName) &&
+			repeatsStockTitle(view, run.paths, view.toolName)
 		);
 	}
 

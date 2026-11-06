@@ -732,6 +732,15 @@ function paintSummary(
 	return `${title}${suffix}`;
 }
 
+/** Whether the call's generic row is titled like omp's own head. */
+export function repeatsStockTitle(
+	view: CompactToolView,
+	displayPaths: DisplayPathOptions | undefined,
+	stockTitle: string,
+): boolean {
+	return sameTitle(compactRowSpec(view, displayPaths).title, stockTitle);
+}
+
 /** The settled row a spec describes, at the current theme and width. */
 function paintCompactRow(
 	spec: CompactRowSpec,

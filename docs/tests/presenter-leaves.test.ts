@@ -100,6 +100,7 @@ async function runTool(
 	id: string,
 	name: string,
 	args: unknown,
+	isError = false,
 ): Promise<void> {
 	await dispatch(booted, {
 		type: "tool_execution_start",
@@ -123,9 +124,9 @@ async function runTool(
 		toolCallId: id,
 		toolName: name,
 		result,
-		isError: false,
+		isError,
 	});
-	component.updateResult(result, false, id);
+	component.updateResult({ ...result, isError }, false, id);
 }
 
 /**
@@ -420,11 +421,33 @@ stockDescribe("presenter: non-tool blocks", () => {
 		);
 	});
 
+	test("in Tern a routine row keeps omp's own head; evidence rows keep their label", async () => {
+		ternView();
+		const booted = await boot("compact");
+		await dispatch(booted, { type: "agent_start" });
+		await runTool(booted, "g1", "grep", { pattern: "needle" });
+		await runTool(booted, "g2", "grep", { pattern: "broken" }, true);
+		await runTool(booted, "x1", "write", {
+			path: "xd://github",
+			content: '{"op":"pr_create"}',
+		});
+		const text = visibleRows(booted.transcript);
+		// omp's own one-row summary, not the plugin's label.
+		expect(text.slice(0, 2)).toEqual(["• grep", "• grep"]);
+		// A different title is news: the label stays.
+		expect(text.join("\n")).toContain("• github: pr_create");
+
+		terminalView();
+		const plain = await boot("compact");
+		await dispatch(plain, { type: "agent_start" });
+		await runTool(plain, "g1", "grep", { pattern: "needle" });
+		expect(visibleRows(plain.transcript).join("\n")).toContain("grep: needle");
+	});
+
 	test("in Tern a label leaves out the card's own title, and keeps a different one", async () => {
 		ternView();
 		const booted = await boot("compact", { compactAdvisorNotes: true });
 		await dispatch(booted, { type: "agent_start" });
-		await runTool(booted, "c1", "read", { path: "src.txt" });
 		await runTool(booted, "c2", "read", { path: "proc://jobs" });
 		const message = custom("skill-prompt", { name: "polish", lineCount: 3 });
 		present(
@@ -457,7 +480,6 @@ stockDescribe("presenter: non-tool blocks", () => {
 			booted.host.messageBlock(run),
 		);
 		const text = visibleRows(booted.transcript);
-		expect(text).toContain("• src.txt");
 		expect(text).toContain("• proc jobs");
 		expect(text).toContain("• polish · 3 lines");
 		expect(text).toContain("• [nit] consider a test");
