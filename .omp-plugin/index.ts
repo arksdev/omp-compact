@@ -329,6 +329,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// completions and distinct tool_execution_start actions.
 	const runStats = new RunStats();
 	const idle = new IdleQueue();
+	/** Bumped at each session boundary: older stats belong to another session. */
+	let statsGeneration = 0;
 	let toolCallsRan = false;
 	let presenterHintShown = false;
 
@@ -417,11 +419,21 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		return messages.length === event.messages.length ? undefined : { messages };
 	});
 
+	/**
+	 * `isIdle()` is only "not streaming": omp replaces the session before it
+	 * announces the switch, so a waiting row would land in the target session.
+	 * A vetoed transition loses that one row.
+	 */
+	function dropPendingStats(): void {
+		statsGeneration++;
+		idle.clear();
+	}
+
 	function dispose(): void {
+		dropPendingStats();
 		auditLifecycle.dispose();
 		modePolicy.dispose();
 		runStats.dispose();
-		idle.clear();
 		ledger.reset();
 	}
 
@@ -449,6 +461,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		await modePolicy.ready();
 		reloadHistory();
 	});
+	listen("session_before_switch", () => dropPendingStats());
+	listen("session_before_tree", () => dropPendingStats());
+	listen("session_before_branch", () => dropPendingStats());
 	listen("session_tree", async () => reloadHistory());
 	listen("session_branch", async () => reloadHistory());
 	listen("session_compact", async () => reloadHistory());
@@ -617,12 +632,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 					refresh([...run.calls.map((call) => call.id), ...run.leaves]);
 			},
 		);
+		const generation = statsGeneration;
 		if (phase !== "working")
 			void link.then(() => {
+				if (generation !== statsGeneration) return;
 				// Sent only once the session is idle: a message sent while it
 				// still reports busy is steered into the run and starts a turn.
 				idle.push(
 					() => {
+						if (generation !== statsGeneration) return;
 						if (evidence) sendStats(evidence);
 						hintPresenterSetting(context);
 					},

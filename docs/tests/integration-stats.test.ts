@@ -119,6 +119,39 @@ stockDescribe("the stats row", () => {
 		expect(rows(booted)).toBe("• grep: second");
 	});
 
+	for (const type of [
+		"session_before_switch",
+		"session_before_tree",
+		"session_before_branch",
+	]) {
+		test(`${type} drops a row still waiting for idle`, async () => {
+			const booted = await boot("live", { stats: true });
+			let idle = false;
+			booted.context.isIdle = () => idle;
+			await beginRun(booted);
+			await runTool(booted, "g1", "grep", { pattern: "first" });
+			await usage(booted, 100);
+			await endRun(booted);
+			await dispatch(booted, { type });
+			idle = true;
+			waitForIdlePoll();
+			expect(statsSent(booted)).toEqual([]);
+		});
+	}
+
+	test("a drain that resolves after the session ended queues no row", async () => {
+		const booted = await boot("live", { stats: true });
+		booted.context.isIdle = () => true;
+		await beginRun(booted);
+		await runTool(booted, "g1", "grep", { pattern: "first" });
+		await usage(booted, 100);
+		const ended = endRun(booted);
+		await dispatch(booted, { type: "session_shutdown" });
+		await ended;
+		waitForIdlePoll();
+		expect(statsSent(booted)).toEqual([]);
+	});
+
 	test("one row per logical run, summed across its responses", async () => {
 		const booted = await boot("live", { stats: true });
 		await beginRun(booted);
