@@ -8,16 +8,8 @@
  * function is a pure `args → ToolDescription` (or `result → meta`) mapping
  * that never touches the filesystem.
  */
-const XD_URL_PREFIX = "xd://";
+import { parseXdUrl } from "@oh-my-pi/pi-tui/tools/xd-url";
 
-function parseXdUrl(input: string): { name: string | null } | null {
-	const trimmed = input.trim();
-	if (!trimmed.toLowerCase().startsWith(XD_URL_PREFIX)) return null;
-	const name = trimmed.slice(XD_URL_PREFIX.length);
-	if (name.length === 0) return { name: null };
-	if (/[/?#]/.test(name)) return null;
-	return { name };
-}
 import {
 	editPathsFromInput,
 	genericToolDescription,

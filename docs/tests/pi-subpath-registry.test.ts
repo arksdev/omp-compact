@@ -128,6 +128,12 @@ const SKIPPED_WILDCARD_BASENAMES: Record<string, true> = { index: true };
 const MAIN_THREAD_UNSAFE_WILDCARD_BASENAMES: Record<string, true> = {
 	"worker-entry": true,
 };
+// Packages whose `./*` catch-all the build expands, `*` crossing `/` as in
+// Node (`rootWildcard: "nested"`, legacy-pi-virtual-module.ts): pi-tui, so
+// extensions share the host's stateful modules.
+const ROOT_WILDCARD_DIRS: Partial<
+	Record<(typeof BUNDLED_PACKAGE_DIRS)[number], true>
+> = { tui: true };
 
 interface RegisteredPackageManifest {
 	readonly name: string;
@@ -236,10 +242,11 @@ function isRegisteredWildcardBasename(basename: string): boolean {
  *      skipping `.`, non-`./` keys and keys containing `*`);
  *   3. wildcard keys are expanded by globbing the source files their
  *      `import` target points at (lines 135-175), but only when the export
- *      prefix is neither `""` nor `"/"` (line 141) — ROOT CATCH-ALLS STAY
- *      OUT. That exclusion is the whole point of this suite: a subpath
- *      served only by `./*` (or `./*.js`) is usable under `bun` from
- *      node_modules and is NOT importable inside a compiled binary.
+ *      prefix is neither `""` nor `"/"` — ROOT CATCH-ALLS STAY OUT, except
+ *      the packages in `ROOT_WILDCARD_DIRS`. That exclusion is the whole
+ *      point of this suite: a subpath served only by `./*` (or `./*.js`) of
+ *      any other package is usable under `bun` from node_modules and is NOT
+ *      importable inside a compiled binary.
  *
  * Wildcard expansion details mirrored from upstream: recursive glob of the
  * source suffix (line 151), sorted matches (159), hidden/underscore segments
@@ -286,7 +293,9 @@ async function deriveBundledPiRegistry(): Promise<ReadonlySet<string>> {
 			if (!/\.(ts|tsx|mts|cts|js|mjs|cjs|jsx)$/.test(pattern.sourceSuffix)) {
 				continue;
 			}
-			if (pattern.exportPrefix === "" || pattern.exportPrefix === "/") {
+			const rootCatchAll =
+				pattern.exportPrefix === "" || pattern.exportPrefix === "/";
+			if (rootCatchAll && (exportKey !== "./*" || !ROOT_WILDCARD_DIRS[dir])) {
 				continue;
 			}
 			const sourceDir = path.join(packageDir, pattern.sourcePrefix);

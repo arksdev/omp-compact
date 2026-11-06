@@ -11,8 +11,7 @@ import {
 import type { FileHandle } from "node:fs/promises";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
-// External dependency: unwrapHashlineHeaderPath from @oh-my-pi/pi-coding-agent.
-import { unwrapHashlineHeaderPath } from "@oh-my-pi/pi-coding-agent/tools/plan-mode-guard";
+import { unwrapHashlineHeaderPath } from "@oh-my-pi/pi-coding-agent";
 import { diffLines } from "@oh-my-pi/pi-natives";
 
 import {
@@ -22,7 +21,7 @@ import {
 } from "./audit-diff";
 import { editPathsFromInput } from "./compact";
 
-import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
+import { MAX_EVIDENCE_PATH_LENGTH } from "./messages";
 import type { MutationMessageDetails } from "./messages";
 import { objectRecord } from "./object-record";
 import { isPathInsideRoot } from "./path-inside-root";
