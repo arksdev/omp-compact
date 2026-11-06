@@ -461,7 +461,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 
 Проверьте `OMP_COMPACT_PLUGIN` и `OMP_COMPACT_MODE`. Env overrides имеют приоритет над JSON. Runtime changes через store применяются на следующей границе logical run.
 
-### Плагин ничего не меняет на экране
+### Все блоки рисуются штатными карточками OMP
 
 Включите `/settings → Tools → Extensions → Extension Transcript Presenters`. Пока эта настройка OMP выключена, OMP не спрашивает presenter плагина, и после первого вызова инструмента плагин один раз показывает предупреждение с этим путём.
 

@@ -8,7 +8,7 @@
 ### Ломающие изменения
 
 - Нужен OMP 18.17 или новее. Плагин рисует через публичный transcript presenter OMP (`pi.registerTranscriptPresenter`) и больше не патчит внутренние классы TUI.
-- Включите в OMP `/settings → Tools → Extensions → Extension Transcript Presenters`. Пока эта настройка выключена (так по умолчанию), плагин ничего не меняет на экране. Сам он её не трогает и один раз предупреждает, если она выключена.
+- Включите в OMP `/settings → Tools → Extensions → Extension Transcript Presenters`. Пока эта настройка выключена (так по умолчанию), вызовы инструментов и сообщения рисуются штатными карточками OMP, остаётся только строка статистики. Сам плагин настройку не трогает и один раз предупреждает, если она выключена.
 - Удалён auto-shake вместе с переменной `OMP_COMPACT_SHAKE` и пунктами меню `Auto-shake` и `Shake threshold`.
 - Удалены переключатели `Thinking blocks` и `Recap summary`: эти настройки OMP меняются в его собственном `/settings`. Группы `autoShake` и `host` в старом config загружаются без ошибок и сохраняются как есть.
 - Удалена переменная `OMP_COMPACT_TRACE`.
@@ -32,7 +32,7 @@
 ### Breaking
 
 - Requires OMP 18.17 or later. The plugin draws through OMP's public transcript presenter (`pi.registerTranscriptPresenter`) and no longer patches OMP's internal TUI classes.
-- Turn on `/settings → Tools → Extensions → Extension Transcript Presenters` in OMP. While it is off, which is the default, the plugin changes nothing on screen. It never changes the setting itself and warns once when it is off.
+- Turn on `/settings → Tools → Extensions → Extension Transcript Presenters` in OMP. While it is off, which is the default, tool calls and messages keep OMP's own cards and only the stats row remains. The plugin never changes the setting itself and warns once when it is off.
 - Removed auto-shake, its `OMP_COMPACT_SHAKE` variable and the `Auto-shake` and `Shake threshold` menu rows.
 - Removed the `Thinking blocks` and `Recap summary` switches: change those OMP settings in OMP's own `/settings`. The `autoShake` and `host` groups in an old config load without errors and are kept as they are.
 - Removed the `OMP_COMPACT_TRACE` variable.

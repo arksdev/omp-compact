@@ -13,7 +13,7 @@ omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Restart OMP and turn on the setting the plugin draws through. OMP ships it off, and while it is off the plugin changes nothing on screen:
+Restart OMP and turn on the setting the plugin draws through. OMP ships it off, and while it is off every tool call and message keeps OMP's own card; only the stats row still appears:
 
 ```text
 /settings → Tools → Extensions → Extension Transcript Presenters
