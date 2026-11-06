@@ -42,6 +42,7 @@ export function nextDisplayCycleState(
 // =============================================================================
 
 /**
+
  * Modifier order used for canonical spelling — the host's own order
  * (`@oh-my-pi/pi-tui` `keybindings.ts` `MODIFIER_ORDER`), so `alt+ctrl+x` and
  * `ctrl+alt+x` collide here exactly as they do in the host key table.

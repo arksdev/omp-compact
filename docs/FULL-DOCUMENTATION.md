@@ -429,6 +429,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `idle-queue.ts` | Работа, ждущая idle сессии (отправка stats row). |
 | `tool-presentation-rules.ts` | Typed routes, aliases, audit selectors и known structured shapes. |
 | `tool-rule-describers.ts` | Pure describer-поведение правил: describe/resultMeta, текстовые устройства и hub launch-зеркало. |
+
 | `render-decision.ts` | Pure mode/route projection decisions. |
 | `render.ts` | Row construction: mutations, git, stats и vibe rows. |
 | `turn-ledger.ts` | Классификация `agent_end` и terminal phases. |

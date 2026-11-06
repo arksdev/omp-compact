@@ -126,3 +126,4 @@ describe("display cycle: canonical spelling is the host's press identity", () =>
 		expect(validateDisplayCycleKey("alt+esc")).toBeUndefined();
 	});
 });
+

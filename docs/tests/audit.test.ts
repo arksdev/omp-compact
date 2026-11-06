@@ -1170,6 +1170,22 @@ describe("write audit snapshot bounds", () => {
 		}
 	});
 
+	test("a hashline-wrapped target is captured through its inner path", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			await writeFile(join(cwd, "a.ts"), "neighbour\n");
+			const candidate = await captureWriteCandidate({
+				toolCallId: "write-hashline-target",
+				args: { path: "[a.ts#A1B2]", content: "x\n" },
+				cwd,
+			});
+			expect(candidate?.displayPath).toBe("a.ts");
+			expect(candidate?.before).toBe("neighbour\n");
+		} finally {
+			await cleanup();
+		}
+	});
+
 	test("an overlong display path is rejected before any filesystem I/O", async () => {
 		const { cwd, cleanup } = await stage();
 		try {
