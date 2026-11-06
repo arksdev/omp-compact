@@ -496,7 +496,7 @@ function parseGitInvocationTokens(
 	// subcommands longer than the bound; the tokenizer's own cap is
 	// MAX_TOKEN_LENGTH (4_096 — an input-budget concern, not a field-width
 	// one). Emitting a record here would write a carrier that the replay
-	// path silently drops (rebuild-lifecycle.ts #hydrateEvidence skips it),
+	// path silently drops (the ledger's branch walk skips it),
 	// so fail closed at recognition instead — a subcommand the hydration
 	// gate would reject is never a recognized Git invocation.
 	if (subcommand.length > MAX_GIT_SUBCOMMAND_LENGTH) return undefined;

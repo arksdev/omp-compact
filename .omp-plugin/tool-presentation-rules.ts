@@ -955,7 +955,7 @@ export function resolveToolAudit(name: string, args?: unknown): ToolAuditKind {
  * Pure description for explicitly registered rules only; unregistered names
  * resolve to `undefined`. The bounded generic form stays available as a
  * direct helper (`genericToolDescription` in `compact.ts`) for callers that
- * deliberately render an unknown tool — the runtime adapter must never call
+ * deliberately render an unknown tool — the presenter must never call
  * this for an unresolved tool.
  */
 export function describeTool(

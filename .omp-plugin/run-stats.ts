@@ -35,8 +35,8 @@ export interface RunStatsResult {
 	/**
 	 * Distinct tool executions of the logical run (failures included),
 	 * deduplicated by toolCallId from `tool_execution_start` — the
-	 * authoritative execution source. Never derived from adapter-mapped
-	 * ledger entries, so late-bound or unmapped tools still count.
+	 * authoritative execution source. Never derived from ledger
+	 * entries, so late-bound or unmapped tools still count.
 	 */
 	actions: number;
 	/** usage.input summed over unique finalized assistant messages. */
@@ -571,8 +571,7 @@ export class RunStats {
 
 	/**
 	 * RunStats: observe one finalized assistant completion from stock
-	 * `message_end` only — never partial `message_update` deltas (those
-	 * feed RuntimeAdapter.observeAssistantMessage for presentation).
+	 * `message_end` only — never partial `message_update` deltas.
 	 * Each unique completion with a structural usage record is aggregated
 	 * once, regardless of how many tool calls it carries; completions
 	 * without one are ignored.

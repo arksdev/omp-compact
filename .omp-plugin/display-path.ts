@@ -23,7 +23,7 @@ export interface DisplayPathOptions {
  * Host `ExtensionContext.cwd` is a string snapshot taken when the event
  * context object is built (`createContext` copies `runner.cwd` once). Mid-
  * session `/move` and persistent user-bash `cd` update
- * `SessionManager.#cwd` without rebuilding the adapter or disposing the
+ * `SessionManager.#cwd` without disposing the
  * construction-time context capture — so reading `context.cwd` forever
  * shortens paths against the pre-move root.
  *

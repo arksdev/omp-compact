@@ -749,7 +749,7 @@ interface WarnOnce {
  * later messages for the same key are dropped. Keys are opaque — callers
  * choose the granularity (config phase, host path, ...). `clear()` resets the
  * dedup state for callers whose sink lifetime is shorter than the module's
- * (e.g. a bridge disposed between warning opportunities).
+ * (e.g. a sink disposed between warning opportunities).
  */
 export function createWarnOnce(warn: (message: string) => void): WarnOnce {
 	const warned = new Set<string>();
