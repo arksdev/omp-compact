@@ -1,8 +1,10 @@
-import type {
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
+import {
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+	settings,
 } from "@oh-my-pi/pi-coding-agent";
+import { cfgExtensionTranscriptPresenters } from "@oh-my-pi/pi-coding-agent/extensibility/settings";
 import type { KeyId } from "@oh-my-pi/pi-tui";
 import type { EditCapture } from "./audit";
 
@@ -63,6 +65,17 @@ import { defaultWarn } from "./warn-sink";
 /** Where the presenter switch lives in `/settings`. */
 const PRESENTER_SETTING_PATH =
 	"/settings -> Tools -> Extensions -> Extension Transcript Presenters";
+/**
+ * Whether OMP has extension transcript presenters enabled.
+ * Safe fallback to false if settings are unavailable or uninitialized.
+ */
+function isPresenterSettingEnabled(): boolean {
+	try {
+		return cfgExtensionTranscriptPresenters.get(settings) === true;
+	} catch {
+		return false;
+	}
+}
 
 const MAX_GIT_RESULT_TEXT = 8_192;
 
@@ -190,6 +203,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				}
 				return;
 			}
+			hintPresenterSetting(ctx as unknown as ExtensionContext);
 			const initial = await settingsStore.load();
 			await openSettingsDialog(ctx.ui, {
 				settings: initial,
@@ -331,13 +345,13 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	const idle = new IdleQueue();
 	/** Bumped at each session boundary: older stats belong to another session. */
 	let statsGeneration = 0;
-	let toolCallsRan = false;
 	let presenterHintShown = false;
 
-	/** Once per process: a tool call ran but omp never asked the presenter. */
+	/** Once per process: notify when transcript presenters setting is not enabled. */
 	function hintPresenterSetting(context: ExtensionContext): void {
-		if (presenterHintShown || presenter.asked || !toolCallsRan) return;
+		if (presenterHintShown || presenter.asked) return;
 		if (!context.hasUI || context.mode !== "tui") return;
+		if (isPresenterSettingEnabled()) return;
 		presenterHintShown = true;
 		try {
 			context.ui.notify(
@@ -444,6 +458,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		dispose();
 		await modePolicy.ready();
 		reloadHistory();
+		hintPresenterSetting(context);
 		if (!cycleKeyChecked) {
 			cycleKeyChecked = true;
 			const conflict = shortcutConflict(cycleKey);
@@ -488,7 +503,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	});
 
 	listen("tool_execution_start", async (event, context) => {
-		toolCallsRan = true;
 		runStats.recordTool(event.toolCallId);
 		const call = ledger.startCall(event.toolCallId, event.toolName, event.args);
 		if (!call?.run.mode.enabled) return;

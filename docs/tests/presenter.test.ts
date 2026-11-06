@@ -235,4 +235,13 @@ stockDescribe("presenter", () => {
 		)) as { messages: unknown[] };
 		expect(filtered.messages).toEqual([{ role: "user" }]);
 	});
+
+	test("notifies when transcript presenters setting is not enabled on session start", async () => {
+		const booted = await boot("compact");
+		expect(
+			booted.notifications.some((msg) =>
+				msg.includes("Extension Transcript Presenters"),
+			),
+		).toBe(true);
+	});
 });
