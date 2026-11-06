@@ -621,7 +621,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			runStats.endRun(true);
 			const usage = runStats.finalize();
 			if (usage && run?.mode.enabled)
-				evidence = evidenceFromResult(usage, run.id);
+				evidence = evidenceFromResult(usage, run.id, run.calls.at(-1)?.id);
 		} else if (phase === "working") runStats.endRun(false);
 		else runStats.abort();
 		const link = auditLifecycle.enqueueAgentEnd(

@@ -4,7 +4,11 @@ import type { Theme } from "./theme-types";
 
 import type { CompactStatsSettings } from "./config";
 import { fitTransparentLine } from "./fit-transparent-line";
-import { isBoundedCount } from "./messages";
+import {
+	isBoundedCount,
+	isBoundedString,
+	MAX_TOOL_CALL_ID_LENGTH,
+} from "./messages";
 import { rowsNode } from "./native-text";
 import { objectRecord } from "./object-record";
 import { fixedForeground } from "./render";
@@ -69,6 +73,11 @@ export interface RunStatsEvidence {
 	hasError: boolean;
 	messages: number;
 	completedAt: number;
+	/**
+	 * One tool call of the run. The row may land after the next run's answer,
+	 * so on resume this names its run; older entries lack it.
+	 */
+	anchorToolCallId?: string;
 }
 
 /**
@@ -389,6 +398,7 @@ export function statsLine(
 export function evidenceFromResult(
 	result: RunStatsResult,
 	runId: string,
+	anchorToolCallId?: string,
 ): RunStatsEvidence {
 	return {
 		version: STATS_EVIDENCE_VERSION,
@@ -403,6 +413,7 @@ export function evidenceFromResult(
 		hasError: result.hasError === true,
 		messages: nonNegativeNumber(result.messages),
 		completedAt: nonNegativeNumber(result.completedAt),
+		...(anchorToolCallId ? { anchorToolCallId } : {}),
 	};
 }
 
@@ -441,7 +452,10 @@ export function isRunStatsEvidence(value: unknown): value is RunStatsEvidence {
 		isBoundedCount(evidence.durationMs, MAX_STATS_DURATION_MS) &&
 		typeof evidence.hasError === "boolean" &&
 		isBoundedCount(evidence.messages, MAX_STATS_ACTIONS) &&
-		isBoundedCount(evidence.completedAt, MAX_STATS_DURATION_MS)
+		isBoundedCount(evidence.completedAt, MAX_STATS_DURATION_MS) &&
+		(evidence.anchorToolCallId === undefined ||
+			(evidence.anchorToolCallId !== "" &&
+				isBoundedString(evidence.anchorToolCallId, MAX_TOOL_CALL_ID_LENGTH)))
 	);
 }
 

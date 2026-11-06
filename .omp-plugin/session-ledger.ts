@@ -504,15 +504,18 @@ export class SessionLedger {
 			if (call?.run.restored) call.git = details;
 			return;
 		}
-		// The evidence sits right after its run's final answer, so the walk's
-		// current run is the one it describes.
-		if (
-			customType === STATS_MESSAGE_TYPE &&
-			isRunStatsEvidence(details) &&
-			run &&
-			!this.#runs.has(details.runId)
-		)
-			this.#runs.set(details.runId, run);
+		// The row names a call of its run. Older evidence sits right after its
+		// run's final answer, so the walk's current run is the one it describes.
+		if (customType === STATS_MESSAGE_TYPE && isRunStatsEvidence(details)) {
+			const anchor = details.anchorToolCallId;
+			const anchored =
+				anchor === undefined
+					? undefined
+					: this.#calls.get(anchor)?.findLast((call) => call.run.restored);
+			const owner = anchored?.run ?? run;
+			if (owner && !this.#runs.has(details.runId))
+				this.#runs.set(details.runId, owner);
+		}
 	}
 
 	#strayRun(): RunRecord {

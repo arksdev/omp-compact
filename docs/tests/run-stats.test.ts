@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
+import { MAX_TOOL_CALL_ID_LENGTH } from "../../.omp-plugin/messages";
 import type { Theme } from "../../.omp-plugin/theme-types";
 
 import type {
@@ -48,7 +49,11 @@ interface RunStatsModule {
 		theme: Theme,
 		width?: number,
 	): string;
-	evidenceFromResult(result: RunStatsResult, runId: string): RunStatsEvidence;
+	evidenceFromResult(
+		result: RunStatsResult,
+		runId: string,
+		anchorToolCallId?: string,
+	): RunStatsEvidence;
 	resultFromEvidence(evidence: RunStatsEvidence): RunStatsResult;
 	isRunStatsEvidence(value: unknown): value is RunStatsEvidence;
 	StatsRow: typeof StatsRow;
@@ -1063,6 +1068,20 @@ describe("persisted evidence", () => {
 			false,
 		);
 		expect(module.isRunStatsEvidence({ ...good, actions: -1 })).toBe(false);
+		expect(module.isRunStatsEvidence({ ...good, anchorToolCallId: "" })).toBe(
+			false,
+		);
+		expect(
+			module.isRunStatsEvidence({
+				...good,
+				anchorToolCallId: "x".repeat(MAX_TOOL_CALL_ID_LENGTH + 1),
+			}),
+		).toBe(false);
+		expect(
+			module.isRunStatsEvidence(
+				module.evidenceFromResult(result(), "r1", "c1"),
+			),
+		).toBe(true);
 		expect(
 			module.isRunStatsEvidence({
 				...good,

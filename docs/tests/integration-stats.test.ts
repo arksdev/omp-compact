@@ -152,6 +152,18 @@ stockDescribe("the stats row", () => {
 		expect(statsSent(booted)).toEqual([]);
 	});
 
+	test("the evidence names one of its run's calls", async () => {
+		const booted = await boot("live", { stats: true });
+		booted.context.isIdle = () => true;
+		await beginRun(booted);
+		await runTool(booted, "g1", "grep", { pattern: "first" });
+		await usage(booted, 100);
+		await endRun(booted);
+		waitForIdlePoll();
+		const [sent] = statsSent(booted);
+		expect(sent?.message.details).toMatchObject({ anchorToolCallId: "g1" });
+	});
+
 	test("one row per logical run, summed across its responses", async () => {
 		const booted = await boot("live", { stats: true });
 		await beginRun(booted);

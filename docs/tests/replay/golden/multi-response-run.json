@@ -78,7 +78,8 @@
 				"durationMs": 0,
 				"hasError": true,
 				"messages": 16,
-				"completedAt": 0
+				"completedAt": 0,
+				"anchorToolCallId": "call_31"
 			}
 		}
 	]

@@ -64,7 +64,7 @@ Past runs come from the session branch, walked once per branch: on the first blo
 - user messages as run boundaries, and an assistant message with a visible answer as the run's `filtered` end;
 - assistant `toolCall` parts, and the `custom` `tool_execution_start` entries sessions from older omp versions recorded instead;
 - the plugin's `omp-compact-write` and `omp-compact-git` entries, both as `custom` entries and as the `custom_message` carriers 1.x plugins wrote, including single-record Git entries without `records`;
-- `omp-compact-stats` evidence, which ties a persisted stats row back to its run so its click still works after a resume.
+- `omp-compact-stats` evidence, which ties a persisted stats row back to its run so its click still works after a resume. A row can land after the next run's answer, so it names one tool call of its run (`anchorToolCallId`); evidence without one, or whose call is unknown, belongs to the run the walk is in. With a repeated id the name resolves to the newest record at that point of the walk.
 
 A restored run takes the settings selected now, not the ones it ran with: a resumed session reads the way the user has chosen to see runs today. Calls of the open run keep their live state through a walk.
 
@@ -220,7 +220,7 @@ A `/fork` keeps the conversation and omp does not rebuild it, so the ledger stay
 - Mutation entries per call: 1,000; evidence path: 4,096 characters; evidence text: 16,384 characters
 - Git records per call: 8
 - Diffs: 1 MiB per diff, 4 MiB scanned per call, 128 per-file results
-- Stats evidence: run id 128 characters, counts bounded per field
+- Stats evidence: run id 128 characters, anchor call id as any tool call id, counts bounded per field
 
 Oversized values are dropped, never truncated into a claim.
 

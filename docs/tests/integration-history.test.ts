@@ -221,6 +221,52 @@ stockDescribe("history", () => {
 		expect(rows(booted)).toBe("");
 	});
 
+	test("stats that landed after the next answer reveal their own run", async () => {
+		const answered = (id: string, pattern: string) => [
+			user,
+			toolCall(id, "grep", { pattern }),
+			toolResult(id),
+			{ type: "message", message: assistant("done") },
+		];
+		const delayed = {
+			...stats,
+			runId: "omp-compact-run-1",
+			anchorToolCallId: "g1",
+		};
+		const next = {
+			...stats,
+			runId: "omp-compact-run-2",
+			anchorToolCallId: "g2",
+		};
+		const message = (details: unknown) => ({
+			type: "custom_message",
+			customType: STATS_MESSAGE_TYPE,
+			details,
+		});
+		const booted = await boot("live", {
+			stats: true,
+			branch: [
+				...answered("g1", "first"),
+				...answered("g2", "second"),
+				message(delayed),
+				message(next),
+			],
+		});
+		for (const [id, pattern] of [
+			["g1", "first"],
+			["g2", "second"],
+		] as const) {
+			const block = addBlock(booted, id, "grep", { pattern });
+			block.updateResult({ ...textResult("ok"), isError: false }, false, id);
+		}
+		expect(rows(booted)).toBe("");
+		expect(clickStatsRow(booted, delayed)).toBe(true);
+		expect(rows(booted)).toBe("• grep: first");
+		expect(clickStatsRow(booted, delayed)).toBe(true);
+		expect(clickStatsRow(booted, next)).toBe(true);
+		expect(rows(booted)).toBe("• grep: second");
+	});
+
 	test("a tool id repeated in history draws each run's own call", async () => {
 		const first = { pattern: "first" };
 		const second = { pattern: "second" };
