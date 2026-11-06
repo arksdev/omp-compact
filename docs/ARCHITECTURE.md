@@ -28,7 +28,7 @@ The presenter returns one of omp's answers:
 | Answer | Meaning |
 | --- | --- |
 | `undefined` | Ask the next presenter, else omp's default drawing. A disabled run, an unknown block type, and anything the plugin cannot read answer this. |
-| `"full"` | omp's full card: `ask` and other interactive tools, `vibe_*` with `compactVibeRows` off, a blocking advisor note. |
+| `"full"` | omp's full card: `ask` and other interactive tools, the newest `wait` or `todo` of a working run, `vibe_*` with `compactVibeRows` off, a blocking advisor note. |
 | `"compact"` | omp's own one-row summary. Every tool the registry does not know gets this, so a new tool is never hidden without a description. |
 | `"hidden"` | Nothing. A call the run's retention drops, or every ordinary call in `clear`. |
 | `{ compact: { label, rows } }` | The plugin's rows: the first replaces omp's summary text, the rest go below it. |
@@ -88,13 +88,17 @@ Remaining limit: calls with the same id and the same arguments in different runs
 3. compact rows switched off   → native (vibe tools with compactVibeRows=false)
 4. clear + summary anchor + hashes → tool-rows, summary only (terminal phases)
 5. clear                       → empty (every phase, abort and error included)
-6. filtered + no mutations + no hashes → empty
-7. working + live + no retainGitLive + Git evidence → empty
-8. filtered                    → tool-rows, retention view (mutations stay; the anchor adds the commit summary)
-9. otherwise                   → tool-rows, the full compact log with Git rows
+6. working + newest call of a live-card tool → native
+7. filtered + kept-row        → tool-rows, the row stays without evidence
+8. filtered + no mutations + no hashes → empty
+9. working + live + no retainGitLive + Git evidence → empty
+10. filtered                  → tool-rows, retention view (mutations stay; the anchor adds the commit summary)
+11. otherwise                 → tool-rows, the full compact log with Git rows
 ```
 
 The presenter maps `native` to `"full"`, `host-compact` to `"compact"`, and `empty` to `"hidden"` unless the run's reveal is on, in which case the call gets its compact rows back. Hashes count only once the run ended and only with `retainGitLive`; `clear` treats an interrupted end as terminal too, because the commits it made exist either way and the quiet view has no other place to show them.
+
+`wait` and `todo` use the `live-card` route: their cards show current state, so only the newest call of each tool keeps its card. Older ones would show a frozen copy of the same state, and a run can make dozens of `wait` calls. A new call asks omp to redraw the one it replaces (`tool_execution_start` → `refreshTranscript`). `task` uses `kept-row`: its live progress is in the `wait` card, and its row records what the run delegated.
 
 ### Other blocks (leaf-views.ts)
 
@@ -228,7 +232,7 @@ Oversized values are dropped, never truncated into a claim.
 
 ### Adding a tool
 
-1. Add a rule in `tool-presentation-rules.ts`: route (`compact` or `native-live`), audit kind, argument and result shapes, describer.
+1. Add a rule in `tool-presentation-rules.ts`: route (`compact`, `native-live`, `live-card` or `kept-row`), audit kind, argument and result shapes, describer.
 2. If it needs its own row grammar, add it in `render.ts` (see the vibe tools).
 3. Without a rule, the tool still gets omp's one-row summary, so this step is optional.
 

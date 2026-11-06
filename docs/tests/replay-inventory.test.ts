@@ -14,6 +14,8 @@
  * - "read-group"  — read streams rendered through the native read group.
  * - "native-live" — interactive surfaces (`ask`) that stay native during the live phase. Other previously native-looking surfaces use their explicit compact registry rules.
  *   The exact native-live set observed is asserted below.
+ * - "live-card"   — tools whose newest call keeps its card during the run.
+ * - "kept-row"    — rows that stay after the answer.
  *
  * Non-tool fallback reasons ("unmapped", "expanded", "incompatible") may
  * render natively by design, but they are integration-only safety classes
@@ -51,6 +53,8 @@ const PRODUCTION_ROUTES: readonly ToolRoute[] = [
 	"compact",
 	"read-group",
 	"native-live",
+	"live-card",
+	"kept-row",
 ];
 
 const ALLOWED_EVENT_TYPES: Record<string, true> = {

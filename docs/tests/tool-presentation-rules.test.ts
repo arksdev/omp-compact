@@ -67,7 +67,7 @@ describe("canonical routes and audit kinds", () => {
 			expect(TOOL_RULES[name]?.route, name).toBe("compact");
 		}
 		expect(TOOL_RULES.ask?.route).toBe("native-live");
-		expect(TOOL_RULES.task?.route).toBe("compact");
+		expect(TOOL_RULES.task?.route).toBe("kept-row");
 	});
 
 	test("existing routine tools are explicitly compact", () => {
@@ -79,8 +79,6 @@ describe("canonical routes and audit kinds", () => {
 			"glob",
 			"find",
 			"hub",
-			"wait",
-			"todo",
 			"eval",
 			"yield",
 			"hus",
@@ -245,10 +243,10 @@ describe("transport target write/read presentation", () => {
 });
 
 describe("host tool rename (hub → wait in OMP 18.3.0)", () => {
-	test("wait is registered compact with no args and job-shaped details", () => {
+	test("wait is a live card with no args and job-shaped details", () => {
 		const rule = TOOL_RULES.wait;
 		expect(rule).toBeDefined();
-		expect(rule?.route).toBe("compact");
+		expect(rule?.route).toBe("live-card");
 		expect(rule?.audit).toBe("none");
 		// Stock declares `type({})`: the tool carries no arguments at all.
 		expect(rule?.knownArgs).toEqual([]);
@@ -1191,9 +1189,15 @@ describe("tool-specific settled result metadata", () => {
 
 describe("registry shape types", () => {
 	test("routes and audit kinds are the shared closed unions", () => {
-		const routes: ToolRoute[] = ["compact", "read-group", "native-live"];
+		const routes: ToolRoute[] = [
+			"compact",
+			"read-group",
+			"native-live",
+			"live-card",
+			"kept-row",
+		];
 		const audits: ToolAuditKind[] = ["none", "write", "edit", "git-bash"];
-		expect(routes).toHaveLength(3);
+		expect(routes).toHaveLength(5);
 		expect(audits).toHaveLength(4);
 		for (const rule of Object.values(TOOL_RULES)) {
 			expect(rule).toBeDefined();

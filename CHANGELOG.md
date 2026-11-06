@@ -3,6 +3,21 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Изменено
+
+- `wait` и `todo`: самый новый вызов сохраняет полную карточку OMP, пока агент работает, а более старые становятся строками.
+- Строка `task` называет агентов и остаётся после ответа.
+
+---
+
+### Changed
+
+- `wait` and `todo`: the newest call keeps OMP's full card while the agent works, and older calls become rows.
+- A `task` row names its agents and stays after the answer.
+
+---
 
 ## 2.0.1 — 7 ноября 2026
 

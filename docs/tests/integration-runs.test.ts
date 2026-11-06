@@ -76,6 +76,36 @@ async function cycleMode(booted: BootedPlugin, times: number) {
 	for (let press = 0; press < times; press++) await cycle(booted.context);
 }
 
+function todoList(task: string): unknown {
+	return {
+		content: [{ type: "text", text: "ok" }],
+		details: {
+			phases: [
+				{ name: "Phase", tasks: [{ content: task, status: "pending" }] },
+			],
+			completedTasks: [],
+		},
+	};
+}
+
+function jobs(status: string): unknown {
+	return {
+		content: [{ type: "text", text: "state" }],
+		details: {
+			jobs: [
+				{
+					id: "Scout",
+					type: "task",
+					status,
+					label: "Scout",
+					startTime: 0,
+					durationMs: 1000,
+				},
+			],
+		},
+	};
+}
+
 stockDescribe("a logical run", () => {
 	test("live: every response's calls stay until the answer, then only the commit summary", async () => {
 		const booted = await twoResponses("live");
@@ -335,5 +365,63 @@ stockDescribe("a logical run", () => {
 		await runTool(stock, "v1", "vibe_list", {}, VIBE_LIST);
 		expect(rows(stock)).not.toContain("vibe sessions 1");
 		expect(rows(stock)).toContain("audit-worker");
+	});
+
+	test("only the newest todo card stays open; the answer removes it", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		await runTool(booted, "t1", "todo", { op: "start" }, todoList("First"));
+		expect(rows(booted)).toContain("First");
+
+		await runTool(booted, "t2", "todo", { op: "done" }, todoList("Second"));
+		expect(rows(booted)).not.toContain("First");
+		expect(rows(booted)).toContain("Second");
+
+		await endRun(booted);
+		expect(rows(booted)).toBe("");
+	});
+
+	test("each live tool keeps its own newest card", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		await runTool(booted, "t1", "todo", { op: "start" }, todoList("Listed"));
+		await runTool(booted, "w1", "wait", {}, jobs("completed"));
+		await runTool(booted, "g1", "grep", { pattern: "needle" });
+		const text = rows(booted);
+		expect(text).toContain("Listed");
+		expect(text).toContain("Scout");
+	});
+
+	test("a live card folds to its row when the run ends in compact or on abort", async () => {
+		const compact = await boot("compact");
+		await beginRun(compact);
+		await runTool(compact, "t1", "todo", { op: "start" }, todoList("Listed"));
+		await endRun(compact);
+		expect(rows(compact)).not.toContain("Listed");
+		expect(rows(compact)).toContain("todo");
+
+		const aborted = await boot("live");
+		await beginRun(aborted);
+		await runTool(aborted, "t1", "todo", { op: "start" }, todoList("Listed"));
+		await endRun(aborted, "aborted");
+		expect(rows(aborted)).not.toContain("Listed");
+		expect(rows(aborted)).toContain("todo");
+	});
+
+	test("clear shows no live card", async () => {
+		const booted = await boot("clear");
+		await beginRun(booted);
+		await runTool(booted, "t1", "todo", { op: "start" }, todoList("Listed"));
+		expect(rows(booted)).toBe("");
+	});
+
+	test("a task row names its agents and stays after the answer", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		await runTool(booted, "k1", "task", {
+			tasks: [{ name: "Scout" }, { name: "Reviewer" }],
+		});
+		await endRun(booted);
+		expect(rows(booted)).toBe("• task: Scout, Reviewer");
 	});
 });

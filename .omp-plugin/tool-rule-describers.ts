@@ -482,6 +482,24 @@ export function genericDescribe(name: string) {
 	return (args: unknown): ToolDescription => genericToolDescription(name, args);
 }
 
+/** Agent names a task row lists before it counts the rest. */
+const TASK_NAMES_SHOWN = 5;
+
+/** A `task` row names its agents: the row stays after the answer. */
+export function describeTask(args: unknown): ToolDescription {
+	const { tasks } = record(args);
+	const names = (Array.isArray(tasks) ? tasks : [])
+		.map((task) => stringValue(record(task), "name"))
+		.filter((name) => name !== "");
+	const shown = names.slice(0, TASK_NAMES_SHOWN).join(", ");
+	const rest = names.length - TASK_NAMES_SHOWN;
+	return {
+		title: "task",
+		description: rest > 0 ? `${shown} +${rest}` : shown,
+		meta: [],
+	};
+}
+
 /**
  * Hub launch-style ops (stock `isLaunchStyleArgs`): explicit process ops, or
  * `send`/`wait` targeting a process `name` without a peer `to`/`from`.

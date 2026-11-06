@@ -18,6 +18,7 @@ function toolInput(overrides: Partial<ToolRenderInput> = {}): ToolRenderInput {
 		hasGit: false,
 		hashesLength: 0,
 		isAnchor: false,
+		newestOfTool: false,
 		...overrides,
 	};
 }
@@ -446,5 +447,53 @@ describe("decideBackgroundCompletionRender", () => {
 				completionInput({ phase: undefined, mode: "clear" }),
 			),
 		).toEqual({ kind: "empty" });
+	});
+});
+
+describe("decideToolRender: live cards and kept rows", () => {
+	test("the newest live card is omp's card while the run works", () => {
+		for (const mode of ["live", "compact"] as const) {
+			expect(
+				decideToolRender(
+					toolInput({ route: "live-card", mode, newestOfTool: true }),
+				),
+			).toEqual({ kind: "native" });
+		}
+	});
+
+	test("an older live card, or any after the run, is an ordinary row", () => {
+		const older = decideToolRender(toolInput({ route: "live-card" }));
+		expect(older).toEqual(decideToolRender(toolInput({ route: "compact" })));
+		for (const phase of ["filtered", "full"] as const) {
+			const input = { route: "live-card", phase, newestOfTool: true } as const;
+			expect(decideToolRender(toolInput(input))).toEqual(
+				decideToolRender(toolInput({ route: "compact", phase })),
+			);
+		}
+	});
+
+	test("clear stays silent for a live card and a kept row", () => {
+		for (const route of ["live-card", "kept-row"] as const) {
+			for (const phase of ["working", "filtered", "full"] as const) {
+				expect(
+					decideToolRender(
+						toolInput({ route, mode: "clear", phase, newestOfTool: true }),
+					),
+				).toEqual({ kind: "empty" });
+			}
+		}
+	});
+
+	test("a kept row survives the answer with no evidence of its own", () => {
+		expect(
+			decideToolRender(toolInput({ route: "kept-row", phase: "filtered" })),
+		).toEqual({
+			kind: "tool-rows",
+			filtered: true,
+			summary: false,
+			summaryOnly: false,
+			includeGit: false,
+			keepsOwnRow: true,
+		});
 	});
 });
