@@ -3,6 +3,24 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+
+## Не выпущено
+
+### Исправлено
+
+- Плагин снова загружается на OMP 18.17.0: `unwrapHashlineHeaderPath` переехал из `tools/plan-mode-guard` в корневой экспорт пакета.
+- Компактные строки в Tern продолжают работать на OMP 18.17.0: контекст кадра передаётся в нативный `nativeBlocks`.
+- Обновлена поддерживаемая версия OMP до 18.17.0. Поддержка OMP 18.0.1 и выше сохранена.
+
+---
+
+### Fixed
+
+- The plugin loads again on OMP 18.17.0: `unwrapHashlineHeaderPath` moved from `tools/plan-mode-guard` to the package root export.
+- Compact rows in Tern keep working on OMP 18.17.0: the frame's describe context is forwarded to the native `nativeBlocks`.
+- Updated the supported OMP version to 18.17.0. Support for OMP 18.0.1 and later is preserved.
+
+---
 ## 1.4.20 — 4 ноября 2026
 
 ### Добавлено

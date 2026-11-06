@@ -399,6 +399,23 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 	} catch {
 		// Ignore if hyperlink module is absent.
 	}
+	try {
+		// Runtime-resolved host path; 18.17.0 defaults bash cards to a pseudo view
+		const prefsPath = resolveHostModule(
+			"src/chat/display-preferences.ts",
+			"src/chat/display-preferences.ts",
+		);
+		const prefsModule = (await import(pathToFileURL(prefsPath).href)) as {
+			setChatTranscriptDisplayPreferences?: (next: {
+				shellVisualization: boolean;
+			}) => void;
+		};
+		prefsModule.setChatTranscriptDisplayPreferences?.({
+			shellVisualization: false,
+		});
+	} catch {
+		// Ignore if the preference module is absent.
+	}
 	return {
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,
 		ReadToolGroupComponent: readGroupModule.ReadToolGroupComponent,

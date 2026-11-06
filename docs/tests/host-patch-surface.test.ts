@@ -47,13 +47,13 @@ const stockTest = binary ? test : test.skip;
  * for the patched surface, so a host bump must either keep the surface
  * identical or trip here — before the defects reach a session.
  */
-const VERIFIED_HOST_VERSION = "18.16.0";
+const VERIFIED_HOST_VERSION = "18.17.0";
 
 /**
  * Method arity measured on the live host.
  *
  * Verbatim numbers checked against both 18.0.8 and 18.0.10 (probe of the
- * real prototypes), and re-checked on the 18.16.0 pin (arities unchanged).
+ * real prototypes), and re-checked on the 18.17.0 pin (arities unchanged).
  * `updateResult` is 1, not 3: the host's `isPartial`
  * parameter has a default, so `Function.prototype.length` stops before it —
  * do not "fix" it to 3.
@@ -73,8 +73,8 @@ const EXPECTED_ARITY: Readonly<Record<string, number>> = Object.freeze({
 	peekFlushBatch: 1,
 	// Tern Surface Protocol (18.4.4): the transcript's per-frame block list and
 	// the block members it patches (`describe(cx?)`, late diagnostics routed
-	// into write/edit cards, clicks on described nodes), measured on 18.14.2.
-	nativeBlocks: 0,
+	// into write/edit cards, clicks on described nodes), measured on 18.17.0.
+	nativeBlocks: 1,
 	describe: 1,
 	attachLateDiagnostics: 1,
 	handleNativeEvent: 1,

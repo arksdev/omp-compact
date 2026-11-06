@@ -1,3 +1,5 @@
+import type { DescribeContext } from "@oh-my-pi/pi-tui/native/node";
+
 import {
 	BLOCK_PUBLICATION_MEMBERS,
 	TRANSCRIPT_FOLD_METHODS,
@@ -94,9 +96,9 @@ export interface TranscriptHost extends RenderableBlock {
 	 * The blocks a Tern Surface Protocol frame describes, one per transcript
 	 * child (18.4.4). The native path renders no rows through the methods
 	 * above, so the fold replans here instead. Optional: hosts without the
-	 * protocol never call it.
+	 * protocol never call it. 18.17.0 passes the describe context.
 	 */
-	nativeBlocks?(): readonly unknown[];
+	nativeBlocks?(cx?: DescribeContext): readonly unknown[];
 }
 
 interface NativeBlockMethods {
@@ -682,10 +684,10 @@ export class TranscriptFold {
 				wrappers.nativeBlocks = {
 					configurable: true,
 					writable: true,
-					value: (): readonly unknown[] => {
+					value: (cx?: DescribeContext): readonly unknown[] => {
 						this.#nativeFrame++;
 						this.#plan(this.#nativeWidth ?? terminalColumns());
-						return hostNativeBlocks.call(this.#transcript);
+						return hostNativeBlocks.call(this.#transcript, cx);
 					},
 				};
 				patched.push("nativeBlocks");
