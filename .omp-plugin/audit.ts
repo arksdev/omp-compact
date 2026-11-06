@@ -13,7 +13,6 @@ import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 // unwrapHashlineHeaderPath: root export since 18.17.0, guard module before
 import * as agentApi from "@oh-my-pi/pi-coding-agent";
-import * as legacyPlanModeGuard from "@oh-my-pi/pi-coding-agent/tools/plan-mode-guard";
 import { diffLines } from "@oh-my-pi/pi-natives";
 
 import {
@@ -50,13 +49,22 @@ function isUnwrapHashlineHeaderPath(
 	return typeof value === "function";
 }
 
+// Dynamic: a later host may drop the guard module
+const legacyGuardExport = await import(
+	"@oh-my-pi/pi-coding-agent/tools/plan-mode-guard"
+).then(
+	(guard): UnwrapHashlineHeaderPath | undefined => {
+		const candidate = objectRecord(guard).unwrapHashlineHeaderPath;
+		return isUnwrapHashlineHeaderPath(candidate) ? candidate : undefined;
+	},
+	() => undefined,
+);
+
 /** Host helper, or identity when absent */
 const unwrapHashlineHeaderPath: UnwrapHashlineHeaderPath = (() => {
 	const fromRoot = objectRecord(agentApi).unwrapHashlineHeaderPath;
 	if (isUnwrapHashlineHeaderPath(fromRoot)) return fromRoot;
-	const fromLegacyGuard =
-		objectRecord(legacyPlanModeGuard).unwrapHashlineHeaderPath;
-	if (isUnwrapHashlineHeaderPath(fromLegacyGuard)) return fromLegacyGuard;
+	if (legacyGuardExport) return legacyGuardExport;
 	return (targetPath) => targetPath;
 })();
 
