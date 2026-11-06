@@ -77,37 +77,12 @@ export interface AuditRunToken {
 	readonly abandoned: boolean;
 }
 
-/**
- * Outcome of an end-run drain (`barrier`), separating the two consumers of
- * the result:
- *
- * - `settled` gates the run's end-run finalization (`work`): `true`
- *   means the drain finished within its bound — every drained record either
- *   completed or was finally abandoned (terminal purge, dispose,
- *   replacement), so finalization may run. Records still pending at a
- *   continuation are not part of the drain (see `barrier`) and count
- *   neither way.
- * - `evidenceReady` gates post-run consumers: `true`
- *   only when the drain settled AND no record in scope was abandoned, so no
- *   run evidence was lost. (At a continuation a still-pending record is not
- *   abandoned: its evidence is deferred to the next run's drain and
- *   evaluated there.) A publication/completion failure, terminal purge,
- *   teardown, same-id replacement, or timeout abandons evidence and reports
- *   `false`.
- */
-export interface BarrierOutcome {
-	settled: boolean;
-	evidenceReady: boolean;
-}
-
 interface AuditRecord extends AuditRunToken {
 	toolCallId: string;
 	capture: Promise<MutationCandidate | undefined> | undefined;
 	completion: Promise<void> | undefined;
 	payload: unknown;
 	abandoned: boolean;
-	/** A terminal drain owns this token; later failures need no tombstone. */
-	terminal: boolean;
 	/** Claimed until the native call and its audit have both settled. */
 	targets?: Set<string>;
 	release?: () => void;
@@ -186,8 +161,6 @@ export class AuditLifecycle {
 	#options: ResolvedOptions;
 	/** Every record of the session, until its completion settles or it is abandoned. */
 	#records = new Map<string, AuditRecord>();
-	/** Settled failures remain visible until their logical run's terminal drain. */
-	#failedRecords = new Set<AuditRecord>();
 	/** Records whose `tool_execution_end` has not arrived yet. */
 	#pending = new Map<string, AuditRecord>();
 	#targets = new Map<string, Set<AuditRecord>>();
@@ -312,7 +285,7 @@ export class AuditLifecycle {
 	/**
 	 * Consumes a synchronous edit/Git record exactly once. Publication runs
 	 * at call time to preserve entry order; errors propagate to the event
-	 * runner while the failed token still marks the run's evidence not ready.
+	 * runner.
 	 */
 	endSync(toolCallId: string, work: (payload: unknown) => void): void {
 		const record = this.#pending.get(toolCallId);
@@ -351,16 +324,13 @@ export class AuditLifecycle {
 	}
 
 	/**
-	 * Tokens of active records and settled publication failures. Call
+	 * Tokens of active records. Call
 	 * synchronously inside `agent_end` so later work cannot join this drain.
-	 * Failures survive continuations until a terminal drain claims them.
 	 * Tokens (not ids) keep a drain pinned to the original record even when
 	 * a nested xd:// dispatch replaces it under the same `toolCallId`.
 	 */
 	snapshot(): ReadonlySet<AuditRunToken> {
-		const tokens = new Set<AuditRunToken>(this.#records.values());
-		for (const record of this.#failedRecords) tokens.add(record);
-		return tokens;
+		return new Set<AuditRunToken>(this.#records.values());
 	}
 
 	/**
@@ -388,42 +358,30 @@ export class AuditLifecycle {
 	 *   classified like the ledger: not willContinue/toolUse) are purged
 	 *   immediately. Stock may reorder a continuation end, but a terminal
 	 *   transcript must never resurrect evidence after it is committed. The
-	 *   purge abandons the records, so the drain still settles (the end-run
-	 *   finalization may run) while `evidenceReady` is `false` — the
-	 *   purged evidence was never persisted, so post-run consumers
-	 *   must be skipped.
+	 *   purge abandons the records, so the drain still settles and the end-run
+	 *   finalization may run.
 	 * - At a continuation (`terminal === false`) pending records are not part
 	 *   of this drain: they remain in the maps so a late `tool_execution_end`
 	 *   can consume and publish their evidence.
 	 *
-	 * Returns `{ settled, evidenceReady }`:
-	 *
-	 * - `settled: true` — every record completed or was finally abandoned
-	 *   (terminal purge, dispose, same-id replacement) within the bound.
-	 * - `evidenceReady: true` — the drain settled and no record in scope was
-	 *   abandoned, so the run's audit/Git evidence was persisted.
-	 *
-	 * On timeout the outstanding records are abandoned (fail closed — no
-	 * deadlock, no late publish) and `{ settled: false, evidenceReady: false }`
-	 * is returned.
+	 * Resolves `true` when every record completed or was finally abandoned
+	 * (terminal purge, dispose, same-id replacement) within the bound. On
+	 * timeout the outstanding records are abandoned (fail closed — no
+	 * deadlock, no late publish) and it resolves `false`.
 	 */
 	async barrier(
 		runIds?: ReadonlySet<AuditRunToken>,
 		terminal = false,
-	): Promise<BarrierOutcome> {
+	): Promise<boolean> {
 		const ids = runIds ?? this.snapshot();
 		const start = this.#options.now();
 
 		// Terminal boundary: purge pending records immediately before the drain.
 		// Stock may reorder a continuation end, but a terminal transcript must
-		// never resurrect evidence after commit. The purge abandons the
-		// records, so `evidenceReady` reports false while the drain still
-		// settles for the end-run finalization.
+		// never resurrect evidence after commit.
 		if (terminal) {
 			for (const token of ids) {
 				const record = token as AuditRecord;
-				record.terminal = true;
-				this.#failedRecords.delete(record);
 				if (this.#pending.get(record.toolCallId) === record) {
 					record.abandoned = true;
 					releaseRecordPreImage(record);
@@ -444,12 +402,7 @@ export class AuditLifecycle {
 					break;
 				}
 			}
-			if (!outstanding) {
-				return {
-					settled: true,
-					evidenceReady: this.#evidenceReady(ids),
-				};
-			}
+			if (!outstanding) return true;
 			const remaining = this.#options.barrierMs - (this.#options.now() - start);
 			if (remaining <= 0) {
 				for (const token of ids) {
@@ -468,22 +421,10 @@ export class AuditLifecycle {
 					"barrier-drop",
 					"omp-compact: audit barrier-drop (drain timed out; evidence dropped)",
 				);
-				return { settled: false, evidenceReady: false };
+				return false;
 			}
 			await this.#waitForChangeOrTimeout(remaining);
 		}
-	}
-
-	/**
-	 * Evidence is ready only when every record in the drain scope completed:
-	 * any abandoned record (terminal purge, dispose, same-id replacement)
-	 * left its evidence unpublished.
-	 */
-	#evidenceReady(ids: ReadonlySet<AuditRunToken>): boolean {
-		for (const token of ids) {
-			if ((token as AuditRecord).abandoned) return false;
-		}
-		return true;
 	}
 
 	/**
@@ -498,11 +439,8 @@ export class AuditLifecycle {
 	 * - a switch landing mid-drain is re-checked after the barrier, so the
 	 *   old run's finalization cannot run against the new session.
 	 *
-	 * Resolves `true` only when the drain settled, `work` ran, and the run's
-	 * evidence is ready (nothing was purged or abandoned) — the post-run
-	 * gate. Resolves `false` when the link was skipped, the drain
-	 * failed closed (timeout/teardown), or a terminal purge abandoned the
-	 * pending records: the run still finalized, with its evidence incomplete.
+	 * Resolves `true` when `work` ran; `false` when the link was skipped or
+	 * the drain failed closed (timeout/teardown).
 	 */
 	enqueueAgentEnd(
 		runIds: ReadonlySet<AuditRunToken>,
@@ -513,12 +451,10 @@ export class AuditLifecycle {
 		const link = this.#agentEndChain
 			.then(async () => {
 				if (generation !== this.#generation) return false;
-				const outcome = await this.barrier(runIds, terminal);
-				if (!outcome.settled || generation !== this.#generation) {
-					return false;
-				}
+				const settled = await this.barrier(runIds, terminal);
+				if (!settled || generation !== this.#generation) return false;
 				work();
-				return outcome.evidenceReady;
+				return true;
 			})
 			.catch(() => {
 				this.#warnOnce(
@@ -544,7 +480,6 @@ export class AuditLifecycle {
 		}
 		this.#pending.clear();
 		this.#records.clear();
-		this.#failedRecords.clear();
 		this.#targets.clear();
 		this.#signalChange();
 		// A session boundary may warn again.
@@ -575,7 +510,6 @@ export class AuditLifecycle {
 			completion: undefined,
 			payload: init.payload,
 			abandoned: false,
-			terminal: false,
 		};
 		// Map swap is last-candidate-wins for the shared toolCallId: only the
 		// new record is addressable. The previous entry was already abandoned
@@ -625,7 +559,6 @@ export class AuditLifecycle {
 		releaseRecordPreImage(record);
 		// Only an unended native call must keep its claim after abandonment.
 		if (record.completion) this.#releaseTarget(record);
-		if (!record.terminal) this.#failedRecords.add(record);
 	}
 
 	#trackCompletion(record: AuditRecord, completion: Promise<void>): void {

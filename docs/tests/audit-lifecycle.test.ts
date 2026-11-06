@@ -280,10 +280,7 @@ describe("synchronous write-audit registration", () => {
 		await flush();
 		expect(h.published).toEqual([]);
 		expect(h.captures).toHaveLength(0);
-		expect(await h.life.barrier(h.life.snapshot())).toEqual({
-			settled: true,
-			evidenceReady: true,
-		});
+		expect(await h.life.barrier(h.life.snapshot())).toBe(true);
 	});
 });
 
@@ -311,8 +308,8 @@ describe("agent_end drain", () => {
 
 		expect(order).toEqual(["publish", "barrier"]);
 		expect(h.published).toEqual([[evidence("w1")]]);
-		// Every record completed: the drain settled with evidence ready.
-		expect(await barrier).toEqual({ settled: true, evidenceReady: true });
+		// Every record completed: the drain settled.
+		expect(await barrier).toBe(true);
 	});
 
 	test("continuation drain leaves a pending write for a late end", async () => {
@@ -371,7 +368,7 @@ describe("agent_end drain", () => {
 		await flush();
 		h.clock.advance(5_000);
 		await flush();
-		expect(await barrier).toEqual({ settled: false, evidenceReady: false });
+		expect(await barrier).toBe(false);
 
 		// The audit completes late: evidence is dropped, never appended after
 		// the run was already finalized.
@@ -431,7 +428,7 @@ describe("agent_end drain", () => {
 		await flush();
 		h.life.dispose();
 		await flush();
-		expect(await barrier).toEqual({ settled: true, evidenceReady: false });
+		expect(await barrier).toBe(true);
 		h.life.dispose(); // idempotent
 
 		// The abandoned audit settles without publishing.
@@ -461,10 +458,7 @@ describe("agent_end drain", () => {
 		await flush();
 
 		expect(h.published).toEqual([]);
-		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
-			settled: true,
-			evidenceReady: true,
-		});
+		expect(await h.life.barrier(h.life.snapshot(), true)).toBe(true);
 	});
 
 	test("a terminal commit purges started-but-unended records; a late end publishes nothing", async () => {
@@ -484,9 +478,8 @@ describe("agent_end drain", () => {
 		expect(settled).toBe(true);
 		await barrier;
 		// The purge abandoned the pending records: the drain settled so the
-		// adapter's end-run finalization may run, but the evidence is not
-		// ready and the run must not shake.
-		expect(await barrier).toEqual({ settled: true, evidenceReady: false });
+		// end-run finalization may run.
+		expect(await barrier).toBe(true);
 
 		// Late ends after the committed transcript: fail closed, no evidence.
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
@@ -504,10 +497,10 @@ describe("agent_end drain", () => {
 		});
 		await flush();
 		expect(drained).toBe(true);
-		expect(await laterBarrier).toEqual({ settled: true, evidenceReady: true });
+		expect(await laterBarrier).toBe(true);
 	});
 
-	test("a terminal purge settles the drain for finalization but reports evidence not ready", async () => {
+	test("a terminal purge settles the drain for finalization", async () => {
 		const h = harness();
 		h.life.startWrite(writeStart("w1")); // pending: end never arrives before the commit
 		const runIds = h.life.snapshot();
@@ -519,12 +512,10 @@ describe("agent_end drain", () => {
 		);
 		await flush();
 		expect(order).toEqual(["finalize"]);
-		// …but the run's evidence was purged, so the link must not report
-		// evidence-ready and the post-run auto-shake must be skipped.
-		expect(await link).toBe(false);
+		expect(await link).toBe(true);
 	});
 
-	test("a terminal purge with an in-flight completion waits for the evidence and reports it ready", async () => {
+	test("a terminal purge with an in-flight completion waits for the evidence", async () => {
 		const h = harness();
 		h.life.startWrite(writeStart("w1"));
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
@@ -538,12 +529,12 @@ describe("agent_end drain", () => {
 		h.completes[0]?.resolve([evidence("w1")]);
 		await flush();
 		expect(h.published).toEqual([[evidence("w1")]]);
-		expect(await barrier).toEqual({ settled: true, evidenceReady: true });
+		expect(await barrier).toBe(true);
 	});
 });
 
 describe("failed evidence publication", () => {
-	test("a publish failure before agent_end blocks shake but still finalizes the run", async () => {
+	test("a publish failure before agent_end still finalizes the run", async () => {
 		const h = harness();
 		h.life.startWrite(writeStart("failed-write"));
 		h.life.endWrite(writeEnd("failed-write"), () => {
@@ -559,15 +550,12 @@ describe("failed evidence publication", () => {
 			await h.life.enqueueAgentEnd(h.life.snapshot(), true, () =>
 				finalized.push("failed run"),
 			),
-		).toBe(false);
+		).toBe(true);
 		expect(finalized).toEqual(["failed run"]);
-		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
-			settled: true,
-			evidenceReady: true,
-		});
+		expect(await h.life.barrier(h.life.snapshot(), true)).toBe(true);
 	});
 
-	test("a completion failure during the drain blocks shake without blocking finalization", async () => {
+	test("a completion failure during the drain does not block finalization", async () => {
 		const h = harness({ completeError: new Error("post-image unavailable") });
 		h.life.startWrite(writeStart("failed-completion"));
 		h.life.endWrite(writeEnd("failed-completion"), (mutations) =>
@@ -581,12 +569,12 @@ describe("failed evidence publication", () => {
 		h.captures[0]?.resolve(candidate("failed-completion"));
 		await flush();
 
-		expect(await link).toBe(false);
+		expect(await link).toBe(true);
 		expect(finalized).toEqual(["done"]);
 		expect(h.published).toEqual([]);
 	});
 
-	test("a sync failure survives a continuation and a same-id replacement until the terminal drain", async () => {
+	test("a sync failure leaves a same-id replacement publishing", async () => {
 		const h = harness();
 		h.life.startSync("sync-call");
 		expect(() =>
@@ -595,25 +583,16 @@ describe("failed evidence publication", () => {
 			}),
 		).toThrow("evidence sink unavailable");
 		await flush();
-		expect(await h.life.barrier(h.life.snapshot(), false)).toEqual({
-			settled: true,
-			evidenceReady: false,
-		});
+		expect(await h.life.barrier(h.life.snapshot(), false)).toBe(true);
 
 		h.life.startSync("sync-call");
 		h.life.endSync("sync-call", () =>
 			h.published.push([evidence("sync-call")]),
 		);
 		await flush();
-		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
-			settled: true,
-			evidenceReady: false,
-		});
+		expect(await h.life.barrier(h.life.snapshot(), true)).toBe(true);
 		expect(h.published).toEqual([[evidence("sync-call")]]);
-		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
-			settled: true,
-			evidenceReady: true,
-		});
+		expect(await h.life.barrier(h.life.snapshot(), true)).toBe(true);
 	});
 
 	test("an old terminal drain cannot clear a later run's publication failure", async () => {
@@ -637,14 +616,11 @@ describe("failed evidence publication", () => {
 		await flush();
 
 		expect(await oldDrain).toBe(true);
-		expect(await h.life.barrier(h.life.snapshot(), true)).toEqual({
-			settled: true,
-			evidenceReady: false,
-		});
+		expect(await h.life.barrier(h.life.snapshot(), true)).toBe(true);
 	});
 });
 
-test("an unended contending writer blocks later claims and shake until its run settles", async () => {
+test("an unended contending writer blocks later claims until its run settles", async () => {
 	const published: MutationMessageDetails[][] = [];
 	const life = new AuditLifecycle({
 		capture: (input, acceptTarget) =>
@@ -670,17 +646,11 @@ test("an unended contending writer blocks later claims and shake until its run s
 	life.endWrite(writeEnd("first"), publish);
 	await flush();
 	expect(published).toEqual([]);
-	expect(await life.barrier(life.snapshot(), true)).toEqual({
-		settled: true,
-		evidenceReady: false,
-	});
+	expect(await life.barrier(life.snapshot(), true)).toBe(true);
 
 	life.startWrite(writeStart("recovered"));
 	life.endWrite(writeEnd("recovered"), publish);
-	expect(await life.barrier(life.snapshot(), true)).toEqual({
-		settled: true,
-		evidenceReady: true,
-	});
+	expect(await life.barrier(life.snapshot(), true)).toBe(true);
 	expect(published).toEqual([[evidence("recovered")]]);
 });
 
@@ -706,14 +676,8 @@ test("a ready publication permits a following write without poisoning its drain"
 	const firstRun = life.snapshot();
 	await flush();
 	expect(published).toEqual(["first", "following"]);
-	expect(await life.barrier(firstRun, true)).toEqual({
-		settled: true,
-		evidenceReady: true,
-	});
-	expect(await life.barrier(life.snapshot(), true)).toEqual({
-		settled: true,
-		evidenceReady: true,
-	});
+	expect(await life.barrier(firstRun, true)).toBe(true);
+	expect(await life.barrier(life.snapshot(), true)).toBe(true);
 });
 
 function gitCommand(payload: unknown): string {
@@ -893,7 +857,7 @@ describe("agent_end serial chain", () => {
 		// abandoned, so the evidence is not ready.
 		const barrier = h.life.barrier(runTokens, true);
 		await flush();
-		expect(await barrier).toEqual({ settled: true, evidenceReady: false });
+		expect(await barrier).toBe(true);
 		// The successor's end publishes exactly once.
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
 		h.captures[1]?.resolve(candidate("w1"));
@@ -1012,7 +976,7 @@ describe("warn-once on silent audit failures", () => {
 		h.life.startWrite(writeStart("w1")); // pending; end never arrives
 		const link = h.life.enqueueAgentEnd(h.life.snapshot(), true, () => {});
 		await flush();
-		expect(await link).toBe(false);
+		expect(await link).toBe(true);
 		// Terminal purge is documented fail-closed behavior — no warn noise.
 		expect(h.warns).toEqual([]);
 	});

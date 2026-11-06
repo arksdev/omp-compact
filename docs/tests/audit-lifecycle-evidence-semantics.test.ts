@@ -4,17 +4,13 @@ import { AuditLifecycle } from "../../.omp-plugin/audit-lifecycle";
 import type { MutationMessageDetails } from "../../.omp-plugin/messages";
 
 /**
- * The `BarrierOutcome` contract, pinned at the drain boundaries that the main
- * lifecycle suite leaves unasserted:
+ * The drain, pinned at the boundaries the main lifecycle suite leaves
+ * unasserted:
  *
- * - `evidenceReady` is an "evidence not lost" flag: a record that is only
- *   deferred (still pending at a continuation) is not abandoned, so the
- *   drain settles with `evidenceReady: true` and the record stays registered
- *   for a late `tool_execution_end`.
+ * - A record still pending at a continuation is only deferred: the drain
+ *   settles and the record stays registered for a late `tool_execution_end`.
  * - A failed pre-image capture (capture-failed, warn-once) settles the record
- *   without publishing; it is not an abandonment, so a terminal drain still
- *   reports `evidenceReady: true` — the row is final (evidence will never
- *   arrive), the shake cannot race it.
+ *   without publishing.
  */
 
 interface Deferred<T> {
@@ -137,18 +133,15 @@ function writeEnd(id: string): {
 	};
 }
 
-describe("BarrierOutcome contract at the deferred and failed boundaries", () => {
-	test("a continuation drain reports evidenceReady:true for a still-pending record and leaves it for a late end", async () => {
+describe("the drain at the deferred and failed boundaries", () => {
+	test("a continuation drain settles past a still-pending record and leaves it for a late end", async () => {
 		const h = harness();
 		h.life.startWrite(writeStart("w1"));
 		const runIds = h.life.snapshot();
 
 		// The pending record is not part of a continuation drain: it is
 		// neither completed nor abandoned, and its evidence is deferred.
-		await expect(h.life.barrier(runIds, false)).resolves.toEqual({
-			settled: true,
-			evidenceReady: true,
-		});
+		await expect(h.life.barrier(runIds, false)).resolves.toBe(true);
 		// The record stays registered for the late tool_execution_end.
 		expect(h.life.snapshot().size).toBe(1);
 
@@ -163,21 +156,16 @@ describe("BarrierOutcome contract at the deferred and failed boundaries", () => 
 		expect(h.life.snapshot().size).toBe(0);
 	});
 
-	test("a failed capture drains evidenceReady:true: the record settled without evidence, nothing is lost or pending", async () => {
+	test("a failed capture drains: the record settled without evidence and nothing is pending", async () => {
 		const h = harness({ captureError: new Error("EIO nfs stale") });
 		h.life.startWrite(writeStart("w1"));
 		h.life.endWrite(writeEnd("w1"), (mutations) => h.published.push(mutations));
 		await flush();
 
-		// Fail-closed: nothing published, the record completed without
-		// evidence, and no abandonment means the terminal drain reports the
-		// run's evidence ready (a shake cannot race a row that is final).
+		// Fail-closed: nothing published, the record completed without evidence.
 		expect(h.published).toEqual([]);
 		expect(h.completes).toHaveLength(0);
-		await expect(h.life.barrier(h.life.snapshot(), true)).resolves.toEqual({
-			settled: true,
-			evidenceReady: true,
-		});
+		await expect(h.life.barrier(h.life.snapshot(), true)).resolves.toBe(true);
 		expect(h.life.snapshot().size).toBe(0);
 	});
 });
