@@ -40,33 +40,6 @@ export {
 } from "./audit-diff";
 export { isPathInsideRoot } from "./path-inside-root";
 
-type UnwrapHashlineHeaderPath = (targetPath: string) => string;
-
-function isUnwrapHashlineHeaderPath(
-	value: unknown,
-): value is UnwrapHashlineHeaderPath {
-	return typeof value === "function";
-}
-
-// 18.16.0 compatibility; dynamic in case a later version may drop the guard module
-const legacyGuardExport = await import(
-	"@oh-my-pi/pi-coding-agent/tools/plan-mode-guard"
-).then(
-	(guard): UnwrapHashlineHeaderPath | undefined => {
-		const candidate = objectRecord(guard).unwrapHashlineHeaderPath;
-		return isUnwrapHashlineHeaderPath(candidate) ? candidate : undefined;
-	},
-	() => undefined,
-);
-
-/** Host helper, or identity when absent */
-const unwrapHashlineHeaderPath: UnwrapHashlineHeaderPath = (() => {
-	const fromRoot = objectRecord(agentApi).unwrapHashlineHeaderPath;
-	if (isUnwrapHashlineHeaderPath(fromRoot)) return fromRoot;
-	if (legacyGuardExport) return legacyGuardExport;
-	return (targetPath) => targetPath;
-})();
-
 const URI_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 const COMPOUND_FILE_TARGET =
 	/(?:\.(?:tar\.gz|zip|tar|tgz|jar|war|ear|apk|sqlite3?|db3?)):/i;
