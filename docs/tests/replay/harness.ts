@@ -67,6 +67,8 @@ export interface BootedPlugin {
 		) => Renderable | undefined
 	>;
 	notifications: string[];
+	/** Shortcut handlers by chord, as the plugin registered them. */
+	shortcuts: Map<string, (context: BootedPlugin["context"]) => unknown>;
 	transcript: TranscriptInstance;
 	/** Session entries the walk reads; tests assign them before a resume. */
 	branch: unknown[];
@@ -106,11 +108,17 @@ export async function bootReplay(options: {
 		) => Renderable | undefined
 	>();
 	const notifications: string[] = [];
+	const shortcuts: BootedPlugin["shortcuts"] = new Map();
 	const presenters: unknown[] = [];
 	const pi = {
 		logger: { warn() {} },
 		setLabel() {},
-		registerShortcut() {},
+		registerShortcut(
+			key: string,
+			options: { handler: (context: BootedPlugin["context"]) => unknown },
+		) {
+			shortcuts.set(key, options.handler);
+		},
 		getShortcutConflict: () => undefined,
 		registerTranscriptPresenter(presenter: unknown) {
 			presenters.push(presenter);
@@ -203,6 +211,7 @@ export async function bootReplay(options: {
 		renderers: renderers as BootedPlugin["renderers"],
 		appendedEntries,
 		notifications,
+		shortcuts,
 		transcript,
 		branch,
 	};
