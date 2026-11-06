@@ -1672,12 +1672,15 @@ describe("vibe-cards grammar and presentation", () => {
 			].join("\n"),
 		);
 
-		// Both READMEs must carry that block verbatim.
+		// Both READMEs must carry that block as omp draws it: its glyph before
+		// the first row, the rest indented below.
+		const [label, ...rest] = rendered.split("\n");
+		const drawn = [`• ${label}`, ...rest.map((row) => `  ${row}`)].join("\n");
 		for (const name of ["README.md", "README.en.md"]) {
 			const readme = await Bun.file(new URL(`../../${name}`, import.meta.url))
 				.text()
 				.then((text) => text.replace(/\r\n/g, "\n"));
-			expect(readme).toContain(`\`\`\`text\n${rendered}\n\`\`\``);
+			expect(readme).toContain(`\`\`\`text\n${drawn}\n\`\`\``);
 		}
 	});
 });

@@ -6,14 +6,22 @@
 
 ## Install from the Marketplace
 
-You need **OMP installed — [https://omp.sh/](https://omp.sh/)**.
+You need **OMP 18.17 or later**, from [https://omp.sh/](https://omp.sh/).
 
 ```bash
 omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Restart OMP, then open the plugin settings:
+Restart OMP and turn on the setting the plugin draws through. OMP ships it off, and while it is off the plugin changes nothing on screen:
+
+```text
+/settings → Tools → Extensions → Extension Transcript Presenters
+```
+
+The plugin never changes this setting itself. If a tool runs while it is off, the plugin shows one warning with the path above.
+
+Then open the plugin settings:
 
 ```text
 /compact-settings
@@ -40,7 +48,6 @@ During a large task, OMP shows many separate cards: which files it read, what it
 Example while OMP is working:
 
 ```text
-Working… read src/index.ts
 • read src/index.ts
 • grep registerTool in src
 • bash: bun test
@@ -48,28 +55,28 @@ Working… read src/index.ts
 • edit: src/theme.css +2|0
 ```
 
-After a successful answer, the default `live` mode keeps only useful history:
+After a successful answer, the default `live` mode keeps only useful history, with the run's statistics under the answer:
 
 ```text
 • write: src/app.ts +17|0
 • edit: src/theme.css +2|0
 • delete: src/legacy.ts -3
 • git commit: 1983fsdf34, a4c12de890
-[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ] — 16:33
 <assistant answer>
+[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ] — 16:33
 ```
 
 Delete rows render distinctly: a red `delete` title and a red exact removed stat (`-N`) when the pre-image count is known; when the count is unavailable the stat is omitted entirely.
 
 Some OMP tools are invoked through the same transport as a file write. Such calls no longer look like writes: the row names the device itself and its operation — `github: pr_create` instead of `write: xd://github` — and they are not counted as file changes.
 
-Work in `/vibe` mode is compact now: instead of listing subagents that were already killed or are sitting idle, only the active ones are shown. Each session takes one or two short lines — state, name, turns taken, how long the current turn has run, the model, and what the session is doing right now. Killed sessions and settled turns linger for a few seconds and then disappear on their own; when there is nothing to show, there is no line at all.
+Work in `/vibe` mode is compact: only active worker sessions are listed, not the ones already killed or sitting idle. Each session takes one or two short lines with its state, name, turns taken, how long the current turn has run, the model, and what the session is doing. A session killed or settled more than a few seconds before the call finished is left out, and when nothing is left there is no row at all.
 
 ```text
-vibe sessions 2
-∷ ⟦g⟧ audit-worker 2t grok-4.5 Reported the registry diff
-╭─ ⠦ ⟦f⟧ wire-vibe 3t+1q 1m12s gpt-5.2-codex Wire the vibe rows
-╰─ ⠦ edit: Wiring the vibe rows
+• vibe sessions 2
+  ∷ ⟦g⟧ audit-worker 2t grok-4.5 Reported the registry diff
+  ╭─ ⠦ ⟦f⟧ wire-vibe 3t+1q 1m12s gpt-5.2-codex Wire the vibe rows
+  ╰─ ⠦ edit: Wiring the vibe rows
 ```
 
 ## Before and after
@@ -98,7 +105,9 @@ Choose a mode in `/compact-settings`. The selected mode is fixed for the current
 | `live` — default | The same complete compact log | File changes, Git summary, and statistics remain; temporary actions are removed | Everyday use: you can watch the process while keeping the transcript clean |
 | `clear` | Ordinary tool lines are hidden | The answer, the line with hashes for created commits, and, if enabled, statistics remain | The quietest possible interface |
 
-Unknown, interactive, expanded, or incompatible tools remain in OMP's native interface. In `compact` and `live`, an abort or error without a final answer preserves the diagnostic log. In `clear` it does not: the quiet view stays quiet through an interrupted turn, and unfinished work is easier to read back in `compact` or `live`. Restored history follows the same rule — in `clear` it is hidden entirely, background-job completion notices included.
+A tool the plugin has no rule for gets OMP's own one-line summary in every mode, so a new tool is never hidden without a description. Interactive tools such as `ask` keep their full card. A block you expand, with `Ctrl+O` or its own toggle in Tern, always shows OMP's full card, including a call the plugin hid and tools whose rows used to stay compact when expanded.
+
+In `compact` and `live`, an abort or error without a final answer preserves the diagnostic log. In `clear` it does not: the quiet view stays quiet through an interrupted turn, and unfinished work is easier to read back in `compact` or `live`. Restored history (a resumed session, `/tree`, `/branch`) is drawn in the mode selected now. In `clear` its tool rows are hidden except the commit summaries, and so are background-job completion notices.
 
 ## Additional options
 
@@ -157,7 +166,7 @@ JSON:
 
 The option condenses non-blocking advisor notes (`nit`, `concern`, and an omitted severity, which the host documents as a plain nit) to one row per note: `• advisor [nit] <first line>`. It is off by default: without it, advisor cards render exactly as OMP draws them.
 
-A card is compacted only once the plugin can prove its contents: the native card's stripped rows must match the layout the stock renderer would build from the metadata carried by the live message or by the restored session branch. A `blocker`, an unknown severity, control characters, and unreadable metadata keep the whole card native, and tool-output expansion always restores the full note text.
+The plugin reads the notes from the advisor message itself. A `blocker`, an unknown severity or details it cannot read keep the whole card as OMP draws it. Expanding the card always shows the full note text.
 
 JSON:
 
@@ -191,55 +200,11 @@ JSON:
 { "displayCycleKey": "alt+c" }
 ```
 
-### Auto-shake
-
-Auto-shake automatically calls OMP's native `AgentSession.shake("elide")` after an eligible successful logical run. It replaces heavy old tool results and large blocks with short placeholders containing an `artifact://` recovery link. This frees model context without removing the plugin's visual history.
-
-Auto-shake is **disabled by default**. When enabled, its default threshold is **120,000 tokens**.
-
-In `/compact-settings`:
-
-1. Enable `Auto-shake`.
-2. Set `Shake threshold` to a token count. After a logical run completes, the plugin performs one shake if the current context is above that limit. Set the limit to `0` to run it after every eligible logical run.
-
-Example JSON with a 120,000-token threshold:
-
-```json
-{
-  "autoShake": {
-    "enabled": true,
-    "thresholdTokens": 120000
-  }
-}
-```
-
-To shake after every eligible logical run:
-
-```json
-{
-  "autoShake": {
-    "enabled": true,
-    "thresholdTokens": 0
-  }
-}
-```
-
-`OMP_COMPACT_SHAKE=1` enables auto-shake on top of the config; `OMP_COMPACT_SHAKE=0` disables it. The threshold still comes from JSON.
-
-**How this differs from OMP's compact strategy:** auto-shake does not create an LLM summary and does not replace the current session with a compressed recap. It surgically removes heavy old content through `shake("elide")`. It runs only after a successful final answer; it is skipped for subagents, continuations, aborts or errors, and unknown token usage when the threshold is positive. If the context has already exceeded its limit, auto-shake has no separate compaction or model-switch fallback; recovery remains the responsibility of OMP's standard context-maintenance configuration.
-
-### Thinking blocks and Recap summary
-
-These two switches change **OMP's own configuration**, not only the plugin JSON:
-
-- `Thinking blocks` controls whether reasoning/thinking blocks are visible. The plugin writes the inverse value to OMP's `hideThinkingBlock` setting. Restart OMP after changing it.
-- `Recap summary` (called `Idle Recap` in OMP) controls OMP's `recap.enabled` setting. When enabled, OMP can generate a short summary of the current state after an idle period. This change takes effect without a restart.
-
-The plugin first saves these values through OMP's live `session.settings` and only then updates their mirror in its own JSON. It does not call `Settings.init()` or alter other OMP settings. If a suitable main session is unavailable, the menu shows `n/a` and the host settings are not changed.
-
 ### Statistics
 
-`Run statistics` adds one line after a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color. `Add local time` appends the local time of the answer beside the row as `— 16:33`; it comes from the instant the turn finished, so restored history reports the time of the answer itself rather than the time of the repaint.
+`Run statistics` adds one line under the answer of a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color. `Add local time` appends the local time of the answer beside the row as `— 16:33`; it comes from the instant the turn finished, so restored history reports the time of the answer itself rather than the time of the repaint.
+
+The row appears once the session is idle, so a run that started before then gets its own row after it. It is drawn for you only: the plugin keeps it out of the model's context.
 
 ## Safe removal
 
@@ -262,13 +227,13 @@ omp plugin uninstall --scope user omp-compact@arksdev
 omp plugin uninstall --scope project omp-compact@arksdev
 ```
 
-Restart OMP after uninstalling. The plugin no longer installs its wrappers, and the interface returns completely to native OMP. You can optionally remove only the plugin's saved settings:
+Restart OMP after uninstalling, and the transcript draws exactly as OMP draws it. You can optionally remove only the plugin's saved settings:
 
 ```bash
 rm ~/.omp/agent/omp-compact/config.json
 ```
 
-For a profile, the config is stored at `~/.omp/profiles/<name>/agent/omp-compact/config.json`. Removing this file does not change the stock OMP settings `recap.enabled` and `hideThinkingBlock`, because those values have already been saved in OMP's own config. Restore them through OMP's standard settings if needed. You can keep the Marketplace catalog for a future reinstall or remove it separately:
+For a profile, the config is stored at `~/.omp/profiles/<name>/agent/omp-compact/config.json`. You can keep the Marketplace catalog for a future reinstall or remove it separately:
 
 ```bash
 omp plugin marketplace remove arksdev
@@ -285,7 +250,7 @@ bun install --frozen-lockfile
 bun run omp
 ```
 
-`bun run omp` loads only `./.omp-plugin/index.ts` through `--no-extensions`, preventing a second copy from loading when the plugin is already installed. For a permanent Marketplace or linked installation, use ordinary `omp` so the rest of your extensions remain enabled.
+`bun run omp` loads only `./.omp-plugin/index.ts` through `--no-extensions`, preventing a second copy from loading when the plugin is already installed. For a permanent Marketplace or linked installation, use ordinary `omp` so the rest of your extensions remain enabled. Either way, the `Extension Transcript Presenters` setting from the install section has to be on.
 
 Direct launch for one run:
 
@@ -295,9 +260,11 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 ## Compatibility and documentation
 
-The supported range is **OMP 18.0.1 and later**. The release gate is pinned to stock OMP 18.16.0; newer versions are treated as compatible unless they change the private TUI shape. If that happens, capability checks fail open to native rendering—please report the OMP version and reproduction in a GitHub issue.
+The plugin needs **OMP 18.17 or later**. It draws through OMP's public transcript presenter API (`pi.registerTranscriptPresenter`) and patches none of OMP's own classes.
 
-The compact rows also appear in [Tern](https://stencil.so) panes, where OMP 18.4.4 and later hand the transcript to Tern's native view (Tern Surface Protocol) instead of painting rows. Click a compact row there to show the tool's full card under it, and click the row again to compact it. In `live` and `clear`, click a turn's stats row to bring back the calls the turn hid, each in its own place and clickable for its full card; a second click hides them again.
+The compact rows also appear in [Tern](https://stencil.so) panes, where OMP hands the transcript to Tern's native view. A compact row there opens OMP's full card with its toggle. In `live` and `clear`, click a turn's stats row to bring back the calls the turn hid, each in its own place; a second click hides them again.
+
+One known limit: some providers number tool calls per response (`call_0`, `call_1`), so a later run can reuse an earlier run's id. The plugin knows a call only by its id, and the earlier block then draws like the later run's call. It can vanish from a `compact` history once a `live` run that reused its id ends.
 
 - [Full documentation](docs/FULL-DOCUMENTATION.md)
 - [Configuration](docs/CONFIGURATION.md)

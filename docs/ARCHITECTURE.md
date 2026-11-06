@@ -1,1085 +1,243 @@
 # Architecture
 
-This document describes the internal architecture of omp-compact.
+How omp-compact decides what each transcript block shows, where its evidence comes from, and what it keeps between runs.
 
 ## Overview
 
-**omp-compact** is a presentation-only plugin. It wraps TUI component rendering without modifying tool execution, schemas, approval, or results.
+omp 18.17 lets an extension choose how each block of the main transcript is drawn: `pi.registerTranscriptPresenter(presenter)`. omp asks the presenter about a block whenever the block's data changes, whenever the extension calls `ctx.ui.refreshTranscript(ids)`, and whenever it rebuilds the transcript. It draws the answer itself, in the plain terminal and in Tern's native view. The contract is in omp's `docs/extensions.md`, section "Transcript presenter", and the types in `packages/tui/src/chat/extension-types.ts`.
 
-Stock OMP handles all tool execution. The plugin observes results and decides what to show.
-
----
-
-## Module Structure
+The plugin is that presenter plus the state its answers need:
 
 ```text
-omp-compact/
-├── .omp-plugin/                   # Marketplace catalog and production TypeScript
-│   ├── marketplace.json
-│   ├── index.ts                   # Plugin entry point
-│   ├── runtime-adapter.ts         # Host orchestration, event hooks
-│   ├── presentation-patches.ts    # Exact-instance descriptor-patch registries
-│   ├── runtime-session-state.ts   # Ledgers, tool states, projections
-│   ├── rebuild-lifecycle.ts       # Branch hydration and rebuild generations
-│   ├── component-binding.ts       # toolCallId ↔ component mapping
-│   ├── turn-ledger.ts             # Per-run entry accumulation
-│   ├── render-decision.ts         # Compact vs native decision tables
-│   ├── render.ts                  # Row construction (mutations, git, stats)
-│   ├── render-scrape.ts           # Scraping of stock component views into views
-│   ├── advisor-notes.ts           # Opt-in compaction of non-blocking advisor notes
-│   ├── native-describe.ts         # Tern Surface Protocol `rows`/hidden nodes for compact rows
-│   ├── host-surface.ts            # Pinned stock host surface sheet (methods, fingerprints, args)
-│   ├── tool-presentation-rules.ts # Rules registry: routes, aliases, shapes, lookups
-│   ├── tool-rule-describers.ts    # Describer library backing the registered rules
-│   ├── vibe-cards.ts              # Re-export entry point for vibe cards
-│   ├── vibe-cards-decode.ts       # Defensive decoding of untrusted vibe payloads
-│   ├── vibe-cards-render.ts       # Compact worker-session row rendering
-│   ├── vibe-cards-slots.ts        # Slot formatters for compact vibe rows
-│   ├── display-cycle.ts           # Shortcut cycle, chord validation, status line
-│   ├── settings-keys.ts           # Raw key codes and arrow normalization
-│   ├── host-api.ts                # Host API types; command/shortcut registration
-│   ├── ansi-width.ts              # ANSI-SGR-safe strip/truncate
-│   ├── save-flow.ts               # Host bridge apply → JSON persist → reload
-│   ├── cycle-handler.ts           # Display-cycle keypress handler
-│   ├── settings-dialog.ts         # TUI settings dialog
-│   ├── settings-ui.ts             # Re-export entry point for the settings modules
-│   └── …                          # Remaining production modules
-├── docs/
-│   ├── tests/                     # Unit/integration tests and replay corpus
-│   └── assets/                    # Documentation images
-├── README.md / README.en.md
-├── CHANGELOG.md / LICENSE
-└── package.json / bun.lock / tsconfig.json / .gitignore
+omp events ──► index.ts ──► SessionLedger ◄── branch walk (resume, /tree, /branch, compaction)
+                  │              │
+                  │ audit        ▼
+                  └────────► presenter.ts ──► answer per block: undefined | "full" | "compact" | "hidden" | { compact: { label, rows } }
+                                 ▲
+                         omp asks per block
 ```
 
----
+omp only asks while its setting `extensionRenderers.transcriptPresenters` is on. It ships off, and the plugin never turns it on: the setting belongs to the user. When a tool call has run in an interactive TUI session and omp still has not asked the presenter anything, the plugin shows one warning per process naming `/settings → Tools → Extensions → Extension Transcript Presenters`.
 
-## Core Abstractions
+Tools themselves are untouched. The plugin registers no tool, wraps no tool, and patches no omp class. Execution, approval, results and the model context stay omp's.
 
-### TurnLedger (turn-ledger.ts)
-
-A **logical run** from `agent_start` to terminal `agent_end`.
-
-**Lifecycle:**
-1. Created by `RuntimeSessionState.beginRun()`
-2. Accumulates `LedgerEntry[]` while `phase === "working"`
-3. Freezes on finalization with retention policy applied
-4. `phase` becomes `"filtered"` or `"full"`
-
-**Retention policy:**
-- `mode === "compact"` → full log preserved
-- `mode === "live"` → entries filtered by `retention: "mutation" | "git"`
-- `mode === "clear"` → entries filtered but with different display rules
-
-**Key methods:**
-- `addEntry(entry)` — adds entry while working
-- `finalize(mode, event)` — applies retention, sets phase
-- `retainedEntries()` — returns filtered subset based on policy
-
----
-
-### RuntimeSessionState (runtime-session-state.ts)
-
-Session-scoped state manager. Owns:
-
-**Core collections:**
-- `#ledgers: TurnLedger[]` — sequence of logical runs
-- `#states` — all ledger-owned calls, keyed by ledger/run plus raw tool ID
-- `#statesByLedger: WeakMap<TurnLedger, Map<string, ToolState>>` — exact owner lookup for groups, replay and migration
-- `#latestStates: Map<string, ToolState>` — latest raw-ID lookup for live events; never replaces historical ownership
-- `#pendingStates: Set<ToolState>` — in-flight subset for spinner
-- `#terminalProjections: Map<TurnLedger, TerminalProjection>` — aggregate Git hashes per finalized run
-- `#liveStatsLines`, `#hydratedStatsEvidence` — stats row placement guards
-
-**Lifecycle methods:**
-- `beginRun()` — creates new ledger, bumps it
-- `endRun(AgentEndEvent)` — finalizes ledger, retires pending states
-- `hydrateBranch()`, `beginRebuild()`, `commitRebuild()` — entry points that delegate to `RebuildLifecycle` (see below); the class keeps the mutable stores, the lifecycle module owns the walks
-- `dispose()` — clears all maps
-
-**Tool state management:**
-- `createToolStart(input)` — new tool call, adds to pending set
-- `updateToolArgs(input)` — update args, mark pending
-- `updateToolResult(input)` — update result, unmark pending if final
-- `finalizeToolResult(input)` — settle tool, remove from pending
-
-**Key invariants:**
-- One active ledger at a time (the working one)
-- Historical ledgers frozen after finalization
-- Pending set subset of states map
-- Generation bumps invalidate old rebuild callbacks
-
----
-
-### RebuildLifecycle (rebuild-lifecycle.ts)
-
-Branch hydration and rebuild generations, extracted from `RuntimeSessionState`
-so the walks are reviewable in isolation.
-
-- `hydrateBranch(entries)` — session_start replay: parses typed branch entries into ledgers/states, hydrates persisted evidence, reinserts stats carriers
-- `beginRebuild()` — bumps generation, snapshots active working ownership, retires historical bindings
-- `commitRebuild(snapshot, options)` — generation-guarded settlement: merges branch states into preserved active ownership, binds rehydrated components
-
-One shared `#walkBranch` serves both replay and commit; a pure replay passes no
-active ledger, a rebuild commit passes the preserved one. The seam back into
-session state is the `RebuildLifecycleAccess` interface, built inside
-`RuntimeSessionState` over its private fields — the class's public surface is
-unchanged by the extraction.
-
-Raw IDs may repeat between logical runs. Only the final unfinished branch segment adopts the preserved active ledger; earlier completed runs allocate independent states. Active identity and live evidence remain authoritative. Replayed results and carriers use the walk ledger, and duplicate unscoped native IDs need identity/scoped/order proof rather than claiming the latest state.
-
----
-
-### ComponentBinding (component-binding.ts)
-
-Bidirectional map between TUI components and plugin state records.
-
-**Binding strategies:**
-1. **Exact binding** — `toolCallId` known, direct map via `#componentStates`
-2. **Group discovery** — read group with `observedIds`, tracked via `#groupStates`
-3. **Deferred binding** — hydrated branch, no toolCallId yet, bind by order via `tryBindByOrder()`
-4. **Observed-id claim** — a rebuilt card announces its real `toolCallId` through `updateResult(result, isPartial, id)` before the branch walk recreates its state; the id waits in `#observedToolIds` and is claimed by `#bindObservedToolIds()` at the head of hydration pairing. Exact ownership, so it needs no order/suffix permit and covers rebuild triggers stock exposes no event for (`/shake`, a cancelled submission, a dropped prompt, an extension repaint). Cards whose result never replays with an id — pending, background, collapsed read groups — still depend on the permit paths.
-
-**Read shape is stock's decision, never the plugin's guess:**
-
-Stock routes a read either into `ReadToolGroupComponent` or into a full
-`ToolExecutionComponent`, deciding with `InternalUrlRouter.canHandle` on
-the first streaming snapshot whose args carry a target
-(`event-controller.ts:1219`); later deltas find the id in `pendingTools`
-and never revise the shape. The plugin cannot reach that router from the
-extension process — importing it would resolve a second module instance
-with no registered handlers — so `host-surface.ts` mirrors the rule with
-a scheme list, and an RPC host (an IDE embedding omp) registers protocol
-handlers at runtime that no list can know.
-
-Therefore the guess must never control allocation: `observeAssistantMessage`
-reserves a state for **every** streamed call in call order, and
-`stateForLedger` marks a collapsing read as group presentation, which is
-what keeps it out of order pairing. Two repairs close the disagreement:
-`observeReadMethod` marks any read a group claims (stock grouped a read the
-mirror called a full card), and `tryBindByOrder` admits a marked read that
-no group has observed as a second-chance candidate when that makes the
-cardinality exact (stock built a card for a read the mirror expected to
-collapse). Stock creates and announces a real group during `message_update`,
-before any `tool_execution_start`, so an unobserved read at pairing time is
-evidence no group wants it.
-
-**Fail-open diagnostics (trace.ts):**
-
-Every fail-open path is reversible and silent by design, which makes a
-framed card in a compact session unattributable after the fact: the
-session transcript records tool calls and results, never pairing
-decisions. `OMP_COMPACT_TRACE=1` prints one stderr line per fail-open —
-order pairing declined (with card/state counts and the state tool names),
-rebuild pairing leftovers, `releaseToNative` with its caller-supplied
-reason, and one line per component that renders native unbound. The
-message is a thunk, so a disabled trace neither formats nor allocates;
-never make a decision depend on the flag.
-
-**Read-group all-or-nothing invariant:**
-
-A stock read group is one native card. Compact rows are built only from
-plugin `ToolState`s that the group has claimed. `groupCompletelyMapped`
-(and the first rule of `decideReadGroupRender`) require **every** id the
-group observed through `updateArgs` / `updateResult` / `renameEntry` to
-resolve to a read state in the group's owning ledger and mapped to *this* group. One untracked observed id
-keeps the **entire** group on the raw native renderer in every phase
-(working, filtered, full) — permanently for that incomplete observation
-set.
-
-This is intentional. Partial compact binding would either hide an
-untracked native entry or misattribute another state's path/result.
-Native is always an acceptable fallback; wrong is not. The rule also
-covers the host `renameEntry ""→realId` race: until the real id resolves
-to a mapped read state, the group stays native rather than rendering a
-partial compact list. Do not relax this into per-entry compact rows.
-
-**Lifecycle:**
-- `bind(component, state)` — establish exact binding
-- `bindGroup(component, group)` — bind read group
-- `reset(generation)` — discard historical bindings, retain working ownership
-- `dispose()` — clear all maps
-
-**Key methods:**
-- `stateOf(component)` — lookup state for component
-- `groupOf(component)` — lookup group for component
-- `tryBindByOrder(component, ledger)` — deferred binding fallback
-- `groupCompletelyMapped(group)` — all-or-nothing compact gate
-
-**Generation guards:**
-- `generation` field tracks current rebuild cycle
-- `reset()` discards bindings from old generations
-- Working ownership snapshot preserved across rebuilds
-
-
----
-
-### RuntimeAdapter (runtime-adapter.ts)
-
-Host orchestrator. Installs and manages patches.
-
-**Patches installed:**
-1. **`transcript.clear`** → `#onTranscriptClear()` — rebuild boundary
-2. **Component `.render()`** → `#renderBlock()` — decision + row construction
-3. **Discovery patches** on containers → auto-bind new components
-
-**Generation guards:**
-```typescript
-#beginRebuild(): void {
-    const token = this.#session.beginRebuild();
-    this.#pendingGeneration = token;
-    // Schedule settlement in microtask
-}
-
-#settlePendingRebuild(): void {
-    const generation = this.#pendingGeneration;
-    if (this.#disposed || this.#pendingGeneration !== generation) return;
-    // Commit rebuild
-}
-```
-
-**Protection:**
-- Generation token guards settlement callbacks after rebuild
-- Ambiguous toolCallId binding → per-component native quarantine (`#quarantineComponent` / `releaseToNative`); session stays compacting
-- `#rollback()` on host-invariant failure → full dispose, warn once
-- Disposed adapter no-ops on all events
-
-**Spinner:**
-```typescript
-#startSpinner(): void {
-    this.#timer = this.#timers.setInterval(() => {
-        let pending = false;
-        for (const state of this.#session.pending()) {
-            if (state.ledger.phase !== "working" || !state.component) continue;
-            // `clear` renders no compact rows; stock surfaces animate
-            // themselves, so hidden rows must not churn renders.
-            if (this.#session.modeFor(state.ledger).mode === "clear") continue;
-            pending = true;
-            state.version++;
-            this.#ui.requestComponentRender?.(state.component);
-        }
-        if (pending) this.#ui.requestRender?.();
-    }, 80); // 12.5 Hz
-}
-```
-
-### Presentation Patches (presentation-patches.ts)
-
-Exact-instance registry for the descriptor patches `RuntimeAdapter` installs on host components — per-component render/method wraps, transcript `addChild`/`clear` wrappers and the discovery tree-watcher patches — plus their teardown.
-
-**Two teardown scopes, deliberately:**
-- `restorePerComponent()` is the detach scope: per-component patches are restored to native and cleared so retired component instances can be collected; the transcript's own patches survive — they define the rebuild boundary.
-- `restoreTranscript()` / `restoreDiscovery()` are dispose-only: recorded so a failing clear probe still rolls the adapter back transactionally; discovery restore also runs when a transcript is found (the watcher's job is done).
-
-The per-component restore runs from one shared list, so a new patch kind cannot leak patched components across a rebuild.
-
-
-### Advisor Note Compaction (advisor-notes.ts)
-
-The stock advisor card (`customType: "advisor"`) is rendered straight into the transcript by `modes/utils/ui-helpers.ts` — before the registered message-renderer lookup — as an opaque object literal over `details` with no readable back-reference to its message. `AdvisorNotes` therefore binds a card to its payload by proof, never by child order or header text: it reconstructs the stock renderer's visible rows (header meta, per-severity rail, badge, advisor attribution, 110-column body cap, three-note collapsed limit, hidden-count row) from bounded parsed metadata and claims a card only when the card's own stripped rows equal that layout for exactly one candidate.
-
-**Fail-open ladder (every step keeps the whole card native):** unknown chrome, an unproven layout, blockers/unknown severity/control text, unreadable metadata, over-budget payload, or colliding candidates. Long notes wrap through the host's own helpers. `RuntimeAdapter` caches the per-instance layout proof, invalidates it when candidates change, and reads the live theme/preference plus native `describe().p.collapsed` on every paint. A local native toggle therefore wins over global Ctrl+O. Explicitly non-collapsible 1–3-note cards use the known global expansion baseline; unobservable expansion stays native. Rebuild detach, rollback and dispose restore the original renderer.
-
-### Tern Surface Protocol (native-describe.ts, transcript-fold.ts)
-
-In a Tern pane, OMP 18.4.4+ answers the Tern Surface Protocol (TSP) handshake and stops painting rows: the composer lists the transcript blocks through `TranscriptContainer.nativeBlocks()` once per frame, and the reconciler asks each block for `describe(cx)`. Only a component without a description, or whose `describe` returns nothing, is painted through `render(cx.cols)` as a `rows` node, which Tern badges as a fallback. A `render` patch alone therefore changes nothing there, and every stock card stays native.
-
-Every compact presentation also answers `describe`:
-
-- **Fold:** on a transcript that exposes `nativeBlocks`, the fold wraps it to replan before each frame (at the width the previous frame's descriptions reported) and patches `describe` on every fold-owned block. The row path hands a whole run to its carrier, native cards included; the TSP path splits a run instead. A member the presentation leaves native keeps its stock description, and so does a non-tool block the run absorbed only because its rows are blank, unless its description draws nothing either (a tool-only assistant turn). Each stretch of compact members between them becomes one node on its first member, and the rest of the stretch describes as the stock hidden node. A stock member that describes nothing of its own describes as its stock rows. Each run is planned once per frame and shared by its members; a replan by another entry point (a new member list) invalidates it. On this path the host attaches late LSP diagnostics to their write/edit card and drops their own message, but a fold-owned card can turn compact at any time (collapse, turn end) and a compact row cannot show them. Fold-owned cards therefore refuse them (`attachLateDiagnostics`), so they keep their own message, compacted as on the row path. The refusal is declared when the card is observed, not at the first plan, and stays active while the fold is disposed for a rebuild: a session rebuild clears the transcript, adds every card back and routes their diagnostics before the settlement reinstalls the fold. It answers like stock once the adapter is disposed (`isPresenting`). Retirement and publication are row concerns and stay out of this path.
-- **Leaves:** TTSR, todo reminder, skill, late diagnostics, user bash/python and advisor cards wrap `describe` next to `render` with the same compact-or-native decision. The advisor collapse probe reads the captured stock `describe`, never the patched one.
-
-Compact rows are ANSI-styled. `RowsNodes` turns them into one unwrapped `text` node through the host's `rowsText` (`pi-tui/native/spans`, the helper stock components use for pre-rendered rows), which maps their colours back to theme tokens, and reuses the node while the lines are unchanged so the reconciler skips it without a diff. Spans carry theme tokens only, so the plugin's fixed `fixedForeground` colours are first rewritten to the basic SGR colours that map to `success`, `error` and `accent`. `native/spans` ships with the protocol, so it is imported dynamically: hosts older than 18.4.4 load the plugin unchanged and never call the wrappers.
-
-Compact rows are clickable. `RowsNodes.compact` describes each component's rows as one keyed `text` child carrying `actions: { click: "omp-compact.reveal" }`, so a click on a row reaches the node's owner (for a stretch, its first member) as an `action` event at that key. Fold-owned blocks and leaves patch `handleNativeEvent`: `RowsNodes.handle` maps the key to the component the clicked rows belong to and marks it revealed, and any other event goes to the stock handler. A revealed fold member leaves its stretch, and a revealed leaf or member describes as its compact row (a click on it sends `omp-compact.conceal`) over its stock card. The stock card sits in a proxy component whose `describe`, `render` and `handleNativeEvent` call the captured stock methods on the block, so the card's own events (expand, copy) reach the stock handler under the stock key paths. A revealed component whose presentation hides its rows (live mode after the turn) stays hidden. Clicks need no extra invalidation: the terminal repaints after every event, which replans the run.
-
-The stats row is clickable too, when its run hid any call (`live` and `clear` after the turn). The carrier `createStatsCarrier` builds gets `describe`/`handleNativeEvent` from a `StatsReveal` the adapter hands the session (`statsReveal`): it describes its line as one `text` node sending `omp-compact.hidden-calls`, and a run that hid nothing describes nothing, so the fold paints the plain line. A call counts as hidden when its decision is `empty`, or when the filtered retention leaves only the aggregate Git summary in its place (a routine call in a turn that committed, or any call in `clear`; `hidesOwnRow`). A click toggles the run's ledger in the adapter's `#shownHidden`; while it is set, each hidden call (and each hidden read group or background notice) renders its settled compact row in its own place, as `compact` mode would have kept it, above any summary line it carries, and each row is clickable for its stock card like any other. A filtered run frees `args` and `result` at its terminal projection (`retireFilteredPayloads`), so each released call first keeps its row as a theme-free, bounded `CompactRowSpec` (`retiredRow`, painted at the current theme and width by `paintCompactRow`), never the payloads.
-
-Cost: the reconciler describes every transcript block each frame, so the fold renders every compact row of the session per frame (about 1.3 µs per row measured, ~4 ms for 3000 tool calls). Stock blocks memoize their descriptions; caching compact rows would need an invalidation signal for every presentation change (mode cycle, expansion, terminal projection), which the adapter does not centralize.
-
----
-## Decision Flow
-
-### Render Decision (render-decision.ts)
-
-Pure decision tables map `(route, phase, mode, state)` → `ToolRenderDecision`.
-
-**Decision outcomes:**
-- `"tool-rows"` — show compact rows
-- `"native"` — show native TUI component
-- `"empty"` — hide completely
-
-**Decision table (simplified):**
-```
-1. Unknown tool → native (fail-open)
-2. native-live → native (every mode × every phase; interactive stock chrome such as ask)
-3. compactSuppressedBySettings → native (the user switched this tool family's compact rows off)
-4. clear + isAnchor + hashes > 0 → tool-rows (summary only: the aggregate commit line survives, terminal phases only)
-5. clear → empty (every phase, abort/error included)
+## Answers
+
+The presenter returns one of omp's answers:
+
+| Answer | Meaning |
+| --- | --- |
+| `undefined` | Ask the next presenter, else omp's default drawing. A disabled run, an unknown block type, and anything the plugin cannot read answer this. |
+| `"full"` | omp's full card: `ask` and other interactive tools, `vibe_*` with `compactVibeRows` off, a blocking advisor note. |
+| `"compact"` | omp's own one-row summary. Every tool the registry does not know gets this, so a new tool is never hidden without a description. |
+| `"hidden"` | Nothing. A call the run's retention drops, or every ordinary call in `clear`. |
+| `{ compact: { label, rows } }` | The plugin's rows: the first replaces omp's summary text, the rest go below it. |
+
+omp draws an expanded block (`Ctrl+O`, or the block's toggle in Tern) in full whatever the presenter answers. That replaced the per-tool expansion rules 1.x had: every block now opens to omp's card, including calls the plugin hid.
+
+omp keeps no earlier answer and may ask again at any time, so each answer is a function of the block and the ledger entry keyed by its id, nothing else. The presenter does no I/O beyond the one branch walk below, and keeps no caches that could go stale against the ledger.
+
+### Row text
+
+`render.ts` builds rows as ANSI strings, as it always has. `native-text.ts` turns one row into omp's `TspText` (a string or theme-token spans), which omp needs to draw the same row in Tern. omp draws the row's glyph itself, so the plugin drops its own leading `•` from the label.
+
+### The Tern title probe
+
+In Tern a compact tool node keeps omp's stock title and shows the label next to it, so a label that starts with the same word reads twice (`Read  read src.txt`). omp passes the presenter no signal for which view it is drawing. The plugin therefore copies the probe omp itself uses to pick Tern's native view: `TERM_PROGRAM` is `tern` (case-insensitive) and `PI_TUI_NATIVE` is not `0` (`ternNativeView` in `presenter.ts`). In that view it drops its leading title from the label when it is the same word as the card's stock title, and keeps it when they differ (`github: pr_create` on a `write` card). Inside tmux `TERM_PROGRAM` names tmux, so the plugin draws terminal labels there, which is what omp does too. A wrong guess only changes whether a word repeats.
+
+## SessionLedger (session-ledger.ts)
+
+The block carries its own arguments and result, so the ledger holds only what the block lacks:
+
+- **Runs.** A logical run starts at `agent_start` and spans tool-use continuations (`agent_end` with `willContinue`, or a `toolUse` stop). It ends at a terminal `agent_end`. The run freezes its settings snapshot (`mode`, `enabled`, `retainGitLive`, `compactVibeRows`) and display paths when it opens.
+- **Phase.** `working` while the run is open. At its end `turn-ledger.ts` classifies the stop: a visible answer is `filtered`, an abort, error, blank answer or stop alongside a tool call is `full`. `compact` mode always ends `full`.
+- **Calls.** `toolCallId` → run, mutation evidence, Git evidence and the settle time. A block seen before its `tool_execution_start` (arguments still streaming) is recorded under the open run. A streaming block without an id yet draws as a call of the open run without a record. A call that arrives with no run open goes to a finished stray run and keeps its row.
+- **Git projection.** Once a run ends, its commit hashes in call order and the call that carries the aggregate summary row (the last one with evidence) are computed once.
+- **Reveal.** Whether a click on the run's stats row shows the calls the run hid.
+
+The audit publishes evidence into the ledger only while the run is `working`. The terminal `agent_end` waits for the run's audit drain before it finalizes the run, so evidence that lands late still reaches its row, and evidence of a finished run is frozen.
+
+### Branch walk
+
+Past runs come from the session branch, walked once per branch: on the first block the ledger does not know, and again after `session_start`, a non-fork `session_switch`, `session_tree`, `session_branch` and `session_compact`. The walk reads:
+
+- user messages as run boundaries, and an assistant message with a visible answer as the run's `filtered` end;
+- assistant `toolCall` parts, and the `custom` `tool_execution_start` entries sessions from older omp versions recorded instead;
+- the plugin's `omp-compact-write` and `omp-compact-git` entries, both as `custom` entries and as the `custom_message` carriers 1.x plugins wrote, including single-record Git entries without `records`;
+- `omp-compact-stats` evidence, which ties a persisted stats row back to its run so its click still works after a resume.
+
+A restored run takes the settings selected now, not the ones it ran with: a resumed session reads the way the user has chosen to see runs today. Calls of the open run keep their live state through a walk.
+
+Scoped write carriers sit after the entry that issued their write (`mutationBranchEntries` in `messages.ts`), so a carrier hydrates only a branch that contains that exact entry.
+
+### Known limit: repeated ids
+
+The ledger keys calls by `toolCallId`, and that id is all omp gives the presenter to identify a block. Some providers number tool calls per response (`call_0`), so a later run can reuse an earlier run's id. The call then moves to the later run, and the earlier block draws like the later call: a `compact` run's kept row disappears once a `live` run that reused its id ends. Telling the two blocks apart needs an identity omp does not hand over; the block's `args` object is replaced while arguments stream, so it cannot serve.
+
+## Decision flow
+
+### Tool calls (render-decision.ts)
+
+`decideToolRender` is a pure ordered table from `(route, mode, phase, evidence)` to `native`, `host-compact`, `empty` or `tool-rows`. First match wins:
+
+```text
+1. no registry rule            → host-compact (omp's one-row summary, every mode and phase)
+2. native-live (ask)           → native
+3. compact rows switched off   → native (vibe tools with compactVibeRows=false)
+4. clear + summary anchor + hashes → tool-rows, summary only (terminal phases)
+5. clear                       → empty (every phase, abort and error included)
 6. filtered + no mutations + no hashes → empty
-7. working + live + no retainGitLive + hasGit → empty
-8. working + expanded + !compactOnExpand → native (inspection escape hatch for ordinary compact tools)
-9. filtered → tool-rows (retention policy applied)
-10. Fallback → tool-rows (full log)
+7. working + live + no retainGitLive + Git evidence → empty
+8. filtered                    → tool-rows, retention view (mutations stay; the anchor adds the commit summary)
+9. otherwise                   → tool-rows, the full compact log with Git rows
 ```
 
-**Key insight:** First matching rule wins. Order is critical. `native-live` is phase- and mode-independent: a settled run never hides or collapses interactive stock chrome. `compactSuppressedBySettings` is plain data derived by the caller — the module never learns tool names; `runtime-adapter.ts` pairs the tool name with the run's frozen `compactVibeRows` snapshot (`VIBE_OPS` in `render.ts` stays the single source of truth for the five worker-session names).
+The presenter maps `native` to `"full"`, `host-compact` to `"compact"`, and `empty` to `"hidden"` unless the run's reveal is on, in which case the call gets its compact rows back. Hashes count only once the run ended and only with `retainGitLive`; `clear` treats an interrupted end as terminal too, because the commits it made exist either way and the quiet view has no other place to show them.
 
-**Initial skill/diagnostics expansion:** Before wrapping a native card, the adapter reads `describe()`'s root card `p.collapsed` metadata without rendering/materializing its body. A known per-card choice wins over the global tool-output preference. If neither metadata nor the supported UI baseline yields a boolean, the wrapper keeps the native card until `setExpanded` observes a choice.
+### Other blocks (leaf-views.ts)
 
-**Display-path ownership:** Every ledger captures an owned `{ cwd, enabled }` snapshot. Tool rows, retained mutation rows and read groups use their owning ledger's paths, never the newest run's options. Later settings/cwd changes and resize cannot relabel existing ledgers; newly hydrated ledgers take the current restore-view snapshot, without storing UI preferences in native history.
+omp also asks about blocks that are not tool calls. The plugin reads each from its structured data, never from rendered text, and answers `undefined` when it cannot, so omp draws its own card:
 
----
+| Block | Compact view |
+| --- | --- |
+| event `ttsr_triggered` | the injected rule rows |
+| event `todo_reminder` | one reminder row |
+| message `skill-prompt` | one skill row |
+| message `lsp-late-diagnostic` | one late-diagnostics row |
+| message `bashExecution`, `pythonExecution` | one row for a user `!`/`$` run |
+| message `advisor` | one row per `nit`/`concern` note, only with `compactAdvisorNotes`; a `blocker`, an unknown severity or unreadable details answer `"full"` |
+| message `async-result`, `launch-completion` | omp's own card, or hidden, by `decideBackgroundCompletionRender` |
 
-## Mutation Audit
+A background completion notice belongs to the run open when its block first appears. A notice with no run is restored history and follows the selected mode: shown in `compact`, hidden otherwise.
 
-### Write Verification (audit.ts)
+## Stats row (run-stats.ts)
 
-There is no `verifyWriteMutation` helper. Write evidence is produced by the audit pair wired through `AuditLifecycle` (`audit-lifecycle.ts`):
+`RunStats` sums `message_end` usage per unique assistant message and counts distinct tool calls across the whole logical run. At a terminal `agent_end` with a visible answer it freezes the evidence (`RunStatsEvidence`, version 1, keyed by run id). Aborts and errors drop it.
+
+The row is a display custom message sent with `pi.sendMessage({ display: true }, { triggerTurn: false })`, so it sits under the answer. It waits in `IdleQueue` until `ctx.isIdle()`: a message sent while omp still reports busy is steered into the run and starts a turn. If the next prompt starts first, the row waits for that run to end too and both rows go out in order.
+
+The message renderer draws the row from `details` on every draw, so stats settings apply to old rows at once. The message `content` is a fixed marker, `[omp-compact turn stats]`, kept non-empty for providers in case the plugin is removed later. A `context` handler strips the message from the model's context. Advisors read session messages directly and bypass that handler, which is why the content carries no numbers.
+
+In Tern's native view the row is clickable while its run hid calls: a click flips the run's reveal and refreshes the hidden ids, and a second click hides them again.
+
+## Mutation audit
+
+### Write verification (audit.ts)
 
 ```typescript
-// Pre-image at tool_execution_start (sync read — must not lose the race).
-export type WriteTargetObserver = (canonicalPath: string) => boolean;
+// Pre-image at tool_execution_start (sync read: must not lose the race).
 export async function captureWriteCandidate(
     input: { toolCallId: string; args: unknown; cwd: string; root?: string },
     acceptTarget?: WriteTargetObserver,
 ): Promise<MutationCandidate | undefined>;
 
-// Post-image + line diff at tool_execution_end.
+// Post-image and line diff after tool_execution_end.
 export async function completeWriteCandidate(
     candidate: MutationCandidate | undefined,
     result: unknown,
     isError: boolean,
-): Promise<MutationMessageDetails[]> {
-    // Require non-error result with absolute details.resolvedPath.
-    // Canonical-path triple-check: snapshot path, resolved path, and
-    // completion-time canonical must agree (symlink/race defense).
-    // Equal bytes are a no-op only when the target already existed.
-    // Empty creations carry created:true with exact zero line counts.
-    // Returns [{ version: 1, toolCallId, toolName: "write", path, added, removed, exact: true, created?: true }]
-    // or [] when evidence is missing/untrusted.
-}
+): Promise<MutationMessageDetails[]>;
 ```
 
-**Evidence required:**
-- Pre-image text snapshot taken synchronously on start
-- Post-image text after end, only when paths canonicalize to the same target
-- Exact line-level `added` / `removed` (not byte size/mtime guesses)
+omp invokes `tool_execution_start` listeners without awaiting them, so the pre-image read is synchronous: an async read could see the tool's own write and produce an empty diff. Completion needs a non-error result with an absolute `details.resolvedPath`, and the snapshot path, the resolved path and the completion-time canonical path must agree. Counts are exact line counts from a diff, never byte or mtime guesses. Missing candidates, path mismatches, unchanged bytes and over-budget diffs produce no entry.
 
-**Fallback:** Missing candidate, path mismatch, unchanged existing bytes, or over-budget diffs yield no mutation entries (`[]`); rows are not retained on invented stats. Capture records whether the target existed: an empty creation is exact `{ added: 0, removed: 0, created: true }`, whereas an empty overwrite is a no-op. A successful native empty deletion remains `{ toolName: "delete", added: 0, removed: 0, exact: true }`. The runtime retains those verified existence changes without treating ordinary zero-count edits as mutations.
+An empty creation is exact `+0|0` with `created: true`; an empty overwrite is a no-op; a successful empty deletion is `delete -0`.
 
-**Publication drain:** `AuditLifecycle` tracks synchronous edit/Git publication as well as asynchronous write completion. Completion or publication failures block auto-shake even when they settle before `agent_end`: failed tokens survive continuations until a terminal drain claims them. A drain releases only its own failure tokens, so an older drain cannot clear a later run's failure. Synchronous publication errors still propagate to the extension runner; terminal presentation finalization remains independent of evidence readiness. `PostTurnShake.onAgentEnd` is invoked at event emission with the pending drain promise, capturing the originating run epoch before it waits. A new run or session invalidates that pending shake.
+**Source ownership.** A write record captures the id of the entry that issued it and checks it again before publishing, through the read-only session manager. A replaced journal or an unverifiable source fails publication closed, so old evidence never lands in a new session.
 
-**Source ownership:** At start, the write record captures the id of its assistant/tool-start entry, verified against the write's tool id. The published `MutationMessageDetails.sourceEntryId` is bounded and write-only; an unverifiable source fails publication closed. `pi.appendEntry` still appends ordinary custom metadata at the current native leaf. The presentation's read-only `auditBranch` view collects scoped write carriers from `getEntries()` and injects them after their source in branches containing that exact source entry and tool call. Scoped carriers cannot hydrate an unrelated branch merely because a tool id repeats. Live mutation attachment also checks the current source. This uses the public readonly journal without moving leaves, rewriting entries, or adding messages to model context. Existing unscoped carriers keep their legacy branch-local behavior; historical journals are not retroactively repaired.
+**Target contention.** Capture claims the canonical target before reading. Two active claims on one target abandon both audits. Native writes are never serialized or changed; the guard sees this plugin's write events only.
 
-**Journal replacement:** Publication verifies the captured source again through the current readonly session manager (`getEntry`, or a bounded id scan over its available journal). If native reinitialization has replaced the journal before `session_switch`, the absent source blocks publication; old metadata must not be appended into the new session. Source lookup does not require the original branch to remain selected.
+**Path confinement (POSIX-only).** Pre-image reads and config-path acceptance share `isPathInsideRoot` (`path-inside-root.ts`). Pre- and post-image opens use `O_NOFOLLOW` on the confined destination; nested symlink hops are refused.
 
-**Target contention:** Capture synchronously claims the canonical filesystem target before reading pre-image bytes, including when that pre-image will be unsupported or over budget. Multiple active claims abandon every contending audit and keep auto-shake fail-closed for their run. Claims remain while a native write is unended or a still-publishable snapshot is in flight; an ended abandoned audit no longer contends. A completed snapshot releases its claim before publication so a following/reentrant write does not poison ready evidence. Native write execution is never serialized, cancelled, or changed. This observes filesystem write events in this plugin lifecycle, not external processes or separate plugin instances.
+**Device dispatches.** A `write` to `xd://<device>` runs a mounted tool. `resolveToolAudit` gives it the audit kind `none`, so it never opens a write record. The device grammar is omp's own `parseXdUrl`.
 
-**Path confinement (POSIX-only):** Pre-image reads and config-path acceptance
-share one predicate (`path-inside-root.ts` `isPathInsideRoot`). Both sides must
-be `/`-absolute; segment-exact prefix checks reject `/foo/barbaz` under
-`/foo/bar`. Windows-style absolutes fail closed (no overwrite evidence; config
-path rejected) — the plugin does not implement Windows path semantics.
-Overwrite pre-image and post-image opens both use `O_NOFOLLOW` on the
-already-confined destination (plain path, or one-hop symlink destination /
-completion-time realpath'd `effectiveResult`); a concurrent swap-to-symlink
-drops evidence fail-closed rather than following outside the root. Nested
-symlink hops are rejected by `lstat` on the first destination.
+### Edit verification (audit-diff.ts)
 
-**Device dispatches are not file writes:** a `write` whose target is an
-`xd://<device>` URL executes a mounted tool, so `resolveToolAudit`
-(`tool-presentation-rules.ts`) downgrades its effective audit kind from
-`"write"` to `"none"` and the lifecycle never opens a write record for it —
-routing it into the write path would attribute a local file mutation to a
-device invocation. The device grammar comes from the stock parser
-(`parseXdUrl`), so a bare `xd://` root or a path-bearing device URL is not a
-device name and keeps the ordinary write kind; `audit.ts`'s own URI-scheme
-guard remains the second line of defence, refusing such a target before any
-filesystem access.
+Edits count from omp's applied `diff` or `perFileResults`, only inside well-formed `@@` hunks, per file, so a partly failed multi-file edit keeps its successful files. `op: create` is an upsert: the plugin compares a synchronous bounded pre-image with omp's `newText` instead of trusting the all-add diff. Deletes without an exact pre-image count surface as count-less `exact: false` entries.
 
+### Lifecycle (audit-lifecycle.ts)
 
-### Edit Verification (audit-diff.ts)
+`AuditLifecycle` registers each record synchronously at start, before the first await, so a fast end event finds it. `agent_end` snapshots the run's records at emission and drains them; work registered later belongs to the next drain. Records still unended at a terminal `agent_end` are abandoned; completions already in flight are awaited up to about five seconds.
 
-```typescript
-export function countUnifiedDiff(
-    diff: string,
-): { added: number; removed: number } | undefined {
-    // Budget-bounded scan; only lines inside well-formed @@ hunks count.
-    // Malformed headers or overflow → undefined (fail open, no approximate counts).
-}
+## Git detection (git-records.ts)
 
-export function completeEditMutations(
-    toolCallId: string,
-    result: unknown,
-    _isError: boolean,
-    createEntry?: (file: Record<string, unknown>) => MutationMessageDetails | undefined,
-): DeleteMutationEvidence[] {
-    // Prefers details.perFileResults; falls back to single-path details.diff / delete.
-}
-```
+The plugin reads Git activity from Bash commands that already ran and their results. It runs no hidden `git log`, `rev-parse` or other probes.
 
-**Evidence required:**
-- Native applied `diff` or `perFileResults` for ordinary updates/deletes
-- For `op: create`, a synchronous bounded pre-image and bounded native `newText`; the all-add diff alone proves no delta
-- Only `@@` hunk body lines counted (`+` / `-`, not file headers)
-- Per-file success tracked even for multi-file operations
+- **Commit banner.** Up to 8 lines within 8,192 bytes are scanned for `[branch (root-commit) hash] subject`. More than one banner-shaped line fails closed.
+- **Quiet commits.** The hash comes from a `git log` right after the commit with identical global Git arguments, only `--oneline`, a positive count limit and optional `HEAD`. Its leading hash must carry the committed subject.
+- **Shell text.** `&&` chains, one leading `cd <path> &&`, brace lists inside a word, and a double-quoted `$(printf …)`/`$(echo …)` with one literal argument are accepted. Chains joined by `;` or unescaped newlines stay ordinary Bash, because a successful last command proves nothing about the earlier ones.
 
-**Fallback:** If diff unavailable or over budget, no exact counts; deletes may still surface as count-less (`exact: false`) rows when the path is valid.
-
-`captureEditCandidates` reuses the write audit's confined regular-file snapshot reader. Native create/upsert compares real before/after text through the same budgeted delta helper: unchanged existing files disappear, overwrites include removals, and unknown/pruned snapshots produce no exact row. Structured patch targets and bounded textual edit paths share canonical claims with writes. Multi-file pre-images retain at most 4 MiB; completion, conflict, terminal purge, supersede and dispose release the retained bytes and every target claim. Native edit execution and journals remain unchanged.
-
----
-
-## Git Detection
-
-Conservative parsing of already-executed Bash results. No hidden probes.
-
-### Commit Summary Extraction (git-records.ts)
-
-```typescript
-function commitSummary(
-	resultText: string,
-): { hash: string; subject: string } | undefined {
-	// Scans up to 8 lines within MAX_RESULT_SCAN_LENGTH (8192 bytes)
-	// Matches COMMIT_SUMMARY_LINE banner: [branch (root-commit) hash] subject
-	// Fails closed if multiple banner-shaped lines appear (ambiguous hook output)
-	const match = COMMIT_SUMMARY_LINE.exec(line);
-	if (!match) return undefined;
-	const hash = match[1];
-	const subject = match[2];
-	if (hash === undefined || subject === undefined) return undefined;
-	return { hash, subject: oneLine(subject) };
-}
-```
-
-**Quiet commits** (`git commit -q`) print no banner. The hash then comes from a
-`git log` invoked immediately after the commit with identical global Git
-arguments. Only `--oneline`, positive count limits (`-N`, `-n N`, `-nN`,
-`--max-count N`, `--max-count=N`) and optional explicit `HEAD` are accepted:
-filters, pathspecs, reordered output and other revisions cannot prove HEAD.
-The leading captured hash must carry exactly the committed subject. A log
-before the commit also fails the proof closed — it may have printed old HEAD.
-
-**Accepted shell text:** `&&` separators, one leading `cd <path> &&`, brace
-lists inside a word (`src/{a,b}`, kept verbatim and never expanded), and a
-double-quoted `$(printf …)`/`$(echo …)` carrying one literal argument. Quoted
-message newlines and line continuations remain supported. Chains separated
-by `;` or unescaped newlines stay ordinary Bash: success of the last command
-does not prove earlier commands succeeded. A newline after `&&` is whitespace,
-not an unguarded separator. Other syntax that can add a command fails closed.
-
-**Recognized commands:**
-- `git commit` (with hash extraction)
-- `git status`, `add`, `push`, `switch`, `rebase` (during work only)
-
-**Terminal projection:**
-```typescript
-interface TerminalProjection {
-    hashes: readonly string[]; // Chronological order
-    summary: string;            // "git commit: hash1, hash2"
-}
-```
-
-**Retention in `live` mode:**
-- Individual Git rows removed
-- Aggregate summary with verified hashes only
-- Failed commits excluded
-
-**`clear` terminal view:** When Git retention is enabled, the aggregate
-created-commit summary is rendered for both `filtered` and interrupted/error
-`full` ledgers. It remains hidden while working and with retention disabled;
-ordinary diagnostics do not return on abort.
-
----
+In `live` the individual Git rows show while working and give way to one summary of verified hashes after the answer. `compact` keeps every row. `clear` shows only the summary, after an interrupted run as well. `retainGitLive=false` hides the rows and the summary in `live` and `clear`; the persisted evidence is unchanged.
 
 ## Configuration
 
-### Bounded Parsing (config.ts)
+### Bounded parsing (config.ts)
 
-Both synchronous shortcut startup and asynchronous config load/save open with `O_NONBLOCK` and inspect the opened descriptor. Non-regular targets and sizes above `MAX_CONFIG_BYTES` are refused before any content read. The existing exact-size snapshot helpers read at most the accepted size plus one byte and reject growth/shrink; the parser still bounds UTF-8 text, depth and the merged write record. Load is fail-open, strict save is fail-closed, and config symlink behavior is unchanged.
+Config reads open with `O_NONBLOCK` and inspect the descriptor: non-regular files and files above 65,536 bytes are refused before any content read, and reads take at most the accepted size plus one byte. Nesting depth is capped at 16. Load fails open to defaults with one warning; save refuses to replace an unreadable or invalid file. Unknown keys, including the `autoShake` and `host` groups 1.x wrote, are carried through saves untouched. `OMP_COMPACT_CONFIG` must resolve under the user's home or the project cwd; otherwise it is ignored with one warning.
 
-The same descriptor reader protects host YAML pre-images before host setters/flush. Only `ENOENT` falls through to the next YAML filename. Config version diagnostics never coerce untrusted values. Monotonic snapshot publication prevents an older load from replacing a newer reload or committed save.
+### Update queue (keyed-queue.ts)
 
-```typescript
-type BoundedParseResult =
-	| { readonly ok: true; readonly raw: unknown }
-	| { readonly ok: false; readonly reason: string };
+Saves for one path run through an in-process queue and apply as leaf patches against a fresh read, so concurrent in-process edits to different fields both survive. There is no lock file: separate processes writing one file stay last-writer-wins, and the atomic rename only prevents torn reads.
 
-function parseBoundedJson(
-	text: string,
-	warn: (message: string) => void,
-): BoundedParseResult {
-	if (Buffer.byteLength(text, "utf8") > MAX_CONFIG_BYTES) {
-		const reason = `config JSON is oversized (max ${MAX_CONFIG_BYTES} bytes)`;
-		warn(`${reason}; using defaults`);
-		return { ok: false, reason };
-	}
-	// Linear scan counts bytes and nesting depth before JSON.parse without allocating
-	// depth > MAX_CONFIG_DEPTH or depth < 0 returns { ok: false, reason }
-	try {
-		return { ok: true, raw: JSON.parse(text) as unknown };
-	} catch {
-		const reason = "config JSON is malformed";
-		warn(`${reason}; using defaults`);
-		return { ok: false, reason };
-	}
-}
-```
+### Display cycle (display-cycle.ts, cycle-handler.ts)
 
-**Limits:**
-- Max file size: 65,536 bytes
-- Max nesting depth: 16
-- Invalid fields → defaults
-- One warning per load
+One chord (`alt+c` by default) walks `compact → live → clear → off → compact`. The keypress handler runs load, next-state and persist inside the same queue as dialog saves, so rapid presses each advance one step. Two omp constraints shape it:
 
-### Atomic Update Queue (keyed-queue.ts, config.ts)
+1. `ExtensionAPI` can register a shortcut but not remove one, so the chord is read synchronously at load (`readDisplayCycleKeySync`) and a new chord needs a restart.
+2. Conflicts come from omp's `pi.getShortcutConflict`; an occupied chord is refused rather than registered and silently dropped.
 
-```typescript
-export function createKeyedQueue<K>(): <T>(
-	key: K,
-	operation: () => Promise<T>,
-) => Promise<T>;
+## Lifecycle
 
-// Instantiated per namespace in config.ts and save-flow.ts:
-const withUpdateQueue = createKeyedQueue<string>();
-```
-
-**Concurrent update flow (same process):**
-1. Agent A calls `update({ mode: "compact" })`
-2. Agent B calls `update({ stats: { enabled: false } })`
-3. Both queued on same path
-4. A: read config, derive patch `{ mode: "compact" }`, reread, apply, write
-5. B: read config (with A's mode), derive patch `{ stats: { enabled: false } }`, reread, apply, write
-6. Final config has both changes
-
-**Key:** Leaf-level patch merge preserves concurrent in-process edits to different fields. The queue is in-process only (no lock file): writers in separate OS processes still race on the same JSON path, and the last successful atomic rename wins for any overlapping leaf.
-
-### Display-Cycle Shortcut (display-cycle.ts, cycle-handler.ts)
-
-One chord (`alt+c` by default, stored as plain text in `displayCycleKey`) walks the persisted `enabled`/`mode` pair through four states:
+### Normal run
 
 ```text
-{enabled: true,  mode: compact}
-  → {enabled: true,  mode: live}
-  → {enabled: true,  mode: clear}
-  → {enabled: false, mode: clear}   // mode preserved
-  → {enabled: true,  mode: compact} // never resurrects the stored mode
+agent_start           ledger.beginRun: freeze settings; RunStats.start
+tool_execution_start  ledger.startCall; audit start (sync pre-image)
+  omp asks            presenter: working rows
+tool_execution_end    settle; audit end → evidence → refreshTranscript([id])
+agent_end (toolUse)   run stays open; drain this response's audit
+agent_start           same run continues
+agent_end (answer)    drain; finalizeRun → phase filtered/full → refresh the run's ids
+idle                  send the stats message
 ```
 
-`mode` moves only between the three enabled steps; `enabled` flips only into and out of the off step. Re-entering at `compact` rather than the stored mode keeps the cycle order independent of where the user joined it.
+### Rebuild (resume, /tree, /branch, compaction)
 
-**Persistence path:** the keypress handler (`cycleDisplayState`) passes a current-state transform to `saveSettingsFlow`, the same seam the dialog uses. The per-store queue owns load → next-state computation → host baseline read → host apply → JSON persist/rollback as one transaction. Overlapping presses each advance from the previous persisted step; a prior dialog save is not overwritten by a stale keypress snapshot. The handler suppresses the flow's own success notification and emits exactly one persisted/effective status line instead. A hard `OMP_COMPACT_PLUGIN`/`OMP_COMPACT_MODE` override is reported as the effective state, never written over silently.
-
-**Two host constraints shape the design:**
-
-1. `ExtensionAPI` exposes `registerShortcut` with **no** counterpart for removal, so the chord cannot be rebound on a live session. A chord change is reported through the same `restartRequired` channel already used for thinking-block visibility. The chord is therefore read synchronously at registration (`readDisplayCycleKeySync`) — the async store would resolve after the host has already collected the extension's shortcuts.
-2. The runtime's reserved-chord list is a **private class field** and unreadable at runtime; a conflicting registration is dropped with only a log line. `RESERVED_SHORTCUTS` is a version-annotated copy, pinned by a test, and validation refuses an occupied chord rather than letting the key silently die. The public default keymap (`KEYBINDINGS`) is read live and never copied. See `context/display-cycle-reserved-copy.md`.
-
-The status line colors only the mode name (theme role `success`); `off` is intentionally left unstyled and worded differently (`from the next run` versus `takes effect next run`) so disabling the plugin does not read as another mode swap. ### Settings UI Surface (settings-ui.ts)
-
-`settings-ui.ts` is the caller-facing entry point: it re-exports every name the settings surface exposes — key codes, host API types, ANSI utilities, the save flow, the display-cycle keypress handler and the dialog — from six focused modules (`settings-keys.ts`, `host-api.ts`, `ansi-width.ts`, `save-flow.ts`, `cycle-handler.ts`, `settings-dialog.ts`). The split is pure movement: importers of `settings-ui` resolve the same names and types; the module itself holds no logic.
-
----
-
-## Lifecycle Diagrams
-
-### Normal Run
-
-```
-agent_start
-  ↓
-RuntimeAdapter observes event
-  ↓
-RuntimeSessionState.beginRun() → creates TurnLedger
-  ↓
-Tools execute (native OMP)
-  ↓
-RuntimeAdapter observes tool events
-  ↓
-RuntimeSessionState updates ToolState, adds LedgerEntry
-  ↓
-Components render → RuntimeAdapter.#renderBlock() decides compact/native
-  ↓
-agent_end with final answer
-  ↓
-RuntimeSessionState.endRun() → ledger.finalize(mode, event)
-  ↓
-Retention policy applied
-  ↓
-Filtered rows removed, mutations/Git/stats retained
+```text
+session_* event       invalidate restored history (the open run stays)
+                      walk the new branch; refresh the restored ids
+omp rebuilds          presenter answers from the walked ledger under the current settings
 ```
 
-### Rebuild (e.g., /tree navigation)
+A `/fork` keeps the conversation and omp does not rebuild it, so the ledger stays as it is.
 
-```
-User navigates /tree
-  ↓
-Transcript clear event
-  ↓
-RuntimeAdapter.#onTranscriptClear()
-  ↓
-RuntimeSessionState.beginRebuild() → bumps generation
-  ↓
-Pending generation token stored
-  ↓
-Microtask scheduled for settlement
-  ↓
-Hydrated branch arrives
-  ↓
-ComponentBinding resets, discards historical bindings
-  ↓
-Components discovered, bound by order
-  ↓
-Microtask fires
-  ↓
-Generation guard checks token
-  ↓
-If match: commitRebuild() → validates, binds
-  ↓
-If stale: abort (another rebuild started)
-```
+## Bounded inputs
 
-### Continuation Run
+- Config file: 65,536 bytes, depth 16
+- Tool call id: 256 characters; tool name: 128 characters
+- Mutation entries per call: 1,000; evidence path: 4,096 characters; evidence text: 16,384 characters
+- Git records per call: 8
+- Diffs: 1 MiB per diff, 4 MiB scanned per call, 128 per-file results
+- Stats evidence: run id 128 characters, counts bounded per field
 
-```
-Previous run finalized
-  ↓
-agent_end with willContinue: true
-  ↓
-RuntimeSessionState does NOT finalize ledger
-  ↓
-Ledger remains in working phase
-  ↓
-More tool calls added to same ledger
-  ↓
-Eventually terminal agent_end (willContinue: false)
-  ↓
-RuntimeSessionState.endRun() → ledger.finalize()
-  ↓
-Retention policy applied to entire continuation chain
-```
+Oversized values are dropped, never truncated into a claim.
 
----
+## Extension points
 
-## Performance Characteristics
+### Adding a tool
 
-### Time Complexity
+1. Add a rule in `tool-presentation-rules.ts`: route (`compact` or `native-live`), audit kind, argument and result shapes, describer.
+2. If it needs its own row grammar, add it in `render.ts` (see the vibe tools).
+3. Without a rule, the tool still gets omp's one-row summary, so this step is optional.
 
-| Operation | Complexity | Notes |
-|-----------|------------|-------|
-| `createToolStart` | O(1) | Map insert |
-| `updateToolResult` | O(1) | Map lookup + update |
-| `pending()` | O(N) | Snapshot copy of pending set |
-| Spinner iteration | O(N) | 12.5 Hz, N = pending count |
-| `reset()` | O(M) | M = total component bindings |
-| `finalize()` | O(E) | E = ledger entries, applies filter |
+### Adding a display mode
 
-### Memory Retention
-
-Successful filtered runs retire their heavy raw payloads (`args`, `result`, and per-call Git records) only after materializing an immutable terminal projection. The remaining lightweight state/projection records are retained while the current transcript must still support resize, replay, and reconstruction, then released on rebuild or session disposal.
-
-Session-wide growth is therefore linear in retained transcript history, not a demonstrated cross-session leak:
-
-- `#states`: O(mapped tool calls retained by the current transcript)
-- `#pendingStates`: O(concurrent tools)
-- `#terminalProjections`: O(finalized runs needed for immutable terminal rendering)
-- hydrated stats evidence: transient during reconstruction and cleared after placement
-
-Measured on Bun 1.3.14 (darwin arm64) by driving the real `RuntimeSessionState` public API (`startState` / `finishTool` / `setMutations` / `setGit` / `endRun` / `finishFull` / `retireFilteredPayloads`) — not a model of `#states`. Primary metric: `live = heapUsed + external` after `Bun.gc(true)` (JSC parks large strings outside `heapUsed`, so heap alone under-reports retained payloads). Fresh-process RSS was a cross-check only. Payload mix approximated a coding-agent session (mostly small reads/bash, with a real tail of ~120 KiB reads, multi-line greps, writes/edits with mutation evidence, and git rows). Host UI component trees and the adapter's seven patch Maps were out of scope (those are O(installed components), not O(mapped calls)). The profile exercises plugin-internal state and does not depend on the stock host pin (measured under whatever `node_modules` was present; host was pinned to OMP 17.3.8 in-tree at the same time).
-
-| Mapped calls (N) | Retained (`full`, payloads kept) | Retired (`filtered` + retire) | Skeleton floor (tiny + retired) |
-|------------------|----------------------------------|-------------------------------|---------------------------------|
-| 1k | 22.2 MiB (~22 KiB/call) | 3.59 MiB (~3.5 KiB/call) | 3.20 MiB |
-| 10k | 325 MiB (~32 KiB/call) | 10.3 MiB (~1.0 KiB/call) | 9.27 MiB |
-| 100k | 3.33 GiB (~33 KiB/call) | 70.6 MiB (~690 B/call) | 62.9 MiB |
-
-At large N, retirement reclaims ~97% of the retained live set (about 47× at 100k). After retirement, ~89% of what remains is the skeleton floor: the residual is `ToolState` / ledger / Map overhead, not payload fat. A heavy interactive day (low thousands of calls, nearly all filtered) sits in the single-digit MiB range; 100k success-path calls are still ~70 MiB. The multi-gigabyte figure appears only if payloads stay retained (`full` / abort / never-filtered) at extreme N — not the production success path.
-
-Limits of the figure: synthetic mix rather than a captured production session; RSS is a noisier upper bound (allocator fragmentation after freeing large transient strings); trial medians, not a single sample. These numbers do not justify an eviction policy for ordinary single-tenant sessions.
-
-Any future eviction policy must still preserve Git summaries, resize rendering, `/tree`, and `/shake`; deleting projections during payload retirement would lose required terminal evidence.
-
----
-
-## Safety Mechanisms
-
-### Fail-Open Design
-
-Binding data conflicts quarantine one surface:
-
-```typescript
-#quarantineComponent(component: RenderableBlock): void {
-    this.#session.binding.releaseToNative(component);
-    // restore this component's host patch; leave the session installed
-}
-```
-
-Host-invariant failures still trigger complete rollback:
-
-```typescript
-#rollback(message: string): void {
-    try {
-        this.#warn?.(message);
-    } catch {}
-
-    this.dispose(); // Remove all patches, clear state
-    this.#onDisabled?.(); // index clears handle + marks session native
-}
-```
-
-**Error sources (session-wide `#rollback`):**
-- Incompatible TUI shape / unpatchable core surface
-- Multiple transcript containers
-- Unexpected host exception during discovery/patch / presentation settle
-
-**Owner policy:** mid-session `#rollback` is **session-terminal**. The adapter fires `onDisabled` once after `dispose()`; `index.ts` drops its live handle and sets `adapterDisabled`. A dead adapter is never handed to event handlers, and the runtime does **not** reinstall until a committed session initialization/switch or shutdown resets the flags. `session_before_switch` only cancels native/pending shake work because a later extension can veto it; transcript, audits, subscriptions and run state remain owned until a committed non-fork boundary. Fork keeps the current adapter. Reinstall is refused mid-session because host-invariant causes almost certainly recur immediately — an unbounded retry would warn/rollback-loop on every event, which is worse than staying native.
-
-**Error sources (per-component quarantine):**
-- Ambiguous provisional→real toolCallId migration
-- Dual-group / cross-surface id ownership conflict
-
-**Outcome:** OMP continues with native renderer on the affected surface (or fully native after rollback). Session never crashes.
-
-### Capability Checks
-
-Before installing patches:
-
-```typescript
-// transcript-fold.ts
-function isRenderableBlock(value: unknown): value is RenderableBlock {
-	return Boolean(
-		value &&
-			typeof value === "object" &&
-			typeof (value as RenderableBlock).render === "function",
-	);
-}
-```
-
-A callable `render` is the whole requirement, matching `RenderableBlock`
-(`render(width): Lines`). No stock leaf exposes a `lines` property, so
-demanding one would reject every component and fall back to native
-everywhere.
-
-**If check fails:** Installation rolls back, native renderer used.
-
-### Bounded Inputs
-
-All external inputs bounded:
-
-- Config file: `MAX_CONFIG_BYTES` 65,536 bytes, `MAX_CONFIG_DEPTH` 16
-- Tool result payload: `MAX_PAYLOAD_BYTES` 1 MiB (1,048,576 bytes)
-- Tool name: `MAX_TOOL_NAME_LENGTH` 128 chars
-- toolCallId: `MAX_TOOL_CALL_ID_LENGTH` 256 chars
-- Mutation entries: `MAX_MUTATION_ENTRIES` 1,000 max
-
-**Outcome:** DoS-resistant. Oversized inputs rejected with warning.
-
-### Host-trusted agent directory
-
-The host-supplied agent directory and the live session `Settings` object sit
-**inside** the plugin's trust boundary — the same premise as the host's own
-`setAgentDir` / `DirResolver` (no home gate on the override):
-
-- **Trusted inputs.** `PI_CODING_AGENT_DIR` (via host `setAgentDir`) and
-  `Settings.getAgentDir()` name the profile tree the host already chose for
-  this session. The plugin does not re-confine either path to `$HOME` or the
-  project cwd.
-- **What follows.** Plugin JSON is resolved under
-  `<agentDir>/omp-compact/config.json` (`config.ts`); the host-YAML pre-image
-  for settings rollback is read from `<getAgentDir()>/config.y{a}ml`
-  (`host-settings.ts`). Both locations are host-controlled.
-- **Still bounded.** YAML pre-image reads keep a byte budget
-  (`MAX_HOST_SETTINGS_YAML_BYTES`); an unreadable or over-budget pre-image
-  fails the host-settings update closed before any `set()`/`flush()`. Depth
-  needs no separate budget: indentation makes block nesting grow
-  quadratically, so 64 KiB already caps it, and flow nesting deep enough to
-  exhaust the parser raises a `RangeError` that the same fail-closed catch
-  turns into a rejection.
-- **Why confinement was rejected.** Gating the host agent dir to home/cwd
-  would silently fall through to stock defaults and drop the user's settings
-  (containers, system prefixes, harness temp dirs are legitimate overrides).
-  That silent-loss failure mode is worse than trusting the host-owned path.
-
----
-
-## Compatibility and Capacity Notes
-
-- **Two version numbers, different jobs.** `package.json` `engines.omp`
-  (`>=18.0.1`) is the public floor (release metadata — do not edit it from a
-  code-review pass). `marketplace.json` carries plugin version/description only.
-  The root `package.json` devDependency (`18.16.0`, mirrored by
-  `VERIFIED_HOST_VERSION` in `docs/tests/host-patch-surface.test.ts`) records
-  the **verified** critical private-surface contract the adapter was written
-  against. Comments that cite `17.3.1`/`17.3.4` mark optional leaf fingerprints confirmed on those
-  hosts. Neither string is a runtime gate — every decision is a live
-  capability probe (`isToolComponent`, `isTodoReminderComponent`,
-  `transcriptCapabilities`, …).
-- **What is verified where.** Critical tool / read-group / transcript / TUI
-  shapes: written against 17.3.1 and re-verified on the current pin 18.16.0.
-  Optional compact chrome (TTSR inject, todo reminder, skill card, late
-  diagnostics, user `!`/`$` execution): method fingerprints checked against
-  17.3.1 and/or 17.3.4 sources in the local bun cache (and exercised under
-  the 18.16.0 gate). On 17.2.12 the same cache shows TTSR / todo-reminder /
-  late-diagnostics **without** `setToolActivityVisible`, so those
-  fingerprints miss and the stock card stays native (no misclassification
-  into tool paths). User bash/eval and skill surfaces are present on
-  17.2.12; their compact path still fails open to native when content
-  extraction fails.
-- **What 18.0.1 changed in the transcript.** The container replaced its
-  native-scrollback live region with explicit block lifecycle states
-  (`active` → `settled` → `committed`) plus history batches the terminal
-  acknowledges. `renderViewportTail`, `isBlockUncommitted` and
-  `isBlockInLiveRegion` are gone (`renderViewport`, `canRemoveBlock`,
-  `liveRowCount`, `peekFinalizedBatch`, `acknowledgeFinalizedBatch`,
-  `blockStates` took their place), and the per-block row accounting a live
-  region needed (`getTranscriptBlockVersion`,
-  `getTranscriptBlockSettledRows`, `setNativeScrollbackCommittedRows`) has
-  no consumer left. The fold therefore replans on four render entry points
-  instead of two, a carrier's `seal` freezes its whole run (retirement is
-  batched, not row-counted), and the committed-row gate for the scrollback
-  replay reads `blockStates()` by child position. Because the critical
-  fingerprint moved, a build for 18.0.0 finds no transcript host from 18.0.1
-  on and vice versa: the plugin stays fully native instead of guessing, which
-  is why the public floor moved with that rewrite. Every release from 18.0.2
-  through 18.1.4 left the whole critical surface untouched — the container
-  only exported its own `trimBlankEdges` helper, the inline tool card gained
-  styling plus a trimmed-height check before degrading under a squeezed
-  allocation, the transcript gained an append-only surface, 18.0.7/18.0.8
-  left the container and the tool card byte-identical while adding the stock
-  usage row's own prompt→yield delta, and 18.0.9/18.0.10 left them
-  byte-identical too, with 18.0.10 adding only a retry-replay path (reused
-  `toolCallId`s evict the stale prior-turn card), the `syncRetryHintRow`
-  hint row and an `f5` default for `app.retry`, while 18.0.11 through 18.1.3
-  left the read group byte-identical and the tool card semantically unchanged,
-  added only frame-recovery and row-map helpers to the container, and left the
-  `rebuildChatFromMessages()` call-site set intact. 18.1.4 shipped
-  `@oh-my-pi/pi-coding-agent/src` and `@oh-my-pi/pi-tui/src` byte-identical to
-  18.1.3 — 1729 and 50 files, `diff -rq` clean — moving only the model catalog
-  (`gemini-3.8-flash` across five providers, ten refreshed entries) and the
-  provider compat rules (`{rev}` revision templating), neither of which this
-  plugin reads. 18.1.10 is the first move since 18.1.1 that is not
-  byte-identical: 356 changed paths in `pi-coding-agent/src`, 5 in
-  `pi-tui/src`, 72 files added or removed, because the edit engine moved into
-  `@oh-my-pi/pi-natives` (`EditSession` streaming previews reaching the card
-  through a new `tool_stream_update` event and `updateStreamPreview`) and the
-  release added agent reactions, assistant link targets and a workpool. The
-  container, the read group, `keybindings.ts`, `shake-types.ts` and the
-  internal-URL router stayed byte-identical; the tool card, the event
-  controller, `ui-helpers.ts`, `agent-session.ts`, `input-controller.ts`,
-  `settings-schema.ts` and `session-maintenance.ts` changed while keeping every
-  contract this plugin depends on — the id still rides
-  `updateResult(result, isPartial, toolCallId)`, `rebuildChatFromMessages()`
-  still has 18 call sites replaying the real id, cards are still created in
-  call order, the read deferral rule is unchanged, and `session.shake()` still
-  emits nothing. 18.1.14 crosses 18.1.11-18.1.13 in 54 changed paths, adding
-  two files and removing none: the container, the tool card, the read group,
-  the event controller, the internal-URL router, `shake-types.ts`,
-  `session-maintenance.ts`, `composer.ts` and both modules the plugin imports
-  by path are byte-identical. It reserves paste delivery, arms an inline
-  `/loop` body only after dispatch confirms the prompt was forwarded, and
-  defers idle compaction while an async wake is pending. 18.1.15 is smaller
-  again — 46 changed paths, nothing added or removed, every file this plugin's
-  contracts read byte-identical — and it is the first move that touches
-  `pi-tui/src/tui.ts` since the mid-turn publication began depending on it: the
-  release adds an in-place resize transaction for Warp behind
-  `PI_TUI_RESIZE_IN_PLACE`, while `resetDisplay()` is unchanged and remains the
-  sole `\x1b[3J` emitter, so the scrollback-clearing replay still retracts a
-  published row. 18.2.5 is an architectural modularization release (TUI
-  components and theme relocated from `pi-coding-agent` into `pi-tui`). All 8
-  patched methods on `TranscriptContainer` and all 8 on `ToolExecutionComponent`
-  remain intact with identical signatures and arities. `ReadToolGroupComponent`,
-  `ToolActivityComponent`, `resetDisplay()` (`\x1b[3J`), and bash/eval execution
-  components are fully preserved. Skill and late-diagnostics components moved to
-  ECMAScript private fields, supported via resilient child scraping.
-  18.2.6 is a point maintenance release: `pi-tui` is byte-identical to 18.2.5
-  (zero source changes), and `TranscriptContainer`, `ToolExecutionComponent`,
-  `ReadToolGroupComponent`, `resetDisplay()`, and all 6 scraped leaves are
-  100% preserved. 18.2.7 and 18.2.8 are two large agent-side releases — a
-  `find` tool with its own renderer, centralized magic keywords replacing the
-  orchestrate/ultrathink/workflow modules, `judge`/eval signature changes,
-  modularized browser tooling, judged-batch evaluation and expanded web-search
-  providers. None of it reaches this plugin's patched surface: `src/chat/*` and
-  `src/chrome/*` in `pi-tui` are byte-identical to 18.2.6, `resetDisplay()`
-  keeps arity zero beside its single `\x1b[3J` erase, and the only `tui.ts`
-  delta is an additive Glyph Protocol repaint hook. 18.2.9 is a point feature
-  release with the same shape: `src/chat/*` and `src/chrome/*` are byte-identical
-  to 18.2.8 as well, `resetDisplay()` keeps arity zero beside its single
-  `\x1b[3J` erase, all six leaves are unchanged, and the changed `pi-tui` files
-  are the editor, terminal, overlay and status-line layers. Its two additions
-  that touch rules this plugin reads are both additive: `find` accepts an
-  `omp://` docs scope as `path` (same schema, same wire name, same
-  `FindToolDetails`), and `hub jobs` gains an optional `exitCode` detail while
-  omitting result bodies it never returned to a consuming caller (the hub rule
-  is arg-driven). 18.2.10 and 18.2.11 repeat the pattern: `src/chat/*` and
-  `src/chrome/*` stay byte-identical to 18.2.9, `resetDisplay()` keeps arity
-  zero beside its single `\x1b[3J` erase and all six leaves are unchanged. The
-  one `tui.ts` delta swaps `setPaintListener` for a multi-listener
-  `addPaintListener` (a name this plugin never touches), the agent gains an
-  additive `before_subagent_spawn` event, and the only contract-relevant change
-  is the thinking-mode branch of stock `formatShakeSummary`, which now appends
-  `(~N tokens freed)`; that ported branch moved with the pin, while the elide
-  branch this plugin calls is unchanged. 18.3.0 is the first release since to
-  change a contract rather than a byte: `src/chrome/*` is byte-identical to
-  18.2.11 and the three changed `src/chat/*` files move only by renaming the
-  builtin `hub` tool to `wait`, but that rename, the new `proc://`/`agent://`
-  read/write transports and the sloppy edit-payload respelling all reach rules
-  this plugin owns, so all three were adapted with the pin.
-  Compatibility is judged by changed files, never by diff size.
-  So the floor stays at `>=18.0.1` while the gate pin follows the newest release.
-
-- **Legacy viewport fallback.** Older containers retire history by rows, but
-  their pressure fallback keys on block count: past the transcript height it
-  prints each live block's first row, and a folded member has none. Folding
-  shrinks rows without shrinking blocks, so the fold does two things.
-  It reports the live tail's own height (minus one row) as the room for a
-  history batch while blocks outnumber rows *and* the rows still fit the
-  screen, which keeps retirement making progress instead of stalling as soon
-  as the rows happen to fit; once the live rows reach the screen height the
-  honest room is that height, so publication and retirement stop with exactly
-  one screenful in the viewport instead of handing the whole run over. And
-  when the fold itself is the reason the count is inflated, it answers for
-  the frame: blocks that render nothing take no row, the rest render their
-  unpublished tail, and the newest rows win the screen. The live boundary
-  comes from `canRemoveBlock`, which also excludes a batch already offered
-  but not yet acknowledged; a block that published part of its rows answers
-  false there too, so the fold keeps it live by its published-row count and
-  no row is painted twice.
-  On containers exposing `getLastViewportSpans`, the host composes the viewport
-  instead: it filters zero-row members and owns hit-testing, frame closure,
-  and partial physical-row retirement. OMP 18.10.3 can commit only a prefix of
-  a settled carrier; `canRemoveBlock` then returns false while its remaining
-  rows are still live, and `emittedStableRows` cannot describe that split.
-  Reusing the host compositor preserves those rows without a second ledger
-  or a version-string branch. The legacy fallback remains for the public floor.
-
-- **A carrier publishes what its run can no longer change.** A run still open
-  is never settled, so retirement alone could never rescue a single long turn:
-  every block stayed live, the fold's replacement frame was the whole session
-  the user could see, and the terminal had no scrollback behind it until the
-  turn ended. So the carrier declares itself append-only and publishes its
-  settled members — one key per member, whole members only, `m0`, `m1`, … —
-  and the container streams them into native scrollback one per frame, exactly
-  as it does for a streamed answer. Publication is not restricted by mode, and
-  the reason is worth stating because it looks like it should be: `live` and
-  `clear` do collapse routine rows into the stats line and the aggregate
-  commit summary at the terminal projection, so a published row does have to
-  disappear later. Stock retracts it. `resetStableEmission()` forgets the
-  emission ledger and the paired scrollback-clearing `resetDisplay()` rewrites
-  the rows it forgot — the pairing stock performs itself on its
-  thinking-visibility toggle, and the one `replayCurrentPresentation` performs
-  here. Withholding publication instead cost the whole session its history:
-  retirement runs from the frontier, so one live block at the head of an open
-  turn kept the earlier turns and the user's own prompt off the scrollback
-  until the turn ended. `clear` is excluded for a different reason — it
-  renders no rows to publish, and an empty publication would freeze the
-  container's stable prefix. Beyond the mode, the block's own risks stay: the
-  working and `full` decisions must agree (an expanded card renders native
-  while working), a read a group presents can still move into that group's
-  block, a write/edit audit publishes mutation rows after the call returned,
-  and a partial or background result is stock's own call. The three
-  publication members are declared before the block joins the transcript —
-  the container captures a block's presentation mode inside `addChild` — and
-  are never taken back, because a release to native, a quarantine or a
-  rollback would otherwise leave the container calling a method that no
-  longer exists; with no role they report nothing published, which renders
-  exactly like a mutable block. They are deliberately *not* part of the
-  restorable fold patch, and nothing else is declared that early: `render`
-  and `seal` belong to the surface the adapter classifies a block by, so
-  installing them before the adapter has seen the block would make a card
-  match a different kind.
-
-- **History leaves by two doors, and the replay gate must know both.** The
-  container writes rows above the viewport either by retiring a settled block
-  or by publishing the stable prefix of an append-only block that is still
-  reported `active` — a streamed answer does the latter one row per frame. Both
-  are frozen native output, so the terminal replay seam fires on either: the
-  fold records every history batch handed over through its own wrapper, which
-  is what a lifecycle state cannot show. Gating on a retired carrier alone left
-  a long answer with no tool calls without its replay, and its leading rows
-  stayed unreachable. The gate is not dropped altogether because `resetDisplay`
-  replays the entire committed ledger and blocks on PTY backpressure; short
-  turns with nothing above the viewport must not pay for it.
-
-- **The 18.0.6 replay entry point is optional, not critical.** That release
-  routes complete-history replay through `peekReplayBatch`, driven from
-  `resetDisplay` with no frame in between, so the fold wraps it and replans
-  first — otherwise a carrier answers with the rows of a run that has since
-  grown, and members added after the last frame render native cards straight
-  into scrollback. It stays out of the critical fingerprint because the floor
-  is `>=18.0.1`, where the method does not exist; patching only what an
-  instance really has also keeps the capability probe honest.
-
-- **Older host outcome.** Unverified or missing surfaces remain native —
-  the user loses some compaction chrome, not a wrong compact row. Ordinary
-  compact tools may use expanded as a native inspection escape hatch;
-  browser, computer, resolve, and reject explicitly remain compact when
-  expanded. A future host-shape break is handled fail-open and becomes a
-  compatibility issue to reproduce and add explicitly.
-- **Floor recommendation (not applied here).** If release wants every
-  optional fingerprint to be a verified match rather than a clean probe
-  miss, raise the public `package.json` `engines.omp` floor to `>=17.3.1`.
-  That is release metadata via `engines.omp`, not an adapter change.
-- The spinner samples pending states at 80 ms while the adapter is active; profile real high-concurrency workloads before changing cadence or fairness.
-- Long transcripts retain lightweight display metadata linearly with visible history. The plugin releases it on reconstruction and session disposal, while heavy filtered payloads retire after terminal projection.
-- Stock-host integration contracts cover continuation, rebuild, `/tree`-like and `/shake`-like reconstruction, delayed terminal drains, and lifecycle disposal.
-
-
----
-
-## Extension Points
-
-### Adding a New Tool
-
-1. Add rule to `tool-presentation-rules.ts`:
-
-```typescript
-export const TOOL_RULES: Readonly<
-    Partial<Record<string, ToolPresentationRule>>
-> = Object.freeze({
-    // ...existing tools
-
-    my_tool: {
-        route: "compact",
-        audit: "none",
-        knownArgs: ["arg1", "arg2"],
-        knownDetails: ["detail1"],
-        describe(args: unknown): ToolDescription {
-            const a1 = stringValue(record(args), "arg1");
-            return { title: "my_tool", description: a1, meta: [] };
-        },
-    },
-});
-```
-
-2. No other changes needed. Decision tables use registry lookup.
-
-### Adding a New Display Mode
-
-1. Add mode to `CompactMode` type in `config.ts`:
-
-```typescript
-export type CompactMode = "compact" | "live" | "clear" | "my_mode";
-```
-
-2. Update decision tables in `render-decision.ts`:
-
-```typescript
-function decideToolRender(/* ... */): ToolRenderDecision {
-    // Add rules for new mode
-    if (mode === "my_mode" && /* condition */) {
-        return { kind: "tool-rows", filtered: false, summary: false, includeGit: false };
-    }
-}
-```
-
-3. Update config validation in `config.ts`.
-
----
+1. Extend `CompactMode` in `config.ts` and the cycle in `display-cycle.ts`.
+2. Add its rows to the tables in `render-decision.ts` and `terminalPhase` in `turn-ledger.ts`.
+3. Cover it in `docs/tests/integration-runs.test.ts`.
 
 ## References
 
-- [Full Documentation](FULL-DOCUMENTATION.md) — User-facing feature reference
-- [Configuration](CONFIGURATION.md) — All settings and environment variables
-- [Repository README](../README.md) — Russian project overview and installation ([English](../README.en.md))
-- [Contributing](CONTRIBUTING.md) — Development guide
+- omp `docs/extensions.md`, section "Transcript presenter"
+- [Configuration](CONFIGURATION.md)
+- [Contributing](CONTRIBUTING.md)
