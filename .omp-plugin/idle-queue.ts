@@ -2,8 +2,8 @@
  * Work that must wait until the session is idle.
  *
  * `agent_end` fires while the session still reports busy, and a message sent
- * then (`pi.sendMessage`, even with `triggerTurn: false`) is steered into the
- * run and starts another turn. Work queued here runs once `isIdle()` holds,
+ * then (`pi.sendMessage` with `deliverAs: "nextTurn"`) stays hidden until the
+ * next turn consumes it. Work queued here runs once `isIdle()` holds,
  * in queue order; when the next run starts first, it stays queued until that
  * run ends and the session is idle again. A short unref'd timer polls, so a
  * pending item never keeps the process alive.

@@ -206,7 +206,7 @@ stockDescribe("presenter", () => {
 		await Bun.sleep(80);
 		const sent = booted.sentMessages[0];
 		expect(sent?.message.customType).toBe(STATS_MESSAGE_TYPE);
-		expect(sent?.options).toEqual({ triggerTurn: false });
+		expect(sent?.options).toEqual({ deliverAs: "nextTurn" });
 		expect(rows(booted)).not.toContain("needle");
 
 		const row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(

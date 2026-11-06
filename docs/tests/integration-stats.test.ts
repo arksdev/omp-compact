@@ -81,7 +81,7 @@ stockDescribe("the stats row", () => {
 		waitForIdlePoll();
 		const [first, second] = statsSent(booted);
 		expect(statsSent(booted)).toHaveLength(2);
-		expect(first?.options).toEqual({ triggerTurn: false });
+		expect(first?.options).toEqual({ deliverAs: "nextTurn" });
 		expect(statsRows(booted)[0]).toContain("100");
 		expect(statsRows(booted)[1]).toContain("200");
 

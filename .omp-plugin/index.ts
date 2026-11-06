@@ -368,7 +368,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				display: true,
 				details: evidence,
 			},
-			{ triggerTurn: false },
+			// omp's silent idle append: persisted with its details and added to
+			// the chat. `triggerTurn: false` alone rebuilds the whole transcript,
+			// which duplicates scrollback in tmux and resets expanded cards.
+			{ deliverAs: "nextTurn" },
 		);
 	}
 
@@ -636,8 +639,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		if (phase !== "working")
 			void link.then(() => {
 				if (generation !== statsGeneration) return;
-				// Sent only once the session is idle: a message sent while it
-				// still reports busy is steered into the run and starts a turn.
+				// Sent only once the session is idle: a `nextTurn` message sent
+				// while it still reports busy stays hidden until the next turn.
 				idle.push(
 					() => {
 						if (generation !== statsGeneration) return;
