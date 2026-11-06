@@ -31,10 +31,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const binary = process.env.OMP_STOCK_BIN;
-// The plugin labels rows for Tern's native view when the tests themselves
-// run in a Tern pane. Suites draw the plain terminal view; a test that
-// checks the Tern labels sets `TERM_PROGRAM` itself.
-delete process.env.TERM_PROGRAM;
 const sourceDir = resolve(
 	dirname(fileURLToPath(import.meta.url)),
 	"../..",
