@@ -10,6 +10,11 @@ import { objectRecord } from "./object-record";
 import { fixedForeground } from "./render";
 
 export const STATS_MESSAGE_TYPE = "omp-compact-stats";
+/**
+ * The stats message's `content`: a fixed marker, never the drawn line, so
+ * anything reading session messages directly sees no stats to quote.
+ */
+export const STATS_MESSAGE_CONTENT = "[omp-compact turn stats]";
 export const STATS_EVIDENCE_VERSION = 1;
 
 /**

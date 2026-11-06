@@ -35,11 +35,7 @@ import {
 import { ModePolicy } from "./mode-policy";
 import { objectRecord } from "./object-record";
 import { TranscriptPresenterState } from "./presenter";
-import {
-	gitMessageComponent,
-	mutationMessageComponent,
-	sanitizeOneLine,
-} from "./render";
+import { gitMessageComponent, mutationMessageComponent } from "./render";
 import {
 	evidenceFromResult,
 	hasAssistantUsage,
@@ -47,6 +43,7 @@ import {
 	RunStats,
 	type RunStatsEvidence,
 	resultFromEvidence,
+	STATS_MESSAGE_CONTENT,
 	STATS_MESSAGE_TYPE,
 	StatsRow,
 	statsLine,
@@ -347,7 +344,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		pi.sendMessage<RunStatsEvidence>(
 			{
 				customType: STATS_MESSAGE_TYPE,
-				content: sanitizeOneLine(line, 500),
+				// A fixed marker, not the line: whatever reads session messages
+				// directly (an advisor) must not quote the stats. The row is
+				// drawn from `details`; the content stays non-empty for
+				// providers should the plugin be removed later.
+				content: STATS_MESSAGE_CONTENT,
 				display: true,
 				details: evidence,
 			},
