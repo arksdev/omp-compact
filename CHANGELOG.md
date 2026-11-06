@@ -15,6 +15,7 @@
 
 ### Изменено
 
+- Записи статистики старых сессий (`custom`) больше не рисуют строку.
 - Строка статистики стоит под ответом и появляется, когда сессия освободилась. В контекст модели она не попадает, а советники, которые читают сообщения сессии напрямую, видят только метку `[omp-compact turn stats]` без цифр.
 - Инструмент, для которого у плагина нет правила, получает однострочную сводку самого OMP вместо полной карточки.
 - Развёрнутый блок (`Ctrl+O` или переключатель в Tern) всегда показывает полную карточку OMP, в том числе скрытые вызовы и `browser`, `computer`, `resolve`, `reject`, которые раньше оставались компактными.
@@ -35,6 +36,7 @@
 
 ### Changed
 
+- Stats entries of old sessions (`custom`) no longer draw a row.
 - The stats row sits under the answer and appears once the session is idle. It stays out of the model's context, and advisors, which read session messages directly, see only the marker `[omp-compact turn stats]` without numbers.
 - A tool the plugin has no rule for gets OMP's own one-line summary instead of the full card.
 - An expanded block (`Ctrl+O` or its toggle in Tern) always shows OMP's full card, including hidden calls and `browser`, `computer`, `resolve`, `reject`, which used to stay compact.
