@@ -21,10 +21,6 @@
 - В Tern компактная строка не повторяет заголовок карточки (`Read  read src.txt`), а полную карточку открывает переключатель OMP.
 - Заметки советника, TTSR, todo reminder, skill, late diagnostics и запуски `!`/`$` читаются из данных блока, а не из нарисованной карточки.
 
-### Известное ограничение
-
-- Если следующий run повторяет `toolCallId` (провайдеры, нумерующие вызовы заново, например `call_0`), старый блок рисуется как вызов нового run. 1.x различал такие блоки; presenter API передаёт только id.
-
 Спасибо @materemias за переход на presenter API.
 
 ---
@@ -44,10 +40,6 @@
 - An expanded block (`Ctrl+O` or its toggle in Tern) always shows OMP's full card, including hidden calls and `browser`, `computer`, `resolve`, `reject`, which used to stay compact.
 - In Tern a compact row no longer repeats its card's title (`Read  read src.txt`), and OMP's toggle opens the full card.
 - Advisor notes, TTSR, todo reminders, skills, late diagnostics and `!`/`$` runs are read from the block's data instead of the drawn card.
-
-### Known limit
-
-- When a later run reuses a `toolCallId` (providers that number calls per response, such as `call_0`), the earlier block draws like the later run's call. 1.x told such blocks apart; the presenter API passes only the id.
 
 Thanks to @materemias for the move to the presenter API.
 

@@ -35,7 +35,7 @@ The presenter returns one of omp's answers:
 
 omp draws an expanded block (`Ctrl+O`, or the block's toggle in Tern) in full whatever the presenter answers. That replaced the per-tool expansion rules 1.x had: every block now opens to omp's card, including calls the plugin hid.
 
-omp keeps no earlier answer and may ask again at any time, so each answer is a function of the block and the ledger entry keyed by its id, nothing else. The presenter does no I/O beyond the one branch walk below, and keeps no caches that could go stale against the ledger.
+omp keeps no earlier answer and may ask again at any time, so each answer is a function of the block and the ledger record it resolves to, nothing else. The presenter does no I/O beyond the one branch walk below, and keeps no caches that could go stale against the ledger.
 
 ### Row text
 
@@ -51,7 +51,7 @@ The block carries its own arguments and result, so the ledger holds only what th
 
 - **Runs.** A logical run starts at `agent_start` and spans tool-use continuations (`agent_end` with `willContinue`, or a `toolUse` stop). It ends at a terminal `agent_end`. The run freezes its settings snapshot (`mode`, `enabled`, `retainGitLive`, `compactVibeRows`) and display paths when it opens.
 - **Phase.** `working` while the run is open. At its end `turn-ledger.ts` classifies the stop: a visible answer is `filtered`, an abort, error, blank answer or stop alongside a tool call is `full`. `compact` mode always ends `full`.
-- **Calls.** `toolCallId` → run, mutation evidence, Git evidence and the settle time. A block seen before its `tool_execution_start` (arguments still streaming) is recorded under the open run. A streaming block without an id yet draws as a call of the open run without a record. A call that arrives with no run open goes to a finished stray run and keeps its row.
+- **Calls.** `toolCallId` → one record per run: run, a hash of the final arguments, mutation evidence, Git evidence and the settle time. A block seen before its `tool_execution_start` (arguments still streaming) is recorded under the open run. A streaming block without an id yet draws as a call of the open run without a record. A call that arrives with no run open goes to a finished stray run and keeps its row.
 - **Git projection.** Once a run ends, its commit hashes in call order and the call that carries the aggregate summary row (the last one with evidence) are computed once.
 - **Reveal.** Whether a click on the run's stats row shows the calls the run hid.
 
@@ -70,9 +70,11 @@ A restored run takes the settings selected now, not the ones it ran with: a resu
 
 Scoped write carriers sit after the entry that issued their write (`mutationBranchEntries` in `messages.ts`), so a carrier hydrates only a branch that contains that exact entry.
 
-### Known limit: repeated ids
+### Repeated ids
 
-The ledger keys calls by `toolCallId`, and that id is all omp gives the presenter to identify a block. Some providers number tool calls per response (`call_0`), so a later run can reuse an earlier run's id. The call then moves to the later run, and the earlier block draws like the later call: a `compact` run's kept row disappears once a `live` run that reused its id ends. Telling the two blocks apart needs an identity omp does not hand over; the block's `args` object is replaced while arguments stream, so it cannot serve.
+Some providers number tool calls per response (`call_0`), so a later run can reuse an earlier run's id, and omp gives the presenter no other identity. The ledger keeps one record per run under the id, newest last, each with `Bun.hash` of its final arguments, taken at `tool_execution_start` and in the branch walk. A lookup with one record returns it. With several, it hashes `block.args` and returns the newest match, else the newest record, which covers arguments still streaming. The hash leaves out the intent field `i`, which omp strips from the start event and adds back to the block. Live evidence goes to the newest record of a run still working. `refreshTranscript(ids)` asks both blocks again and each resolves its own record.
+
+Remaining limit: calls with the same id and the same arguments in different runs cannot be told apart, and both blocks draw as the newest.
 
 ## Decision flow
 

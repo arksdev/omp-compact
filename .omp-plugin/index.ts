@@ -472,7 +472,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	listen("tool_execution_start", async (event, context) => {
 		toolCallsRan = true;
 		runStats.recordTool(event.toolCallId);
-		const call = ledger.startCall(event.toolCallId, event.toolName);
+		const call = ledger.startCall(event.toolCallId, event.toolName, event.args);
 		if (!call?.run.mode.enabled) return;
 		// Audit routing follows the presentation registry: every unregistered
 		// tool, non-mutating tool, or `xd://` device dispatch riding the write

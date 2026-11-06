@@ -221,6 +221,61 @@ stockDescribe("history", () => {
 		expect(rows(booted)).toBe("");
 	});
 
+	test("a tool id repeated in history draws each run's own call", async () => {
+		const first = { pattern: "first" };
+		const second = { pattern: "second" };
+		const booted = await boot("live", {
+			branch: [
+				user,
+				toolCall("call_0", "grep", first),
+				toolResult("call_0"),
+				{ type: "message", message: assistant("done") },
+				user,
+				toolCall("call_0", "grep", second),
+				toolResult("call_0"),
+			],
+		});
+		for (const args of [first, second]) {
+			const block = addBlock(booted, "call_0", "grep", args);
+			block.updateResult(
+				{ ...textResult("ok"), isError: false },
+				false,
+				"call_0",
+			);
+		}
+		// The answered run hid its call; the unanswered one keeps its log.
+		expect(rows(booted)).toBe("• grep: second");
+	});
+
+	test("/tree during a run keeps both the open run's call and the earlier one a repeated id names", async () => {
+		const booted = await boot("live");
+		const first = { pattern: "first" };
+		const second = { pattern: "second" };
+		await beginRun(booted);
+		await runTool(booted, "call_0", "grep", second);
+		booted.branch.push(
+			user,
+			toolCall("call_0", "grep", first),
+			toolResult("call_0"),
+			{ type: "message", message: assistant("done") },
+			user,
+			toolCall("call_0", "grep", second),
+			toolResult("call_0"),
+		);
+		await dispatch(booted, { type: "session_tree" });
+		const earlier = addBlock(booted, "call_0", "grep", first);
+		earlier.updateResult(
+			{ ...textResult("ok"), isError: false },
+			false,
+			"call_0",
+		);
+		// The earlier run answered, so its call stays hidden; the open run's
+		// call is not doubled by the walk and its run still settles it.
+		expect(rows(booted)).toBe("• grep: second");
+		await endRun(booted);
+		expect(rows(booted)).toBe("");
+	});
+
 	test("a call that arrives with no run open keeps its row", async () => {
 		const booted = await boot("live", { branch: answeredRun() });
 		const block = addBlock(booted, "stray", "grep", { pattern: "stray" });

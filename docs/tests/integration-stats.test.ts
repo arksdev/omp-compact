@@ -96,6 +96,29 @@ stockDescribe("the stats row", () => {
 		expect(rows(booted)).not.toContain("grep: first");
 	});
 
+	test("each row reveals its own run's call when the runs repeat a tool id", async () => {
+		const booted = await boot("live", { stats: true });
+		booted.context.isIdle = () => true;
+		for (const [pattern, tokens] of [
+			["first", 100],
+			["second", 200],
+		] as const) {
+			await beginRun(booted);
+			await runTool(booted, "call_0", "grep", { pattern });
+			await usage(booted, tokens);
+			await endRun(booted);
+			waitForIdlePoll();
+		}
+		const [first, second] = statsSent(booted);
+		expect(rows(booted)).toBe("");
+		expect(clickStatsRow(booted, first?.message.details)).toBe(true);
+		expect(rows(booted)).toBe("• grep: first");
+		expect(clickStatsRow(booted, second?.message.details)).toBe(true);
+		expect(rows(booted)).toContain("grep: second");
+		expect(clickStatsRow(booted, first?.message.details)).toBe(true);
+		expect(rows(booted)).toBe("• grep: second");
+	});
+
 	test("one row per logical run, summed across its responses", async () => {
 		const booted = await boot("live", { stats: true });
 		await beginRun(booted);

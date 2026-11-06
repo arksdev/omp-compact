@@ -365,10 +365,10 @@ export class TranscriptPresenterState {
 	 */
 	#callFor(block: ToolCallBlock): CallRecord | undefined {
 		const ledger = this.#deps.ledger;
-		const known = ledger.call(block.id);
+		const known = ledger.call(block.id, block.args);
 		if (known) return known;
 		this.#deps.restore();
-		const restored = ledger.call(block.id);
+		const restored = ledger.call(block.id, block.args);
 		if (restored) return restored;
 		const run = ledger.active;
 		if (run && block.id === "")

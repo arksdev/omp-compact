@@ -9,6 +9,7 @@ import {
 	addBlock,
 	beginRun,
 	boot,
+	type BootedPlugin,
 	continueRun,
 	dispatch,
 	endRun,
@@ -66,6 +67,13 @@ async function twoResponses(mode: Mode) {
 	await continueRun(booted);
 	await runTool(booted, "g2", "grep", { pattern: "second" });
 	return booted;
+}
+
+/** Press the display-mode shortcut `times` times. */
+async function cycleMode(booted: BootedPlugin, times: number) {
+	const cycle = [...booted.shortcuts.values()][0];
+	if (!cycle) throw new Error("cycle shortcut not registered");
+	for (let press = 0; press < times; press++) await cycle(booted.context);
 }
 
 stockDescribe("a logical run", () => {
@@ -179,18 +187,72 @@ stockDescribe("a logical run", () => {
 		expect(rows(booted)).toBe("");
 	});
 
-	test("a tool id repeated by the next run draws that run's call", async () => {
+	test("a repeated tool id leaves a compact run's row in place when a live run reuses it", async () => {
+		const booted = await boot("compact");
+		await beginRun(booted);
+		await runTool(booted, "call_0", "grep", { pattern: "first" });
+		await endRun(booted);
+		expect(rows(booted)).toBe("• grep: first");
+
+		// compact -> live
+		await cycleMode(booted, 1);
+		await beginRun(booted);
+		await runTool(booted, "call_0", "grep", { pattern: "second" });
+		const working = rows(booted);
+		expect(working).toContain("grep: first");
+		expect(working).toContain("grep: second");
+		await endRun(booted);
+		expect(rows(booted)).toBe("• grep: first");
+	});
+
+	test("a repeated tool id keeps a live run's call hidden when a compact run reuses it", async () => {
 		const booted = await boot("live");
 		await beginRun(booted);
 		await runTool(booted, "call_0", "grep", { pattern: "first" });
 		await endRun(booted);
 		expect(rows(booted)).toBe("");
 
+		// live -> clear -> off -> compact
+		await cycleMode(booted, 3);
 		await beginRun(booted);
 		await runTool(booted, "call_0", "grep", { pattern: "second" });
-		const working = rows(booted);
-		expect(working).toContain("grep: second");
-		expect(working).not.toContain("grep: first");
+		expect(rows(booted)).toBe("• grep: second");
+		await endRun(booted);
+		expect(rows(booted)).toBe("• grep: second");
+	});
+
+	test("a repeated tool id tells blocks apart though omp adds the intent to a live block", async () => {
+		const booted = await boot("compact");
+		await beginRun(booted);
+		await runTool(booted, "call_0", "grep", { pattern: "first" });
+		await endRun(booted);
+		await cycleMode(booted, 1);
+
+		await beginRun(booted);
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "call_0",
+			toolName: "grep",
+			args: { pattern: "second" },
+			intent: "Searching",
+		});
+		const block = addBlock(booted, "call_0", "grep", {
+			pattern: "second",
+			i: "Searching",
+		});
+		await endTool(booted, block, "call_0", "grep");
+		await endRun(booted);
+		expect(rows(booted)).toBe("• grep: first");
+	});
+
+	test("calls repeating both id and arguments across runs draw as the newest", async () => {
+		const booted = await boot("compact");
+		await beginRun(booted);
+		await runTool(booted, "call_0", "grep", { pattern: "same" });
+		await endRun(booted);
+		await cycleMode(booted, 1);
+		await beginRun(booted);
+		await runTool(booted, "call_0", "grep", { pattern: "same" });
 		await endRun(booted);
 		expect(rows(booted)).toBe("");
 	});

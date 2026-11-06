@@ -1,6 +1,8 @@
 /**
  * Per-session plugin state, keyed by toolCallId (and, for the non-tool
  * blocks, by block id: the run open when each block first appeared).
+ * Providers that number calls per response repeat ids between runs, so an
+ * id holds one record per run, told apart by a hash of the final arguments.
  *
  * The transcript presenter is asked about blocks by id and gets the call's
  * arguments and result with every question, so this ledger keeps only what
@@ -46,10 +48,14 @@ export type MutationEvidence =
 	| MutationMessageDetails
 	| LegacyMutationMessageDetails;
 
+export type ArgsHash = ReturnType<typeof Bun.hash>;
+
 export interface CallRecord {
 	readonly id: string;
 	readonly toolName: string;
 	readonly run: RunRecord;
+	/** Hash of the final arguments; undefined until they are known. */
+	argsHash?: ArgsHash;
 	mutations: readonly MutationEvidence[];
 	git?: GitMessageDetails;
 	/**
@@ -113,6 +119,21 @@ function keptMutations(
 		: kept;
 }
 
+/**
+ * Tells apart calls sharing an id. The intent field is left out: omp strips
+ * it from the `tool_execution_start` arguments and adds it back to the block.
+ */
+function argsHash(args: unknown): ArgsHash | undefined {
+	if (args === undefined) return undefined;
+	const { i: _intent, ...rest } = objectRecord(args);
+	try {
+		return Bun.hash(JSON.stringify(rest));
+	} catch {
+		// Not serializable, so not a call the ledger can tell apart.
+		return undefined;
+	}
+}
+
 let runCounter = 0;
 
 /** Unique within the process and across processes sharing a session file. */
@@ -123,8 +144,8 @@ function newRunId(prefix: string): string {
 export class SessionLedger {
 	readonly #options: SessionLedgerOptions;
 	readonly #now: () => number;
-	/** Every known call, latest owner per id. */
-	#calls = new Map<string, CallRecord>();
+	/** Every known call by id, newest last; the open run's stays last. */
+	#calls = new Map<string, CallRecord[]>();
 	/** Runs by the id their stats evidence names. */
 	#runs = new Map<string, RunRecord>();
 	#active: RunRecord | undefined;
@@ -177,9 +198,19 @@ export class SessionLedger {
 		return this.#active !== undefined;
 	}
 
-	/** The call with this id, if the ledger knows it. */
-	call(id: string): CallRecord | undefined {
-		return this.#calls.get(id);
+	/**
+	 * The call with this id, if the ledger knows it. When runs repeated the
+	 * id, the newest record whose final arguments are `args`, else the newest
+	 * (a block's arguments may still be streaming).
+	 */
+	call(id: string, args?: unknown): CallRecord | undefined {
+		const records = this.#calls.get(id);
+		if (!records) return undefined;
+		const newest = records.at(-1);
+		if (records.length === 1) return newest;
+		const hash = argsHash(args);
+		if (hash === undefined) return newest;
+		return records.findLast((call) => call.argsHash === hash) ?? newest;
 	}
 
 	/** The run its stats evidence names. */
@@ -207,13 +238,18 @@ export class SessionLedger {
 
 	/**
 	 * Record a call of the open run (`tool_execution_start`, or a block the
-	 * presenter sees streaming before that event). A call already owned by
-	 * the open run is returned unchanged; one owned by an earlier run (ids
-	 * may repeat between runs) moves to the open run. A call with no open run
-	 * (it arrived after the terminal `agent_end`) keeps its row and draws like
-	 * history.
+	 * presenter sees streaming before that event, without `args`). A call
+	 * already owned by the open run keeps its record and the first final
+	 * arguments, those of the model's call: a nested dispatch starts again
+	 * under its id. An id an earlier run used gets a new record. A call with
+	 * no open run (it arrived after the terminal `agent_end`) keeps its row
+	 * and draws like history.
 	 */
-	startCall(id: string, toolName: string): CallRecord | undefined {
+	startCall(
+		id: string,
+		toolName: string,
+		args?: unknown,
+	): CallRecord | undefined {
 		if (
 			!isBoundedString(id, MAX_TOOL_CALL_ID_LENGTH) ||
 			id === "" ||
@@ -221,15 +257,16 @@ export class SessionLedger {
 		)
 			return undefined;
 		const run = this.#active ?? this.#strayRun();
-		const existing = this.#calls.get(id);
-		if (existing?.run === run) return existing;
-		return this.#addCall(run, id, toolName);
+		const call =
+			this.#inRun(id, run) ?? this.#addCall(run, id, toolName, undefined);
+		call.argsHash ??= argsHash(args);
+		return call;
 	}
 
 	/** A live call settled (`tool_execution_end`). */
 	settleCall(id: string): void {
-		const call = this.#calls.get(id);
-		if (call?.run.phase === "working") call.settledAt ??= this.#now();
+		const call = this.#working(id);
+		if (call) call.settledAt ??= this.#now();
 	}
 
 	/**
@@ -237,16 +274,16 @@ export class SessionLedger {
 	 * frozen: the audit drain publishes before the run finalizes.
 	 */
 	setMutations(id: string, entries: readonly MutationEvidence[]): boolean {
-		const call = this.#calls.get(id);
-		if (call?.run.phase !== "working") return false;
+		const call = this.#working(id);
+		if (!call) return false;
 		call.mutations = keptMutations(entries);
 		return true;
 	}
 
 	/** Recognized Git evidence for a call; frozen once its run finished. */
 	setGit(id: string, details: GitMessageDetails): boolean {
-		const call = this.#calls.get(id);
-		if (call?.run.phase !== "working") return false;
+		const call = this.#working(id);
+		if (!call) return false;
 		call.git = details;
 		return true;
 	}
@@ -316,8 +353,11 @@ export class SessionLedger {
 		this.#restored = false;
 		this.#stray = undefined;
 		const active = this.#active;
-		for (const [id, call] of this.#calls)
-			if (call.run !== active) this.#calls.delete(id);
+		for (const [id, records] of this.#calls) {
+			const kept = records.filter((call) => call.run === active);
+			if (kept.length > 0) this.#calls.set(id, kept);
+			else this.#calls.delete(id);
+		}
 		for (const [id, run] of this.#runs)
 			if (run !== active) this.#runs.delete(id);
 		for (const [id, run] of this.#leafRuns)
@@ -347,7 +387,7 @@ export class SessionLedger {
 		const active = this.#active;
 		let run: RunRecord | undefined;
 		const ensureRun = (): RunRecord => {
-			if (!run || run.phase !== "working")
+			if (run?.phase !== "working")
 				run = this.#newRun(
 					newRunId("omp-compact-replay-"),
 					this.#options.restoredMode(),
@@ -358,16 +398,28 @@ export class SessionLedger {
 		const close = (): void => {
 			if (run?.phase === "working") this.finalizeRun(run, "full");
 		};
-		const addCall = (id: unknown, name: unknown): void => {
+		const addCall = (id: unknown, name: unknown, args: unknown): void => {
 			if (
 				!isBoundedString(id, MAX_TOOL_CALL_ID_LENGTH) ||
 				id === "" ||
 				!isBoundedString(name, MAX_TOOL_NAME_LENGTH)
 			)
 				return;
-			const known = this.#calls.get(id);
-			if (known && (known.run === active || known.run === run)) return;
-			this.#addCall(ensureRun(), id, name);
+			if (run && this.#inRun(id, run)) return;
+			const hash = argsHash(args);
+			const open = active && this.#inRun(id, active);
+			// The branch holds the open run's calls too; an earlier call with
+			// that id and other arguments is history.
+			if (
+				open &&
+				(open.argsHash === undefined ||
+					hash === undefined ||
+					open.argsHash === hash)
+			) {
+				open.argsHash ??= hash;
+				return;
+			}
+			this.#addCall(ensureRun(), id, name, hash);
 			restored.push(id);
 		};
 		for (const value of entries) {
@@ -382,7 +434,8 @@ export class SessionLedger {
 					if (Array.isArray(message.content))
 						for (const part of message.content) {
 							const call = objectRecord(part);
-							if (call.type === "toolCall") addCall(call.id, call.name);
+							if (call.type === "toolCall")
+								addCall(call.id, call.name, call.arguments);
 						}
 					const phase = classifyAgentEnd({
 						messages: [message],
@@ -393,16 +446,17 @@ export class SessionLedger {
 					message.role === "toolResult" &&
 					typeof message.toolCallId === "string"
 				) {
-					const call = this.#calls.get(message.toolCallId);
-					if (call && call.run !== active && call.run.restored)
-						call.settledAt ??= this.#now();
+					const call = this.#calls
+						.get(message.toolCallId)
+						?.findLast((known) => known.run.restored);
+					if (call) call.settledAt ??= this.#now();
 				}
 				continue;
 			}
 			if (entry.type === "custom") {
 				if (entry.customType === "tool_execution_start") {
 					const data = objectRecord(entry.data);
-					addCall(data.toolCallId, data.toolName);
+					addCall(data.toolCallId, data.toolName, data.args);
 				} else this.#restoreEvidence(entry.customType, entry.data, run);
 				continue;
 			}
@@ -422,15 +476,15 @@ export class SessionLedger {
 			customType === MUTATION_MESSAGE_TYPE &&
 			isMutationMessageDetails(details)
 		) {
-			const call = this.#calls.get(details.toolCallId);
-			if (!call?.run.restored || call.run !== run) return;
+			const call = run && this.#inRun(details.toolCallId, run);
+			if (!call?.run.restored) return;
 			if (call.mutations.length >= MAX_MUTATION_ENTRIES) return;
 			call.mutations = keptMutations([...call.mutations, details]);
 			return;
 		}
 		if (customType === GIT_MESSAGE_TYPE && isGitMessageDetails(details)) {
-			const call = this.#calls.get(details.toolCallId);
-			if (call?.run.restored && call.run === run) call.git = details;
+			const call = run && this.#inRun(details.toolCallId, run);
+			if (call?.run.restored) call.git = details;
 			return;
 		}
 		// The evidence sits right after its run's final answer, so the walk's
@@ -473,10 +527,36 @@ export class SessionLedger {
 		return run;
 	}
 
-	#addCall(run: RunRecord, id: string, toolName: string): CallRecord {
+	/** The record `run` holds for this id; a run has one per id. */
+	#inRun(id: string, run: RunRecord): CallRecord | undefined {
+		return this.#calls.get(id)?.find((call) => call.run === run);
+	}
+
+	/** The newest record still taking live evidence. */
+	#working(id: string): CallRecord | undefined {
+		return this.#calls
+			.get(id)
+			?.findLast((call) => call.run.phase === "working");
+	}
+
+	#addCall(
+		run: RunRecord,
+		id: string,
+		toolName: string,
+		hash: ArgsHash | undefined,
+	): CallRecord {
 		const call: CallRecord = { id, toolName, run, mutations: [] };
+		if (hash !== undefined) call.argsHash = hash;
 		run.calls.push(call);
-		this.#calls.set(id, call);
+		const records = this.#calls.get(id);
+		if (!records) {
+			this.#calls.set(id, [call]);
+			return call;
+		}
+		// A walk restores history under the open run, whose call stays newest.
+		const open = records.findIndex((known) => known.run === this.#active);
+		if (open === -1) records.push(call);
+		else records.splice(open, 0, call);
 		return call;
 	}
 }

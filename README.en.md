@@ -264,8 +264,6 @@ The plugin needs **OMP 18.17 or later**. It draws through OMP's public transcrip
 
 The compact rows also appear in [Tern](https://stencil.so) panes, where OMP hands the transcript to Tern's native view. A compact row there opens OMP's full card with its toggle. In `live` and `clear`, click a turn's stats row to bring back the calls the turn hid, each in its own place; a second click hides them again.
 
-One known limit: some providers number tool calls per response (`call_0`, `call_1`), so a later run can reuse an earlier run's id. The plugin knows a call only by its id, and the earlier block then draws like the later run's call. It can vanish from a `compact` history once a `live` run that reused its id ends.
-
 - [Full documentation](docs/FULL-DOCUMENTATION.md)
 - [Configuration](docs/CONFIGURATION.md)
 - [Architecture](docs/ARCHITECTURE.md)
