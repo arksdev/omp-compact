@@ -76,6 +76,26 @@ export interface UserExecutionView {
 	cancelled?: boolean;
 }
 
+/**
+ * How a row is drawn as the label of omp's compact answer. omp draws the
+ * row's glyph itself, and in Tern's native view the block's own title
+ * stands before the label, so a row whose leading title is that same word
+ * leaves it out (`read src.txt` after `Read` shows `src.txt`).
+ */
+export interface RowHead {
+	/** The stock title shown before the label; `undefined` keeps the row's own. */
+	readonly stockTitle?: string;
+}
+
+/** Whether a row's title and a stock title name the same thing (`edit:` / `Edit`). */
+function sameTitle(own: string, stock: string | undefined): boolean {
+	if (stock === undefined) return false;
+	const key = (title: string) =>
+		title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+	const ownKey = key(own);
+	return ownKey !== "" && ownKey === key(stock);
+}
+
 const ADDED_STAT_COLOR = "#A4D734";
 const REMOVED_STAT_COLOR = "#A1471A";
 /** Green marker for the literal `inject` title — same ink as resolve/stats. */
@@ -161,28 +181,33 @@ export function fixedForeground(hex: string, text: string): string {
 /**
  * One compact row for a user-initiated bash/python execution, matching the
  * plugin's agent `bash` tool chrome (`• bash: …` / Working… / ✗ + exit meta).
- * No background/inverse sequences — transparent terminal row only.
+ * No background/inverse sequences — transparent terminal row only. As a
+ * label (`head`), a running row leaves its frame to omp's own glyph.
  */
 export function renderUserExecutionRow(
 	view: UserExecutionView,
 	theme: Theme,
 	width?: number,
+	head?: RowHead,
 ): readonly string[] {
-	const title = theme.fg("dim", view.kind);
 	const description = sanitizeOneLine(view.source);
-	const suffix = description ? `: ${theme.fg("dim", description)}` : "";
+	const dim = description ? theme.fg("dim", description) : "";
+	const subject =
+		description && sameTitle(view.kind, head?.stockTitle)
+			? dim
+			: `${theme.fg("dim", view.kind)}${dim ? `: ${dim}` : ""}`;
 	if (view.running) {
-		const line = `${theme.fg("dim", pendingFrame(theme, 0))} ${theme.fg(
-			"dim",
-			"Working…",
-		)} ${title}${suffix}`;
+		const working = `${theme.fg("dim", "Working…")} ${subject}`;
+		const line = head
+			? working
+			: `${theme.fg("dim", pendingFrame(theme, 0))} ${working}`;
 		return [fitTransparentLine(line, width)];
 	}
 	const isError =
 		view.cancelled === true ||
 		(typeof view.exitCode === "number" && view.exitCode !== 0);
 	const icon = isError ? theme.fg("error", "✗") : theme.fg("dim", "•");
-	const pieces = [`${icon} ${title}${suffix}`];
+	const pieces = [`${icon} ${subject}`];
 	const meta: string[] = [];
 	if (view.cancelled === true) meta.push("cancelled");
 	else if (typeof view.exitCode === "number" && view.exitCode !== 0)
@@ -216,17 +241,19 @@ export function renderTodoReminderRow(
 /**
  * Compact skill row: ordinary gray-tool bullet chrome with custom-message
  * identity colors on the marker/name (no customMessageBg card fill).
- * Expanded is handled by the runtime adapter (native card), not here.
+ * An expanded block is omp's full card, not drawn here.
  */
 export function renderSkillMessageRow(
 	view: SkillMessageView,
 	theme: Theme,
 	width?: number,
+	head?: RowHead,
 ): readonly string[] {
 	const bullet = theme.fg("dim", "•");
-	const marker = theme.fg("customMessageLabel", "skill");
 	const name = theme.fg("customMessageText", sanitizeOneLine(view.name, 80));
-	let line = `${bullet} ${marker} ${name}`;
+	let line = sameTitle("skill", head?.stockTitle)
+		? `${bullet} ${name}`
+		: `${bullet} ${theme.fg("customMessageLabel", "skill")} ${name}`;
 	if (view.args) {
 		line += ` ${theme.fg("dim", sanitizeOneLine(view.args, 120))}`;
 	}
@@ -251,11 +278,11 @@ export function renderLateDiagnosticsRow(
 	view: LateDiagnosticsView,
 	theme: Theme,
 	width?: number,
+	head?: RowHead,
 ): readonly string[] {
 	const bullet = theme.fg("dim", "•");
-	const title = theme.fg("toolTitle", "late diagnostics");
-	const summary = view.summary
-		? theme.fg("dim", ` (${sanitizeOneLine(view.summary, 60)})`)
+	const summaryText = view.summary
+		? `(${sanitizeOneLine(view.summary, 60)})`
 		: "";
 	const first = view.firstMessage
 		? sanitizeOneLine(view.firstMessage, 120)
@@ -264,8 +291,19 @@ export function renderLateDiagnosticsRow(
 	const body = first ? ` · ${first}${extra}` : extra;
 	const payloadColor = view.errored ? "error" : "warning";
 	const payload = body ? theme.fg(payloadColor, body) : "";
-	const line = `${bullet} ${title}${summary}${payload}`;
-	return [fitTransparentLine(line, width)];
+	// Without its title the row starts at the summary, else at the payload.
+	if (sameTitle("late diagnostics", head?.stockTitle) && (summaryText || body))
+		return [
+			fitTransparentLine(
+				summaryText
+					? `${bullet} ${theme.fg("dim", summaryText)}${payload}`
+					: `${bullet} ${theme.fg(payloadColor, body.replace(/^ · /, ""))}`,
+				width,
+			),
+		];
+	const title = theme.fg("toolTitle", "late diagnostics");
+	const summary = summaryText ? theme.fg("dim", ` ${summaryText}`) : "";
+	return [fitTransparentLine(`${bullet} ${title}${summary}${payload}`, width)];
 }
 
 /**
@@ -298,6 +336,66 @@ export function renderInjectRuleRows(
 	return rows;
 }
 
+/** One non-blocking advisor note as the compact advisor rows show it. */
+export interface AdvisorNoteView {
+	readonly note: string;
+	/** `undefined` is omp's plain nit. */
+	readonly severity: "nit" | "concern" | undefined;
+	readonly advisor: string | undefined;
+}
+
+/** omp's collapsed advisor card shows this many notes. */
+const COLLAPSED_ADVISOR_NOTES = 3;
+
+/**
+ * Compact advisor rows: one `• advisor [severity]` row per note omp's
+ * collapsed card shows, then its hidden-note count. The full card is one
+ * expansion away.
+ */
+export function renderAdvisorRows(
+	notes: readonly AdvisorNoteView[],
+	theme: Theme,
+	width?: number,
+	head?: RowHead,
+): readonly string[] {
+	const rows: string[] = [];
+	for (const [index, entry] of notes
+		.slice(0, COLLAPSED_ADVISOR_NOTES)
+		.entries()) {
+		const severity = entry.severity ?? "nit";
+		const label = theme.fg(
+			severity === "concern" ? "warning" : "muted",
+			`[${severity}]`,
+		);
+		const who =
+			entry.advisor && entry.advisor !== "default"
+				? ` ${theme.fg("dim", `[${sanitizeOneLine(entry.advisor, 80)}]`)}`
+				: "";
+		// The note's first non-blank line, whitespace-collapsed and bounded.
+		const summary = sanitizeOneLine(
+			entry.note.split("\n").find((line) => line.trim()) ?? "",
+			MAX_DESCRIPTION,
+		);
+		const marker =
+			index === 0 && sameTitle("advisor", head?.stockTitle)
+				? theme.fg("dim", "•")
+				: theme.fg("dim", "• advisor");
+		rows.push(fitTransparentLine(`${marker} ${label}${who} ${summary}`, width));
+	}
+	const hidden = notes.length - COLLAPSED_ADVISOR_NOTES;
+	if (hidden > 0)
+		rows.push(
+			fitTransparentLine(
+				theme.fg(
+					"dim",
+					`  … +${hidden} more ${hidden === 1 ? "note" : "notes"}`,
+				),
+				width,
+			),
+		);
+	return rows;
+}
+
 function mutationStat(
 	value: number,
 	prefix: string,
@@ -313,7 +411,10 @@ export function mutationRows(
 	theme: Theme,
 	displayPaths?: DisplayPathOptions,
 	width?: number,
+	head?: RowHead,
 ): readonly string[] {
+	const bullet = `${theme.fg("dim", "•")} `;
+	const titled = !sameTitle(entry.toolName, head?.stockTitle);
 	const path = displayPathValue(entry.path, displayPaths);
 	// Cap the path before width-fitting so an absurd path cannot dominate the
 	// row; the width pass below may shorten it further to protect the stats.
@@ -330,8 +431,8 @@ export function mutationRows(
 			entry.exact && typeof entry.removed === "number"
 				? ` ${mutationStat(entry.removed, "-", REMOVED_STAT_COLOR, theme)}`
 				: "";
-		const head = `${theme.fg("dim", "•")} ${title}: `;
-		return fitMutationRows(pathText, head, removedStat, theme, width);
+		const lead = titled ? `${bullet}${title}: ` : bullet;
+		return fitMutationRows(pathText, lead, removedStat, theme, width);
 	}
 	const added = entry.added ?? 0;
 	const removed = entry.removed ?? 0;
@@ -341,9 +442,11 @@ export function mutationRows(
 	const stats = entry.exact
 		? `${addedStr}${sep}${removedStr}`
 		: theme.fg("dim", `${entry.lineCount ?? 0} lines`);
-	const head = `${theme.fg("dim", "•")} ${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: `;
+	const lead = titled
+		? `${bullet}${theme.fg("dim", sanitizeOneLine(entry.toolName, 24))}: `
+		: bullet;
 	const tail = ` ${stats}`;
-	return fitMutationRows(pathText, head, tail, theme, width);
+	return fitMutationRows(pathText, lead, tail, theme, width);
 }
 
 /**
@@ -499,26 +602,37 @@ const VIBE_OPS: Readonly<Partial<Record<string, VibeOp>>> = Object.freeze(
 /**
  * Whether a tool name is one of the five stock vibe worker-session devices.
  * `VIBE_OPS` above stays the single source of truth for that set — the
- * runtime adapter pairs this predicate with the run's frozen
- * `compactVibeRows` snapshot to decide compact vs stock presentation.
+ * presenter pairs this predicate with the run's frozen `compactVibeRows`
+ * snapshot to decide compact vs stock presentation.
  */
 export function isVibeToolName(name: string): boolean {
 	return VIBE_OPS[normalizeToolName(name)] !== undefined;
 }
 
+/**
+ * The compact rows of one tool call. With `head`, the first row is drawn
+ * as omp's label (see {@link RowHead}); the rest keep their own titles.
+ */
 export function renderCompactToolRows(
 	view: CompactToolView,
 	theme: Theme,
 	width?: number,
 	displayPaths?: DisplayPathOptions,
+	head?: RowHead,
 ): readonly string[] {
 	if (
 		view.mutationEntries &&
 		view.mutationEntries.length > 0 &&
 		!view.isPartial
 	) {
-		return view.mutationEntries.flatMap((entry) =>
-			mutationRows(entry, theme, displayPaths, width),
+		return view.mutationEntries.flatMap((entry, index) =>
+			mutationRows(
+				entry,
+				theme,
+				displayPaths,
+				width,
+				index === 0 ? head : undefined,
+			),
 		);
 	}
 	if (view.git && !view.isPartial) {
@@ -555,7 +669,12 @@ export function renderCompactToolRows(
 	// presenter decides whether an unresolved tool gets omp's own row. A call
 	// still in flight paints the same row without settled metadata: omp draws
 	// the spinner beside it.
-	return paintCompactRow(compactRowSpec(view, displayPaths), theme, width);
+	return paintCompactRow(
+		compactRowSpec(view, displayPaths),
+		theme,
+		width,
+		head,
+	);
 }
 
 /**
@@ -564,7 +683,7 @@ export function renderCompactToolRows(
  * already sanitized and bounded, so it can outlive them. Mutation, Git and
  * vibe rows are not described here; a vibe call gets the generic summary.
  */
-export interface CompactRowSpec {
+interface CompactRowSpec {
 	readonly title: string;
 	readonly titleColor?: string;
 	readonly separator: string;
@@ -574,7 +693,7 @@ export interface CompactRowSpec {
 	readonly isError: boolean;
 }
 
-export function compactRowSpec(
+function compactRowSpec(
 	view: CompactToolView,
 	displayPaths?: DisplayPathOptions,
 ): CompactRowSpec {
@@ -598,27 +717,36 @@ export function compactRowSpec(
 	};
 }
 
-function paintSummary(spec: CompactRowSpec, theme: Theme): string {
+function paintSummary(
+	spec: CompactRowSpec,
+	theme: Theme,
+	head?: RowHead,
+): string {
+	const description = theme.fg("dim", spec.description);
+	if (spec.description && sameTitle(spec.title, head?.stockTitle))
+		return description;
 	const title = spec.titleColor
 		? fixedForeground(spec.titleColor, spec.title)
 		: theme.fg("dim", spec.title);
-	const suffix = spec.description
-		? `${spec.separator}${theme.fg("dim", spec.description)}`
-		: "";
+	const suffix = spec.description ? `${spec.separator}${description}` : "";
 	return `${title}${suffix}`;
 }
 
 /** The settled row a spec describes, at the current theme and width. */
-export function paintCompactRow(
+function paintCompactRow(
 	spec: CompactRowSpec,
 	theme: Theme,
 	width?: number,
+	head?: RowHead,
 ): readonly string[] {
 	const icon = spec.isError ? theme.fg("error", "✗") : theme.fg("dim", "•");
 	const meta =
 		spec.meta.length > 0 ? theme.fg("dim", ` · ${spec.meta.join(" · ")}`) : "";
 	return [
-		fitTransparentLine(`${icon} ${paintSummary(spec, theme)}${meta}`, width),
+		fitTransparentLine(
+			`${icon} ${paintSummary(spec, theme, head)}${meta}`,
+			width,
+		),
 	];
 }
 

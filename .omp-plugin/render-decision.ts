@@ -74,12 +74,11 @@ export type ToolRenderDecision =
 	| ToolRowsDecision;
 
 export interface BackgroundCompletionRenderInput {
-	/** Frozen runtime-mode snapshot of the active run (if any). */
+	/** Frozen mode of the run that owns the notice, else the current mode. */
 	mode: CompactMode;
 	/**
-	 * Ledger phase of the active logical run; `undefined` when no run has
-	 * started yet (or the session was reset), so the notice belongs to no
-	 * tracked run at all.
+	 * Ledger phase of the run that owns the notice; `undefined` when no run
+	 * owns it (earlier history).
 	 */
 	phase: LedgerPhase | undefined;
 }
@@ -260,10 +259,8 @@ const BACKGROUND_COMPLETION_RENDER_TABLE: readonly {
 ]);
 
 /**
- * Compact-vs-native decision for a stock background-completion notice. The
- * fold owns the block only to keep it inside the run's dense rows, so the
- * compact view is the host's own line — this decision picks between showing
- * that line and dropping it.
+ * Show-or-drop decision for a background job or supervised process notice:
+ * `native` keeps omp's own card, `empty` hides it.
  */
 export function decideBackgroundCompletionRender(
 	input: BackgroundCompletionRenderInput,

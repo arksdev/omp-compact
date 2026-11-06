@@ -14,11 +14,31 @@ import type {
 	TranscriptPresentation,
 } from "@oh-my-pi/pi-coding-agent";
 
+import {
+	advisorNoteViews,
+	injectRuleViews,
+	lateDiagnosticsView,
+	skillMessageView,
+	todoReminderView,
+	userExecutionView,
+} from "./leaf-views";
+import type { RunModeSnapshot } from "./mode-policy";
 import { nativeText } from "./native-text";
-import { decideToolRender, type ToolRenderDecision } from "./render-decision";
+import {
+	decideBackgroundCompletionRender,
+	decideToolRender,
+	type ToolRenderDecision,
+} from "./render-decision";
 import {
 	isVibeToolName,
+	type RowHead,
+	renderAdvisorRows,
 	renderCompactToolRows,
+	renderInjectRuleRows,
+	renderLateDiagnosticsRow,
+	renderSkillMessageRow,
+	renderTodoReminderRow,
+	renderUserExecutionRow,
 	terminalGitSummaryLine,
 } from "./render";
 import type { CallRecord, RunRecord, SessionLedger } from "./session-ledger";
@@ -27,6 +47,7 @@ import { resolveToolRule } from "./tool-presentation-rules";
 
 type ToolCallBlock = Extract<TranscriptBlock, { type: "toolCall" }>;
 type LeafBlock = Exclude<TranscriptBlock, { type: "toolCall" }>;
+type MessageBlock = Extract<TranscriptBlock, { type: "message" }>;
 
 export interface PresenterDeps {
 	readonly ledger: SessionLedger;
@@ -37,6 +58,25 @@ export interface PresenterDeps {
 	restore(): void;
 	/** The active theme, or `undefined` before the plugin saw a UI. */
 	theme(): Theme | undefined;
+	/** Settings for a block no run owns: earlier history. */
+	historicalMode(): RunModeSnapshot;
+	/** Whether non-blocking advisor notes are shown compact (live setting). */
+	compactAdvisorNotes(): boolean;
+	/** Whether omp draws Tern's native view, where a block's title leads its label. */
+	nativeView(): boolean;
+}
+
+/**
+ * Whether omp draws Tern's native view, by the probe omp itself uses. omp
+ * gives no signal, and inside tmux `TERM_PROGRAM` names tmux: a wrong
+ * guess only changes whether a label repeats its card's title.
+ */
+export function ternNativeView(
+	env: Readonly<Record<string, string | undefined>>,
+): boolean {
+	return (
+		env.TERM_PROGRAM?.toLowerCase() === "tern" && env.PI_TUI_NATIVE !== "0"
+	);
 }
 
 /** A leading dim `•` and its space: omp draws the row's own glyph. */
@@ -76,6 +116,8 @@ function hidesOwnRow(call: CallRecord, decision: ToolRenderDecision): boolean {
 export class TranscriptPresenterState {
 	readonly #deps: PresenterDeps;
 	readonly #hidesCalls = new WeakMap<RunRecord, boolean>();
+	/** Advisor blocks omp asked about: a change of the advisor setting asks again. */
+	readonly #advisorIds = new Set<string>();
 	#asked = false;
 
 	constructor(deps: PresenterDeps) {
@@ -120,12 +162,117 @@ export class TranscriptPresenterState {
 			.map((call) => call.id);
 	}
 
+	/** Ids of the advisor blocks omp asked about. */
+	advisorIds(): string[] {
+		return [...this.#advisorIds];
+	}
+
 	/**
-	 * Non-tool blocks (advisor, skill, late diagnostics, `!`/`$` runs, TTSR,
-	 * todo reminders, background job notices): omp's own drawing for now.
+	 * The label's head: in Tern's native view the block's stock title leads
+	 * the label, so a row leaves out the same word.
 	 */
-	#presentLeaf(_block: LeafBlock): TranscriptPresentation {
+	#head(stockTitle: string): RowHead {
+		return this.#deps.nativeView() ? { stockTitle } : {};
+	}
+
+	/**
+	 * Non-tool blocks: one compact row (or a few) from the block's data,
+	 * as the plugin drew them before omp asked presenters. A kind the plugin
+	 * does not know, or a disabled plugin, stays omp's own card.
+	 */
+	#presentLeaf(block: LeafBlock): TranscriptPresentation {
+		const theme = this.#deps.theme();
+		if (!theme) return undefined;
+		if (block.type === "message") return this.#presentMessage(block, theme);
+		const { event } = block;
+		if (event.type !== "ttsr_triggered" && event.type !== "todo_reminder")
+			return undefined;
+		if (!this.#leafMode(block.id).enabled) return undefined;
+		if (event.type === "ttsr_triggered") {
+			const rules = injectRuleViews(event.rules);
+			return rules ? compactAnswer(renderInjectRuleRows(rules, theme)) : "full";
+		}
+		const view = todoReminderView(event);
+		return view ? compactAnswer(renderTodoReminderRow(view, theme)) : "full";
+	}
+
+	#presentMessage(block: MessageBlock, theme: Theme): TranscriptPresentation {
+		const { message } = block;
+		if (
+			message.role === "bashExecution" ||
+			message.role === "pythonExecution"
+		) {
+			if (!this.#leafMode(block.id, message.timestamp).enabled)
+				return undefined;
+			const view = userExecutionView(message);
+			if (!view) return "full";
+			const title = message.role === "bashExecution" ? "Bash" : "Python";
+			return compactAnswer(
+				renderUserExecutionRow(view, theme, undefined, this.#head(title)),
+			);
+		}
+		if (message.role !== "custom") return undefined;
+		switch (message.customType) {
+			case "advisor": {
+				this.#advisorIds.add(block.id);
+				if (!this.#deps.compactAdvisorNotes()) return undefined;
+				const notes = advisorNoteViews(message.details);
+				return notes
+					? compactAnswer(
+							renderAdvisorRows(notes, theme, undefined, this.#head("Advisor")),
+						)
+					: "full";
+			}
+			case "skill-prompt": {
+				if (!this.#leafMode(block.id, message.timestamp).enabled)
+					return undefined;
+				return compactAnswer(
+					renderSkillMessageRow(
+						skillMessageView(message.details),
+						theme,
+						undefined,
+						this.#head("Skill"),
+					),
+				);
+			}
+			case "lsp-late-diagnostic": {
+				if (!this.#leafMode(block.id, message.timestamp).enabled)
+					return undefined;
+				const view = lateDiagnosticsView(message.details);
+				return view
+					? compactAnswer(
+							renderLateDiagnosticsRow(
+								view,
+								theme,
+								undefined,
+								this.#head("Late diagnostics"),
+							),
+						)
+					: "full";
+			}
+			case "async-result":
+			case "launch-completion": {
+				// The notice keeps the verdict of the run that produced it; one
+				// no run owns is earlier history and follows the current mode.
+				const run = this.#deps.ledger.leafRun(block.id, message.timestamp);
+				const mode = run?.mode ?? this.#deps.historicalMode();
+				if (!mode.enabled) return undefined;
+				const decision = decideBackgroundCompletionRender({
+					mode: mode.mode,
+					phase: run?.phase,
+				});
+				return decision.kind === "native" || run?.revealed ? "full" : "hidden";
+			}
+		}
 		return undefined;
+	}
+
+	/** Settings of the run a non-tool block belongs to, else the current ones. */
+	#leafMode(id: string, timestamp?: number): RunModeSnapshot {
+		return (
+			this.#deps.ledger.leafRun(id, timestamp)?.mode ??
+			this.#deps.historicalMode()
+		);
 	}
 
 	#presentToolCall(block: ToolCallBlock): TranscriptPresentation {
@@ -137,6 +284,8 @@ export class TranscriptPresenterState {
 		if (decision.kind === "native") return "full";
 		if (decision.kind === "host-compact") return "compact";
 		const run = call.run;
+		// omp's card is titled by the tool's label, which is its name.
+		const head = this.#head(block.toolName);
 		// A finished run never shows a call as in flight: an end omp never
 		// delivered must not keep the row (and its evidence rows) pending.
 		const view = {
@@ -152,7 +301,7 @@ export class TranscriptPresenterState {
 			// Hidden calls come back, as `compact` mode would keep them, while
 			// a click on the run's stats row shows them.
 			const rows = run.revealed
-				? [...renderCompactToolRows(view, theme, undefined, run.paths)]
+				? [...renderCompactToolRows(view, theme, undefined, run.paths, head)]
 				: [];
 			if (decision.kind === "tool-rows" && decision.summary) {
 				const projection = this.#deps.ledger.projection(run);
@@ -166,7 +315,7 @@ export class TranscriptPresenterState {
 			// chronological place; individual Git rows collapse into one
 			// aggregate commit-summary line after the run's last evidence.
 			const rows = [
-				...renderCompactToolRows(view, theme, undefined, run.paths),
+				...renderCompactToolRows(view, theme, undefined, run.paths, head),
 			];
 			if (decision.summary) {
 				const projection = this.#deps.ledger.projection(run);
@@ -181,6 +330,7 @@ export class TranscriptPresenterState {
 				theme,
 				undefined,
 				run.paths,
+				head,
 			),
 		);
 	}

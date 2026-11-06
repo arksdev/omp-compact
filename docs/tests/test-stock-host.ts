@@ -31,6 +31,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const binary = process.env.OMP_STOCK_BIN;
+// The plugin labels rows for Tern's native view when the tests themselves
+// run in a Tern pane. Suites draw the plain terminal view; a test that
+// checks the Tern labels sets `TERM_PROGRAM` itself.
+delete process.env.TERM_PROGRAM;
 const sourceDir = resolve(
 	dirname(fileURLToPath(import.meta.url)),
 	"../..",
@@ -117,6 +121,11 @@ export interface AdvisorCardInstance extends Renderable {
 	}): unknown;
 }
 
+/** omp's `PresentedBlock`: a non-tool block drawn through the presenters. */
+export interface PresentedBlockInstance extends Renderable {
+	setBlock(block: unknown): void;
+}
+
 export interface HostModules {
 	plugin: (pi: unknown) => void;
 	ToolExecutionComponent: new (
@@ -139,11 +148,19 @@ export interface HostModules {
 	/** The public seam `pi.registerTranscriptPresenter` feeds in omp. */
 	setTranscriptPresenters: (presenters: readonly never[]) => boolean;
 	/**
-	 * The six leaves the plugin recovers by scraping instead of patching
-	 * (`render-scrape.ts`), each behind a structural fingerprint in
-	 * `host-surface.ts`. Constructor shapes are the live 18.0.10 ones; a host
-	 * that changes them fails to compile the canary rather than silently
-	 * falling back to native rendering in a session.
+	 * omp's wrapper of a non-tool transcript block: draws `inner` as the
+	 * presenters answer for `block`.
+	 */
+	PresentedBlock: new (
+		inner: object,
+		block: unknown,
+	) => PresentedBlockInstance;
+	/** The `message` block omp builds for a session message. */
+	messageBlock: (message: unknown) => unknown;
+	/**
+	 * The stock components behind the non-tool blocks the presenter is asked
+	 * about. Constructor shapes are the live ones; a host that changes them
+	 * fails to compile here.
 	 */
 	TtsrNotificationComponent: new (
 		rules: readonly unknown[],
@@ -412,6 +429,8 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 	}
 	return {
 		setTranscriptPresenters: presentationModule.setTranscriptPresenters,
+		PresentedBlock: presentationModule.PresentedBlock,
+		messageBlock: presentationModule.messageBlock,
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,
 		ReadToolGroupComponent: readGroupModule.ReadToolGroupComponent,
 		TranscriptContainer: transcriptModule.TranscriptContainer,

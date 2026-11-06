@@ -34,7 +34,7 @@ import {
 } from "./messages";
 import { ModePolicy } from "./mode-policy";
 import { objectRecord } from "./object-record";
-import { TranscriptPresenterState } from "./presenter";
+import { TranscriptPresenterState, ternNativeView } from "./presenter";
 import { gitMessageComponent, mutationMessageComponent } from "./render";
 import {
 	evidenceFromResult,
@@ -287,14 +287,28 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	}
 
+	/** Advisor notes show compact only while the plugin is on (live settings). */
+	function compactAdvisorNotes(): boolean {
+		const settings = settingsStore.snapshot();
+		return settings.enabled && settings.compactAdvisorNotes;
+	}
+
 	const presenter = new TranscriptPresenterState({
 		ledger,
 		restore: () => {
 			restoreHistory();
 		},
 		theme: () => (session?.hasUI ? session.ui.theme : undefined),
+		historicalMode: () => modePolicy.historical(),
+		compactAdvisorNotes,
+		nativeView: () => ternNativeView(Bun.env),
 	});
 	pi.registerTranscriptPresenter(presenter.present);
+
+	// The advisor switch is a live display preference: the cards already in
+	// the transcript follow a save (or the display cycle) at once. omp
+	// redraws only the cards whose answer changed.
+	settingsStore.subscribe(() => refresh(presenter.advisorIds()));
 
 	/**
 	 * The branch changed under the transcript (a new session, resume,
@@ -387,7 +401,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						const run = ledger.run(evidence.runId);
 						if (!run) return;
 						run.revealed = !run.revealed;
-						refresh(presenter.hiddenCallIds(run));
+						refresh([...presenter.hiddenCallIds(run), ...run.leaves]);
 					},
 				},
 			);
@@ -600,7 +614,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			phase !== "working",
 			() => {
 				if (run && phase !== "working" && ledger.finalizeRun(run, phase))
-					refresh(run.calls.map((call) => call.id));
+					refresh([...run.calls.map((call) => call.id), ...run.leaves]);
 			},
 		);
 		if (phase !== "working")

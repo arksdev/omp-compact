@@ -1,5 +1,6 @@
 /**
- * Per-session plugin state, keyed by toolCallId.
+ * Per-session plugin state, keyed by toolCallId (and, for the non-tool
+ * blocks, by block id: the run open when each block first appeared).
  *
  * The transcript presenter is asked about blocks by id and gets the call's
  * arguments and result with every question, so this ledger keeps only what
@@ -80,6 +81,10 @@ export interface RunRecord {
 	revealed: boolean;
 	/** Restored from the session branch rather than run in this process. */
 	readonly restored: boolean;
+	/** Wall clock when the run started. */
+	readonly startedAt: number;
+	/** Ids of the non-tool blocks (background notices, …) the run owns. */
+	readonly leaves: string[];
 	projection?: GitProjection;
 }
 
@@ -127,7 +132,9 @@ export class SessionLedger {
 	#continuing = false;
 	/** Finished run holding the calls that arrived with no run open. */
 	#stray: RunRecord | undefined;
-	/** Whether the current branch has been walked into the ledger. */
+	/** Non-tool blocks by id: the run open when each first appeared. */
+	#leafRuns = new Map<string, RunRecord | undefined>();
+	/** Whether the current branch has been walked. */
 	#restored = false;
 
 	constructor(options: SessionLedgerOptions) {
@@ -178,6 +185,24 @@ export class SessionLedger {
 	/** The run its stats evidence names. */
 	run(id: string): RunRecord | undefined {
 		return this.#runs.get(id);
+	}
+
+	/**
+	 * The run a non-tool block belongs to: the run open when the block was
+	 * first asked about, kept by block id. A block recorded before that run
+	 * started (`timestamp`, a message's own clock) is earlier history, and
+	 * so is every block seen with no run open: `undefined`.
+	 */
+	leafRun(id: string, timestamp?: number): RunRecord | undefined {
+		if (this.#leafRuns.has(id)) return this.#leafRuns.get(id);
+		const active = this.#active;
+		const run =
+			active && (timestamp === undefined || timestamp >= active.startedAt)
+				? active
+				: undefined;
+		this.#leafRuns.set(id, run);
+		run?.leaves.push(id);
+		return run;
 	}
 
 	/**
@@ -284,7 +309,8 @@ export class SessionLedger {
 	/**
 	 * Forget restored history: the branch changed (resume, tree navigation,
 	 * branch, compaction), so the next `restore` walks it again. The open
-	 * run, its calls and its evidence stay — live events keep them current.
+	 * run, its calls, its blocks and its evidence stay — live events keep
+	 * them current; an earlier run's blocks are history again.
 	 */
 	invalidateHistory(): void {
 		this.#restored = false;
@@ -294,12 +320,15 @@ export class SessionLedger {
 			if (call.run !== active) this.#calls.delete(id);
 		for (const [id, run] of this.#runs)
 			if (run !== active) this.#runs.delete(id);
+		for (const [id, run] of this.#leafRuns)
+			if (run !== active) this.#leafRuns.delete(id);
 	}
 
 	/** Drop everything: a new session. */
 	reset(): void {
 		this.#calls = new Map();
 		this.#runs = new Map();
+		this.#leafRuns = new Map();
 		this.#active = undefined;
 		this.#continuing = false;
 		this.#stray = undefined;
@@ -437,6 +466,8 @@ export class SessionLedger {
 			phase: "working",
 			revealed: false,
 			restored,
+			startedAt: this.#now(),
+			leaves: [],
 		};
 		this.#runs.set(id, run);
 		return run;
