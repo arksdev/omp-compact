@@ -49,7 +49,7 @@ function isUnwrapHashlineHeaderPath(
 	return typeof value === "function";
 }
 
-// Dynamic: a later host may drop the guard module
+// 18.16.0 compatibility; dynamic in case a later version may drop the guard module
 const legacyGuardExport = await import(
 	"@oh-my-pi/pi-coding-agent/tools/plan-mode-guard"
 ).then(
