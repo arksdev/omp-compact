@@ -48,14 +48,17 @@ export type MutationEvidence =
 	| MutationMessageDetails
 	| LegacyMutationMessageDetails;
 
-export type ArgsHash = ReturnType<typeof Bun.hash>;
+export interface ArgsHashes {
+	readonly exact: ReturnType<typeof Bun.hash>;
+	readonly bare: ReturnType<typeof Bun.hash>;
+}
 
 export interface CallRecord {
 	readonly id: string;
 	readonly toolName: string;
 	readonly run: RunRecord;
-	/** Hash of the final arguments; undefined until they are known. */
-	argsHash?: ArgsHash;
+	/** Hashes of the final arguments; undefined until they are known. */
+	args?: ArgsHashes;
 	mutations: readonly MutationEvidence[];
 	git?: GitMessageDetails;
 	/**
@@ -120,18 +123,34 @@ function keptMutations(
 }
 
 /**
- * Tells apart calls sharing an id. The intent field is left out: omp strips
- * it from the `tool_execution_start` arguments and adds it back to the block.
+ * Tells apart calls sharing an id. `bare` leaves out the top-level `i`, which
+ * is either the harness intent omp strips from `tool_execution_start` and
+ * adds back to the block, or an argument the tool itself owns.
  */
-function argsHash(args: unknown): ArgsHash | undefined {
+function argsHashes(args: unknown): ArgsHashes | undefined {
 	if (args === undefined) return undefined;
-	const { i: _intent, ...rest } = objectRecord(args);
 	try {
-		return Bun.hash(JSON.stringify(rest));
+		const { i: _intent, ...rest } = objectRecord(args);
+		return {
+			exact: Bun.hash(JSON.stringify(args)),
+			bare: Bun.hash(JSON.stringify(rest)),
+		};
 	} catch {
 		// Not serializable, so not a call the ledger can tell apart.
 		return undefined;
 	}
+}
+
+/**
+ * The same arguments: identical, or differing only in that one side has no
+ * `i` (the intent omp stripped). Two different `i` values are real arguments.
+ */
+function sameArgs(left: ArgsHashes, right: ArgsHashes): boolean {
+	return (
+		left.exact === right.exact ||
+		(left.bare === right.bare &&
+			(left.exact === left.bare || right.exact === right.bare))
+	);
 }
 
 let runCounter = 0;
@@ -208,9 +227,12 @@ export class SessionLedger {
 		if (!records) return undefined;
 		const newest = records.at(-1);
 		if (records.length === 1) return newest;
-		const hash = argsHash(args);
-		if (hash === undefined) return newest;
-		return records.findLast((call) => call.argsHash === hash) ?? newest;
+		const hashes = argsHashes(args);
+		if (!hashes) return newest;
+		return (
+			records.findLast((call) => call.args && sameArgs(call.args, hashes)) ??
+			newest
+		);
 	}
 
 	/** The run its stats evidence names. */
@@ -259,7 +281,7 @@ export class SessionLedger {
 		const run = this.#active ?? this.#strayRun();
 		const call =
 			this.#inRun(id, run) ?? this.#addCall(run, id, toolName, undefined);
-		call.argsHash ??= argsHash(args);
+		call.args ??= argsHashes(args);
 		return call;
 	}
 
@@ -406,20 +428,15 @@ export class SessionLedger {
 			)
 				return;
 			if (run && this.#inRun(id, run)) return;
-			const hash = argsHash(args);
+			const hashes = argsHashes(args);
 			const open = active && this.#inRun(id, active);
 			// The branch holds the open run's calls too; an earlier call with
 			// that id and other arguments is history.
-			if (
-				open &&
-				(open.argsHash === undefined ||
-					hash === undefined ||
-					open.argsHash === hash)
-			) {
-				open.argsHash ??= hash;
+			if (open && (!open.args || !hashes || sameArgs(open.args, hashes))) {
+				open.args ??= hashes;
 				return;
 			}
-			this.#addCall(ensureRun(), id, name, hash);
+			this.#addCall(ensureRun(), id, name, hashes);
 			restored.push(id);
 		};
 		for (const value of entries) {
@@ -543,10 +560,10 @@ export class SessionLedger {
 		run: RunRecord,
 		id: string,
 		toolName: string,
-		hash: ArgsHash | undefined,
+		args: ArgsHashes | undefined,
 	): CallRecord {
 		const call: CallRecord = { id, toolName, run, mutations: [] };
-		if (hash !== undefined) call.argsHash = hash;
+		if (args) call.args = args;
 		run.calls.push(call);
 		const records = this.#calls.get(id);
 		if (!records) {

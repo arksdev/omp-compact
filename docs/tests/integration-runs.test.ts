@@ -245,6 +245,19 @@ stockDescribe("a logical run", () => {
 		expect(rows(booted)).toBe("• grep: first");
 	});
 
+	test("a tool's own `i` argument tells repeated ids apart", async () => {
+		const booted = await boot("compact");
+		await beginRun(booted);
+		await runTool(booted, "call_0", "computer", { i: "first", code: "x" });
+		await endRun(booted);
+		await cycleMode(booted, 1);
+		await beginRun(booted);
+		await runTool(booted, "call_0", "computer", { i: "second", code: "x" });
+		await endRun(booted);
+		expect(rows(booted)).toContain("first");
+		expect(rows(booted)).not.toContain("second");
+	});
+
 	test("calls repeating both id and arguments across runs draw as the newest", async () => {
 		const booted = await boot("compact");
 		await beginRun(booted);
