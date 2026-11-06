@@ -131,6 +131,15 @@ stockDescribe("evidence after the answer", () => {
 		expect(booted.appendedEntries).toEqual([]);
 	});
 
+	test("creating an empty file keeps its row after the answer", async () => {
+		const cwd = workspace();
+		const booted = await boot("live", { cwd });
+		await beginRun(booted);
+		await write(booted, "w1", join(cwd, ".gitkeep"), "");
+		await endRun(booted);
+		expect(rows(booted)).toContain(".gitkeep");
+	});
+
 	test("an abort keeps the write row with its counts", async () => {
 		const cwd = workspace();
 		const booted = await boot("live", { cwd });

@@ -147,4 +147,14 @@ stockDescribe("the stats row", () => {
 		waitForIdlePoll();
 		expect(booted.sentMessages).toEqual([]);
 	});
+
+	test("an answer without tool calls still gets its row in clear", async () => {
+		const booted = await boot("clear", { stats: true });
+		await beginRun(booted);
+		await usage(booted, 42);
+		await endRun(booted);
+		waitForIdlePoll();
+		expect(statsSent(booted)).toHaveLength(1);
+		expect(statsRows(booted)[0]).toContain("42");
+	});
 });
