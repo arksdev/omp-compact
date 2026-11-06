@@ -682,8 +682,9 @@ describe("TranscriptFold on a Tern Surface Protocol host", () => {
 
 	/** The composer asks for the blocks once per TSP frame. */
 	class NativeTranscript extends FakeTranscript {
-		nativeBlocks(): readonly unknown[] {
-			return this.children;
+		nativeBlocks(cx?: { cols: number }): readonly unknown[] {
+			// A TSP frame always carries its describe context
+			return cx === undefined ? [] : this.children;
 		}
 	}
 
@@ -746,7 +747,7 @@ describe("TranscriptFold on a Tern Surface Protocol host", () => {
 	/** One TSP frame: the block list, then each block's description. */
 	function frame(transcript: NativeTranscript): unknown[] {
 		return transcript
-			.nativeBlocks()
+			.nativeBlocks(CX)
 			.map((block) => (block as DescribedBlock).describe(CX));
 	}
 
