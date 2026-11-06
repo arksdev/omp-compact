@@ -3,6 +3,56 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Ломающие изменения
+
+- Нужен OMP 18.17 или новее. Плагин рисует через публичный transcript presenter OMP (`pi.registerTranscriptPresenter`) и больше не патчит внутренние классы TUI.
+- Включите в OMP `/settings → Tools → Extensions → Extension Transcript Presenters`. Пока эта настройка выключена (так по умолчанию), плагин ничего не меняет на экране. Сам он её не трогает и один раз предупреждает, если она выключена.
+- Удалён auto-shake вместе с переменной `OMP_COMPACT_SHAKE` и пунктами меню `Auto-shake` и `Shake threshold`.
+- Удалены переключатели `Thinking blocks` и `Recap summary`: эти настройки OMP меняются в его собственном `/settings`. Группы `autoShake` и `host` в старом config загружаются без ошибок и сохраняются как есть.
+- Удалена переменная `OMP_COMPACT_TRACE`.
+
+### Изменено
+
+- Строка статистики стоит под ответом и появляется, когда сессия освободилась. В контекст модели она не попадает, а советники, которые читают сообщения сессии напрямую, видят только метку `[omp-compact turn stats]` без цифр.
+- Инструмент, для которого у плагина нет правила, получает однострочную сводку самого OMP вместо полной карточки.
+- Развёрнутый блок (`Ctrl+O` или переключатель в Tern) всегда показывает полную карточку OMP, в том числе скрытые вызовы и `browser`, `computer`, `resolve`, `reject`, которые раньше оставались компактными.
+- В Tern компактная строка не повторяет заголовок карточки (`Read  read src.txt`), а полную карточку открывает переключатель OMP.
+- Заметки советника, TTSR, todo reminder, skill, late diagnostics и запуски `!`/`$` читаются из данных блока, а не из нарисованной карточки.
+
+### Известное ограничение
+
+- Если следующий run повторяет `toolCallId` (провайдеры, нумерующие вызовы заново, например `call_0`), старый блок рисуется как вызов нового run. 1.x различал такие блоки; presenter API передаёт только id.
+
+Спасибо @materemias за переход на presenter API.
+
+---
+
+### Breaking
+
+- Requires OMP 18.17 or later. The plugin draws through OMP's public transcript presenter (`pi.registerTranscriptPresenter`) and no longer patches OMP's internal TUI classes.
+- Turn on `/settings → Tools → Extensions → Extension Transcript Presenters` in OMP. While it is off, which is the default, the plugin changes nothing on screen. It never changes the setting itself and warns once when it is off.
+- Removed auto-shake, its `OMP_COMPACT_SHAKE` variable and the `Auto-shake` and `Shake threshold` menu rows.
+- Removed the `Thinking blocks` and `Recap summary` switches: change those OMP settings in OMP's own `/settings`. The `autoShake` and `host` groups in an old config load without errors and are kept as they are.
+- Removed the `OMP_COMPACT_TRACE` variable.
+
+### Changed
+
+- The stats row sits under the answer and appears once the session is idle. It stays out of the model's context, and advisors, which read session messages directly, see only the marker `[omp-compact turn stats]` without numbers.
+- A tool the plugin has no rule for gets OMP's own one-line summary instead of the full card.
+- An expanded block (`Ctrl+O` or its toggle in Tern) always shows OMP's full card, including hidden calls and `browser`, `computer`, `resolve`, `reject`, which used to stay compact.
+- In Tern a compact row no longer repeats its card's title (`Read  read src.txt`), and OMP's toggle opens the full card.
+- Advisor notes, TTSR, todo reminders, skills, late diagnostics and `!`/`$` runs are read from the block's data instead of the drawn card.
+
+### Known limit
+
+- When a later run reuses a `toolCallId` (providers that number calls per response, such as `call_0`), the earlier block draws like the later run's call. 1.x told such blocks apart; the presenter API passes only the id.
+
+Thanks to @materemias for the move to the presenter API.
+
+---
+
 ## 1.4.20 — 4 ноября 2026
 
 ### Добавлено
