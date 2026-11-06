@@ -136,6 +136,8 @@ export interface HostModules {
 		addChild(child: unknown): void;
 		render(width: number): readonly string[];
 	};
+	/** The public seam `pi.registerTranscriptPresenter` feeds in omp. */
+	setTranscriptPresenters: (presenters: readonly never[]) => boolean;
 	/**
 	 * The six leaves the plugin recovers by scraping instead of patching
 	 * (`render-scrape.ts`), each behind a structural fingerprint in
@@ -289,6 +291,7 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		throw new Error(`Cannot find host module at ${agentFull} or ${tuiFull}`);
 	};
 	const [
+		presentationModule,
 		componentModule,
 		themeModule,
 		readGroupModule,
@@ -301,6 +304,14 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		lateDiagnosticsModule,
 		advisorMessageModule,
 	] = await Promise.all([
+		import(
+			pathToFileURL(
+				resolveHostModule(
+					"src/modes/components/transcript-presentation.ts",
+					"src/chat/transcript-presentation.ts",
+				),
+			).href
+		),
 		import(
 			pathToFileURL(
 				resolveHostModule(
@@ -400,6 +411,7 @@ export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 		// Ignore if hyperlink module is absent.
 	}
 	return {
+		setTranscriptPresenters: presentationModule.setTranscriptPresenters,
 		ToolExecutionComponent: componentModule.ToolExecutionComponent,
 		ReadToolGroupComponent: readGroupModule.ReadToolGroupComponent,
 		TranscriptContainer: transcriptModule.TranscriptContainer,

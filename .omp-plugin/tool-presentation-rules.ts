@@ -58,12 +58,6 @@ export interface ToolPresentationRule {
 	readonly knownArgs: readonly string[];
 	/** Result `details` keys this tool is known to return. */
 	readonly knownDetails: readonly string[];
-	/**
-	 * Keeps the compact row even when the tool call is explicitly expanded.
-	 * Only the interactive four (browser/computer/resolve/reject) opt in;
-	 * ordinary compact tools keep the native inspection escape hatch.
-	 */
-	compactOnExpand?: boolean;
 	/** Pure description from structured args; never touches the filesystem. */
 	describe(args: unknown, displayPaths?: DisplayPathOptions): ToolDescription;
 	/**
@@ -575,7 +569,6 @@ function presentationRule(
 	knownDetails: readonly string[],
 	describe: ToolPresentationRule["describe"],
 	resultMeta?: ToolPresentationRule["resultMeta"],
-	compactOnExpand?: boolean,
 ): ToolPresentationRule {
 	const rule: ToolPresentationRule = {
 		route,
@@ -585,7 +578,6 @@ function presentationRule(
 		describe,
 	};
 	if (resultMeta !== undefined) rule.resultMeta = resultMeta;
-	if (compactOnExpand === true) rule.compactOnExpand = true;
 	return Object.freeze(rule);
 }
 
@@ -725,8 +717,6 @@ export const TOOL_RULES: Readonly<
 			BROWSER_ARGS,
 			BROWSER_DETAILS,
 			describeBrowser,
-			undefined,
-			true,
 		),
 		ask: presentationRule(
 			"native-live",
@@ -746,7 +736,6 @@ export const TOOL_RULES: Readonly<
 			RESOLUTION_DETAILS,
 			describeTextDevice("resolve"),
 			resultMetaResolution,
-			true,
 		),
 		reject: presentationRule(
 			"compact",
@@ -755,7 +744,6 @@ export const TOOL_RULES: Readonly<
 			RESOLUTION_DETAILS,
 			describeTextDevice("reject"),
 			resultMetaResolution,
-			true,
 		),
 		computer: presentationRule(
 			"compact",
@@ -763,16 +751,12 @@ export const TOOL_RULES: Readonly<
 			COMPUTER_ARGS,
 			COMPUTER_DETAILS,
 			describeComputer,
-			undefined,
-			true,
 		),
 		task: presentationRule("compact", "none", [], [], genericDescribe("task")),
 		// Vibe worker-session devices: compact route, and the rows come from
 		// the dedicated vibe builder in render.ts (not `describe`). The
 		// generic description stays as the bounded fallback for any caller
-		// that asks a vibe rule to describe itself. No `compactOnExpand`:
-		// explicit expansion keeps the stock framed TV-wall card as the
-		// inspection escape hatch, exactly like ordinary compact tools.
+		// that asks a vibe rule to describe itself.
 		vibe_spawn: presentationRule(
 			"compact",
 			"none",

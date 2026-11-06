@@ -1,7 +1,7 @@
 import type { Theme, ThemeColor } from "./theme-types";
 
 import { codePointLength, truncateCodePoints } from "./compact";
-import { sanitizeOneLine } from "./render-scrape";
+import { sanitizeOneLine } from "./display-control";
 import { formatDuration } from "./format-duration";
 
 /**

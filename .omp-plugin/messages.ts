@@ -1,14 +1,63 @@
-import {
-	isBoundedCount,
-	isBoundedString,
-	MAX_EVIDENCE_PATH_LENGTH,
-	MAX_EVIDENCE_TEXT_LENGTH,
-	MAX_GIT_HASH_LENGTH,
-	MAX_GIT_RECORDS,
-	MAX_GIT_SUBCOMMAND_LENGTH,
-	MAX_MUTATION_COUNT,
-	MAX_TOOL_CALL_ID_LENGTH,
-} from "./hydration-bounds";
+/**
+ * Bounds applied to persisted evidence before it is trusted.
+ *
+ * Historical/custom evidence that exceeds these limits is ignored: the call
+ * keeps whatever the rest of its evidence proves, and nothing over-bounds is
+ * truncated into a record that claims `exact: true`. The limits are generous
+ * enough that live events never trip them — they exist so a hostile or
+ * corrupted session JSONL cannot grow plugin state without bound.
+ */
+
+/** Host-generated tool execution ids (UUIDs, run sequences). */
+export const MAX_TOOL_CALL_ID_LENGTH = 256;
+
+/** Registered tool names (stock and plugin). */
+export const MAX_TOOL_NAME_LENGTH = 128;
+
+/** Persisted filesystem path/cwd evidence fields. */
+export const MAX_EVIDENCE_PATH_LENGTH = 4_096;
+
+/**
+ * Persisted arbitrary text fields (Git rows, subjects, command text).
+ * Mirrors the git-records command-length budget (16_384).
+ */
+export const MAX_EVIDENCE_TEXT_LENGTH = 16_384;
+
+/** Git commit hashes are hex, 4–64 chars. */
+export const MAX_GIT_HASH_LENGTH = 64;
+
+/** Git subcommand names are short verb-like tokens. */
+export const MAX_GIT_SUBCOMMAND_LENGTH = 128;
+
+/**
+ * Per-carrier Git record rows; mirrors the git-records command-chain budget
+ * (MAX_COMMANDS = 8).
+ */
+export const MAX_GIT_RECORDS = 8;
+
+/** Mutation added/removed counts (real diff line counts). */
+export const MAX_MUTATION_COUNT = 10_000_000;
+
+/**
+ * Mutation evidence carriers retained per call. Each persisted carrier is
+ * one entry, and a corrupted branch must not grow the array without bound;
+ * excess carriers are ignored evidence.
+ */
+export const MAX_MUTATION_ENTRIES = 1_000;
+
+export function isBoundedString(value: unknown, max: number): value is string {
+	return typeof value === "string" && value.length <= max;
+}
+
+export function isBoundedCount(value: unknown, max: number): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isInteger(value) &&
+		Number.isFinite(value) &&
+		value >= 0 &&
+		value <= max
+	);
+}
 
 /**
  * Persisted message-type discriminators. The `omp-compact-` prefix scopes

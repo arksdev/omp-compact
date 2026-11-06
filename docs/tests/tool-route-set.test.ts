@@ -6,7 +6,6 @@ import {
 	type ToolRenderInput,
 } from "../../.omp-plugin/render-decision";
 import {
-	resolveToolRule,
 	TOOL_RULES,
 	type ToolRoute,
 } from "../../.omp-plugin/tool-presentation-rules";
@@ -52,19 +51,19 @@ const EXPECTED_ROUTES: Record<ToolRoute, true> = {
 };
 
 /**
- * Presentation pin for every route the tool sink can observe. `read-group`
- * is deliberately excluded: it never reaches `decideToolRender` — the
- * adapter routes read-group tools through group binding and
- * `decideReadGroupRender` — so the sink's fallthrough for it is reachable
- * only through a wiring defect, and pinning its accidental output here
- * would bless that defect. A new member MUST be added below with its
- * intended presentation.
+ * Presentation pin for every route. A read of a group is asked one by one,
+ * so `read-group` decides like any other tool. A new member MUST be added
+ * below with its intended presentation.
  */
-const EXPECTED_DECISIONS: Record<
-	Exclude<ToolRoute, "read-group">,
-	ToolRenderDecision
-> = {
+const EXPECTED_DECISIONS: Record<ToolRoute, ToolRenderDecision> = {
 	compact: {
+		kind: "tool-rows",
+		filtered: false,
+		summary: false,
+		summaryOnly: false,
+		includeGit: true,
+	},
+	"read-group": {
 		kind: "tool-rows",
 		filtered: false,
 		summary: false,
@@ -81,10 +80,6 @@ function toolInput(overrides: Partial<ToolRenderInput> = {}): ToolRenderInput {
 		retainGitLive: false,
 		compactSuppressedBySettings: false,
 		phase: "working",
-		expanded: false,
-		isPartial: false,
-		streamCollapse: false,
-		compactOnExpand: false,
 		hasMutations: false,
 		hasGit: false,
 		hashesLength: 0,
@@ -106,16 +101,10 @@ describe("ToolRoute set stays in step between the union and every dispatch site"
 	});
 
 	test("every sink-observable union member has its pinned presentation", () => {
-		const observed = Object.keys(EXPECTED_DECISIONS) as Array<
-			Exclude<ToolRoute, "read-group">
-		>;
-		for (const route of observed) {
+		for (const route of Object.keys(EXPECTED_DECISIONS) as ToolRoute[]) {
 			expect(decideToolRender(toolInput({ route })), route).toEqual(
 				EXPECTED_DECISIONS[route],
 			);
 		}
-		// The exclusion is live, not stale: read-group-route tools must stay
-		// in the group pipeline this guard documents.
-		expect(resolveToolRule("read")?.route).toBe("read-group");
 	});
 });

@@ -35,8 +35,6 @@ function fakeStore(initial?: CompactSettings): CompactSettingsStore & {
 				...current,
 				...patch,
 				stats: { ...current.stats, ...(patch.stats ?? {}) },
-				autoShake: { ...current.autoShake, ...(patch.autoShake ?? {}) },
-				host: { ...current.host, ...(patch.host ?? {}) },
 			} as CompactSettings;
 			for (const fn of [...subscribers]) fn(current);
 			return current;
@@ -60,63 +58,56 @@ function settings(
 }
 
 describe("ModePolicy run snapshots", () => {
-	test("fails open to enabled live defaults before any settings resolution", async () => {
+	test("fails open to enabled live defaults before any settings resolution", () => {
 		const policy = new ModePolicy(fakeStore());
-		expect(policy.enabled).toBe(true);
-		expect(policy.run).toBeUndefined();
-		await expect(policy.prepareRun()).resolves.toEqual(DEFAULT_RUN_MODE);
-		expect(policy.enabled).toBe(true);
+		expect(policy.prepareRun()).toEqual(DEFAULT_RUN_MODE);
 	});
 
-	test("captures one immutable snapshot per logical run", async () => {
+	test("captures a snapshot a later settings change cannot touch", async () => {
 		const store = fakeStore(settings({ mode: "compact" }));
 		const policy = new ModePolicy(store);
-		policy.prime();
-		const snapshot = await policy.prepareRun();
+		await policy.ready();
+		const snapshot = policy.prepareRun();
 		expect(snapshot.mode).toBe("compact");
 		// A mid-run settings change must never mix into the active run.
 		await store.update({ mode: "clear" });
-		expect(policy.run?.mode).toBe("compact");
-		expect(policy.enabled).toBe(true);
+		expect(snapshot.mode).toBe("compact");
 		// The next run boundary picks the change up.
-		const next = await policy.prepareRun();
+		const next = policy.prepareRun();
 		expect(next.mode).toBe("clear");
 		expect(next).not.toBe(snapshot);
 	});
 
-	test("mid-run global disable applies only at the next run boundary", async () => {
+	test("a global disable applies at the next run boundary and can be undone", async () => {
 		const store = fakeStore();
 		const policy = new ModePolicy(store);
-		await policy.prepareRun();
-		expect(policy.enabled).toBe(true);
+		await policy.ready();
+		const running = policy.prepareRun();
 		await store.update({ enabled: false });
-		// The frozen run snapshot keeps the runtime alive mid-run.
-		expect(policy.enabled).toBe(true);
-		const next = await policy.prepareRun();
-		expect(next.enabled).toBe(false);
-		expect(policy.enabled).toBe(false);
-	});
-
-	test("re-enable reinstalls cleanly at a later boundary", async () => {
-		const store = fakeStore();
-		const policy = new ModePolicy(store);
-		await policy.prepareRun();
-		await store.update({ enabled: false });
-		await policy.prepareRun();
-		expect(policy.enabled).toBe(false);
+		expect(running.enabled).toBe(true);
+		expect(policy.prepareRun().enabled).toBe(false);
 		await store.update({ enabled: true, mode: "compact" });
-		const next = await policy.prepareRun();
+		const next = policy.prepareRun();
 		expect(next.enabled).toBe(true);
 		expect(next.mode).toBe("compact");
 	});
 
-	test("prime resolves once and later prepareRun calls reuse it", async () => {
+	test("history uses the settings selected now", async () => {
+		const store = fakeStore(settings({ mode: "compact" }));
+		const policy = new ModePolicy(store);
+		await policy.ready();
+		await store.update({ mode: "clear" });
+		expect(policy.historical().mode).toBe("clear");
+	});
+
+	test("prime resolves once and ready reuses it", async () => {
 		const store = fakeStore(settings({ mode: "clear" }));
 		const policy = new ModePolicy(store);
 		policy.prime();
-		await policy.prepareRun();
-		await policy.prepareRun();
+		await policy.ready();
+		await policy.ready();
 		expect(store.loadCount()).toBe(1);
+		expect(policy.prepareRun().mode).toBe("clear");
 	});
 
 	test("ready resolves only after the first settings resolution", async () => {
@@ -132,7 +123,7 @@ describe("ModePolicy run snapshots", () => {
 		expect(settled).toBe(true);
 		expect(store.loadCount()).toBe(1);
 		// a persisted disable is now visible before any run starts
-		expect(policy.enabled).toBe(false);
+		expect(policy.prepareRun().enabled).toBe(false);
 	});
 
 	test("ready is fail-open: a rejecting store still settles", async () => {
@@ -145,24 +136,15 @@ describe("ModePolicy run snapshots", () => {
 		});
 		await expect(policy.ready()).resolves.toBeUndefined();
 		// defaults govern the first run
-		expect(policy.enabled).toBe(true);
+		expect(policy.prepareRun()).toEqual(DEFAULT_RUN_MODE);
 	});
 
-	test("ready is idempotent and resolves immediately once loaded", async () => {
+	test("the store subscription keeps the next boundary fresh", async () => {
 		const store = fakeStore();
 		const policy = new ModePolicy(store);
 		await policy.ready();
-		await policy.ready();
-		expect(store.loadCount()).toBe(1);
-	});
-
-	test("subscribe keeps current fresh for the next boundary", async () => {
-		const store = fakeStore();
-		const policy = new ModePolicy(store);
-		await policy.prepareRun();
 		await store.update({ retainGitLive: false });
-		expect(policy.current?.retainGitLive).toBe(false);
-		expect((await policy.prepareRun()).retainGitLive).toBe(false);
+		expect(policy.prepareRun().retainGitLive).toBe(false);
 	});
 });
 
@@ -170,56 +152,26 @@ describe("ModePolicy disposal", () => {
 	test("dispose unsubscribes exactly once and is idempotent", async () => {
 		const store = fakeStore(settings({ mode: "compact" }));
 		const policy = new ModePolicy(store);
-		await policy.prepareRun();
+		await policy.ready();
 		policy.dispose();
 		policy.dispose();
 		expect(store.unsubscribed()).toBe(1);
 		// the detached policy observes no further store notifications and
-		// keeps no stale settings or run snapshot
+		// keeps no stale settings
 		await store.update({ mode: "clear" });
-		expect(policy.current).toBeUndefined();
-		expect(policy.run).toBeUndefined();
+		expect(policy.historical()).toEqual(DEFAULT_RUN_MODE);
 	});
 
-	test("prime re-arms the subscription after dispose", async () => {
+	test("ready re-reads settings and re-arms the subscription after dispose", async () => {
 		const store = fakeStore(settings({ mode: "compact" }));
 		const policy = new ModePolicy(store);
-		policy.prime();
 		await policy.ready();
 		policy.dispose();
-		expect(store.unsubscribed()).toBe(1);
-		// a store change after dispose is invisible to the detached policy
 		await store.update({ mode: "clear" });
-		expect(policy.current).toBeUndefined();
-		// prime re-arms: a fresh resolve + a live subscription again
-		policy.prime();
 		await policy.ready();
-		expect(policy.current?.mode).toBe("clear");
+		expect(policy.prepareRun().mode).toBe("clear");
 		await store.update({ mode: "live" });
-		expect(policy.current?.mode).toBe("live");
-	});
-
-	test("ready and prepareRun stay usable after dispose", async () => {
-		const store = fakeStore(settings({ enabled: false }));
-		const policy = new ModePolicy(store);
-		await policy.prepareRun();
-		policy.dispose();
-		// a new session re-reads fresh settings without an explicit prime
-		await expect(policy.ready()).resolves.toBeUndefined();
-		expect(policy.enabled).toBe(false);
-		expect((await policy.prepareRun()).enabled).toBe(false);
-		// the re-armed subscription observes later updates again
-		await store.update({ enabled: true });
-		expect(policy.current?.enabled).toBe(true);
-	});
-
-	test("dispose clears the frozen run snapshot", async () => {
-		const store = fakeStore();
-		const policy = new ModePolicy(store);
-		await policy.prepareRun();
-		expect(policy.run).toBeDefined();
-		policy.dispose();
-		expect(policy.run).toBeUndefined();
+		expect(policy.prepareRun().mode).toBe("live");
 	});
 
 	test("late pre-dispose load does not overwrite post-dispose settings", async () => {
@@ -248,89 +200,38 @@ describe("ModePolicy disposal", () => {
 
 		policy.dispose();
 
-		// Session B: prepareRun starts a fresh load and freezes from it.
-		const prepared = policy.prepareRun();
+		// Session B resolves a fresh load.
+		const ready = policy.ready();
 		expect(pending.length).toBe(2);
 		pending[1]?.resolve(newSettings);
-		await expect(prepared).resolves.toMatchObject({ mode: "clear" });
-		expect(policy.current?.mode).toBe("clear");
-		expect(policy.enabled).toBe(true);
+		await ready;
+		expect(policy.prepareRun().mode).toBe("clear");
 
 		// Late settlement of the pre-dispose load must not clobber session B.
 		pending[0]?.resolve(oldSettings);
 		await Promise.resolve();
 		await Promise.resolve();
 
-		expect(policy.current?.mode).toBe("clear");
-		await expect(policy.prepareRun()).resolves.toMatchObject({
-			mode: "clear",
-		});
-	});
-
-	test("in-session load still populates current after settling", async () => {
-		let resolveLoad!: (value: CompactSettings) => void;
-		const loaded = settings({ mode: "live" });
-		const store: CompactSettingsStore = {
-			load: () =>
-				new Promise<CompactSettings>((resolve) => {
-					resolveLoad = resolve;
-				}),
-			snapshot: () => loaded,
-			update: async () => loaded,
-			subscribe: () => () => {},
-		};
-
-		const policy = new ModePolicy(store);
-		const prepared = policy.prepareRun();
-		expect(policy.current).toBeUndefined();
-		resolveLoad(loaded);
-		await expect(prepared).resolves.toMatchObject({ mode: "live" });
-		expect(policy.current?.mode).toBe("live");
-	});
-
-	test("dispose then prepareRun re-reads fresh settings", async () => {
-		let current = settings({ mode: "compact" });
-		const store: CompactSettingsStore = {
-			load: async () => current,
-			snapshot: () => current,
-			update: async () => current,
-			subscribe: () => () => {},
-		};
-		const policy = new ModePolicy(store);
-
-		await expect(policy.prepareRun()).resolves.toMatchObject({
-			mode: "compact",
-		});
-		policy.dispose();
-		current = settings({ mode: "clear" });
-		await expect(policy.prepareRun()).resolves.toMatchObject({
-			mode: "clear",
-		});
-		expect(policy.current?.mode).toBe("clear");
+		expect(policy.prepareRun().mode).toBe("clear");
 	});
 
 	test("repeated dispose stays safe across re-arm cycles", async () => {
 		const store = fakeStore(settings({ mode: "compact" }));
 		const policy = new ModePolicy(store);
 
-		await policy.prepareRun();
+		await policy.ready();
 		policy.dispose();
 		policy.dispose();
 		policy.dispose();
 
-		await expect(policy.prepareRun()).resolves.toMatchObject({
-			mode: "compact",
-		});
+		await policy.ready();
+		expect(policy.prepareRun().mode).toBe("compact");
 		policy.dispose();
 		policy.dispose();
 
 		await store.update({ mode: "clear" });
-		expect(policy.current).toBeUndefined();
-
-		await expect(policy.prepareRun()).resolves.toMatchObject({
-			mode: "clear",
-		});
-		expect(policy.current?.mode).toBe("clear");
+		await policy.ready();
+		expect(policy.prepareRun().mode).toBe("clear");
 	});
 });
 

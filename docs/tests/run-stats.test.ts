@@ -1,12 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
 import type { Theme } from "../../.omp-plugin/theme-types";
-import type { Component } from "@oh-my-pi/pi-tui";
 
 import type {
 	RunStatsEvidence,
 	RunStatsResult,
-	StatsCarrier,
+	StatsRow,
 } from "../../.omp-plugin/run-stats";
 import { loadStockPlugin } from "./test-stock-host";
 
@@ -52,11 +51,7 @@ interface RunStatsModule {
 	evidenceFromResult(result: RunStatsResult, runId: string): RunStatsEvidence;
 	resultFromEvidence(evidence: RunStatsEvidence): RunStatsResult;
 	isRunStatsEvidence(value: unknown): value is RunStatsEvidence;
-	createStatsCarrier(line: string): StatsCarrier;
-	statsMessageComponent(
-		details: RunStatsEvidence | undefined,
-		theme: Theme,
-	): Component | undefined;
+	StatsRow: typeof StatsRow;
 }
 
 let module: RunStatsModule;
@@ -1108,36 +1103,45 @@ describe("persisted evidence", () => {
 	});
 });
 
-describe("transcript carrier", () => {
-	test("carrier is a foldable omp-compact custom message", () => {
-		const carrier = module.createStatsCarrier("[ 1 actions ]");
-		expect(carrier.message.customType).toBe(module.STATS_MESSAGE_TYPE);
-		expect(carrier.message.customType.startsWith("omp-compact-")).toBe(true);
-	});
+describe("stats row", () => {
+	const LINE =
+		"[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ]";
 
-	test("carrier renders the line and truncates at narrow widths", () => {
-		const line =
-			"[ 27 actions · 508.4k prompt (28.2k fresh · 480.2k cached) · 1.3k received · 1h 20m 32s ]";
-		const carrier = module.createStatsCarrier(line);
-		expect(carrier.render(120)).toEqual([line]);
-		const narrow = carrier.render(20);
+	test("renders the line, truncates at narrow widths, packs with its neighbours", () => {
+		const row = new module.StatsRow(() => LINE);
+		expect(row.render(120)).toEqual([LINE]);
+		const narrow = row.render(20);
 		expect(narrow).toHaveLength(1);
 		expect(Bun.stripANSI(narrow[0] ?? "").length).toBeLessThanOrEqual(20);
+		expect(row.isTranscriptBlockCompact()).toBe(true);
 	});
-});
 
-describe("statsMessageComponent", () => {
-	test("renders valid evidence, ignores invalid", () => {
-		const component = module.statsMessageComponent(
-			module.evidenceFromResult(result(), "r1"),
-			fakeTheme(),
-		);
-		expect(component).toBeDefined();
-		const rows = component?.render(120) ?? [];
-		expect(Bun.stripANSI(rows.join("\n"))).toContain("27 actions");
-		expect(Bun.stripANSI(rows.join("\n"))).toContain("28.2k fresh");
-		expect(
-			module.statsMessageComponent(undefined, fakeTheme()),
-		).toBeUndefined();
+	test("an empty line draws nothing", () => {
+		const row = new module.StatsRow(() => "");
+		expect(row.render(120)).toEqual([]);
+		expect(row.describe()).toMatchObject({ p: { hidden: true } });
+	});
+
+	test("a click toggles the run's hidden calls only when it hid some", () => {
+		let toggles = 0;
+		let available = false;
+		const row = new module.StatsRow(() => LINE, {
+			available: () => available,
+			shown: () => false,
+			toggle: () => {
+				toggles++;
+			},
+		});
+		expect(row.describe()).not.toMatchObject({
+			p: { actions: expect.anything() },
+		});
+		available = true;
+		const node = row.describe() as { p?: { actions?: { click?: string } } };
+		const act = node.p?.actions?.click;
+		expect(act).toBeDefined();
+		row.handleNativeEvent({ type: "action", act });
+		expect(toggles).toBe(1);
+		row.handleNativeEvent({ type: "action", act: "other" });
+		expect(toggles).toBe(1);
 	});
 });

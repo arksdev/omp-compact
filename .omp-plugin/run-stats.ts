@@ -1,14 +1,11 @@
+import type { NativeNode } from "@oh-my-pi/pi-tui";
+
 import type { Theme } from "./theme-types";
-import { type Component, truncateToWidth } from "@oh-my-pi/pi-tui";
 
 import type { CompactStatsSettings } from "./config";
 import { fitTransparentLine } from "./fit-transparent-line";
-import { isBoundedCount } from "./hydration-bounds";
-import {
-	clickableRows,
-	describeWidth,
-	HIDDEN_CALLS_ACTION,
-} from "./native-describe";
+import { isBoundedCount } from "./messages";
+import { rowsNode } from "./native-text";
 import { objectRecord } from "./object-record";
 import { fixedForeground } from "./render";
 
@@ -69,15 +66,6 @@ export interface RunStatsEvidence {
 	completedAt: number;
 }
 
-/** The plugin-owned foldable transcript block that carries the stats line. */
-export interface StatsCarrier {
-	render(width: number): readonly string[];
-	readonly message: { readonly customType: string };
-	/** Tern Surface Protocol only: the line as a show/hide toggle. */
-	describe?(cx?: unknown): unknown;
-	handleNativeEvent?(event: unknown): void;
-}
-
 /**
  * The run's hidden calls behind its stats row: what `live` and `clear`
  * leave off the screen once the run ends.
@@ -89,6 +77,9 @@ export interface StatsReveal {
 	shown(): boolean;
 	toggle(): void;
 }
+
+/** What a click on a run's stats row sends: show or hide the calls it hid. */
+export const HIDDEN_CALLS_ACTION = "omp-compact.hidden-calls";
 
 const STATS_SEPARATOR_COLOR = "#A4D734";
 
@@ -450,82 +441,53 @@ export function isRunStatsEvidence(value: unknown): value is RunStatsEvidence {
 }
 
 /**
- * The foldable transcript carrier for the stats row. `message.customType`
- * starts with `omp-compact-`, so the fold treats it as a terminal foldable
- * block: with tool rows it joins the trailing run (row lands after mutation
- * rows and the optional Git summary, directly above the native answer); on
- * no-tool answers it is a single-member run in the same position.
+ * The stats message's transcript row. It joins neighbouring compact blocks
+ * (no blank row between them in the terminal, no gap in Tern). In Tern's
+ * native view, while the run hid calls, a click on the line shows them in
+ * their own places and a second click hides them again.
  */
-export function createStatsCarrier(
-	line: string,
-	reveal?: StatsReveal,
-): StatsCarrier {
-	const carrier: StatsCarrier = {
-		message: { customType: STATS_MESSAGE_TYPE },
-		render: (width: number) => [fitTransparentLine(line, width)],
-	};
-	if (!reveal) return carrier;
-	// In a Tern pane a click on the line shows the calls the run hid, in
-	// their own places, and a second click hides them again. A run that hid
-	// nothing describes nothing, so the fold paints the plain line.
-	let cached: { cols: number; shown: boolean; node: object } | undefined;
-	carrier.describe = (cx?: unknown): unknown => {
-		if (!reveal.available()) return undefined;
-		const cols = describeWidth(cx);
-		const shown = reveal.shown();
-		if (cached?.cols === cols && cached.shown === shown) return cached.node;
-		const node = clickableRows(
-			[fitTransparentLine(line, cols)],
-			cols,
-			HIDDEN_CALLS_ACTION,
-			shown ? "Hide the calls this turn hid" : "Show the calls this turn hid",
-		);
-		cached = { cols, shown, node };
-		return node;
-	};
-	carrier.handleNativeEvent = (event: unknown): void => {
-		const record = objectRecord(event);
-		if (record.type === "action" && record.act === HIDDEN_CALLS_ACTION)
-			reveal.toggle();
-	};
-	return carrier;
-}
+export class StatsRow {
+	readonly #line: () => string;
+	readonly #reveal: StatsReveal | undefined;
 
-const ALL_STATS_SEGMENTS: CompactStatsSettings = {
-	enabled: true,
-	actions: true,
-	sent: true,
-	received: true,
-	cache: true,
-	time: true,
-	clock: true,
-};
-
-class StatsMessageLines implements Component {
-	readonly #lines: readonly string[];
-
-	constructor(lines: readonly string[]) {
-		this.#lines = lines;
+	/** `line` is read per draw, so settings and theme changes apply. */
+	constructor(line: () => string, reveal?: StatsReveal) {
+		this.#line = line;
+		this.#reveal = reveal;
 	}
 
 	render(width: number): readonly string[] {
-		const safeWidth = Math.max(1, width);
-		return this.#lines.map((line) => truncateToWidth(line, safeWidth));
+		const line = this.#line();
+		return line ? [fitTransparentLine(line, Math.max(1, width))] : [];
 	}
-}
 
-/**
- * Component for the persisted evidence entry, so viewers that render custom
- * entries through registered message renderers can show the run row too.
- */
-export function statsMessageComponent(
-	details: RunStatsEvidence | undefined,
-	theme: Theme,
-): Component | undefined {
-	if (!details || !isRunStatsEvidence(details)) return undefined;
-	return new StatsMessageLines([
-		statsLine(resultFromEvidence(details), ALL_STATS_SEGMENTS, theme),
-	]);
+	isTranscriptBlockCompact(): boolean {
+		return true;
+	}
+
+	describe(): NativeNode {
+		const line = this.#line();
+		// Mounted but never laid out, like omp's own empty node.
+		if (!line) return { k: "col", p: { hidden: true } };
+		const reveal = this.#reveal;
+		if (!reveal?.available()) return rowsNode([line]);
+		return rowsNode([line], {
+			act: HIDDEN_CALLS_ACTION,
+			title: reveal.shown()
+				? "Hide the calls this turn hid"
+				: "Show the calls this turn hid",
+		});
+	}
+
+	handleNativeEvent(event: unknown): void {
+		const record = objectRecord(event);
+		if (record.type === "action" && record.act === HIDDEN_CALLS_ACTION)
+			this.#reveal?.toggle();
+	}
+
+	invalidate(): void {
+		// Stateless: every draw reads the line again.
+	}
 }
 
 /**

@@ -1,7 +1,7 @@
-import { MAX_EVIDENCE_PATH_LENGTH } from "./hydration-bounds";
-import type {
-	LegacyMutationMessageDetails,
-	MutationMessageDetails,
+import {
+	type LegacyMutationMessageDetails,
+	MAX_EVIDENCE_PATH_LENGTH,
+	type MutationMessageDetails,
 } from "./messages";
 import { objectRecord } from "./object-record";
 

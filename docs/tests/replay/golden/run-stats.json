@@ -1,14 +1,14 @@
 {
 	"rows": [
-		"[ 16 actions · 389.5k prompt (3.2k fresh · 386.3k cached) · 1.9k received · 0s ]",
-		"<answer 4>"
+		"<answer 4>",
+		"[ 16 actions · 389.5k prompt (3.2k fresh · 386.3k cached) · 1.9k received · 0s ]"
 	],
 	"carriers": [
 		{
 			"customType": "omp-compact-stats",
 			"data": {
 				"version": 1,
-				"runId": "omp-compact-run-1",
+				"runId": "<run>",
 				"actions": 16,
 				"sent": 3207,
 				"received": 1919,

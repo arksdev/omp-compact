@@ -48,3 +48,75 @@ export function stripRejectedControls(value: string): string {
 	}
 	return output;
 }
+
+/**
+ * Strip ANSI CSI (ESC[) and OSC (ESC]) sequences. Pure escape stripping: it
+ * does not collapse whitespace, enforce a length budget, or reject control
+ * characters — those stay in `stripRejectedControls` / `sanitizeOneLine`.
+ *
+ * Not `Bun.stripANSI`: it reads a lone C1 CSI (U+009B) as a sequence
+ * introducer and drops the text after it (`ok\x9B中😀` → `ok`). Here a stray
+ * C1 is a control that `stripRejectedControls` drops, and the text stays.
+ */
+function stripAnsi(value: string): string {
+	let result = "";
+	let segStart = 0;
+	for (let index = 0; index < value.length; ) {
+		if (value.charCodeAt(index) !== 27) {
+			index++;
+			continue;
+		}
+		// Flush the clean segment before this ESC.
+		result += value.slice(segStart, index);
+		index++;
+		const kind = value.charCodeAt(index);
+		if (kind === 91) {
+			// CSI ESC[
+			index++;
+			while (index < value.length) {
+				const code = value.charCodeAt(index++);
+				if (code >= 64 && code <= 126) break;
+			}
+		} else if (kind === 93) {
+			// OSC ESC]
+			index++;
+			while (index < value.length) {
+				const code = value.charCodeAt(index++);
+				if (code === 7) break;
+				if (code === 27 && value.charCodeAt(index) === 92) {
+					index++;
+					break;
+				}
+			}
+		} else {
+			index++;
+		}
+		segStart = index;
+	}
+	result += value.slice(segStart);
+	return result;
+}
+
+/** Default code-point budget of one compact description. */
+export const MAX_DESCRIPTION = 220;
+
+/**
+ * One display line from untrusted text: ANSI and rejected controls dropped,
+ * whitespace runs collapsed, and at most `limit` code points (an ellipsis
+ * marks the cut). Non-string input yields `""`.
+ */
+export function sanitizeOneLine(
+	value: unknown,
+	limit = MAX_DESCRIPTION,
+): string {
+	const text = typeof value === "string" ? value : "";
+	const clean = stripRejectedControls(stripAnsi(text))
+		.replace(/\s+/g, " ")
+		.trim();
+	// The budget counts code points, not UTF-16 units: slicing by UTF-16
+	// index would split surrogate pairs (astral emoji) at the boundary.
+	if (clean.length <= limit) return clean;
+	const chars = Array.from(clean);
+	if (chars.length <= limit) return clean;
+	return `${chars.slice(0, Math.max(0, limit - 1)).join("")}…`;
+}

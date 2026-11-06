@@ -13,7 +13,7 @@
 		"• bash: bun test ../../plugins/omp-compact/audit-lifecycle.test.ts 2>&1 | tail -12 · 0.1s",
 		"• edit: plugin/index.ts +2|2",
 		"• edit: plugin/index.ts +3|0",
-		"✗ edit: plugin/index.ts · [shaken]",
+		"• ✗ edit: plugin/index.ts · [shaken]",
 		"• grep: ? · in plugin/turn-ledger.ts · 5 matches",
 		"• hub"
 	],

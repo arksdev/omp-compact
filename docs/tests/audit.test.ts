@@ -20,9 +20,10 @@ import {
 	MAX_PER_FILE_RESULTS,
 	trimmedMiddleLines,
 } from "../../.omp-plugin/audit-diff";
-import { MAX_EVIDENCE_PATH_LENGTH } from "../../.omp-plugin/hydration-bounds";
-
-import type { MutationMessageDetails } from "../../.omp-plugin/messages";
+import {
+	MAX_EVIDENCE_PATH_LENGTH,
+	type MutationMessageDetails,
+} from "../../.omp-plugin/messages";
 import { loadStockPlugin } from "./test-stock-host";
 
 interface WriteCandidate {

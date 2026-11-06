@@ -61,32 +61,13 @@ describe("canonical routes and audit kinds", () => {
 		expect(Object.keys(TOOL_RULES).sort()).toEqual(CANONICAL_NAMES);
 	});
 
-	test("interactive four route compact with compactOnExpand; ask stays native", () => {
+	test("interactive four route compact; ask stays native", () => {
 		expect(TOOL_RULES.read?.route).toBe("read-group");
 		for (const name of ["browser", "computer", "resolve", "reject"]) {
 			expect(TOOL_RULES[name]?.route, name).toBe("compact");
-			expect(TOOL_RULES[name]?.compactOnExpand, name).toBe(true);
 		}
 		expect(TOOL_RULES.ask?.route).toBe("native-live");
-		expect(TOOL_RULES.ask?.compactOnExpand).toBeUndefined();
 		expect(TOOL_RULES.task?.route).toBe("compact");
-	});
-
-	test("compactOnExpand is opt-in: only the interactive four carry it", () => {
-		const expanded = Object.entries(TOOL_RULES)
-			.filter(([, rule]) => rule?.compactOnExpand === true)
-			.map(([name]) => name)
-			.sort();
-		expect(expanded).toEqual(["browser", "computer", "reject", "resolve"]);
-		for (const [name, rule] of Object.entries(TOOL_RULES)) {
-			expect(rule, name).toBeDefined();
-			if (!rule) continue;
-			if (["browser", "computer", "resolve", "reject"].includes(name)) {
-				expect(rule.compactOnExpand, name).toBe(true);
-			} else {
-				expect(rule.compactOnExpand, name).toBeUndefined();
-			}
-		}
 	});
 
 	test("existing routine tools are explicitly compact", () => {

@@ -39,15 +39,17 @@ export interface BootedPlugin {
 		hasUI: boolean;
 		ui: {
 			theme: ReturnType<HostModules["getTheme"]>;
-			setWidget(key: string, content: unknown): void;
 			notify(message: string, level: string): void;
-			getToolsExpanded(): boolean;
+			refreshTranscript(ids: readonly string[]): void;
 		};
-		sessionManager: { getBranch(): readonly unknown[] };
-		setInterval?(callback: () => void, milliseconds: number): unknown;
-		clearTimer?(timer: unknown): void;
+		mode: string;
+		isIdle(): boolean;
+		sessionManager: {
+			getBranch(): readonly unknown[];
+			getEntries(): readonly unknown[];
+			getEntry(id: string): unknown;
+		};
 	};
-	root: { addChild(child: unknown): void };
 	ContainerBase: new () => {
 		addChild(child: unknown): void;
 		render(width: number): readonly string[];
@@ -65,14 +67,15 @@ export interface BootedPlugin {
 		) => Renderable | undefined
 	>;
 	notifications: string[];
-	intervalCallbacks: Array<() => void>;
-	clearedTimers: unknown[];
 	transcript: TranscriptInstance;
+	/** Session entries the walk reads; tests assign them before a resume. */
+	branch: unknown[];
 }
 
 export async function bootReplay(options: {
 	settings?: Record<string, unknown>;
 	cwd?: string;
+	branch?: unknown[];
 }): Promise<BootedPlugin> {
 	const host = await loadHost();
 	await host.initTheme();
@@ -103,10 +106,15 @@ export async function bootReplay(options: {
 		) => Renderable | undefined
 	>();
 	const notifications: string[] = [];
-	const intervalCallbacks: Array<() => void> = [];
-	const clearedTimers: unknown[] = [];
+	const presenters: unknown[] = [];
 	const pi = {
+		logger: { warn() {} },
 		setLabel() {},
+		registerShortcut() {},
+		getShortcutConflict: () => undefined,
+		registerTranscriptPresenter(presenter: unknown) {
+			presenters.push(presenter);
+		},
 		getActiveTools() {
 			throw new Error("native active-tool registry must not be queried");
 		},
@@ -149,34 +157,35 @@ export async function bootReplay(options: {
 			Bun.env.OMP_COMPACT_CONFIG = previousModeConfig;
 		}
 	}
+	host.setTranscriptPresenters(presenters as never);
 	const ContainerBase = host.ContainerBase;
-	const root = new ContainerBase();
 	const transcript = new host.TranscriptContainer();
-	root.addChild(transcript);
+	const branch = options.branch ?? [];
 	const context: BootedPlugin["context"] = {
 		cwd: options.cwd ?? "/tmp",
 		hasUI: true,
 		ui: {
 			theme: host.getTheme(),
-			setWidget(_key, content) {
-				if (typeof content === "function") {
-					(content as (tui: unknown) => Renderable)(root);
-				}
-			},
 			notify(message) {
 				notifications.push(message);
 			},
-			getToolsExpanded() {
-				return false;
+			refreshTranscript(ids) {
+				const wanted = new Set(ids);
+				for (const block of transcript.children)
+					(
+						block as {
+							refreshTranscriptPresentation?(ids: ReadonlySet<string>): void;
+						}
+					).refreshTranscriptPresentation?.(wanted);
 			},
 		},
-		sessionManager: { getBranch: () => [] },
-		setInterval(callback) {
-			intervalCallbacks.push(callback);
-			return callback;
-		},
-		clearTimer(timer) {
-			clearedTimers.push(timer);
+		mode: "tui",
+		isIdle: () => true,
+		sessionManager: {
+			getBranch: () => branch,
+			getEntries: () => branch,
+			getEntry: (id) =>
+				branch.find((entry) => (entry as { id?: string }).id === id),
 		},
 	};
 	for (const handler of handlers.get("session_start") ?? []) {
@@ -187,7 +196,6 @@ export async function bootReplay(options: {
 		host,
 		handlers,
 		context,
-		root,
 		ContainerBase,
 		registeredTools,
 		commands,
@@ -195,9 +203,8 @@ export async function bootReplay(options: {
 		renderers: renderers as BootedPlugin["renderers"],
 		appendedEntries,
 		notifications,
-		intervalCallbacks,
-		clearedTimers,
 		transcript,
+		branch,
 	};
 }
 
@@ -346,6 +353,10 @@ function normalizeCarrierData(data: unknown, depth = 0): unknown {
 			out[key] = 0;
 			continue;
 		}
+		if (key === "runId") {
+			out[key] = "<run>";
+			continue;
+		}
 		out[key] = normalizeCarrierData(value, depth + 1);
 	}
 	return out;
@@ -455,10 +466,11 @@ export async function replayFixture(
 					result,
 					isError,
 				});
+				const settled = { ...(result as object), isError };
 				if (binding?.kind === "tool") {
-					binding.component.updateResult(result, false, id);
+					binding.component.updateResult(settled, false, id);
 				} else if (binding?.kind === "read") {
-					binding.group.updateResult(result, false, id);
+					binding.group.updateResult(settled, false, id);
 				}
 				break;
 			}
@@ -506,9 +518,26 @@ export async function replayFixture(
 		}
 	}
 
+	// The stats message waits for idle on the plugin's poll timer.
+	await Bun.sleep(80);
+	const statsRows = booted.sentMessages.flatMap(({ message }) =>
+		visibleRows(
+			booted.renderers.get(String(message.customType))?.(
+				{ details: message.details },
+				{ expanded: false },
+				booted.context.ui.theme,
+			) ?? { render: () => [] },
+		),
+	);
 	const outcome: ReplayOutcome = {
-		rows: visibleRows(booted.transcript),
-		carriers: booted.appendedEntries.map((entry) => ({
+		rows: [...visibleRows(booted.transcript), ...statsRows],
+		carriers: [
+			...booted.appendedEntries,
+			...booted.sentMessages.map(({ message }) => ({
+				customType: String(message.customType),
+				data: message.details,
+			})),
+		].map((entry) => ({
 			customType: entry.customType,
 			data: normalizeCarrierData(entry.data),
 		})),

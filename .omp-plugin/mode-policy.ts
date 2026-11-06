@@ -33,18 +33,13 @@ export function runModeFromSettings(
 
 /**
  * Settings → runtime-mode policy. One immutable snapshot per logical run,
- * captured at `prepareRun` (agent_start) and never mutated mid-run, so
- * toolUse/willContinue continuations keep the mode that started the run.
- * Dialog saves and env overrides reach `#current` through the store
- * subscription and apply at the next run boundary (`prepareRun` freezes
- * them). External JSON file edits that bypass the store's subscribe/update
- * path are not re-`load()`'d at `prepareRun` while `#current` is already
- * set — only the next session boundary (`dispose` clears state, then
- * prime/ready/prepareRun re-resolve) picks those up. Global disable/
- * re-enable is transactional at the run boundary (adapter dispose/
- * reinstall) while the settings command stays registered. Fail-open:
- * before the first settings resolution the runtime is enabled with `live`
- * defaults, matching stock behavior.
+ * captured at `prepareRun` (agent_start); the ledger keeps it for the whole
+ * run, so toolUse/willContinue continuations keep the mode that started the
+ * run. Dialog saves and env overrides reach `#current` through the store
+ * subscription and apply at the next run boundary. External JSON file edits
+ * that bypass the store are picked up at the next session boundary
+ * (`dispose` clears state, then `ready` re-resolves). Fail-open: before the
+ * first settings resolution the runtime is enabled with `live` defaults.
  */
 export class ModePolicy {
 	readonly #store: CompactSettingsStore;
@@ -54,24 +49,6 @@ export class ModePolicy {
 	#generation = 0;
 	#resolved: Promise<CompactSettings> | undefined;
 	#current: CompactSettings | undefined;
-	#run: RunModeSnapshot | undefined;
-	// Restore view: one-shot settings snapshot armed while a restored
-	// session's historical transcript hydrates. Entering an existing session
-	// (`omp -c`, `--resume`/picker, in-process `/resume`) presents the
-	// restored history in the selected mode immediately; the override is
-	// cleared at the next run boundary so the resumed session's live runs
-	// keep the persisted mode policy. The persisted `mode` is never touched.
-	#restore: RunModeSnapshot | undefined;
-	// Collapsed-rebuild permit: one-shot suffix-alignment arm for the
-	// post-LLM-compaction transcript rebuild. Stock emits `session_compact`
-	// after a successful compaction entry is written and BEFORE
-	// `rebuildChatFromMessages` clears/repaints the collapsed visible tail
-	// while `getBranch()` still walks the full pre-compact path. Unlike
-	// `#restore`, this freezes no snapshot on historical ledgers — it only
-	// unlocks bindHydrated suffix pairing. Cleared after the
-	// rebuild settlement consumes it, at the next run boundary, and on
-	// dispose so /shake, live clears, and later runs never inherit it.
-	#collapsedRebuildArmed = false;
 
 	constructor(store: CompactSettingsStore) {
 		this.#store = store;
@@ -85,8 +62,6 @@ export class ModePolicy {
 	 * policy object is reused across session switches, so the first
 	 * prime/ready/prepareRun of the new session must observe store
 	 * notifications again. No-op while subscribed.
-	 * Called implicitly at the start of prime/ready/prepareRun so callers
-	 * never need to invoke it directly.
 	 */
 	#resubscribe(): void {
 		if (!this.#disposed) return;
@@ -105,8 +80,7 @@ export class ModePolicy {
 	/**
 	 * Resolves once the FIRST settings resolution has settled (fail-open:
 	 * never rejects — the store normalizes malformed/missing config to
-	 * defaults). Session rendering awaits this before installing the runtime
-	 * so a persisted `enabled=false` never sees a transient adapter.
+	 * defaults).
 	 */
 	async ready(): Promise<void> {
 		this.#resubscribe();
@@ -119,113 +93,20 @@ export class ModePolicy {
 	}
 
 	/**
-	 * Immutable snapshot of the latest logical run: frozen while it runs and
-	 * kept until the next run boundary, so settings changed while idle take
-	 * effect at the next run. Undefined before the first run.
+	 * The snapshot a run restored from the session's history freezes: the
+	 * currently selected settings, so a resumed session presents its past
+	 * runs the way the user has chosen to see runs now. Persisted settings
+	 * are never modified.
 	 */
-	get run(): RunModeSnapshot | undefined {
-		return this.#run;
-	}
-
-	/**
-	 * The armed restore override; undefined between restore entries and the
-	 * next run boundary. While armed, ledgers created by branch hydration/
-	 * rebuild (a restored session's historical transcript) snapshot the
-	 * current settings. The presence of the snapshot — never its mode — is
-	 * what marks a restore in progress.
-	 */
-	get restoreOverride(): RunModeSnapshot | undefined {
-		return this.#restore;
-	}
-
-	/**
-	 * Arm the one-shot restore override for the current restored session:
-	 * the snapshot the ledgers of branch hydration/rebuild freeze, and the
-	 * marker that a restore is in progress.
-	 *
-	 * It no longer imposes a mode. An imposed complete log reached
-	 * `TurnLedger.finalize`, whose compact branch pins the terminal phase
-	 * of every restored run to `full`, so a resumed session broke the
-	 * promise of the selected mode: the routine of turns that had already
-	 * answered in text stayed on screen instead of collapsing the way it
-	 * does right after the answer. All three modes now snapshot exactly
-	 * what the user chose; the persisted settings are never modified.
-	 *
-	 * Cleared at the next run boundary (`prepareRun`) so live runs keep the
-	 * normal policy, and by `dispose()` so a subsequent session never
-	 * inherits it. No-op while the runtime is disabled; call only after
-	 * `ready()` so the current settings are resolved.
-	 */
-	armRestoreOverride(): void {
-		if (!this.enabled) return;
-		const base = this.#current ?? DEFAULT_SETTINGS;
-		this.#restore = {
-			mode: base.mode,
-			enabled: true,
-			retainGitLive: base.retainGitLive,
-			compactVibeRows: base.compactVibeRows,
-		};
-	}
-
-	/**
-	 * Whether the one-shot collapsed-rebuild suffix permit is armed.
-	 * True only between a rebuild-producing history rewrite — a successful
-	 * LLM compaction or our own automatic post-turn shake elide — and the
-	 * rebuild settlement (or run/session boundary) that consumes it. Does
-	 * not change presentation mode.
-	 */
-	get collapsedRebuildArmed(): boolean {
-		return this.#collapsedRebuildArmed;
-	}
-
-	/**
-	 * Arm the one-shot collapsed-rebuild suffix permit. Call from the
-	 * public `session_compact` extension event after a successful LLM
-	 * compaction entry lands, and before the automatic post-turn shake
-	 * elide — both rewrite the persisted history and make the host clear
-	 * and rebuild the transcript from a collapsed tail. Does not touch
-	 * `restoreOverride` or the persisted/run mode. No-op while the runtime
-	 * is disabled.
-	 */
-	armCollapsedRebuild(): void {
-		if (!this.enabled) return;
-		this.#collapsedRebuildArmed = true;
-	}
-
-	/**
-	 * Consume the collapsed-rebuild permit after a rebuild settlement (or
-	 * an abort of the matching generation). Idempotent.
-	 */
-	consumeCollapsedRebuild(): void {
-		this.#collapsedRebuildArmed = false;
-	}
-
-	/** Latest resolved settings (kept fresh by store notifications). */
-	get current(): CompactSettings | undefined {
-		return this.#current;
-	}
-
-	/**
-	 * Whether runtime is enabled. The latest run's frozen snapshot governs,
-	 * during the run and while idle until the next run boundary (settings
-	 * changes never mix into a run or its finished transcript); before the
-	 * first run the latest settings decide; before the first load the
-	 * default (enabled).
-	 */
-	get enabled(): boolean {
-		const run = this.#run;
-		if (run) return run.enabled;
-		return (this.#current ?? DEFAULT_SETTINGS).enabled;
+	historical(): RunModeSnapshot {
+		return runModeFromSettings(this.#current ?? DEFAULT_SETTINGS);
 	}
 
 	#resolve(): Promise<CompactSettings> {
 		// #resolved is cleared by dispose() and re-populated on the next call.
 		// Across a session boundary store.load() re-reads the config file and
-		// env overrides, which can differ — so two concurrent loads do NOT
-		// "resolve to the same data". An already-running load cannot be
-		// cancelled; capture the generation at start and only commit #current
-		// when that generation is still live. Stale settlements are ignored.
-		// Concurrent loads within one generation remain benign (same file).
+		// env overrides, which can differ — capture the generation at start
+		// and only commit #current when that generation is still live.
 		if (!this.#resolved) {
 			const generation = this.#generation;
 			this.#resolved = this.#store.load().then((settings) => {
@@ -238,28 +119,21 @@ export class ModePolicy {
 	}
 
 	/**
-	 * Capture the snapshot for the next logical run. Uses the latest settings
-	 * (initial load on the first call, store notifications afterwards); the
-	 * returned snapshot stays frozen for the whole run.
+	 * Capture the snapshot for the next logical run from the latest settings
+	 * (resolved by `ready()` at `session_start`, store notifications
+	 * afterwards; the defaults until the first load lands). Synchronous so the
+	 * run exists before its first tool event.
 	 */
-	async prepareRun(): Promise<RunModeSnapshot> {
+	prepareRun(): RunModeSnapshot {
 		this.#resubscribe();
-		if (!this.#current) await this.#resolve();
-		// Restore view: the override is one-shot — the first run boundary of
-		// the resumed session re-arms the normal persisted policy.
-		this.#restore = undefined;
-		// A stale post-compaction permit must never outlive the idle gap
-		// into the next logical run (e.g. arm then user aborts rebuild UI).
-		this.#collapsedRebuildArmed = false;
-		this.#run = runModeFromSettings(this.#current ?? DEFAULT_SETTINGS);
-		return this.#run;
+		return runModeFromSettings(this.#current ?? DEFAULT_SETTINGS);
 	}
 
 	/**
 	 * Session teardown: detach the store subscription exactly once so
-	 * notifications can never outlive the instance, and drop the resolved/
-	 * snapshot state so a reinitialized session re-reads fresh settings at
-	 * its first boundary. Idempotent; the policy stays usable afterwards
+	 * notifications can never outlive the instance, and drop the resolved
+	 * state so a reinitialized session re-reads fresh settings at its first
+	 * boundary. Idempotent; the policy stays usable afterwards
 	 * (prime/ready/prepareRun re-arm the subscription).
 	 */
 	dispose(): void {
@@ -270,8 +144,5 @@ export class ModePolicy {
 		this.#unsubscribe = () => {};
 		this.#resolved = undefined;
 		this.#current = undefined;
-		this.#run = undefined;
-		this.#restore = undefined;
-		this.#collapsedRebuildArmed = false;
 	}
 }

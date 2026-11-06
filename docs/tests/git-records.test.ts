@@ -10,8 +10,8 @@ import {
 	MAX_GIT_HASH_LENGTH,
 	MAX_GIT_SUBCOMMAND_LENGTH,
 	MAX_TOOL_CALL_ID_LENGTH,
-} from "../../.omp-plugin/hydration-bounds";
-import { isGitMessageDetails } from "../../.omp-plugin/messages";
+	isGitMessageDetails,
+} from "../../.omp-plugin/messages";
 
 describe("Git command recognition", () => {
 	test("escaped newlines within words retain the actual commit and hash", () => {

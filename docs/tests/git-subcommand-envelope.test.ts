@@ -4,8 +4,10 @@ import {
 	formatGitRecords,
 	recognizeGitCommands,
 } from "../../.omp-plugin/git-records";
-import { MAX_GIT_SUBCOMMAND_LENGTH } from "../../.omp-plugin/hydration-bounds";
-import { isGitMessageDetails } from "../../.omp-plugin/messages";
+import {
+	isGitMessageDetails,
+	MAX_GIT_SUBCOMMAND_LENGTH,
+} from "../../.omp-plugin/messages";
 
 /**
  * Persistence envelope of the git-record subcommand field between the write

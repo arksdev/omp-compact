@@ -15,14 +15,7 @@ import type {
 	MutationMessageDetails,
 } from "./messages";
 import { objectRecord as record } from "./object-record";
-import { MAX_DESCRIPTION, sanitizeOneLine } from "./render-scrape";
-import type {
-	InjectRuleView,
-	LateDiagnosticsView,
-	SkillMessageView,
-	TodoReminderView,
-	UserExecutionView,
-} from "./render-scrape";
+import { MAX_DESCRIPTION, sanitizeOneLine } from "./display-control";
 import {
 	normalizeToolName,
 	resolveToolRule,
@@ -36,27 +29,52 @@ import {
 	pendingFrame,
 } from "./vibe-cards";
 
-// The scraping half of the renderer moved to render-scrape.ts. These
-// re-exports keep render.ts the caller-facing module: existing importers
-// resolve the same names and types from the same path.
-export {
-	injectRulesFromTtsrComponent,
-	lateDiagnosticsFromComponent,
-	sanitizeOneLine,
-	skillMessageFromComponent,
-	todoReminderFromComponent,
-	userBashExecutionFromComponent,
-	userEvalExecutionFromComponent,
-} from "./render-scrape";
-export type {
-	ExpandObservedState,
-	InjectRuleView,
-	LateDiagnosticsView,
-	SkillMessageView,
-	TodoReminderView,
-	UserExecutionObservedState,
-	UserExecutionView,
-} from "./render-scrape";
+export { sanitizeOneLine } from "./display-control";
+
+/** One injected rule as presented by the compact inject row. */
+export interface InjectRuleView {
+	name: string;
+	/** Optional rule description/content; may be multi-line. */
+	body?: string;
+}
+
+/** One incomplete-todo reminder. */
+export interface TodoReminderView {
+	count: number;
+	attempt: number;
+	maxAttempts: number;
+	items: readonly string[];
+}
+
+/** Compact view of a skill-prompt message (structured message.details). */
+export interface SkillMessageView {
+	name: string;
+	args?: string;
+	path?: string;
+	lineCount?: number;
+}
+
+/** Compact view of a late-diagnostics message (structured files[]). */
+export interface LateDiagnosticsView {
+	errored: boolean;
+	summary?: string;
+	count: number;
+	firstMessage?: string;
+}
+
+/**
+ * Compact view of a user-initiated bash (`!`/`!!`) or python (`$`/`$$`)
+ * execution block. Labels follow the host triggers, not the agent `eval` tool:
+ * bash rows match agent `bash` chrome; python rows use `python` because the
+ * user path is role `pythonExecution`.
+ */
+export interface UserExecutionView {
+	kind: "bash" | "python";
+	source: string;
+	running: boolean;
+	exitCode?: number;
+	cancelled?: boolean;
+}
 
 const ADDED_STAT_COLOR = "#A4D734";
 const REMOVED_STAT_COLOR = "#A1471A";
@@ -534,16 +552,10 @@ export function renderCompactToolRows(
 
 	// Explicit rule lookup only — render never invents a rule for unknown
 	// names. Unknown tools fall back to the bounded generic description; the
-	// runtime adapter decides whether an unresolved tool renders natively.
-	const spec = compactRowSpec(view, displayPaths);
-	if (!view.isPartial) return paintCompactRow(spec, theme, width);
-	// One activity indicator: braille frame + "Working…", then the summary
-	// so the pending live-log row keeps the tool identity.
-	const line = `${theme.fg("dim", pendingFrame(theme, view.tick ?? 0))} ${theme.fg(
-		"dim",
-		"Working…",
-	)} ${paintSummary(spec, theme)}`;
-	return [fitTransparentLine(line, width)];
+	// presenter decides whether an unresolved tool gets omp's own row. A call
+	// still in flight paints the same row without settled metadata: omp draws
+	// the spinner beside it.
+	return paintCompactRow(compactRowSpec(view, displayPaths), theme, width);
 }
 
 /**
