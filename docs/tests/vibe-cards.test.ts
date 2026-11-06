@@ -1676,7 +1676,7 @@ describe("vibe-cards grammar and presentation", () => {
 		// the first row, the rest indented below.
 		const [label, ...rest] = rendered.split("\n");
 		const drawn = [`• ${label}`, ...rest.map((row) => `  ${row}`)].join("\n");
-		for (const name of ["README.md", "README.en.md"]) {
+		for (const name of ["README.md", "README.ru.md"]) {
 			const readme = await Bun.file(new URL(`../../${name}`, import.meta.url))
 				.text()
 				.then((text) => text.replace(/\r\n/g, "\n"));

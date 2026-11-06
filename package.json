@@ -48,7 +48,7 @@
 	"files": [
 		".omp-plugin/*.ts",
 		"README.md",
-		"README.en.md",
+		"README.ru.md",
 		"CHANGELOG.md",
 		"LICENSE"
 	]
