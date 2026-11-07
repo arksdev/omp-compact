@@ -5,11 +5,19 @@
 ---
 ## Не выпущено / Unreleased
 
+### Изменено
+
+- `/compact-settings` построено на собственном списке настроек OMP: разделы, поиск набором текста и выделение изменённых значений, как в `/settings`. Каждое изменение сохраняется сразу, клавиш `s` и `c` больше нет; `Esc` закрывает меню (сначала очищает поиск), и одно уведомление подтверждает сохранение.
+
 ### Добавлено
 
 - В `/compact-settings` появился раздел `Tool cards`: для каждого инструмента, включая инструменты расширений, MCP и устройства `xd://`, можно выбрать `rows`, `newest` (самая новая карточка открыта, пока агент работает) или `open` (полная карточка всегда). В JSON это поле `tools`.
 
 ---
+
+### Changed
+
+- `/compact-settings` is built on OMP's own settings list: sections, type-to-search and changed values highlighted, as in `/settings`. Each change is saved at once and the `s` and `c` keys are gone; `Esc` closes the menu (clearing a search first), and one notice confirms the save.
 
 ### Added
 

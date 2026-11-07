@@ -53,12 +53,10 @@ import {
 import { SessionLedger } from "./session-ledger";
 import {
 	cycleDisplayState,
-	openSettingsDialog,
 	registerDisplayCycleShortcut,
 	registerSettingsCommand,
-	saveSettingsFlow,
+	runSettingsSession,
 } from "./settings-ui";
-import { toolDisplayOptions } from "./tool-display";
 import { resolveToolAudit } from "./tool-presentation-rules";
 import { classifyAgentEnd } from "./turn-ledger";
 import { defaultWarn } from "./warn-sink";
@@ -214,32 +212,16 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				return;
 			}
 			hintPresenterSetting(ctx as unknown as ExtensionContext);
-			const initial = await settingsStore.load();
-			await openSettingsDialog(ctx.ui, {
-				settings: initial,
-				tools: toolDisplayOptions(toolNames(), initial.tools),
+			await runSettingsSession(ctx.ui, {
+				store: settingsStore,
+				toolNames: toolNames(),
 				checkShortcut: (chord) =>
 					describeShortcutConflict(chord, shortcutConflict(chord)),
-				// `saveSettingsFlow` emits exactly one success notification, so
-				// nothing is notified again after the dialog closes.
-				onSave: async (next) => {
-					await saveSettingsFlow(next, {
-						previous: initial,
-						store: settingsStore,
-						notify: (level, message) => {
-							try {
-								ctx.ui.notify(message, level);
-							} catch {
-								// no-op
-							}
-						},
-					});
-				},
-				warn: (message) => {
+				notify: (level, message) => {
 					try {
-						ctx.ui.notify(message, "warning");
+						ctx.ui.notify(message, level);
 					} catch {
-						// no-op
+						// Headless/RPC notify is a no-op.
 					}
 				},
 			});

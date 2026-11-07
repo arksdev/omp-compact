@@ -141,12 +141,10 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/vibe-cards-decode.ts` — defensive decoding of untrusted vibe payloads only
 - `.omp-plugin/vibe-cards-render.ts` — worker-session row rendering only
 - `.omp-plugin/vibe-cards-slots.ts` — slot formatters only
-- `.omp-plugin/settings-keys.ts` — raw key codes and arrow normalization only
 - `.omp-plugin/host-api.ts` — structural host API types and command/shortcut registration only
-- `.omp-plugin/ansi-width.ts` — ANSI-safe width utilities only
 - `.omp-plugin/save-flow.ts` — settings save flow only
 - `.omp-plugin/cycle-handler.ts` — display-cycle keypress handling only
-- `.omp-plugin/settings-dialog.ts` — TUI settings dialog only
+- `.omp-plugin/settings-dialog.ts` — settings dialog on OMP's `SettingsList` only
 - `.omp-plugin/settings-ui.ts` — re-export entry point only (logic lives in the settings modules)
 
 **Avoid circular dependencies.** Import tree flows downward:
@@ -169,7 +167,7 @@ index.ts
   → audit-lifecycle.ts / audit.ts / git-records.ts
   → run-stats.ts / idle-queue.ts
   → settings-ui.ts             # re-export entry point
-      → settings-keys.ts / host-api.ts / ansi-width.ts
+      → host-api.ts
       → save-flow.ts / cycle-handler.ts / settings-dialog.ts
 ```
 

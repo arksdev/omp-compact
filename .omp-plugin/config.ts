@@ -761,7 +761,17 @@ export interface CompactSettingsStore {
 	 * back to the values it requested.
 	 */
 	persistedSnapshot?(): CompactSettings;
-	update(patch: CompactSettingsPatch): Promise<CompactSettings>;
+	/**
+	 * Persist `patch` on top of the persisted layer. By default values equal
+	 * to a hard env override are taken for echoes of the effective snapshot
+	 * and dropped (`omitEnvEchoes`); `explicit` says the patch was built from
+	 * the persisted layer (`persistedSnapshot()`), so every value in it is the
+	 * user's own and is kept.
+	 */
+	update(
+		patch: CompactSettingsPatch,
+		options?: { explicit?: boolean },
+	): Promise<CompactSettings>;
 	/**
 	 * Hard env overrides currently in force (see `resolveEnvOverrides`).
 	 * Optional so read-only consumers (e.g. ModePolicy fakes) can implement
@@ -916,9 +926,9 @@ export function createSettingsStore(
 
 	/**
 	 * Drop patch entries that merely echo a hard env override back at the
-	 * store. `load()` hands out the EFFECTIVE snapshot and the settings
-	 * dialog saves that whole snapshot back (index.ts seeds the dialog from
-	 * it), so an env-forced `enabled`/`mode` arrives in the patch looking
+	 * store. `load()` hands out the EFFECTIVE snapshot and the display cycle
+	 * saves that whole snapshot back (the save flow runs its step on it), so
+	 * an env-forced `enabled`/`mode` arrives in the patch looking
 	 * exactly like a user edit — and `deriveLeafPatch` would then write it
 	 * into the file, baking the override in for every future session. A
 	 * patch value that DIFFERS from the forced one is a genuine user edit
@@ -1063,15 +1073,19 @@ export function createSettingsStore(
 		}
 	}
 
-	async function update(patch: CompactSettingsPatch): Promise<CompactSettings> {
+	async function update(
+		patch: CompactSettingsPatch,
+		options: { explicit?: boolean } = {},
+	): Promise<CompactSettings> {
 		if (!loaded) await load();
 		// Merge on top of the PERSISTED layer: a save expresses the user's
 		// requested values and must not bake environment overrides into the
-		// config file. Callers save back the EFFECTIVE snapshot they were
-		// handed, so the patch is first stripped of values that merely echo a
-		// hard env override (see `omitEnvEchoes`) — otherwise the leaf diff
-		// below would mistake a forced value for a user edit.
-		const requested = omitEnvEchoes(patch);
+		// config file. Callers that save back the EFFECTIVE snapshot they were
+		// handed get the patch stripped of values that merely echo a hard env
+		// override (see `omitEnvEchoes`) — otherwise the leaf diff below would
+		// mistake a forced value for a user edit. An explicit patch was built
+		// from the persisted layer, so it carries no echoes to strip.
+		const requested = options.explicit ? patch : omitEnvEchoes(patch);
 		const merged: Record<string, unknown> = {
 			...persisted,
 			// Skip undefined keys in the patch so they don't overwrite persisted

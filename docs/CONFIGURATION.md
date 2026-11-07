@@ -54,7 +54,7 @@ Two things are worth knowing:
   answer already being rendered.
 - **Changing the chord requires restarting OMP.** The extension interface can
   register a shortcut but cannot unregister one, so a new chord binds only on
-  the next start. The settings dialog says so when you save.
+  the next start. The settings dialog says so when you close it.
 
 If `OMP_COMPACT_PLUGIN` or `OMP_COMPACT_MODE` pins a value, the press reports
 the pinned value instead of claiming a change the environment forbids.
@@ -65,15 +65,23 @@ the pinned value instead of claiming a change the environment forbids.
 
 ### Controls
 
+The menu is OMP's own settings list, in four sections: `General`, `Display`,
+`Statistics` and `Tool cards`. A value that differs from its default is drawn
+in OMP's changed color. Each change is saved to the config file at once, as in
+OMP's `/settings`; when you close the menu, one notice confirms the save (and
+names an env variable that keeps a saved value from taking effect).
+
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Navigate up/down |
-| `k` / `j` | Navigate up/down (vim-style) |
-| `←` / `→` | Cycle mode values |
-| `Space` / `Enter` | Toggle boolean |
-| `s` | Save changes to config file |
-| `Esc` / `c` | Close without saving |
-| `Enter` | On the cycle-shortcut row: start typing a new chord (`Enter` confirms, `Esc` cancels) |
+| `↑` / `↓` | Move between settings |
+| `PgUp` / `PgDn` | Jump to the previous/next section |
+| Typing | Search the settings; `Backspace` edits the search |
+| `Space` / `Enter` | Toggle a boolean or step to the next value, saved at once |
+| `Esc` | Clear the search; with no search, close the menu |
+| `Enter` | On the cycle-shortcut row: open a field for a new chord (`Enter` saves it, `Esc` goes back) |
+
+The parts of the usage row (`Actions` to `Add local time`) are listed only while
+`Run statistics` is on.
 
 ### Complete Settings
 
@@ -145,7 +153,7 @@ the pinned value instead of claiming a change the environment forbids.
 | `OMP_COMPACT_MODE` | `off` | Legacy hard-disable |
 | `OMP_COMPACT_CONFIG` | path | Override config file path; must resolve under your home or the project cwd, or it is ignored with a warning |
 
-**Precedence:** Env vars override config file. Menu saves don't write env vars to JSON.
+**Precedence:** Env vars override config file. The menu shows and saves the values in the file: it writes only the setting you change, never a value just because an env var forces it, and a value you pick is saved even when an env var forces the same one.
 
 Files written by 1.x may still hold `autoShake` and `host` groups. They load fine: the plugin no longer reads them and carries them through saves as unknown keys.
 

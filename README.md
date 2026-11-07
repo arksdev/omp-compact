@@ -113,6 +113,8 @@ In `compact` and `live`, an abort or error without a final answer preserves the 
 
 All settings are available through `/compact-settings`. Plugin-only values are stored in `~/.omp/agent/omp-compact/config.json`; profiles and `PI_CODING_AGENT_DIR` change this path according to OMP's normal rules.
 
+The menu is OMP's own settings list: sections, type-to-search, and values that differ from the default drawn in OMP's changed color. Each change is saved at once, as in OMP's `/settings`; `Esc` clears a search, then closes the menu, and one notice confirms what was saved.
+
 ### Short file names — `Compact paths`
 
 When enabled, an absolute path inside the current project is shortened:
@@ -182,7 +184,7 @@ The `Tool cards` section lists every tool OMP has loaded, extension tools, MCP t
 - `newest`: the newest call keeps OMP's full card while the agent works; older calls become rows. This is the default for `wait` and `todo`.
 - `open`: OMP's full card in every mode, `clear` included, and after the answer.
 
-A row marked `default` has no choice saved; picking the default again removes the entry. `ask` and the vibe tools are not listed: `ask` needs its card to answer, and the vibe tools have their own switch. A change applies from the next run.
+A row in the changed color has a saved choice; picking the tool's default again removes the entry. `ask` and the vibe tools are not listed: `ask` needs its card to answer, and the vibe tools have their own switch. A change applies from the next run.
 
 JSON, keyed by tool name (a device by its own name, such as `github`):
 
@@ -206,9 +208,9 @@ Rapid presses do not lose steps: reading the current state, computing the transi
 Two things worth knowing:
 
 - a press applies from the **next** logical run: the settings snapshot is taken once per run, so pressing mid-run never changes the answer already being rendered;
-- **changing the chord itself requires restarting OMP**: the agent can register a shortcut but cannot unregister one, so a new chord only starts working after a restart. The menu says so when you save.
+- **changing the chord itself requires restarting OMP**: the agent can register a shortcut but cannot unregister one, so a new chord only starts working after a restart. The menu says so when you close it.
 
-You can change the chord in `/compact-settings` on the `Cycle shortcut` row: `Enter` starts the edit, you type the chord as text (`alt+shift+d`, for example), `Enter` confirms and `Esc` cancels. A chord OMP already uses is rejected with a readable message.
+You can change the chord in `/compact-settings` on the `Cycle shortcut` row: `Enter` opens a field, you type the chord as text (`alt+shift+d`, for example), `Enter` saves it and `Esc` goes back. A malformed chord, or one OMP already uses, is rejected with a readable message.
 
 JSON:
 
