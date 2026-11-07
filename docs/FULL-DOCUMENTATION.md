@@ -350,8 +350,10 @@ Compact output применяется только к явно зарегист�
 | Route | Tools |
 | --- | --- |
 | `read-group` | `read` |
-| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `find`, `hub`, `todo`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `browser`, `computer`, `resolve`, `reject`, `task`, `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list` |
+| `compact` | `bash`, `write`, `edit`, `grep`, `glob`, `find`, `hub`, `eval`, `yield`, `hus`, `web_search`, `ast_grep`, `ast_edit`, `inspect_image`, `browser`, `computer`, `resolve`, `reject`, `vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list` |
 | `native-live` | `ask` |
+| `live-card` | `wait`, `todo`: самый новый вызов сохраняет карточку OMP, пока агент работает; более старые становятся строками |
+| `kept-row` | `task`: строка остаётся после ответа |
 
 Aliases нормализуются до routing и audit: `apply_patch` -> `edit`, `jfind` -> `find` (модуль семантического поиска в хосте называется `jfind`); hyphen spellings вроде `ast-grep`, `ast-edit` и `inspect-image` -> underscore form.
 

@@ -108,11 +108,37 @@ function compactAnswer(rows: readonly string[]): TranscriptPresentation {
  */
 function hidesOwnRow(call: CallRecord, decision: ToolRenderDecision): boolean {
 	if (decision.kind === "empty") return true;
-	return (
-		decision.kind === "tool-rows" &&
-		decision.filtered &&
-		(decision.summaryOnly || call.mutations.length === 0)
-	);
+	if (decision.kind !== "tool-rows" || !decision.filtered) return false;
+	if (decision.summaryOnly) return true;
+	return call.mutations.length === 0 && decision.keepsOwnRow !== true;
+}
+
+/**
+ * Index of a call among its run's calls; a call whose arguments still stream
+ * without an id has no record yet and counts as the run's latest.
+ */
+function indexInRun(call: CallRecord): number {
+	const { calls } = call.run;
+	const at = calls.lastIndexOf(call);
+	return at < 0 ? calls.length : at;
+}
+
+/** The latest earlier call of the same tool in the call's run. */
+function previousOfTool(call: CallRecord): CallRecord | undefined {
+	const { calls } = call.run;
+	for (let i = indexInRun(call) - 1; i >= 0; i--) {
+		if (calls[i]?.toolName === call.toolName) return calls[i];
+	}
+	return undefined;
+}
+
+/** True when no later call of the same tool exists in the call's run. */
+function isNewestOfTool(call: CallRecord): boolean {
+	const { calls } = call.run;
+	for (let i = indexInRun(call) + 1; i < calls.length; i++) {
+		if (calls[i]?.toolName === call.toolName) return false;
+	}
+	return true;
 }
 
 export class TranscriptPresenterState {
@@ -162,6 +188,12 @@ export class TranscriptPresenterState {
 		return run.calls
 			.filter((call) => hidesOwnRow(call, this.#decide(call, call.toolName)))
 			.map((call) => call.id);
+	}
+
+	/** The older call whose live card a new call of the same tool replaces. */
+	replacedLiveCard(call: CallRecord): string | undefined {
+		if (resolveToolRule(call.toolName)?.route !== "live-card") return undefined;
+		return previousOfTool(call)?.id;
 	}
 
 	/** Ids of the advisor blocks omp asked about. */
@@ -322,6 +354,8 @@ export class TranscriptPresenterState {
 			const rows = [
 				...renderCompactToolRows(view, theme, undefined, run.paths, head),
 			];
+			// A kept row in Tern adds nothing to omp's own head.
+			if (this.#stockHeadSuffices(call, view, rows, run)) return "compact";
 			if (decision.summary) {
 				const projection = this.#deps.ledger.projection(run);
 				if (projection)
@@ -370,8 +404,9 @@ export class TranscriptPresenterState {
 			(run.phase === "full" && run.mode.mode === "clear")
 				? this.#deps.ledger.projection(run)
 				: undefined;
+		const route = resolveToolRule(toolName)?.route;
 		return decideToolRender({
-			route: resolveToolRule(toolName)?.route,
+			route,
 			mode: run.mode.mode,
 			retainGitLive: run.mode.retainGitLive,
 			compactSuppressedBySettings:
@@ -381,6 +416,10 @@ export class TranscriptPresenterState {
 			hasGit: call.git !== undefined,
 			hashesLength: projection?.hashes.length ?? 0,
 			isAnchor: projection?.anchor === call,
+			newestOfTool:
+				route === "live-card" &&
+				run.phase === "working" &&
+				isNewestOfTool(call),
 		});
 	}
 

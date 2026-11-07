@@ -48,6 +48,8 @@ const EXPECTED_ROUTES: Record<ToolRoute, true> = {
 	compact: true,
 	"read-group": true,
 	"native-live": true,
+	"live-card": true,
+	"kept-row": true,
 };
 
 /**
@@ -71,6 +73,20 @@ const EXPECTED_DECISIONS: Record<ToolRoute, ToolRenderDecision> = {
 		includeGit: true,
 	},
 	"native-live": { kind: "native" },
+	"live-card": {
+		kind: "tool-rows",
+		filtered: false,
+		summary: false,
+		summaryOnly: false,
+		includeGit: true,
+	},
+	"kept-row": {
+		kind: "tool-rows",
+		filtered: false,
+		summary: false,
+		summaryOnly: false,
+		includeGit: true,
+	},
 };
 
 function toolInput(overrides: Partial<ToolRenderInput> = {}): ToolRenderInput {
@@ -84,6 +100,7 @@ function toolInput(overrides: Partial<ToolRenderInput> = {}): ToolRenderInput {
 		hasGit: false,
 		hashesLength: 0,
 		isAnchor: false,
+		newestOfTool: false,
 		...overrides,
 	};
 }

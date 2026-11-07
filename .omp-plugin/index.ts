@@ -506,6 +506,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		runStats.recordTool(event.toolCallId);
 		const call = ledger.startCall(event.toolCallId, event.toolName, event.args);
 		if (!call?.run.mode.enabled) return;
+		const replaced = presenter.replacedLiveCard(call);
+		if (replaced) refresh([replaced]);
 		// Audit routing follows the presentation registry: every unregistered
 		// tool, non-mutating tool, or `xd://` device dispatch riding the write
 		// transport resolves to "none" (no evidence).

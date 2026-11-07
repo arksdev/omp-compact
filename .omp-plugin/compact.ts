@@ -167,12 +167,19 @@ function shortValue(value: unknown): string {
 	return value && typeof value === "object" ? "{…}" : "";
 }
 
+/**
+ * omp's intent argument (`INTENT_FIELD` in `@oh-my-pi/pi-wire`): a short
+ * sentence the model attaches to every call, not one of the tool's own args.
+ */
+export const INTENT_ARG = "i";
+
 function unknownArgs(value: Record<string, unknown>): string {
 	const parts: string[] = [];
 	for (const [key, item] of Object.entries(value)) {
-		// Convention: skip keys starting with "__" (internal/private fields)
-		// and undefined values (unset optionals).
-		if (key.startsWith("__") || item === undefined) continue;
+		// Convention: skip keys starting with "__" (internal/private fields),
+		// undefined values (unset optionals) and omp's intent argument.
+		if (key.startsWith("__") || key === INTENT_ARG || item === undefined)
+			continue;
 		parts.push(`${key}: ${shortValue(item)}`);
 		if (parts.length >= 4) break;
 	}
@@ -181,7 +188,8 @@ function unknownArgs(value: Record<string, unknown>): string {
 
 /**
  * Bounded generic tool description: lowercase label (underscore and hyphen
- * spellings share one title) plus at most four compact `key: value` pairs.
+ * spellings share one title) plus at most four compact `key: value` pairs, or
+ * omp's intent sentence when the call carries no other argument.
  *
  * This is the generic form for tools WITHOUT a specialized describe:
  * registered routine/interactive tools (hub, todo, eval, yield, web_search,
@@ -197,9 +205,10 @@ export function genericToolDescription(
 	name: string,
 	args: unknown,
 ): ToolDescription {
+	const input = record(args);
 	return {
 		title: name.replaceAll("_", " ").replaceAll("-", " ").toLowerCase(),
-		description: unknownArgs(record(args)),
+		description: unknownArgs(input) || stringValue(input, INTENT_ARG),
 		meta: [],
 	};
 }

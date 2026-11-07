@@ -49,6 +49,8 @@ export interface ToolRenderInput {
 	hashesLength: number;
 	/** True when this call renders the trailing aggregate Git summary. */
 	isAnchor: boolean;
+	/** True when no later call of the same tool exists in the run. */
+	newestOfTool: boolean;
 }
 
 export interface ToolRowsDecision {
@@ -57,6 +59,8 @@ export interface ToolRowsDecision {
 	readonly filtered: boolean;
 	/** Render the aggregate commit-hash summary row after mutations. */
 	readonly summary: boolean;
+	/** The row stays after the answer without any evidence of its own. */
+	readonly keepsOwnRow?: boolean;
 	/**
 	 * Drop the mutation rows and keep only the summary. Set for `clear`,
 	 * whose quiet view shows created commits and nothing else; every other
@@ -157,6 +161,30 @@ const TOOL_RENDER_TABLE: readonly ToolRenderRule[] = Object.freeze([
 		// the terminal answer, and in the abort/error finalization alike.
 		when: (input) => input.mode === "clear",
 		decide: (): ToolRenderDecision => ({ kind: "empty" }),
+	},
+	{
+		// A live-state card (running jobs, the todo list) is worth its height
+		// only while it is current: the newest call of the tool keeps omp's
+		// card during the run, older ones are frozen and fold to rows.
+		when: (input) =>
+			input.route === "live-card" &&
+			input.phase === "working" &&
+			input.newestOfTool,
+		decide: (): ToolRenderDecision => ({ kind: "native" }),
+	},
+	{
+		// A kept row names work the run delegated, which the answer may not
+		// mention: it stays after the answer like a mutation row. Its tool
+		// carries no Git evidence, so it is never the summary anchor.
+		when: (input) => input.route === "kept-row" && input.phase === "filtered",
+		decide: (): ToolRenderDecision => ({
+			kind: "tool-rows",
+			filtered: true,
+			summary: false,
+			summaryOnly: false,
+			includeGit: false,
+			keepsOwnRow: true,
+		}),
 	},
 	{
 		// Terminal retention: no mutations and no aggregate commit hashes

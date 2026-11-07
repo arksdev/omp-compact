@@ -67,7 +67,7 @@ describe("canonical routes and audit kinds", () => {
 			expect(TOOL_RULES[name]?.route, name).toBe("compact");
 		}
 		expect(TOOL_RULES.ask?.route).toBe("native-live");
-		expect(TOOL_RULES.task?.route).toBe("compact");
+		expect(TOOL_RULES.task?.route).toBe("kept-row");
 	});
 
 	test("existing routine tools are explicitly compact", () => {
@@ -79,8 +79,6 @@ describe("canonical routes and audit kinds", () => {
 			"glob",
 			"find",
 			"hub",
-			"wait",
-			"todo",
 			"eval",
 			"yield",
 			"hus",
@@ -245,10 +243,10 @@ describe("transport target write/read presentation", () => {
 });
 
 describe("host tool rename (hub → wait in OMP 18.3.0)", () => {
-	test("wait is registered compact with no args and job-shaped details", () => {
+	test("wait is a live card with no args and job-shaped details", () => {
 		const rule = TOOL_RULES.wait;
 		expect(rule).toBeDefined();
-		expect(rule?.route).toBe("compact");
+		expect(rule?.route).toBe("live-card");
 		expect(rule?.audit).toBe("none");
 		// Stock declares `type({})`: the tool carries no arguments at all.
 		expect(rule?.knownArgs).toEqual([]);
@@ -266,9 +264,9 @@ describe("host tool rename (hub → wait in OMP 18.3.0)", () => {
 		expect(resolveToolRule("wait")).not.toBe(TOOL_RULES.hub);
 	});
 
-	test("wait carries no arguments, so its row never invents one", () => {
+	test("wait carries no arguments, so its row names only omp's intent", () => {
 		expect(describeTool("wait", {})?.description).toBe("");
-		expect(describeTool("wait", { op: "wait" })?.description).toBe("op: wait");
+		expect(describeTool("wait", { op: "wait" })?.description).toBe("");
 	});
 });
 
@@ -1154,7 +1152,6 @@ describe("tool-specific settled result metadata", () => {
 			"read",
 			"edit",
 			"hub",
-			"todo",
 			"eval",
 			"yield",
 			"hus",
@@ -1191,9 +1188,15 @@ describe("tool-specific settled result metadata", () => {
 
 describe("registry shape types", () => {
 	test("routes and audit kinds are the shared closed unions", () => {
-		const routes: ToolRoute[] = ["compact", "read-group", "native-live"];
+		const routes: ToolRoute[] = [
+			"compact",
+			"read-group",
+			"native-live",
+			"live-card",
+			"kept-row",
+		];
 		const audits: ToolAuditKind[] = ["none", "write", "edit", "git-bash"];
-		expect(routes).toHaveLength(3);
+		expect(routes).toHaveLength(5);
 		expect(audits).toHaveLength(4);
 		for (const rule of Object.values(TOOL_RULES)) {
 			expect(rule).toBeDefined();
@@ -1277,5 +1280,86 @@ describe("registry shape types", () => {
 			{ name: "reject", color: "#A1471A" },
 			{ name: "resolve", color: "#A4D734" },
 		]);
+	});
+});
+
+describe("live-card and task rows", () => {
+	const description = (name: string, args: unknown) =>
+		describeTool(name, args)?.description;
+	const meta = (name: string, result: unknown) =>
+		TOOL_RULES[name]?.resultMeta?.(result) ?? [];
+	const jobs = (...statuses: string[]) => ({
+		details: { jobs: statuses.map((status) => ({ status })) },
+	});
+
+	test("omp's intent describes a call with no other argument, never as a key", () => {
+		expect(genericToolDescription("t", { i: "Checking it" }).description).toBe(
+			"Checking it",
+		);
+		expect(
+			genericToolDescription("t", { i: "Checking it", query: "x" }).description,
+		).toBe("query: x");
+		expect(description("wait", { i: "Waiting for jobs" })).toBe(
+			"Waiting for jobs",
+		);
+	});
+
+	test("a wait row reports how its jobs ended", () => {
+		expect(meta("wait", jobs("running"))).toEqual(["1 job running"]);
+		expect(meta("wait", jobs("running", "completed"))).toEqual([
+			"1 of 2 jobs running",
+		]);
+		expect(meta("wait", jobs("completed", "failed"))).toEqual([
+			"2 jobs settled",
+		]);
+		expect(meta("wait", { details: {} })).toEqual([]);
+	});
+
+	test("a todo row lists its ops and the closed count", () => {
+		expect(description("todo", { op: "done", task: "Task two" })).toBe(
+			"done Task two",
+		);
+		expect(
+			description("todo", {
+				ops: [
+					{ op: "init", items: ["a", "b"] },
+					{ op: "start", phase: "Build" },
+					{ op: "done", task: "x" },
+					{ op: "rm", task: "y" },
+				],
+			}),
+		).toBe("init 2 items, start Build, done x, +1");
+		expect(description("todo", { i: "Updating progress" })).toBe(
+			"Updating progress",
+		);
+		const phases = [
+			{
+				tasks: [
+					{ status: "completed" },
+					{ status: "abandoned" },
+					{ status: "pending" },
+				],
+			},
+		];
+		expect(meta("todo", { details: { phases } })).toEqual(["2/3"]);
+	});
+
+	test("a task row names each task, counting the ones without a label", () => {
+		expect(
+			description("task", {
+				tasks: [{ name: "Scout" }, { agent: "reviewer" }, {}],
+			}),
+		).toBe("Scout, reviewer +1");
+		expect(description("task", { tasks: [{}, { agent: "task" }] })).toBe(
+			"2 tasks",
+		);
+		expect(description("task", { name: "Solo", agent: "explore" })).toBe(
+			"Solo",
+		);
+		expect(description("task", { agent: "task", i: "Delegating" })).toBe(
+			"Delegating",
+		);
+		const many = Array.from({ length: 7 }, (_, n) => ({ name: `A${n}` }));
+		expect(description("task", { tasks: many })).toBe("A0, A1, A2, A3, A4 +2");
 	});
 });

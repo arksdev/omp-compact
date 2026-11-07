@@ -13,6 +13,7 @@
  * callers fail open to the native renderer.
  */
 import type { ToolDescription } from "./compact";
+import type { DisplayPathOptions } from "./display-path";
 import { objectRecord as record } from "./object-record";
 import {
 	describeAstEdit,
@@ -27,7 +28,10 @@ import {
 	describeHub,
 	describeInspectImage,
 	describeRead,
+	describeTask,
 	describeTextDevice,
+	describeTodo,
+	describeWait,
 	describeWrite,
 	genericDescribe,
 	resultMetaBash,
@@ -35,16 +39,22 @@ import {
 	resultMetaGlob,
 	resultMetaGrep,
 	resultMetaResolution,
+	resultMetaTodo,
+	resultMetaWait,
 	resultMetaWrite,
 	transportTargetOf,
 	writeDeviceName,
 } from "./tool-rule-describers";
-import type { DisplayPathOptions } from "./display-path";
 
 export type { ToolDescription } from "./compact";
 
 /** How a tool call is presented. */
-export type ToolRoute = "compact" | "read-group" | "native-live";
+export type ToolRoute =
+	| "compact"
+	| "read-group"
+	| "native-live"
+	| "live-card"
+	| "kept-row";
 
 /** Mutation audit kind attributed to a tool's result evidence. */
 export type ToolAuditKind = "none" | "write" | "edit" | "git-bash";
@@ -655,18 +665,20 @@ export const TOOL_RULES: Readonly<
 			describeHub,
 		),
 		wait: presentationRule(
-			"compact",
+			"live-card",
 			"none",
 			WAIT_ARGS,
 			WAIT_DETAILS,
-			genericDescribe("wait"),
+			describeWait,
+			resultMetaWait,
 		),
 		todo: presentationRule(
-			"compact",
+			"live-card",
 			"none",
 			TODO_ARGS,
 			TODO_DETAILS,
-			genericDescribe("todo"),
+			describeTodo,
+			resultMetaTodo,
 		),
 		eval: presentationRule(
 			"compact",
@@ -752,7 +764,7 @@ export const TOOL_RULES: Readonly<
 			COMPUTER_DETAILS,
 			describeComputer,
 		),
-		task: presentationRule("compact", "none", [], [], genericDescribe("task")),
+		task: presentationRule("kept-row", "none", [], [], describeTask),
 		// Vibe worker-session devices: compact route, and the rows come from
 		// the dedicated vibe builder in render.ts (not `describe`). The
 		// generic description stays as the bounded fallback for any caller
