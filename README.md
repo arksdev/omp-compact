@@ -174,6 +174,22 @@ JSON:
 { "compactAdvisorNotes": true }
 ```
 
+### Per-tool cards — `Tool cards`
+
+The `Tool cards` section lists every tool OMP has loaded, extension tools, MCP tools and `xd://` devices included, and lets you pick how each one is drawn:
+
+- `rows`: one-line rows that follow the mode, like any routine call.
+- `newest`: the newest call keeps OMP's full card while the agent works; older calls become rows. This is the default for `wait` and `todo`.
+- `open`: OMP's full card in every mode, `clear` included, and after the answer.
+
+A row marked `default` has no choice saved; picking the default again removes the entry. `ask` and the vibe tools are not listed: `ask` needs its card to answer, and the vibe tools have their own switch. A change applies from the next run.
+
+JSON, keyed by tool name (a device by its own name, such as `github`):
+
+```json
+{ "tools": { "bash": "open", "wait": "rows" } }
+```
+
 ### Quick display switch — `alt+c`
 
 `alt+c` works out of the box, with nothing to enable. Each press takes one step around the cycle:

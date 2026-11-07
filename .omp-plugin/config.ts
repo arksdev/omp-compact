@@ -13,9 +13,27 @@ import {
 } from "./display-cycle";
 import { createKeyedQueue } from "./keyed-queue";
 import { isPathInsideRoot } from "./path-inside-root";
+import { normalizeToolName } from "./tool-presentation-rules";
 import { defaultWarn } from "./warn-sink";
 
 export type CompactMode = "compact" | "live" | "clear";
+
+/**
+ * How the transcript draws one tool (see `tool-display.ts`): one-line rows,
+ * the newest call's full card while the run works, or always the full card.
+ */
+export type ToolDisplay = "rows" | "newest" | "open";
+
+export const TOOL_DISPLAYS: readonly ToolDisplay[] = ["rows", "newest", "open"];
+
+/** Longest tool name a display choice is stored for. */
+export const MAX_TOOL_DISPLAY_NAME = 128;
+/** Most per-tool display choices one config keeps. */
+export const MAX_TOOL_DISPLAY_ENTRIES = 256;
+
+export function isToolDisplay(value: unknown): value is ToolDisplay {
+	return value === "rows" || value === "newest" || value === "open";
+}
 
 export interface CompactStatsSettings {
 	enabled: boolean;
@@ -53,6 +71,11 @@ export interface CompactSettings {
 	 */
 	displayCycleKey: string;
 	stats: CompactStatsSettings;
+	/**
+	 * Per-tool display choices keyed by canonical tool name (an `xd://`
+	 * device by its own name). A tool without an entry uses its default.
+	 */
+	tools: Readonly<Record<string, ToolDisplay>>;
 }
 
 export interface CompactSettingsPatch {
@@ -64,6 +87,7 @@ export interface CompactSettingsPatch {
 	compactAdvisorNotes?: boolean;
 	displayCycleKey?: string;
 	stats?: Partial<CompactStatsSettings>;
+	tools?: Readonly<Record<string, ToolDisplay>>;
 }
 
 export type EnvLike = Record<string, string | undefined>;
@@ -134,6 +158,7 @@ export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
 	compactAdvisorNotes: false,
 	displayCycleKey: DEFAULT_DISPLAY_CYCLE_KEY,
 	stats: DEFAULT_STATS,
+	tools: Object.freeze({}),
 });
 
 function isCompactMode(value: unknown): value is CompactMode {
@@ -159,6 +184,7 @@ function cloneAndFreeze(settings: CompactSettings): CompactSettings {
 		compactAdvisorNotes: settings.compactAdvisorNotes,
 		displayCycleKey: settings.displayCycleKey,
 		stats: Object.freeze({ ...settings.stats }),
+		tools: Object.freeze({ ...settings.tools }),
 	};
 	return Object.freeze(clone);
 }
@@ -475,6 +501,7 @@ function normalizeWithDiagnostics(
 		),
 		displayCycleKey: chord(raw.displayCycleKey),
 		stats: { ...DEFAULT_SETTINGS.stats },
+		tools: DEFAULT_SETTINGS.tools,
 	};
 
 	if (isRecord(raw.stats)) {
@@ -503,10 +530,51 @@ function normalizeWithDiagnostics(
 		invalid.push("stats");
 	}
 
+	if (isRecord(raw.tools)) {
+		settings.tools = toolDisplays(raw.tools, warn);
+	} else if (raw.tools !== undefined) {
+		invalid.push("tools");
+	}
+
 	if (invalid.length > 0) {
 		warn?.(`invalid config field(s): ${invalid.join(", ")}; using defaults`);
 	}
 	return { settings, invalid };
+}
+
+/**
+ * The valid per-tool choices of a raw `tools` record, keyed by canonical tool
+ * name (`ast-grep` becomes `ast_grep`, the name a call is looked up by; of
+ * two spellings of one tool the later wins). Entries
+ * with an empty or overlong name, an unknown value, or past the entry cap
+ * are skipped with one warning rather than failing the whole field: a stale
+ * entry must never block saving the rest of the settings. `fromEntries`
+ * keeps a key such as `__proto__` an own property instead of a prototype
+ * write.
+ */
+function toolDisplays(
+	raw: Record<string, unknown>,
+	warn?: (message: string) => void,
+): Record<string, ToolDisplay> {
+	const kept = new Map<string, ToolDisplay>();
+	let skipped = 0;
+	for (const [name, value] of Object.entries(raw)) {
+		if (
+			name.length === 0 ||
+			name.length > MAX_TOOL_DISPLAY_NAME ||
+			!isToolDisplay(value) ||
+			kept.size >= MAX_TOOL_DISPLAY_ENTRIES
+		) {
+			skipped++;
+			continue;
+		}
+		kept.set(normalizeToolName(name), value);
+	}
+	if (skipped > 0)
+		warn?.(
+			`ignored ${skipped} invalid tools entr${skipped === 1 ? "y" : "ies"}`,
+		);
+	return Object.fromEntries(kept);
 }
 
 // =============================================================================
@@ -548,6 +616,8 @@ const withUpdateQueue = createKeyedQueue<string>();
 interface SettingsLeafPatch {
 	top: Partial<Pick<CompactSettings, (typeof TOP_LEVEL_FIELDS)[number]>>;
 	stats?: Partial<CompactStatsSettings>;
+	/** Changed tool choices; `undefined` removes the choice. */
+	tools?: Record<string, ToolDisplay | undefined>;
 }
 
 /**
@@ -576,9 +646,24 @@ function deriveLeafPatch(
 ): SettingsLeafPatch {
 	const top = diffLeaves(base, desired, TOP_LEVEL_FIELDS);
 	const stats = diffLeaves(base.stats, desired.stats, STATS_FIELDS);
+	const tools: [string, ToolDisplay | undefined][] = [];
+	for (const name of new Set([
+		...Object.keys(base.tools),
+		...Object.keys(desired.tools),
+	])) {
+		const next = Object.hasOwn(desired.tools, name)
+			? desired.tools[name]
+			: undefined;
+		const previous = Object.hasOwn(base.tools, name)
+			? base.tools[name]
+			: undefined;
+		if (next !== previous) tools.push([name, next]);
+	}
 	return {
 		top,
 		...(Object.keys(stats).length > 0 ? { stats } : {}),
+		// `fromEntries`: a `__proto__` key stays an own entry of the patch.
+		...(tools.length > 0 ? { tools: Object.fromEntries(tools) } : {}),
 	};
 }
 
@@ -588,7 +673,8 @@ function deriveLeafPatch(
  * concurrent edits compose; nested objects are rebuilt leaf-by-leaf.
  * Unknown keys of the raw record — top-level and inside stats — are carried
  * through untouched, so a save never strips fields a newer release (or an
- * older one, like the retired `autoShake` and `host` groups) wrote.
+ * older one, like the retired `autoShake` and `host` groups) wrote. Tool
+ * choices merge per name; an `undefined` choice deletes the entry.
  */
 function applyLeafPatch(
 	latest: Record<string, unknown>,
@@ -601,6 +687,23 @@ function applyLeafPatch(
 			...(stats !== null && typeof stats === "object" ? stats : {}),
 			...patch.stats,
 		};
+	}
+	if (patch.tools !== undefined) {
+		const tools = latest.tools;
+		const merged = new Map<string, unknown>(
+			tools !== null && typeof tools === "object" && !Array.isArray(tools)
+				? Object.entries(tools)
+				: [],
+		);
+		for (const [name, display] of Object.entries(patch.tools)) {
+			// Every spelling of the tool on disk goes, so a hand-written
+			// `ast-grep` cannot bring a removed `ast_grep` choice back on load.
+			for (const key of [...merged.keys()]) {
+				if (normalizeToolName(key) === name) merged.delete(key);
+			}
+			if (display !== undefined) merged.set(name, display);
+		}
+		raw.tools = Object.fromEntries(merged);
 	}
 	return raw;
 }

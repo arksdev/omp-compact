@@ -392,6 +392,66 @@ describe("mode cycling", () => {
 	});
 });
 
+describe("tool card rows", () => {
+	function toolDialog(settings: CompactSettings = DEFAULT_SETTINGS) {
+		const saves: CompactSettings[] = [];
+		const dialog = new SettingsDialog(
+			{
+				settings,
+				tools: [
+					{ name: "bash", defaultDisplay: "rows" },
+					{ name: "wait", defaultDisplay: "newest" },
+				],
+				onSave: async (next) => {
+					saves.push(next);
+				},
+				theme: fakeTheme(),
+				keybindings: noopKeybindings(),
+			},
+			() => {},
+		);
+		return { dialog, saves };
+	}
+	const row = (dialog: SettingsDialog, name: string) =>
+		lines(dialog).find((line) => line.includes(`─ ${name} `));
+
+	test("each tool shows its default until the user picks another display", () => {
+		const { dialog } = toolDialog();
+		expect(lines(dialog)).toContain("  Tool cards");
+		expect(row(dialog, "bash")).toContain("[rows] default");
+		expect(row(dialog, "wait")).toContain("[newest] default");
+	});
+
+	test("cycling a tool stores only a choice that differs from its default", async () => {
+		const { dialog, saves } = toolDialog();
+		dialog.handleInput(KEY_UP); // wraps to the last row: wait
+		dialog.handleInput(KEY_RIGHT); // newest -> open
+		expect(row(dialog, "wait")).toMatch(/\[open\]$/);
+		expect(dialog.current.tools).toEqual({ wait: "open" });
+		dialog.handleInput(KEY_LEFT); // back to the default
+		expect(dialog.current.tools).toEqual({});
+		expect(dialog.isDirty).toBe(false);
+		dialog.handleInput(KEY_UP); // bash
+		dialog.handleInput(KEY_SPACE); // rows -> newest
+		dialog.handleInput(KEY_S);
+		await dialog.settled();
+		expect(saves[0]?.tools).toEqual({ bash: "newest" });
+	});
+
+	test("resetting a saved choice to the default removes it", () => {
+		const { dialog } = toolDialog({
+			...DEFAULT_SETTINGS,
+			tools: { bash: "open" },
+		});
+		expect(row(dialog, "bash")).toMatch(/\[open\]$/);
+		dialog.handleInput(KEY_UP);
+		dialog.handleInput(KEY_UP); // bash
+		dialog.handleInput(KEY_RIGHT); // open wraps to rows, the default
+		expect(dialog.current.tools).toEqual({});
+		expect(dialog.isDirty).toBe(true);
+	});
+});
+
 describe("save vs cancel", () => {
 	test("save persists the draft through onSave and resolves with it", async () => {
 		const harness = makeDialog();

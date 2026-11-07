@@ -58,6 +58,7 @@ import {
 	registerSettingsCommand,
 	saveSettingsFlow,
 } from "./settings-ui";
+import { toolDisplayOptions } from "./tool-display";
 import { resolveToolAudit } from "./tool-presentation-rules";
 import { classifyAgentEnd } from "./turn-ledger";
 import { defaultWarn } from "./warn-sink";
@@ -189,6 +190,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	}
 
+	/** Names of every tool omp reports; none when the host gives no answer. */
+	function toolNames(): string[] {
+		try {
+			return pi.getAllTools().map((tool) => tool.name);
+		} catch {
+			return [];
+		}
+	}
+
 	registerSettingsCommand<ExtensionCommandContext>(pi, {
 		description: "Open omp-compact plugin settings",
 		handler: async (_args, ctx) => {
@@ -207,6 +217,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			const initial = await settingsStore.load();
 			await openSettingsDialog(ctx.ui, {
 				settings: initial,
+				tools: toolDisplayOptions(toolNames(), initial.tools),
 				checkShortcut: (chord) =>
 					describeShortcutConflict(chord, shortcutConflict(chord)),
 				// `saveSettingsFlow` emits exactly one success notification, so

@@ -3,6 +3,7 @@ import {
 	type CompactSettings,
 	type CompactSettingsStore,
 	DEFAULT_SETTINGS,
+	type ToolDisplay,
 } from "./config";
 
 /** Immutable runtime-mode snapshot of one logical run. */
@@ -11,6 +12,8 @@ export interface RunModeSnapshot {
 	enabled: boolean;
 	retainGitLive: boolean;
 	compactVibeRows: boolean;
+	/** Per-tool display choices (settings are frozen, so shared, not copied). */
+	tools: Readonly<Record<string, ToolDisplay>>;
 }
 
 export const DEFAULT_RUN_MODE: Readonly<RunModeSnapshot> = Object.freeze({
@@ -18,6 +21,7 @@ export const DEFAULT_RUN_MODE: Readonly<RunModeSnapshot> = Object.freeze({
 	enabled: DEFAULT_SETTINGS.enabled,
 	retainGitLive: DEFAULT_SETTINGS.retainGitLive,
 	compactVibeRows: DEFAULT_SETTINGS.compactVibeRows,
+	tools: DEFAULT_SETTINGS.tools,
 });
 
 export function runModeFromSettings(
@@ -28,6 +32,7 @@ export function runModeFromSettings(
 		enabled: settings.enabled,
 		retainGitLive: settings.retainGitLive,
 		compactVibeRows: settings.compactVibeRows,
+		tools: settings.tools,
 	};
 }
 

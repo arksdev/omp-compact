@@ -86,6 +86,7 @@ the pinned value instead of claiming a change the environment forbids.
 | **compactVibeRows** | `true` | Compact rows for the vibe tools (`vibe_spawn`, `vibe_send`, `vibe_wait`, `vibe_kill`, `vibe_list`); `false` restores their stock cards in every mode, including `clear` |
 | **compactAdvisorNotes** | `false` | Condense only advisor `nit` and `concern` notes into compact rows; `blocker`, unknown-severity and unreadable-details cards keep OMP's full card. An expanded card always shows OMP's full card. Changes presentation only, never stored messages or model context |
 | **displayCycleKey** | `"alt+c"` | Chord that cycles the display: compact → live → clear → off → compact. Must be free; a chord OMP already uses is rejected. Changing it needs an OMP restart |
+| **tools** | `{}` | Per-tool display, keyed by tool name (an `xd://` device by its own name; `ast-grep` and `ast_grep` name the same tool): `rows` (one-line rows that follow the mode), `newest` (the newest call keeps OMP's card while the agent works), `open` (OMP's card in every mode and after the answer). A tool without an entry uses its default: `newest` for `wait` and `todo`, `rows` otherwise. `ask` and the vibe tools ignore entries. Invalid entries are skipped with a warning |
 | **stats.enabled** | `true` | Show one-line stats summary |
 | **stats.actions** | `true` | Count of tool executions |
 | **stats.sent** | `true` | Fresh (uncached) input tokens |
@@ -110,6 +111,7 @@ the pinned value instead of claiming a change the environment forbids.
   "compactVibeRows": true,
   "compactAdvisorNotes": false,
   "displayCycleKey": "alt+c",
+  "tools": {},
   "stats": {
     "enabled": true,
     "actions": true,

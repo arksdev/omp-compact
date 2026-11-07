@@ -23,11 +23,12 @@ function noopKeybindings(): KeybindingsLike {
 /** Structural view of the dialog's private `Row` (see settings-dialog.ts). */
 interface DialogRow {
 	id: string;
-	kind: "toggle" | "cycle" | "number" | "text";
+	kind: "toggle" | "cycle" | "number" | "text" | "heading";
 	get(): unknown;
 	set(value: unknown): void;
 	focusable: boolean;
 	unavailable: boolean;
+	options?: readonly string[];
 }
 
 /**
@@ -46,6 +47,10 @@ function makeDialog(): SettingsDialog {
 	return new SettingsDialog(
 		{
 			settings: DEFAULT_SETTINGS,
+			tools: [
+				{ name: "bash", defaultDisplay: "rows" },
+				{ name: "wait", defaultDisplay: "newest" },
+			],
 			onSave: async () => {},
 			theme: fakeTheme(),
 			keybindings: noopKeybindings(),
@@ -60,9 +65,11 @@ function flipToDifferentValue(row: DialogRow): void {
 		case "toggle":
 			row.set(row.get() !== true);
 			break;
-		case "cycle":
-			row.set(row.get() === "compact" ? "live" : "compact");
+		case "cycle": {
+			const options = row.options ?? [];
+			row.set(options.find((option) => option !== row.get()));
 			break;
+		}
 		case "number":
 			row.set((row.get() as number) + 1);
 			break;

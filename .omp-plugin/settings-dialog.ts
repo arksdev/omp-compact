@@ -1,9 +1,11 @@
 import { truncateAnsiSafe } from "./ansi-width";
 
-import type {
-	CompactMode,
-	CompactSettings,
-	CompactStatsSettings,
+import {
+	type CompactMode,
+	type CompactSettings,
+	type CompactStatsSettings,
+	TOOL_DISPLAYS,
+	type ToolDisplay,
 } from "./config";
 
 import { canonicalize, validateDisplayCycleKey } from "./display-cycle";
@@ -25,9 +27,21 @@ import {
 	normalizeArrowKey,
 } from "./settings-keys";
 
+/** A tool the user can choose a display for, with the display it defaults to. */
+export interface ToolDisplayOption {
+	/** Canonical tool name, the key of `CompactSettings.tools`. */
+	name: string;
+	defaultDisplay: ToolDisplay;
+}
+
 export interface SettingsDialogDeps {
 	/** Initial immutable snapshot shown when the dialog opens. */
 	settings: CompactSettings;
+	/**
+	 * Tools listed under "Tool cards", in display order. Absent or empty: the
+	 * section is left out.
+	 */
+	tools?: readonly ToolDisplayOption[];
 	/** Persist the merged draft; awaited before the dialog resolves. */
 	onSave(next: CompactSettings): Promise<void>;
 	/**
@@ -62,10 +76,14 @@ const MAX_EDIT_CHARS = 40;
 const GROUP_GLOBAL = 0;
 const GROUP_DISPLAY = 1;
 const GROUP_STATS = 2;
+const GROUP_TOOLS = 3;
+
+const TOOL_ROW_PREFIX = "tools.";
 
 interface Row {
 	id: string;
-	kind: "toggle" | "cycle" | "text";
+	/** `heading` titles a section: never focusable, drawn without a value. */
+	kind: "toggle" | "cycle" | "text" | "heading";
 	label: string;
 	/** Tree decoration for nested rows ("" for top-level rows). */
 	prefix: string;
@@ -74,6 +92,10 @@ interface Row {
 	get(): unknown;
 	set(value: unknown): void;
 	focusable: boolean;
+	/** Values a `cycle` row steps through. */
+	options?: readonly string[];
+	/** Shown dim after the value, e.g. that the value is the default. */
+	note?(): string;
 }
 
 /**
@@ -98,6 +120,15 @@ const ROW_HELP: Readonly<Record<string, string>> = {
 	"stats.clock": "Local time of the answer, beside the usage row",
 };
 
+/** Help for every tool row: what each display means. */
+const TOOL_ROW_HELP =
+	"rows: one-line rows · newest: newest card open while working · open: always the full card";
+
+function helpFor(rowId: string | undefined): string {
+	if (rowId?.startsWith(TOOL_ROW_PREFIX)) return TOOL_ROW_HELP;
+	return ROW_HELP[rowId ?? ""] ?? "";
+}
+
 const STATS_CHILD_IDS = [
 	"stats.actions",
 	"stats.sent",
@@ -117,7 +148,20 @@ function cloneSettings(settings: CompactSettings): CompactSettings {
 	return {
 		...settings,
 		stats: { ...settings.stats },
+		tools: { ...settings.tools },
 	};
+}
+
+/** Whether two per-tool choice maps hold the same entries. */
+function sameToolChoices(
+	a: Readonly<Record<string, ToolDisplay>>,
+	b: Readonly<Record<string, ToolDisplay>>,
+): boolean {
+	const keys = Object.keys(a);
+	return (
+		keys.length === Object.keys(b).length &&
+		keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key])
+	);
 }
 
 export class SettingsDialog implements ComponentLike {
@@ -166,7 +210,8 @@ export class SettingsDialog implements ComponentLike {
 			draft.stats.received !== initial.stats.received ||
 			draft.stats.cache !== initial.stats.cache ||
 			draft.stats.time !== initial.stats.time ||
-			draft.stats.clock !== initial.stats.clock
+			draft.stats.clock !== initial.stats.clock ||
+			!sameToolChoices(draft.tools, initial.tools)
 		);
 	}
 
@@ -217,6 +262,7 @@ export class SettingsDialog implements ComponentLike {
 					}
 				},
 				focusable: true,
+				options: MODES,
 			},
 			toggle(
 				"compactPaths",
@@ -304,6 +350,53 @@ export class SettingsDialog implements ComponentLike {
 					draft.stats.enabled,
 				);
 			}),
+			...this.toolRows(),
+		];
+	}
+
+	/**
+	 * One cycle row per configurable tool under a "Tool cards" heading. A
+	 * choice equal to the tool's default is stored as no entry, so the config
+	 * keeps only real overrides and a changed default still reaches the tool.
+	 */
+	private toolRows(): Row[] {
+		const tools = this.deps.tools ?? [];
+		if (tools.length === 0) return [];
+		const draft = this.draft;
+		const chosen = (name: string): ToolDisplay | undefined =>
+			Object.hasOwn(draft.tools, name) ? draft.tools[name] : undefined;
+		return [
+			{
+				id: "tools",
+				kind: "heading",
+				label: "Tool cards",
+				prefix: "",
+				group: GROUP_TOOLS,
+				get: () => undefined,
+				set: () => undefined,
+				focusable: false,
+			},
+			...tools.map(
+				({ name, defaultDisplay }, index): Row => ({
+					id: `${TOOL_ROW_PREFIX}${name}`,
+					kind: "cycle",
+					label: name,
+					prefix: index === tools.length - 1 ? "└─ " : "├─ ",
+					group: GROUP_TOOLS,
+					get: () => chosen(name) ?? defaultDisplay,
+					set: (value) => {
+						if (!TOOL_DISPLAYS.includes(value as ToolDisplay)) return;
+						const { [name]: _, ...rest } = draft.tools;
+						draft.tools =
+							value === defaultDisplay
+								? rest
+								: { ...rest, [name]: value as ToolDisplay };
+					},
+					focusable: true,
+					options: TOOL_DISPLAYS,
+					note: () => (chosen(name) === undefined ? "default" : ""),
+				}),
+			),
 		];
 	}
 
@@ -368,10 +461,10 @@ export class SettingsDialog implements ComponentLike {
 
 	private cycle(delta: 1 | -1): void {
 		const row = this.focusedRow();
-		if (row?.kind !== "cycle") return;
-		const current = row.get() as CompactMode;
-		const index = MODES.indexOf(current);
-		const next = MODES[(index + delta + MODES.length) % MODES.length];
+		if (row?.kind !== "cycle" || row.options === undefined) return;
+		const { options } = row;
+		const index = options.indexOf(String(row.get()));
+		const next = options[(index + delta + options.length) % options.length];
 		row.set(next);
 	}
 
@@ -565,6 +658,10 @@ export class SettingsDialog implements ComponentLike {
 		for (const row of rows) {
 			if (row.group !== previousGroup) lines.push("");
 			previousGroup = row.group;
+			if (row.kind === "heading") {
+				lines.push(`  ${theme.bold(row.label)}`);
+				continue;
+			}
 			const isFocused = row.id === focusedId;
 			const muted = !row.focusable;
 			const marker = isFocused ? theme.fg("accent", "› ") : "  ";
@@ -582,6 +679,8 @@ export class SettingsDialog implements ComponentLike {
 						: theme.fg("muted", "off");
 			} else if (row.kind === "cycle") {
 				value = theme.fg("accent", `[${String(row.get())}]`);
+				const note = row.note?.();
+				if (note) value += theme.fg("muted", ` ${note}`);
 			} else if (this.editing && isFocused) {
 				value = `[${
 					theme.underline ? theme.underline(this.editBuffer) : this.editBuffer
@@ -601,7 +700,7 @@ export class SettingsDialog implements ComponentLike {
 		// instead, in the same telegraphic style.
 		const help = this.editing
 			? "chord edit · enter ok · esc cancel"
-			: `${ROW_HELP[focusedId ?? ""] ?? ""} · ↑↓ move · s save · esc cancel${
+			: `${helpFor(focusedId)} · ↑↓ move · s save · esc cancel${
 					this.isDirty ? " · unsaved" : ""
 				}`;
 		lines.push(theme.fg("muted", help));

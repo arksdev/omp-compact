@@ -51,7 +51,7 @@ function fakeStore(initial?: CompactSettings): CompactSettingsStore & {
 
 function settings(
 	overrides: Partial<
-		Pick<CompactSettings, "enabled" | "mode" | "retainGitLive">
+		Pick<CompactSettings, "enabled" | "mode" | "retainGitLive" | "tools">
 	>,
 ): CompactSettings {
 	return { ...DEFAULT_SETTINGS, ...overrides };
@@ -240,13 +240,19 @@ describe("runModeFromSettings", () => {
 		expect(runModeFromSettings(settings({}))).toEqual(DEFAULT_RUN_MODE);
 		expect(
 			runModeFromSettings(
-				settings({ enabled: false, mode: "clear", retainGitLive: false }),
+				settings({
+					enabled: false,
+					mode: "clear",
+					retainGitLive: false,
+					tools: { bash: "open" },
+				}),
 			),
 		).toEqual({
 			mode: "clear",
 			enabled: false,
 			retainGitLive: false,
 			compactVibeRows: true,
+			tools: { bash: "open" },
 		});
 	});
 });

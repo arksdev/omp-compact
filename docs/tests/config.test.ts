@@ -1650,6 +1650,87 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		await rm(dir, { recursive: true, force: true });
 	});
 
+	test("tool choices merge per tool with a stale peer, and a removed choice is deleted", async () => {
+		const dir = await tempDir();
+		const { a, b } = await twoStores(dir);
+		await a.store.update({ tools: { bash: "open", grep: "newest" } });
+		// b's snapshot predates a's write; it saves its whole snapshot with one
+		// tool added, as the dialog does.
+		await b.store.update({
+			...b.store.snapshot(),
+			tools: { wait: "rows" },
+		});
+		expect((await readStored(dir)).tools).toEqual({
+			bash: "open",
+			grep: "newest",
+			wait: "rows",
+		});
+		// Removing grep's choice from a's full map deletes only that entry.
+		await a.store.load();
+		const { grep: _, ...rest } = a.store.snapshot().tools;
+		await a.store.update({ ...a.store.snapshot(), tools: rest });
+		expect((await readStored(dir)).tools).toEqual({
+			bash: "open",
+			wait: "rows",
+		});
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("invalid tool entries are skipped, a non-object tools field is invalid", () => {
+		const warnings: string[] = [];
+		const settings = normalizeSettings(
+			{
+				tools: {
+					bash: "open",
+					grep: "sideways",
+					"": "rows",
+					["x".repeat(200)]: "rows",
+				},
+			},
+			(message) => warnings.push(message),
+		);
+		expect(settings.tools).toEqual({ bash: "open" });
+		expect(warnings).toEqual(["ignored 3 invalid tools entries"]);
+		expect(normalizeSettings({ tools: ["bash"] }, () => {}).tools).toEqual({});
+	});
+
+	test("a hand-written spelling of a tool applies, and removing the choice removes it from disk", async () => {
+		const dir = await tempDir();
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		await writeFile(
+			join(dir, "omp-compact", "config.json"),
+			JSON.stringify({ tools: { "ast-grep": "open", bash: "newest" } }),
+		);
+		const { store } = storeAt(dir);
+		// Keyed as a call is looked up: `ast-grep` is the tool `ast_grep`.
+		expect((await store.load()).tools).toEqual({
+			ast_grep: "open",
+			bash: "newest",
+		});
+		const { ast_grep: _, ...rest } = store.snapshot().tools;
+		await store.update({ ...store.snapshot(), tools: rest });
+		// No other spelling is left behind to bring the choice back.
+		expect((await readStored(dir)).tools).toEqual({ bash: "newest" });
+		expect((await store.load()).tools).toEqual({ bash: "newest" });
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("a tool named __proto__ is saved and removed like any other", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		const tools = Object.fromEntries([["__proto__", "open" as const]]);
+		await store.update({ ...store.snapshot(), tools });
+		const raw = await readFile(join(dir, "omp-compact", "config.json"), "utf8");
+		expect(raw).toContain('"__proto__": "open"');
+		expect(Object.hasOwn((await store.load()).tools, "__proto__")).toBe(true);
+		await store.update({ ...store.snapshot(), tools: {} });
+		expect(
+			Object.keys((await readStored(dir)).tools as Record<string, unknown>),
+		).toEqual([]);
+		await rm(dir, { recursive: true, force: true });
+	});
+
 	test("same-field conflict: deterministic last successful writer wins", async () => {
 		// The policy is documented by the test order: the store whose atomic
 		// rename lands last determines the value — never a merge of two

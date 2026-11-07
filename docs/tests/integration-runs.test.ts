@@ -3,7 +3,7 @@
  * the answer or an abort/error at its end, in each display mode, with
  * settings that change while it runs and tool ids that repeat.
  */
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 
 import {
 	addBlock,
@@ -451,5 +451,78 @@ stockDescribe("a logical run", () => {
 		await runTool(booted, "k1", "task", { agent: "explore", task: "Map it" });
 		await endRun(booted);
 		expect(rows(booted)).toBe("• task: explore");
+	});
+
+	describe("per-tool display choices", () => {
+		const withTools = (mode: Mode, tools: Record<string, string>) =>
+			boot(mode, { settings: { tools } });
+
+		test("open keeps a tool's full card in every mode and after the answer", async () => {
+			const booted = await withTools("live", { bash: "open" });
+			await beginRun(booted);
+			await runTool(
+				booted,
+				"b1",
+				"bash",
+				{ command: "echo hi" },
+				textResult("hi-output"),
+			);
+			expect(rows(booted)).toContain("hi-output");
+			await endRun(booted);
+			expect(rows(booted)).toContain("hi-output");
+
+			const cleared = await withTools("clear", { bash: "open" });
+			await beginRun(cleared);
+			await runTool(cleared, "b1", "bash", { command: "echo hi" });
+			expect(rows(cleared)).toContain("echo hi");
+		});
+
+		test("rows folds even the newest wait card", async () => {
+			const booted = await withTools("live", { wait: "rows" });
+			await beginRun(booted);
+			await runTool(booted, "w1", "wait", { i: "First poll" }, jobs("running"));
+			expect(rows(booted)).toContain("wait: First poll · 1 job running");
+			expect(rows(booted)).not.toContain("waiting on");
+		});
+
+		test("newest opens only the newest call of a row tool, and the answer hides it", async () => {
+			const booted = await withTools("live", { grep: "newest" });
+			await beginRun(booted);
+			await runTool(
+				booted,
+				"g1",
+				"grep",
+				{ pattern: "alpha" },
+				textResult("a.ts:1:alpha-hit"),
+			);
+			expect(rows(booted)).toContain("alpha-hit");
+			await runTool(
+				booted,
+				"g2",
+				"grep",
+				{ pattern: "beta" },
+				textResult("b.ts:1:beta-hit"),
+			);
+			const text = rows(booted);
+			expect(text).not.toContain("alpha-hit");
+			expect(text).toContain("grep: alpha");
+			expect(text).toContain("beta-hit");
+			await endRun(booted);
+			expect(rows(booted)).toBe("");
+		});
+
+		test("a device choice applies to writes to that device only", async () => {
+			const booted = await withTools("live", { github: "open" });
+			await beginRun(booted);
+			await runTool(booted, "x1", "write", {
+				path: "xd://github",
+				content: "{}",
+			});
+			await runTool(booted, "x2", "write", { path: "xd://lsp", content: "{}" });
+			await endRun(booted);
+			const text = rows(booted);
+			expect(text).toContain("xd://github");
+			expect(text).not.toContain("lsp");
+		});
 	});
 });

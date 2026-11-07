@@ -14,6 +14,7 @@ import type {
 	TranscriptPresentation,
 } from "@oh-my-pi/pi-coding-agent";
 
+import type { ToolDisplay } from "./config";
 import {
 	advisorNoteViews,
 	injectRuleViews,
@@ -45,6 +46,11 @@ import {
 } from "./render";
 import type { CallRecord, RunRecord, SessionLedger } from "./session-ledger";
 import type { Theme } from "./theme-types";
+import {
+	displayRoute,
+	effectiveToolDisplay,
+	toolDisplayKey,
+} from "./tool-display";
 import { resolveToolRule } from "./tool-presentation-rules";
 
 type ToolCallBlock = Extract<TranscriptBlock, { type: "toolCall" }>;
@@ -123,11 +129,16 @@ function indexInRun(call: CallRecord): number {
 	return at < 0 ? calls.length : at;
 }
 
+/** Whether two calls run the same tool (an `xd://` device counts as its own). */
+function sameTool(a: CallRecord | undefined, b: CallRecord): boolean {
+	return a?.toolName === b.toolName && a.device === b.device;
+}
+
 /** The latest earlier call of the same tool in the call's run. */
 function previousOfTool(call: CallRecord): CallRecord | undefined {
 	const { calls } = call.run;
 	for (let i = indexInRun(call) - 1; i >= 0; i--) {
-		if (calls[i]?.toolName === call.toolName) return calls[i];
+		if (sameTool(calls[i], call)) return calls[i];
 	}
 	return undefined;
 }
@@ -136,9 +147,21 @@ function previousOfTool(call: CallRecord): CallRecord | undefined {
 function isNewestOfTool(call: CallRecord): boolean {
 	const { calls } = call.run;
 	for (let i = indexInRun(call) + 1; i < calls.length; i++) {
-		if (calls[i]?.toolName === call.toolName) return false;
+		if (sameTool(calls[i], call)) return false;
 	}
 	return true;
+}
+
+/**
+ * The display the call's run applies to it: the user's choice, else the
+ * default. A call whose arguments still stream has no device yet and counts
+ * as its transport tool until `tool_execution_start` names the device.
+ */
+function displayOf(call: CallRecord, toolName: string): ToolDisplay {
+	return effectiveToolDisplay(
+		toolDisplayKey(toolName, call.device),
+		call.run.mode.tools,
+	);
 }
 
 export class TranscriptPresenterState {
@@ -192,7 +215,7 @@ export class TranscriptPresenterState {
 
 	/** The older call whose live card a new call of the same tool replaces. */
 	replacedLiveCard(call: CallRecord): string | undefined {
-		if (resolveToolRule(call.toolName)?.route !== "live-card") return undefined;
+		if (displayOf(call, call.toolName) !== "newest") return undefined;
 		return previousOfTool(call)?.id;
 	}
 
@@ -404,9 +427,15 @@ export class TranscriptPresenterState {
 			(run.phase === "full" && run.mode.mode === "clear")
 				? this.#deps.ledger.projection(run)
 				: undefined;
-		const route = resolveToolRule(toolName)?.route;
+		const display = displayOf(call, toolName);
+		const newestOfTool =
+			display === "newest" && run.phase === "working" && isNewestOfTool(call);
 		return decideToolRender({
-			route,
+			route: displayRoute(
+				resolveToolRule(toolName)?.route,
+				display,
+				newestOfTool,
+			),
 			mode: run.mode.mode,
 			retainGitLive: run.mode.retainGitLive,
 			compactSuppressedBySettings:
@@ -416,10 +445,7 @@ export class TranscriptPresenterState {
 			hasGit: call.git !== undefined,
 			hashesLength: projection?.hashes.length ?? 0,
 			isAnchor: projection?.anchor === call,
-			newestOfTool:
-				route === "live-card" &&
-				run.phase === "working" &&
-				isNewestOfTool(call),
+			newestOfTool,
 		});
 	}
 

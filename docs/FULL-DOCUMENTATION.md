@@ -239,6 +239,7 @@ compact → live → clear → off → compact
 | `vibe-compact` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов vibe. При `false` они рисуются stock framed card в любом режиме. |
 | `Advisor nit/concern` / `compactAdvisorNotes` | `false` | Сворачивает non-blocking заметки советника (`nit`/`concern`) в одну строку на заметку. `blocker`, неизвестные severity и нечитаемые `details` оставляют карточку OMP; развёрнутая карточка всегда полная. |
 | `Cycle shortcut` / `displayCycleKey` | `"alt+c"` | Сочетание, переключающее вид вывода по кругу. Занятое OMP сочетание отклоняется при вводе. Смена требует restart OMP. |
+| `Tool cards` / `tools` | `{}` | Вид каждого инструмента по имени (устройство `xd://` — по своему имени): `rows` — строки по правилам режима, `newest` — самый новый вызов сохраняет карточку OMP, пока агент работает, `open` — карточка OMP в любом режиме и после ответа. Без записи действует default: `newest` для `wait` и `todo`, иначе `rows`. `ask` и vibe записи игнорируют; неверные записи пропускаются с предупреждением. |
 | `Run statistics` / `stats.enabled` | `true` | Включает terminal stats row. |
 | `Actions` / `stats.actions` | `true` | Число distinct tool executions, включая failures и unmapped tools. |
 | `Fresh input` / `stats.sent` | `true` | Сумма `usage.input` уникальных assistant completions — свежие, некэшированные токены входа. |
@@ -276,6 +277,7 @@ Default path:
   "compactVibeRows": true,
   "compactAdvisorNotes": false,
   "displayCycleKey": "alt+c",
+  "tools": {},
   "stats": {
     "enabled": true,
     "actions": true,
