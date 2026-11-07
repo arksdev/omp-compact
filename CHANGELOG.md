@@ -8,14 +8,16 @@
 ### Изменено
 
 - `wait` и `todo`: самый новый вызов сохраняет полную карточку OMP, пока агент работает, а более старые становятся строками.
-- Строка `task` называет агентов и остаётся после ответа.
+- Строки `wait` и `todo` показывают intent модели, итог задач и прогресс списка (`wait: Waiting for jobs · 2 jobs settled`, `todo: done Task two · 1/2`) вместо сырых аргументов вроде `i: …` и `op: start`.
+- Строка `task` называет агентов, в том числе у вызова с одной задачей, и остаётся после ответа.
 
 ---
 
 ### Changed
 
 - `wait` and `todo`: the newest call keeps OMP's full card while the agent works, and older calls become rows.
-- A `task` row names its agents and stays after the answer.
+- `wait` and `todo` rows show the model's intent, how the jobs ended and the list's progress (`wait: Waiting for jobs · 2 jobs settled`, `todo: done Task two · 1/2`) instead of raw arguments such as `i: …` and `op: start`.
+- A `task` row names its agents, single-task calls included, and stays after the answer.
 
 ---
 

@@ -13,6 +13,7 @@ import { parseXdUrl } from "@oh-my-pi/pi-tui/tools/xd-url";
 import {
 	editPathsFromInput,
 	genericToolDescription,
+	INTENT_ARG,
 	listValue,
 	stringValue,
 	truncateCodePoints,
@@ -485,19 +486,103 @@ export function genericDescribe(name: string) {
 /** Agent names a task row lists before it counts the rest. */
 const TASK_NAMES_SHOWN = 5;
 
-/** A `task` row names its agents: the row stays after the answer. */
+/** omp's agent when a task names none; as a label it says nothing. */
+const DEFAULT_TASK_AGENT = "task";
+
+/**
+ * A `task` row names what the run delegated: each task's name, else its agent,
+ * for the batch form (`tasks: [...]`) and the single-task form alike. Tasks
+ * without a label are counted, so the row never under-reports the batch.
+ */
 export function describeTask(args: unknown): ToolDescription {
-	const { tasks } = record(args);
-	const names = (Array.isArray(tasks) ? tasks : [])
-		.map((task) => stringValue(record(task), "name"))
-		.filter((name) => name !== "");
-	const shown = names.slice(0, TASK_NAMES_SHOWN).join(", ");
-	const rest = names.length - TASK_NAMES_SHOWN;
+	const input = record(args);
+	const tasks = Array.isArray(input.tasks) ? input.tasks.map(record) : [input];
+	const labels = tasks
+		.map((task) => {
+			const agent = stringValue(task, "agent");
+			return (
+				stringValue(task, "name") || (agent === DEFAULT_TASK_AGENT ? "" : agent)
+			);
+		})
+		.filter((label) => label !== "");
+	const shown = labels.slice(0, TASK_NAMES_SHOWN);
+	const rest = tasks.length - shown.length;
+	let description = shown.join(", ");
+	if (shown.length === 0)
+		description =
+			tasks.length > 1
+				? `${tasks.length} tasks`
+				: stringValue(input, INTENT_ARG);
+	else if (rest > 0) description += ` +${rest}`;
+	return { title: "task", description, meta: [] };
+}
+
+/** A `wait` row names what the model waited for: the call has no own args. */
+export function describeWait(args: unknown): ToolDescription {
 	return {
-		title: "task",
-		description: rest > 0 ? `${shown} +${rest}` : shown,
+		title: "wait",
+		description: stringValue(record(args), INTENT_ARG),
 		meta: [],
 	};
+}
+
+/** How the jobs a `wait` returned ended, worded like omp's card title. */
+export function resultMetaWait(result: unknown): readonly string[] {
+	const { jobs } = record(record(result).details);
+	if (!Array.isArray(jobs) || jobs.length === 0) return [];
+	const running = jobs.filter((job) => record(job).status === "running").length;
+	const noun = jobs.length === 1 ? "job" : "jobs";
+	if (running === 0) return [`${jobs.length} ${noun} settled`];
+	if (running === jobs.length) return [`${jobs.length} ${noun} running`];
+	return [`${running} of ${jobs.length} ${noun} running`];
+}
+
+/** Todo ops a row lists before it counts the rest. */
+const TODO_OPS_SHOWN = 3;
+
+/** A `todo` row lists its ops the way omp's card head does: `done Task two`. */
+export function describeTodo(args: unknown): ToolDescription {
+	const input = record(args);
+	const ops = Array.isArray(input.ops)
+		? input.ops.map(record)
+		: typeof input.op === "string"
+			? [input]
+			: [];
+	const parts = ops.slice(0, TODO_OPS_SHOWN).map((op) => {
+		const words = [stringValue(op, "op") || "update"];
+		for (const key of ["task", "phase"]) {
+			const value = stringValue(op, key);
+			if (value) words.push(value);
+		}
+		if (Array.isArray(op.items) && op.items.length > 0)
+			words.push(`${op.items.length} item${op.items.length === 1 ? "" : "s"}`);
+		return words.join(" ");
+	});
+	const rest = ops.length - TODO_OPS_SHOWN;
+	if (rest > 0) parts.push(`+${rest}`);
+	return {
+		title: "todo",
+		description: parts.join(", ") || stringValue(input, INTENT_ARG),
+		meta: [],
+	};
+}
+
+/** Closed tasks out of all tasks after the update, like omp's `Todo 1/2`. */
+export function resultMetaTodo(result: unknown): readonly string[] {
+	const { phases } = record(record(result).details);
+	if (!Array.isArray(phases)) return [];
+	let closed = 0;
+	let total = 0;
+	for (const phase of phases) {
+		const { tasks } = record(phase);
+		if (!Array.isArray(tasks)) continue;
+		for (const task of tasks) {
+			total++;
+			const { status } = record(task);
+			if (status === "completed" || status === "abandoned") closed++;
+		}
+	}
+	return total > 0 ? [`${closed}/${total}`] : [];
 }
 
 /**

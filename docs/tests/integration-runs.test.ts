@@ -390,6 +390,26 @@ stockDescribe("a logical run", () => {
 		const text = rows(booted);
 		expect(text).toContain("Listed");
 		expect(text).toContain("Scout");
+		expect(text).toContain("needle");
+	});
+
+	test("a new wait folds the previous wait card to its row", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		await runTool(booted, "w1", "wait", { i: "First poll" }, jobs("running"));
+		expect(rows(booted)).toBe("ⓘ waiting on 1 job");
+
+		await runTool(
+			booted,
+			"w2",
+			"wait",
+			{ i: "Second poll" },
+			jobs("completed"),
+		);
+		const text = rows(booted);
+		expect(text).toContain("wait: First poll · 1 job running");
+		expect(text).not.toContain("Second poll");
+		expect(text).not.toContain("waiting on 1 job");
 	});
 
 	test("a live card folds to its row when the run ends in compact or on abort", async () => {
@@ -423,5 +443,13 @@ stockDescribe("a logical run", () => {
 		});
 		await endRun(booted);
 		expect(rows(booted)).toBe("• task: Scout, Reviewer");
+	});
+
+	test("a single-task row names its agent", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		await runTool(booted, "k1", "task", { agent: "explore", task: "Map it" });
+		await endRun(booted);
+		expect(rows(booted)).toBe("• task: explore");
 	});
 });

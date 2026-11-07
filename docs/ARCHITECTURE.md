@@ -98,7 +98,9 @@ Remaining limit: calls with the same id and the same arguments in different runs
 
 The presenter maps `native` to `"full"`, `host-compact` to `"compact"`, and `empty` to `"hidden"` unless the run's reveal is on, in which case the call gets its compact rows back. Hashes count only once the run ended and only with `retainGitLive`; `clear` treats an interrupted end as terminal too, because the commits it made exist either way and the quiet view has no other place to show them.
 
-`wait` and `todo` use the `live-card` route: their cards show current state, so only the newest call of each tool keeps its card. Older ones would show a frozen copy of the same state, and a run can make dozens of `wait` calls. A new call asks omp to redraw the one it replaces (`tool_execution_start` → `refreshTranscript`). `task` uses `kept-row`: its live progress is in the `wait` card, and its row records what the run delegated.
+`wait` and `todo` use the `live-card` route: their cards show current state, so only the newest call of each tool keeps its card. Older ones would show a frozen copy of the same state, and a run can make dozens of `wait` calls. A new call asks omp to redraw the one it replaces (`tool_execution_start` → `refreshTranscript`). A call whose arguments still stream without an id counts as the newest. In a plain terminal, if the replaced card already scrolled into native scrollback, that redraw costs omp one transcript replay (at most one per frame); in Tern it is a prop change. Their rows read `wait: <intent> · 2 jobs settled` and `todo: done Task two · 1/2`.
+
+`task` uses `kept-row`: its live progress is in the `wait` card, and its row records what the run delegated: each task's name, else its agent, with unlabelled tasks counted (`task: Scout, reviewer +1`).
 
 ### Other blocks (leaf-views.ts)
 
