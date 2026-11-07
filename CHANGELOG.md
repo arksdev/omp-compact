@@ -3,6 +3,22 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+
+## 2.0.1 — 7 ноября 2026
+
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.18.0. Поддержка OMP 18.17.0 и выше сохранена.
+- Предупреждение о выключенной настройке `Extension Transcript Presenters` теперь показывается сразу на старте сессии и при открытии `/compact-settings`.
+
+---
+
+### Changed
+
+- Updated the supported OMP version to 18.18.0. Support for OMP 18.17.0 and later is preserved.
+- The warning for disabled `Extension Transcript Presenters` now appears immediately on session start and when opening `/compact-settings`.
+
+---
 ## 2.0.0 — 6 ноября 2026
 
 ### Ломающие изменения
