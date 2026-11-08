@@ -291,6 +291,16 @@ describe("settings dialog", () => {
 		expect(rowValue(frame, "Cycle shortcut")).toBe("alt+c");
 		expect(frame.join("\n")).toContain("Chord cycling");
 	});
+
+	test("below the list's minimum height the frame still fits and keeps the selection", () => {
+		for (const rows of [10, 8, 6]) {
+			const h = harness({ rows });
+			for (let i = 0; i < 6; i++) h.dialog.handleInput(DOWN);
+			const frame = h.frame(120);
+			expect(frame.length, `${rows} rows`).toBeLessThanOrEqual(rows);
+			expect(rowValue(frame, "Cycle shortcut"), `${rows} rows`).toBe("alt+c");
+		}
+	});
 });
 
 /** A native event as the page sends it, minus the root node's empty key. */
@@ -395,6 +405,22 @@ describe("native settings page", () => {
 		pointer(h, { type: "change", item: "displayCycleKey", value: "alt+Y" });
 		await settle();
 		expect(h.saves.at(-1)?.displayCycleKey).toBe("shift+alt+y");
+	});
+
+	test("resetting the shortcut goes through the chord checks too", async () => {
+		const h = harness({
+			settings: { ...DEFAULT_SETTINGS, displayCycleKey: "alt+x" },
+			checkShortcut: (chord) =>
+				chord === "alt+c"
+					? "alt+c is already used by another extension"
+					: undefined,
+		});
+		pointer(h, { type: "change", item: "displayCycleKey", value: null });
+		await settle();
+		// The default chord is held elsewhere: nothing is saved and the field
+		// stays open with its error.
+		expect(h.saves).toHaveLength(0);
+		expect(page(h).children).toHaveLength(1);
 	});
 
 	test("the page's close button closes the dialog", async () => {

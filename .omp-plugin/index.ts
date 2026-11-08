@@ -215,6 +215,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			await runSettingsSession(ctx.ui, {
 				store: settingsStore,
 				toolNames: toolNames(),
+				// Read when the command runs, after registration below.
+				boundCycleKey: cycleKey,
 				checkShortcut: (chord) =>
 					describeShortcutConflict(chord, shortcutConflict(chord)),
 				notify: (level, message) => {

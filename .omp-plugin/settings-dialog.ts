@@ -271,8 +271,8 @@ export class SettingsDialog implements Component {
 		);
 	}
 
-	#items(): SettingItem[] {
-		const shown = this.#shown();
+	/** The rows for `shown`: by default the saved settings plus pending changes. */
+	#items(shown: CompactSettings = this.#shown()): SettingItem[] {
 		const items: SettingItem[] = [
 			heading("general"),
 			booleanItem(
@@ -478,9 +478,16 @@ export class SettingsDialog implements Component {
 				: Math.max(MIN_VISIBLE_ROWS, titled ? room - TITLE_ROWS : room),
 		);
 		const list = this.#list.render(width);
-		return titled
+		const frame = titled
 			? [truncateToWidth(theme.bold(TITLE), width), "", ...list]
 			: list;
+		// The list never draws fewer than its minimum viewport plus its
+		// chrome. On a terminal shorter than that the rows below the viewport
+		// (help, search, hint) go, so the selected row stays on screen rather
+		// than scrolling off the top.
+		return rows !== undefined && room !== undefined && frame.length > rows
+			? frame.slice(0, Math.floor(rows))
+			: frame;
 	}
 
 	/**
@@ -507,10 +514,11 @@ export class SettingsDialog implements Component {
 
 	#describePrefs(): NativeNode {
 		const items = this.#items();
+		const sectionOf = sectionsOf(items);
 		const query = this.#list.getSearchQuery();
 		const searching = query.length > 0;
 		const focusRow = this.#list.prefsFocus().row;
-		const focusSection = focusRow ? sectionOf(items, focusRow) : undefined;
+		const focusSection = focusRow ? sectionOf.get(focusRow) : undefined;
 		// A search lists every section; the page stays the one it started on.
 		if (focusSection && !searching) this.#page = focusSection;
 
@@ -518,7 +526,7 @@ export class SettingsDialog implements Component {
 		// no headings, so the heading above a search result is not its own.
 		const all = this.#list.prefsSections(
 			(item) => {
-				const id = sectionOf(items, item.id) ?? "general";
+				const id = sectionOf.get(item.id) ?? "general";
 				const title = sectionTitle(id);
 				return searching ? { id, title, page: id } : { id, title };
 			},
@@ -540,22 +548,24 @@ export class SettingsDialog implements Component {
 			children.push(col([open.component], { role: PREFS_EDITOR_ROLE }));
 		}
 
+		const listed = new Set(sectionOf.values());
+		const changed = new Map<SectionId, number>();
+		for (const item of items) {
+			const section = sectionOf.get(item.id);
+			if (item.changed && section) {
+				changed.set(section, (changed.get(section) ?? 0) + 1);
+			}
+		}
 		const props: TspPrefsProps = {
 			title: "OMP Compact",
-			pages: SECTIONS.filter(({ id }) =>
-				items.some((item) => item.heading && sectionIdOf(item) === id),
-			).map(({ id, title, icon }) => {
-				const changed = items.filter(
-					(item) =>
-						!item.heading && item.changed && sectionOf(items, item.id) === id,
-				).length;
-				return {
+			pages: SECTIONS.filter(({ id }) => listed.has(id)).map(
+				({ id, title, icon }) => ({
 					id,
 					label: title,
 					icon,
-					changed: changed > 0 ? changed : undefined,
-				};
-			}),
+					changed: changed.get(id),
+				}),
+			),
 			page: this.#page,
 			lead: searching
 				? undefined
@@ -596,23 +606,15 @@ export class SettingsDialog implements Component {
 		};
 	}
 
-	/** The value a row resets to: its default. */
+	/**
+	 * The value a row resets to: its value in the rows the defaults draw, so
+	 * a row added to `#items` needs no second table here.
+	 */
 	#defaultValue(id: string): string | undefined {
-		if (id === "enabled") return String(DEFAULT_SETTINGS.enabled);
-		if (id === "mode") return DEFAULT_SETTINGS.mode;
-		if (id === "displayCycleKey") return DEFAULT_SETTINGS.displayCycleKey;
-		const toggle = DISPLAY_TOGGLES.find((row) => row.id === id);
-		if (toggle) return String(DEFAULT_SETTINGS[toggle.id]);
-		if (id.startsWith(STATS_PREFIX)) {
-			const key = id.slice(STATS_PREFIX.length) as keyof CompactStatsSettings;
-			return String(DEFAULT_SETTINGS.stats[key]);
-		}
-		if (id.startsWith(TOOL_PREFIX)) {
-			const name = id.slice(TOOL_PREFIX.length);
-			return this.#deps.tools?.find((tool) => tool.name === name)
-				?.defaultDisplay;
-		}
-		return undefined;
+		const item = this.#items(DEFAULT_SETTINGS).find(
+			(candidate) => candidate.id === id && !candidate.heading,
+		);
+		return item === undefined ? undefined : String(item.currentValue);
 	}
 
 	/**
@@ -650,15 +652,14 @@ export class SettingsDialog implements Component {
 	}
 
 	#showPage(id: string): void {
-		const section = SECTIONS.find((candidate) => candidate.id === id);
-		if (!section) return;
-		this.#list.clearSearch();
 		const items = this.#items();
-		const first = items.find(
-			(item) => !item.heading && sectionOf(items, item.id) === section.id,
-		);
-		this.#page = section.id;
-		if (first) this.#list.selectItem(first.id);
+		const sectionOf = sectionsOf(items);
+		const first = items.find((item) => sectionOf.get(item.id) === id);
+		// A page without rows (no tools listed) is not one the view offers.
+		if (!first) return;
+		this.#list.clearSearch();
+		this.#page = sectionOf.get(first.id) ?? this.#page;
+		this.#list.selectItem(first.id);
 	}
 
 	#applyNativeChange(
@@ -669,20 +670,28 @@ export class SettingsDialog implements Component {
 		if (value === null) {
 			if (list.openSubmenu) list.handleInput(ESCAPE);
 			const reset = this.#defaultValue(id);
-			if (reset !== undefined && list.selectItem(id)) this.#change(id, reset);
+			if (reset === undefined || !list.selectItem(id)) return;
+			// The default chord passes the same checks a typed one does: it
+			// may be held by another extension.
+			if (id === "displayCycleKey") this.#submitChord(reset);
+			else this.#change(id, reset);
 			return;
 		}
 		if (id === "displayCycleKey") {
-			if (typeof value !== "string") return;
-			const field = list.openSubmenuFor(id);
-			if (field instanceof TextFormField) {
-				field.setValue(value);
-				field.submit();
-			}
+			if (typeof value === "string") this.#submitChord(value);
 			return;
 		}
 		if (typeof value === "boolean" || typeof value === "string") {
 			list.applyValue(id, String(value));
+		}
+	}
+
+	/** Enter a chord through the chord field, so its checks decide. */
+	#submitChord(chord: string): void {
+		const field = this.#list.openSubmenuFor("displayCycleKey");
+		if (field instanceof TextFormField) {
+			field.setValue(chord);
+			field.submit();
 		}
 	}
 
@@ -699,17 +708,15 @@ function sectionIdOf(head: SettingItem | undefined): SectionId {
 	return SECTIONS.find((section) => section.id === id)?.id ?? "general";
 }
 
-/** The section row `id` sits in: the heading above it. */
-function sectionOf(
-	items: readonly SettingItem[],
-	id: string,
-): SectionId | undefined {
-	let head: SettingItem | undefined;
+/** The section of every row: the heading above it. One pass over the rows. */
+function sectionsOf(items: readonly SettingItem[]): Map<string, SectionId> {
+	const sections = new Map<string, SectionId>();
+	let section: SectionId | undefined;
 	for (const item of items) {
-		if (item.heading) head = item;
-		else if (item.id === id) return sectionIdOf(head);
+		if (item.heading) section = sectionIdOf(item);
+		else if (section !== undefined) sections.set(item.id, section);
 	}
-	return undefined;
+	return sections;
 }
 
 function withoutHint(row: TspPrefsRow): TspPrefsRow {
@@ -762,6 +769,12 @@ export interface SettingsSessionDeps {
 	store: CompactSettingsStore;
 	/** Names of the tools omp reports, listed under "Tool cards". */
 	toolNames: Iterable<string>;
+	/**
+	 * The cycle chord omp bound at startup; a session that leaves another
+	 * chord on disk adds the restart note. Absent: the chord the session
+	 * opened on.
+	 */
+	boundCycleKey?: string;
 	checkShortcut?(chord: string): string | undefined;
 	notify(level: "info" | "warning", message: string): void;
 }
@@ -794,6 +807,10 @@ export async function runSettingsSession(
 		warn: (message) => deps.notify("warning", message),
 	});
 	if (saved !== undefined && last !== undefined) {
-		notifySaveOutcome(last, opened, deps.notify);
+		notifySaveOutcome(
+			last,
+			deps.boundCycleKey ?? opened.displayCycleKey,
+			deps.notify,
+		);
 	}
 }

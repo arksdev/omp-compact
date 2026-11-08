@@ -3,6 +3,7 @@ import type {
 	CompactSettings,
 	CompactSettingsStore,
 } from "./config";
+import { canonicalize } from "./display-cycle";
 import { createKeyedQueue } from "./keyed-queue";
 
 export interface SaveFlowDeps {
@@ -75,8 +76,14 @@ export async function saveSettingsFlow(
 ): Promise<SaveOutcome> {
 	const { store } = deps;
 	return withSaveFlowQueue(store, async () => {
+		// Without a persisted layer only the effective snapshot exists, whose
+		// env echoes must still be stripped (as in the function path below).
 		if (typeof next !== "function") {
-			return runSaveSettingsFlow(next, store, deps.explicit === true);
+			return runSaveSettingsFlow(
+				next,
+				store,
+				deps.explicit === true && store.persistedSnapshot !== undefined,
+			);
 		}
 		const effective = await store.load();
 		// A store without a persisted layer only offers the effective
@@ -107,17 +114,18 @@ async function runSaveSettingsFlow(
  *      saved` for an unmasked save, or a single message carrying both facts
  *      (saved + effective) when a hard env override masks the persisted
  *      enabled/mode — never a separate warning plus a generic success
- *   2. when the cycle chord differs from the one in `before`, an honest note
- *      that it binds after a restart of OMP: the host offers no way to
- *      unregister the old shortcut, so the new one only binds on the next
- *      start.
+ *   2. when the cycle chord on disk differs from the one omp bound at
+ *      startup, an honest note that it binds after a restart of OMP: the
+ *      host offers no way to unregister the old shortcut, so the new one
+ *      only binds on the next start. Changing the chord back to the bound
+ *      one needs no restart and gets no note.
  *
  * `outcome` is the last save of the session, so it carries the final state
- * on disk; `before` is the settings the session started from.
+ * on disk; `boundCycleKey` is the chord registered when OMP started.
  */
 export function notifySaveOutcome(
 	outcome: SaveOutcome,
-	before: CompactSettings,
+	boundCycleKey: string,
 	notify: (level: "info" | "warning", message: string) => void,
 ): void {
 	notify(
@@ -126,7 +134,10 @@ export function notifySaveOutcome(
 			? maskedSaveMessage(outcome.masks)
 			: "omp-compact settings saved",
 	);
-	if (outcome.persisted.displayCycleKey !== before.displayCycleKey) {
+	if (
+		canonicalize(outcome.persisted.displayCycleKey) !==
+		canonicalize(boundCycleKey)
+	) {
 		notify("info", "The cycle shortcut takes effect after restarting OMP");
 	}
 }

@@ -104,15 +104,15 @@ describe("command registration", () => {
 
 /**
  * Save through the real flow, then report the way the settings command does
- * at close; `before` is the settings the session started from.
+ * at close; `boundCycleKey` is the chord omp bound at startup.
  */
 async function saveAndReport(
 	next: CompactSettings,
 	deps: { store: CompactSettingsStore; notifies: Array<[string, string]> },
-	before: CompactSettings = next,
+	boundCycleKey: string = next.displayCycleKey,
 ): Promise<SaveOutcome> {
 	const outcome = await saveSettingsFlow(next, { store: deps.store });
-	notifySaveOutcome(outcome, before, (level, message) =>
+	notifySaveOutcome(outcome, boundCycleKey, (level, message) =>
 		deps.notifies.push([level, message]),
 	);
 	return outcome;
@@ -680,7 +680,7 @@ describe("save report", () => {
 		await saveAndReport(
 			{ ...DEFAULT_SETTINGS, displayCycleKey: "alt+shift+d" },
 			{ store, notifies },
-			DEFAULT_SETTINGS,
+			DEFAULT_SETTINGS.displayCycleKey,
 		);
 		expect(notifies).toEqual([
 			["info", "omp-compact settings saved"],
@@ -693,7 +693,19 @@ describe("save report", () => {
 		await saveAndReport(
 			{ ...DEFAULT_SETTINGS, compactPaths: false },
 			{ store, notifies },
-			DEFAULT_SETTINGS,
+			DEFAULT_SETTINGS.displayCycleKey,
+		);
+		expect(notifies).toEqual([["info", "omp-compact settings saved"]]);
+	});
+
+	test("a chord changed back to the bound one, in any spelling, needs no restart", async () => {
+		// A session that started on `alt+x` from an earlier, unrestarted
+		// change, and moves back to the chord omp actually bound.
+		const notifies: Array<[string, string]> = [];
+		await saveAndReport(
+			{ ...DEFAULT_SETTINGS, displayCycleKey: "shift+alt+y" },
+			{ store, notifies },
+			"alt+Y",
 		);
 		expect(notifies).toEqual([["info", "omp-compact settings saved"]]);
 	});
