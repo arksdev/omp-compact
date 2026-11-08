@@ -2,8 +2,14 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Component, TUI } from "@oh-my-pi/pi-tui";
+import type {
+	Component,
+	DescribeContext,
+	NativeUiEvent,
+	TUI,
+} from "@oh-my-pi/pi-tui";
 import { ensureThemeSync } from "@oh-my-pi/pi-tui/theme/theme";
+import type { TspPrefsProps } from "@oh-my-pi/pi-wire";
 
 import {
 	type CompactSettings,
@@ -285,6 +291,119 @@ describe("settings dialog", () => {
 		// The selected row (Cycle shortcut) and its help are both visible.
 		expect(rowValue(frame, "Cycle shortcut")).toBe("alt+c");
 		expect(frame.join("\n")).toContain("Chord cycling");
+	});
+});
+
+/** A native event as the page sends it, minus the root node's empty key. */
+type WithoutKey<E> = E extends unknown ? Omit<E, "key"> : never;
+
+describe("native settings page", () => {
+	const cx = (prefs = true): DescribeContext => ({
+		cols: 100,
+		reduceMotion: false,
+		dark: false,
+		supports: (kind) => prefs && kind === "prefs",
+		feature: () => false,
+	});
+	const page = (h: Harness) => {
+		const described = h.dialog.describe(cx());
+		if (described.k !== "prefs" || described.p === undefined) {
+			throw new Error(`expected a prefs page, got ${described.k}`);
+		}
+		return { props: described.p, children: described.c ?? [] };
+	};
+	const rowsOf = (props: TspPrefsProps) =>
+		props.sections.flatMap((section) => section.rows);
+	const pointer = (h: Harness, event: WithoutKey<NativeUiEvent>) =>
+		h.dialog.handleNativeEvent({ key: "", ...event });
+
+	test("a terminal without native pages gets the list", () => {
+		const h = harness();
+		expect(h.dialog.describe(cx(false)).k).not.toBe("prefs");
+	});
+
+	test("shows one section per page with typed controls", () => {
+		const h = harness({ tools: tools("bash") });
+		const { props } = page(h);
+		expect(props.pages.map((p) => p.label)).toEqual([
+			"General",
+			"Display",
+			"Statistics",
+			"Tool cards",
+		]);
+		expect(props.page).toBe("general");
+		expect(rowsOf(props).map((row) => [row.id, row.control.k])).toEqual([
+			["enabled", "switch"],
+			["mode", "choice"],
+		]);
+	});
+
+	test("a page click shows that section; the tools page explains the choices once", () => {
+		const h = harness({ tools: tools("bash", "wait") });
+		pointer(h, { type: "action", act: "page", value: "tools", mods: [] });
+		const { props } = page(h);
+		expect(props.page).toBe("tools");
+		expect(props.lead).toContain("newest");
+		expect(rowsOf(props).map((row) => [row.id, row.hint])).toEqual([
+			["tools.bash", undefined],
+			["tools.wait", undefined],
+		]);
+		expect(props.focus).toBe("tools.bash");
+	});
+
+	test("a search result sits under its own section, whatever page was open", () => {
+		const h = harness({ tools: tools("bash", "wait") });
+		h.type("wai");
+		const { props } = page(h);
+		expect(props.query).toBe("wai");
+		expect(props.sections.map((section) => [section.id, section.page])).toEqual(
+			[["tools", "tools"]],
+		);
+		expect(rowsOf(props).map((row) => row.id)).toEqual(["tools.wait"]);
+	});
+
+	test("switches, choices and resets save like the keys do", async () => {
+		const h = harness({ tools: tools("bash") });
+		pointer(h, { type: "change", item: "enabled", value: false });
+		pointer(h, { type: "change", item: "tools.bash", value: "open" });
+		await settle();
+		expect(h.saves.at(-1)?.enabled).toBe(false);
+		expect(h.saves.at(-1)?.tools).toEqual({ bash: "open" });
+		expect(page(h).props.pages.find((p) => p.id === "tools")?.changed).toBe(1);
+		pointer(h, { type: "change", item: "tools.bash", value: null });
+		await settle();
+		expect(h.saves.at(-1)?.tools).toEqual({});
+	});
+
+	test("a typed chord goes through the chord checks", async () => {
+		const h = harness({
+			checkShortcut: (chord) =>
+				chord === "ctrl+c" ? "ctrl+c is already taken" : undefined,
+		});
+		pointer(h, { type: "change", item: "displayCycleKey", value: "ctrl+c" });
+		await settle();
+		expect(h.saves).toHaveLength(0);
+		// The refused chord's field stays open over the page with its error.
+		const refused = page(h);
+		expect(refused.props.editing).toBeNull();
+		expect(refused.children).toHaveLength(1);
+		pointer(h, {
+			type: "action",
+			act: "close",
+			value: "displayCycleKey",
+			mods: [],
+		});
+		pointer(h, { type: "change", item: "displayCycleKey", value: "alt+Y" });
+		await settle();
+		expect(h.saves.at(-1)?.displayCycleKey).toBe("shift+alt+y");
+	});
+
+	test("the page's close button closes the dialog", async () => {
+		const h = harness();
+		pointer(h, { type: "change", item: "compactPaths", value: false });
+		pointer(h, { type: "action", act: "close", mods: [] });
+		await settle();
+		expect(h.closed?.value?.compactPaths).toBe(false);
 	});
 });
 

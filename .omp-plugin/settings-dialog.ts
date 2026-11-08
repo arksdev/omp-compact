@@ -2,7 +2,10 @@ import {
 	type Component,
 	col,
 	type DescribeContext,
+	type NativeChild,
 	type NativeNode,
+	type NativeUiEvent,
+	node,
 	type SettingItem,
 	SettingsList,
 	span,
@@ -17,6 +20,12 @@ import {
 } from "@oh-my-pi/pi-tui/chrome/keybinding-hints";
 import { formatKeyHint } from "@oh-my-pi/pi-tui/key-hint-format";
 import { getSettingsListTheme, theme } from "@oh-my-pi/pi-tui/theme/theme";
+import type {
+	TspPrefsControl,
+	TspPrefsProps,
+	TspPrefsRow,
+	TspPrefsSection,
+} from "@oh-my-pi/pi-wire";
 
 import {
 	type CompactMode,
@@ -157,8 +166,41 @@ const STATS_CHILDREN: readonly { key: StatsChild; label: string }[] = [
 const STATS_PREFIX = "stats.";
 const TOOL_PREFIX = "tools.";
 
-function heading(id: string, label: string): SettingItem {
-	return { id, label, currentValue: "", heading: true };
+/** omp's role for an editor drawn over a native settings page. */
+const PREFS_EDITOR_ROLE = "omp.prefs.editor";
+
+type SectionId = "general" | "display" | "statistics" | "tools";
+
+/**
+ * The dialog's sections; on Tern's native settings page each one is a page,
+ * drawn with the icon of an omp settings tab (Tern knows only those names).
+ * Tool rows share one explanation, so it is the page's lead, not 40 copies.
+ */
+const SECTIONS: readonly {
+	id: SectionId;
+	title: string;
+	icon: string;
+	lead?: string;
+}[] = [
+	{ id: "general", title: "General", icon: "interaction" },
+	{ id: "display", title: "Display", icon: "appearance" },
+	{ id: "statistics", title: "Statistics", icon: "context" },
+	{ id: "tools", title: "Tool cards", icon: "tools", lead: TOOL_ROW_HELP },
+];
+
+const HEADING_PREFIX = "section.";
+
+function sectionTitle(section: SectionId): string {
+	return SECTIONS.find(({ id }) => id === section)?.title ?? section;
+}
+
+function heading(section: SectionId): SettingItem {
+	return {
+		id: `${HEADING_PREFIX}${section}`,
+		label: sectionTitle(section),
+		currentValue: "",
+		heading: true,
+	};
 }
 
 function booleanItem(
@@ -237,7 +279,7 @@ export class SettingsDialog implements Component {
 	#items(): SettingItem[] {
 		const shown = this.#shown();
 		const items: SettingItem[] = [
-			heading("section.general", "General"),
+			heading("general"),
 			booleanItem(
 				"enabled",
 				"Global compact",
@@ -253,7 +295,7 @@ export class SettingsDialog implements Component {
 				changed: shown.mode !== DEFAULT_SETTINGS.mode,
 				defaultLabel: DEFAULT_SETTINGS.mode,
 			},
-			heading("section.display", "Display"),
+			heading("display"),
 			...DISPLAY_TOGGLES.map(({ id, label }) =>
 				booleanItem(id, label, shown[id], DEFAULT_SETTINGS[id]),
 			),
@@ -266,7 +308,7 @@ export class SettingsDialog implements Component {
 				defaultLabel: DEFAULT_SETTINGS.displayCycleKey,
 				submenu: (current, done) => this.#chordEditor(current, done),
 			},
-			heading("section.statistics", "Statistics"),
+			heading("statistics"),
 			booleanItem(
 				"stats.enabled",
 				"Run statistics",
@@ -290,7 +332,7 @@ export class SettingsDialog implements Component {
 		}
 		const tools = this.#deps.tools ?? [];
 		if (tools.length > 0) {
-			items.push(heading("section.tools", "Tool cards"));
+			items.push(heading("tools"));
 			for (const { name, defaultDisplay } of tools) {
 				const chosen = Object.hasOwn(shown.tools, name)
 					? shown.tools[name]
@@ -446,17 +488,238 @@ export class SettingsDialog implements Component {
 			: list;
 	}
 
-	/** Tern's native view: the title over the list, which handles its own events. */
-	describe(_cx: DescribeContext): NativeNode {
+	/**
+	 * Tern's native view. A terminal that draws native settings pages gets
+	 * one (`prefs`: switches, segmented choices, a text field for the chord,
+	 * one page per section); any other gets the title over the list.
+	 */
+	describe(cx: DescribeContext): NativeNode {
+		if (cx.supports("prefs")) return this.#describePrefs();
 		this.#native ??= col([text([span(TITLE, "strong")]), this.#list], {
 			gap: "sm",
 		});
 		return this.#native;
 	}
 
+	/** Over a live session the native page is its own sheet, as omp's `/settings` is. */
+	nativeSheet(cx: DescribeContext): boolean {
+		return cx.supports("prefs") && cx.feature("aside");
+	}
+
+	/** The page the native view shows: the section of the focused row. */
+	#page: SectionId = "general";
+	#prefs?: { signature: string; children: NativeChild[]; node: NativeNode };
+
+	#describePrefs(): NativeNode {
+		const items = this.#items();
+		const query = this.#list.getSearchQuery();
+		const searching = query.length > 0;
+		const focusRow = this.#list.prefsFocus().row;
+		const focusSection = focusRow ? sectionOf(items, focusRow) : undefined;
+		// A search lists every section; the page stays the one it started on.
+		if (focusSection && !searching) this.#page = focusSection;
+
+		// The section comes from the full item list: a filtered list carries
+		// no headings, so the heading above a search result is not its own.
+		const all = this.#list.prefsSections(
+			(item) => {
+				const id = sectionOf(items, item.id) ?? "general";
+				const title = sectionTitle(id);
+				return searching ? { id, title, page: id } : { id, title };
+			},
+			(item) => this.#prefsControl(item),
+		);
+		const sections: TspPrefsSection[] = (
+			searching ? all : all.filter((section) => section.id === this.#page)
+		).map((section) =>
+			section.id === "tools"
+				? { ...section, rows: section.rows.map(withoutHint) }
+				: section,
+		);
+
+		const editing = this.#list.prefsEditing(() => true);
+		const children: NativeChild[] = [];
+		const open = this.#list.openSubmenu;
+		// A chord the field refused shows its error in the field itself.
+		if (open && !editing) {
+			children.push(col([open.component], { role: PREFS_EDITOR_ROLE }));
+		}
+
+		const props: TspPrefsProps = {
+			title: "OMP Compact",
+			pages: SECTIONS.filter(({ id }) =>
+				items.some((item) => item.heading && sectionIdOf(item) === id),
+			).map(({ id, title, icon }) => {
+				const changed = items.filter(
+					(item) =>
+						!item.heading && item.changed && sectionOf(items, item.id) === id,
+				).length;
+				return {
+					id,
+					label: title,
+					icon,
+					changed: changed > 0 ? changed : undefined,
+				};
+			}),
+			page: this.#page,
+			lead: searching
+				? undefined
+				: SECTIONS.find((section) => section.id === this.#page)?.lead,
+			query: searching ? query : undefined,
+			cursor: searching ? query.length : undefined,
+			sections,
+			focus: focusRow ?? null,
+			editing,
+		};
+		const signature = JSON.stringify(props);
+		const cached = this.#prefs;
+		if (
+			cached?.signature === signature &&
+			cached.children.length === children.length &&
+			cached.children.every((child, index) => child === children[index])
+		) {
+			return cached.node;
+		}
+		const root = node("prefs", props, children);
+		this.#prefs = { signature, children, node: root };
+		return root;
+	}
+
+	/** A row's native control: a switch, a segmented choice, or the chord's text field. */
+	#prefsControl(item: SettingItem): TspPrefsControl | undefined {
+		const value = String(item.currentValue ?? "");
+		if (item.id === "displayCycleKey") return { k: "text", value, mono: true };
+		if (item.values === BOOLEAN_VALUES)
+			return { k: "switch", on: value === "true" };
+		if (item.values === undefined) return undefined;
+		return {
+			k: "choice",
+			value,
+			options: item.values.map((option) => ({ value: option, label: option })),
+			style: "segmented",
+			mono: true,
+		};
+	}
+
+	/** The value a row resets to: its default. */
+	#defaultValue(id: string): string | undefined {
+		if (id === "enabled") return String(DEFAULT_SETTINGS.enabled);
+		if (id === "mode") return DEFAULT_SETTINGS.mode;
+		if (id === "displayCycleKey") return DEFAULT_SETTINGS.displayCycleKey;
+		const toggle = DISPLAY_TOGGLES.find((row) => row.id === id);
+		if (toggle) return String(DEFAULT_SETTINGS[toggle.id]);
+		if (id.startsWith(STATS_PREFIX)) {
+			const key = id.slice(STATS_PREFIX.length) as keyof CompactStatsSettings;
+			return String(DEFAULT_SETTINGS.stats[key]);
+		}
+		if (id.startsWith(TOOL_PREFIX)) {
+			const name = id.slice(TOOL_PREFIX.length);
+			return this.#deps.tools?.find((tool) => tool.name === name)
+				?.defaultDisplay;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Pointer actions on the native page, each through the path the keys
+	 * take: a page click shows that section (leaving a search), a row click
+	 * selects it, a switch or choice applies its value, a typed chord goes
+	 * through the chord field's checks, and a reset applies the default.
+	 */
+	handleNativeEvent(event: NativeUiEvent): void {
+		if (this.#closing || event.key !== "") return;
+		const list = this.#list;
+		switch (event.type) {
+			case "action":
+				if (event.act === "page" && event.value) {
+					this.#showPage(event.value);
+				} else if (event.act === "close") {
+					if (event.value === undefined) this.#close();
+					else if (list.openSubmenu?.id === event.value)
+						list.handleInput(ESCAPE);
+				} else if (event.act === "edit" && event.value) {
+					list.openSubmenuFor(event.value);
+				}
+				return;
+			case "select":
+				if (list.openSubmenu) list.handleInput(ESCAPE);
+				list.selectItem(event.item);
+				return;
+			case "activate":
+				list.openSubmenuFor(event.item);
+				return;
+			case "change":
+				this.#applyNativeChange(event.item, event.value);
+				return;
+		}
+	}
+
+	#showPage(id: string): void {
+		const section = SECTIONS.find((candidate) => candidate.id === id);
+		if (!section) return;
+		this.#list.clearSearch();
+		const items = this.#items();
+		const first = items.find(
+			(item) => !item.heading && sectionOf(items, item.id) === section.id,
+		);
+		this.#page = section.id;
+		if (first) this.#list.selectItem(first.id);
+	}
+
+	#applyNativeChange(
+		id: string,
+		value: boolean | number | string | readonly string[] | null,
+	): void {
+		const list = this.#list;
+		if (value === null) {
+			if (list.openSubmenu) list.handleInput(ESCAPE);
+			const reset = this.#defaultValue(id);
+			if (reset !== undefined && list.selectItem(id)) this.#change(id, reset);
+			return;
+		}
+		if (id === "displayCycleKey") {
+			if (typeof value !== "string") return;
+			const field = list.openSubmenuFor(id);
+			if (field instanceof TextFormField) {
+				field.setValue(value);
+				field.submit();
+			}
+			return;
+		}
+		if (typeof value === "boolean" || typeof value === "string") {
+			list.applyValue(id, String(value));
+		}
+	}
+
 	invalidate(): void {
 		this.#list.invalidate();
 	}
+}
+
+const ESCAPE = "\x1b";
+
+/** The section a heading item opens; `general` when there is none. */
+function sectionIdOf(head: SettingItem | undefined): SectionId {
+	const id = head?.id.slice(HEADING_PREFIX.length);
+	return SECTIONS.find((section) => section.id === id)?.id ?? "general";
+}
+
+/** The section row `id` sits in: the heading above it. */
+function sectionOf(
+	items: readonly SettingItem[],
+	id: string,
+): SectionId | undefined {
+	let head: SettingItem | undefined;
+	for (const item of items) {
+		if (item.heading) head = item;
+		else if (item.id === id) return sectionIdOf(head);
+	}
+	return undefined;
+}
+
+function withoutHint(row: TspPrefsRow): TspPrefsRow {
+	const { hint: _, ...rest } = row;
+	return rest;
 }
 
 /**

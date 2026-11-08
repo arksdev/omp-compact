@@ -8,6 +8,7 @@
 ### Изменено
 
 - `/compact-settings` построено на собственном списке настроек OMP: разделы, поиск набором текста и выделение изменённых значений, как в `/settings`. Каждое изменение сохраняется сразу, клавиш `s` и `c` больше нет; `Esc` закрывает меню (сначала очищает поиск), и одно уведомление подтверждает сохранение.
+- В Tern `/compact-settings` открывается как родная страница настроек, как `/settings` в OMP: по странице на раздел, переключатели, сегментный выбор и текстовое поле для сочетания клавиш вместо плотного списка.
 
 ### Добавлено
 
@@ -18,6 +19,7 @@
 ### Changed
 
 - `/compact-settings` is built on OMP's own settings list: sections, type-to-search and changed values highlighted, as in `/settings`. Each change is saved at once and the `s` and `c` keys are gone; `Esc` closes the menu (clearing a search first), and one notice confirms the save.
+- In Tern, `/compact-settings` opens as a native settings page, like OMP's `/settings`: one page per section, switches, segmented choices and a text field for the shortcut instead of a dense list.
 
 ### Added
 
