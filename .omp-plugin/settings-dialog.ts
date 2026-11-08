@@ -6,6 +6,7 @@ import {
 	type NativeNode,
 	type NativeUiEvent,
 	node,
+	type OverlayOptions,
 	type SettingItem,
 	SettingsList,
 	span,
@@ -87,12 +88,6 @@ export interface SettingsDialogDeps {
 }
 
 const TITLE = "OMP Compact — Settings";
-/**
- * Rows omp keeps on screen below a `ui.custom` component: its status line.
- * omp shows the bottom of a frame taller than the screen, so a frame that
- * left no room for it would lose its title off the top.
- */
-const HOST_ROWS = 1;
 /** Rows above the list: the title and one blank line. */
 const TITLE_ROWS = 2;
 /**
@@ -469,12 +464,12 @@ export class SettingsDialog implements Component {
 
 	render(width: number): readonly string[] {
 		const rows = this.#deps.getTerminalRows?.();
-		// Rows the frame may fill above omp's status line; unknown: a fixed
-		// list height. Below the list's own minimum the title goes, so the
-		// selected row stays on screen.
+		// Rows the fullscreen frame may fill; unknown: a fixed list height.
+		// Below the list's own minimum the title goes, so the selected row
+		// stays on screen.
 		const room =
 			rows !== undefined && Number.isFinite(rows) && rows > 0
-				? Math.floor(rows) - HOST_ROWS - LIST_CHROME_ROWS
+				? Math.floor(rows) - LIST_CHROME_ROWS
 				: undefined;
 		const titled = room === undefined || room - TITLE_ROWS >= MIN_VISIBLE_ROWS;
 		this.#list.setMaxVisible(
@@ -748,8 +743,20 @@ export function openSettingsDialog(
 				},
 				done,
 			),
+		// The path omp's own `/settings` takes: a fullscreen overlay. In Tern
+		// that makes the page a sheet of fixed size; in the editor's place it
+		// was sized to the open page and changed height with every page.
+		{ overlay: true, overlayOptions: FULLSCREEN },
 	);
 }
+
+const FULLSCREEN: OverlayOptions = {
+	anchor: "bottom-center",
+	width: "100%",
+	maxHeight: "100%",
+	margin: 0,
+	fullscreen: true,
+};
 
 export interface SettingsSessionDeps {
 	store: CompactSettingsStore;

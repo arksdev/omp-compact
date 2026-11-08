@@ -276,8 +276,7 @@ describe("settings dialog", () => {
 		h.dialog.handleInput(ENTER); // with its error line
 		record();
 		expect(heights).toHaveLength(6);
-		// omp keeps its status line under the dialog: one row less to fill.
-		expect(Math.max(...heights)).toBeLessThanOrEqual(rows - 1);
+		expect(Math.max(...heights)).toBeLessThanOrEqual(rows);
 		expect(heights.every((height) => height === heights[0])).toBe(true);
 	});
 
@@ -286,7 +285,7 @@ describe("settings dialog", () => {
 		const h = harness({ rows });
 		for (let i = 0; i < 6; i++) h.dialog.handleInput(DOWN);
 		const frame = h.frame(120);
-		expect(frame.length).toBeLessThanOrEqual(rows - 1);
+		expect(frame.length).toBeLessThanOrEqual(rows);
 		expect(frame.join("\n")).not.toContain("OMP Compact — Settings");
 		// The selected row (Cycle shortcut) and its help are both visible.
 		expect(rowValue(frame, "Cycle shortcut")).toBe("alt+c");

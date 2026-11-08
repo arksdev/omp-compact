@@ -1,4 +1,4 @@
-import type { Component, TUI } from "@oh-my-pi/pi-tui";
+import type { Component, OverlayOptions, TUI } from "@oh-my-pi/pi-tui";
 
 import {
 	DEFAULT_DISPLAY_CYCLE_KEY,
@@ -18,6 +18,7 @@ export interface SettingsUiLike {
 			keybindings: unknown,
 			done: (result: T) => void,
 		) => Component,
+		options?: { overlay?: boolean; overlayOptions?: OverlayOptions },
 	): Promise<T>;
 }
 
