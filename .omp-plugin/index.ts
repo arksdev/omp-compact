@@ -53,10 +53,9 @@ import {
 import { SessionLedger } from "./session-ledger";
 import {
 	cycleDisplayState,
-	openSettingsDialog,
 	registerDisplayCycleShortcut,
 	registerSettingsCommand,
-	saveSettingsFlow,
+	runSettingsSession,
 } from "./settings-ui";
 import { resolveToolAudit } from "./tool-presentation-rules";
 import { classifyAgentEnd } from "./turn-ledger";
@@ -189,6 +188,15 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		}
 	}
 
+	/** Names of every tool omp reports; none when the host gives no answer. */
+	function toolNames(): string[] {
+		try {
+			return pi.getAllTools().map((tool) => tool.name);
+		} catch {
+			return [];
+		}
+	}
+
 	registerSettingsCommand<ExtensionCommandContext>(pi, {
 		description: "Open omp-compact plugin settings",
 		handler: async (_args, ctx) => {
@@ -204,31 +212,18 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				return;
 			}
 			hintPresenterSetting(ctx as unknown as ExtensionContext);
-			const initial = await settingsStore.load();
-			await openSettingsDialog(ctx.ui, {
-				settings: initial,
+			await runSettingsSession(ctx.ui, {
+				store: settingsStore,
+				toolNames: toolNames(),
+				// Read when the command runs, after registration below.
+				boundCycleKey: cycleKey,
 				checkShortcut: (chord) =>
 					describeShortcutConflict(chord, shortcutConflict(chord)),
-				// `saveSettingsFlow` emits exactly one success notification, so
-				// nothing is notified again after the dialog closes.
-				onSave: async (next) => {
-					await saveSettingsFlow(next, {
-						previous: initial,
-						store: settingsStore,
-						notify: (level, message) => {
-							try {
-								ctx.ui.notify(message, level);
-							} catch {
-								// no-op
-							}
-						},
-					});
-				},
-				warn: (message) => {
+				notify: (level, message) => {
 					try {
-						ctx.ui.notify(message, "warning");
+						ctx.ui.notify(message, level);
 					} catch {
-						// no-op
+						// Headless/RPC notify is a no-op.
 					}
 				},
 			});

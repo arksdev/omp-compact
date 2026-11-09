@@ -3,6 +3,29 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Изменено
+
+- `/compact-settings` построено на собственном списке настроек OMP: разделы, поиск набором текста и выделение изменённых значений, как в `/settings`. Каждое изменение сохраняется сразу, клавиш `s` и `c` больше нет; `Esc` закрывает меню (сначала очищает поиск), и одно уведомление подтверждает сохранение. Как и `/settings`, меню открывается на весь экран.
+- В Tern `/compact-settings` открывается как родная страница настроек, как `/settings` в OMP: боковая панель постоянной высоты рядом с транскриптом, по странице на раздел, переключатели, сегментный выбор и текстовое поле для сочетания клавиш вместо плотного списка.
+
+### Добавлено
+
+- В `/compact-settings` появился раздел `Tool cards`: для каждого инструмента, включая инструменты расширений, MCP и устройства `xd://`, можно выбрать `rows`, `newest` (самая новая карточка открыта, пока агент работает) или `open` (полная карточка всегда). В JSON это поле `tools`.
+
+---
+
+### Changed
+
+- `/compact-settings` is built on OMP's own settings list: sections, type-to-search and changed values highlighted, as in `/settings`. Each change is saved at once and the `s` and `c` keys are gone; `Esc` closes the menu (clearing a search first), and one notice confirms the save. Like `/settings`, the menu opens fullscreen.
+- In Tern, `/compact-settings` opens as a native settings page, like OMP's `/settings`: a fixed-height side sheet beside the transcript, one page per section, switches, segmented choices and a text field for the shortcut instead of a dense list.
+
+### Added
+
+- `/compact-settings` has a `Tool cards` section: for each tool, extension, MCP tools and `xd://` devices included, pick `rows`, `newest` (the newest card stays open while the agent works) or `open` (always the full card). The JSON field is `tools`.
+
+---
 ## 2.1.0 — 7 ноября 2026
 
 ### Изменено

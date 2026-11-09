@@ -100,6 +100,8 @@ The presenter maps `native` to `"full"`, `host-compact` to `"compact"`, and `emp
 
 `wait` and `todo` use the `live-card` route: their cards show current state, so only the newest call of each tool keeps its card. Older ones would show a frozen copy of the same state, and a run can make dozens of `wait` calls. A new call asks omp to redraw the one it replaces (`tool_execution_start` → `refreshTranscript`). A call whose arguments still stream without an id counts as the newest. In a plain terminal, if the replaced card already scrolled into native scrollback, that redraw costs omp one transcript replay (at most one per frame); in Tern it is a prop change. Their rows read `wait: <intent> · 2 jobs settled` and `todo: done Task two · 1/2`.
 
+The user's per-tool choice (`tools` in the config, `tool-display.ts`) rewrites the route before this table runs, from the run's frozen settings snapshot: `open` becomes `native-live`, `newest` becomes `live-card` for the newest call of the tool while the run works, and `rows` (or an older `newest` call) takes the tool's row route. A `write` to `xd://<device>` is keyed by the device, which the ledger records on the call with its arguments. `ask` and the vibe tools ignore choices.
+
 `task` uses `kept-row`: its live progress is in the `wait` card, and its row records what the run delegated: each task's name, else its agent, with unlabelled tasks counted (`task: Scout, reviewer +1`).
 
 ### Other blocks (leaf-views.ts)
@@ -175,7 +177,7 @@ The plugin reads Git activity from Bash commands that already ran and their resu
 - **Quiet commits.** The hash comes from a `git log` right after the commit with identical global Git arguments, only `--oneline`, a positive count limit and optional `HEAD`. Its leading hash must carry the committed subject.
 - **Shell text.** `&&` chains, one leading `cd <path> &&`, brace lists inside a word, and a double-quoted `$(printf …)`/`$(echo …)` with one literal argument are accepted. Chains joined by `;` or unescaped newlines stay ordinary Bash, because a successful last command proves nothing about the earlier ones.
 
-In `live` the individual Git rows show while working and give way to one summary of verified hashes after the answer. `compact` keeps every row. `clear` shows only the summary, after an interrupted run as well. `retainGitLive=false` hides the rows and the summary in `live` and `clear`; the persisted evidence is unchanged.
+In `live` the individual Git rows show while working and give way to one summary of verified hashes after the answer. `compact` keeps every row. `clear` shows only the summary, after an interrupted run as well. `retainGitLive=false` hides the rows and the summary in `live` and `clear`; the persisted evidence is unchanged. The summary sits under the run's last call with evidence that draws rows: a call shown as OMP's full card (`open`) cannot carry it and shows its own Git output.
 
 ## Configuration
 

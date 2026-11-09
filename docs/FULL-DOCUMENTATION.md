@@ -198,14 +198,14 @@ Git распознаётся консервативно из уже выполн
 
 Управление:
 
-- `↑`/`↓` или `k`/`j` — перемещение;
-- `←`/`→` — смена режима;
-- `Space`/`Enter` — toggle;
-- `s` — сохранить;
-- `Esc`, `c` или interrupt keybinding — закрыть без сохранения.
-- на строке `Cycle shortcut` — `Enter` начинает ввод сочетания текстом, `Enter` подтверждает, `Esc` отменяет.
+- `↑`/`↓` — перемещение;
+- `PgUp`/`PgDn` — к предыдущему/следующему разделу (`General`, `Display`, `Statistics`, `Tool cards`);
+- набор текста — поиск по настройкам, `Backspace` правит запрос;
+- `Space`/`Enter` — toggle или следующее значение; изменение сразу сохраняется в config;
+- `Esc` (или interrupt keybinding) — очистить поиск, без поиска — закрыть меню;
+- на строке `Cycle shortcut` — `Enter` открывает поле для сочетания, `Enter` сохраняет, `Esc` возвращает к списку.
 
-Открытие и отмена меню ничего не записывают. `enabled`, `mode`, `retainGitLive`, `compactPaths` и `compactVibeRows` фиксируются на границе logical run и не меняются в continuations. Stats toggles читаются при каждой отрисовке stats row, поэтому сохранение меню меняет и уже показанные stats rows.
+Меню — собственный settings list OMP, как в `/settings`: значение, отличное от default, выделено цветом изменённых настроек. Пункты `Actions`…`Add local time` видны, только пока включён `Run statistics`. Каждое изменение записывается сразу; ошибка записи показывается предупреждением, и строка возвращается к сохранённому значению. При закрытии меню одна notification подтверждает сохранение. Открытие меню без изменений ничего не записывает. `enabled`, `mode`, `retainGitLive`, `compactPaths` и `compactVibeRows` фиксируются на границе logical run и не меняются в continuations. Stats toggles читаются при каждой отрисовке stats row, поэтому сохранение меню меняет и уже показанные stats rows.
 
 ### Горячая клавиша переключения вида
 
@@ -224,7 +224,7 @@ compact → live → clear → off → compact
 Два неочевидных момента:
 
 - **Нажатие применяется со следующего logical run.** Снимок настроек берётся один раз на прогон, поэтому нажатие посреди прогона не меняет уже отрисовываемый ответ.
-- **Смена сочетания требует restart OMP.** Интерфейс расширений умеет регистрировать сочетание, но не умеет снимать регистрацию, поэтому новое сочетание начинает работать только после перезапуска. Меню сообщает об этом при сохранении.
+- **Смена сочетания требует restart OMP.** Интерфейс расширений умеет регистрировать сочетание, но не умеет снимать регистрацию, поэтому новое сочетание начинает работать только после перезапуска. Меню сообщает об этом при закрытии.
 
 Если значение закреплено `OMP_COMPACT_PLUGIN` или `OMP_COMPACT_MODE`, нажатие честно сообщает закреплённое значение, а не делает вид, что переключение состоялось.
 
@@ -238,7 +238,8 @@ compact → live → clear → off → compact
 | `Retain Git rows` / `retainGitLive` | `true` | Показывает Git rows и aggregate commit summary в `live`. |
 | `vibe-compact` / `compactVibeRows` | `true` | Включает compact rows для пяти инструментов vibe. При `false` они рисуются stock framed card в любом режиме. |
 | `Advisor nit/concern` / `compactAdvisorNotes` | `false` | Сворачивает non-blocking заметки советника (`nit`/`concern`) в одну строку на заметку. `blocker`, неизвестные severity и нечитаемые `details` оставляют карточку OMP; развёрнутая карточка всегда полная. |
-| `Cycle shortcut` / `displayCycleKey` | `"alt+c"` | Сочетание, переключающее вид вывода по кругу. Занятое OMP сочетание отклоняется при вводе. Смена требует restart OMP. |
+| `Cycle shortcut` / `displayCycleKey` | `"alt+c"` | Сочетание, переключающее вид вывода по кругу. Неверное или занятое OMP сочетание отклоняется при вводе. Смена требует restart OMP. |
+| `Tool cards` / `tools` | `{}` | Вид каждого инструмента по имени (устройство `xd://` — по своему имени): `rows` — строки по правилам режима, `newest` — самый новый вызов сохраняет карточку OMP, пока агент работает, `open` — карточка OMP в любом режиме и после ответа. Без записи действует default: `newest` для `wait` и `todo`, иначе `rows`. `ask` и vibe записи игнорируют; неверные записи пропускаются с предупреждением. |
 | `Run statistics` / `stats.enabled` | `true` | Включает terminal stats row. |
 | `Actions` / `stats.actions` | `true` | Число distinct tool executions, включая failures и unmapped tools. |
 | `Fresh input` / `stats.sent` | `true` | Сумма `usage.input` уникальных assistant completions — свежие, некэшированные токены входа. |
@@ -276,6 +277,7 @@ Default path:
   "compactVibeRows": true,
   "compactAdvisorNotes": false,
   "displayCycleKey": "alt+c",
+  "tools": {},
   "stats": {
     "enabled": true,
     "actions": true,
@@ -315,7 +317,7 @@ Runtime precedence:
 3. Остальные значения берутся из JSON.
 4. При отсутствии валидного JSON используются defaults.
 
-Menu save не записывает env overrides в JSON. Если env маскирует только что сохранённое значение, меню сохраняет requested value, и одна notification сообщает сразу оба факта: сохранение выполнено и какая variable удерживает effective value (например, `omp-compact settings saved; effective mode remains live because OMP_COMPACT_MODE=live`).
+Меню показывает и сохраняет значения из JSON: записывается только изменённая настройка, env overrides сами по себе в JSON не попадают, а выбранное значение сохраняется, даже если env задаёт такое же. Если env маскирует сохранённое значение, меню показывает requested value, а одна notification при закрытии сообщает сразу оба факта: сохранение выполнено и какая variable удерживает effective value (например, `omp-compact settings saved; effective mode remains live because OMP_COMPACT_MODE=live`).
 
 Config-файлы 1.x могут содержать группы `autoShake` и `host`. Они загружаются без ошибок: плагин их больше не читает и сохраняет как unknown keys.
 
@@ -439,9 +441,8 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `git-records.ts` | Conservative Git command/result classification. |
 | `vibe-cards.ts`, `vibe-cards-decode.ts`, `vibe-cards-render.ts`, `vibe-cards-slots.ts` | Compact rows для параллельных worker sessions. |
 | `config.ts`, `mode-policy.ts` | Persistent config и immutable run snapshot. |
-| `settings-ui.ts`, `settings-dialog.ts`, `settings-keys.ts`, `save-flow.ts`, `cycle-handler.ts` | Settings dialog, display cycle и сохранение. |
+| `settings-ui.ts`, `settings-dialog.ts`, `save-flow.ts`, `cycle-handler.ts` | Settings dialog на `SettingsList` OMP, display cycle и сохранение. |
 | `host-api.ts` | Структурные host API типы и регистрация command/shortcut. |
-| `ansi-width.ts` | ANSI-SGR-safe strip и truncate. |
 | `run-stats.ts` | Usage aggregation, persisted evidence и stats row. |
 | `display-path.ts` | Display-only project-relative paths. |
 
@@ -456,7 +457,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 
 ### Меню сообщает, что нужен interactive terminal
 
-`ctx.ui.custom()` недоступен в headless/RPC context. Plugin-only settings можно изменить через JSON file; in-process store updates (включая `/compact-settings` save) применяются на следующей границе logical run. Ручная правка JSON вне процесса подхватывается на следующей границе сессии, а не автоматически mid-session.
+`ctx.ui.custom()` недоступен в headless/RPC context. Plugin-only settings можно изменить через JSON file; in-process store updates (включая изменения в `/compact-settings`) применяются на следующей границе logical run. Ручная правка JSON вне процесса подхватывается на следующей границе сессии, а не автоматически mid-session.
 
 ### Сохранённая настройка не действует
 

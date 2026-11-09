@@ -38,6 +38,7 @@ import type { RunModeSnapshot } from "./mode-policy";
 import { objectRecord } from "./object-record";
 import { gitCommitHashes } from "./render";
 import { isRunStatsEvidence, STATS_MESSAGE_TYPE } from "./run-stats";
+import { effectiveToolDisplay, toolDisplayKey, xdDevice } from "./tool-display";
 import {
 	classifyAgentEnd,
 	type LedgerPhase,
@@ -59,6 +60,11 @@ export interface CallRecord {
 	readonly run: RunRecord;
 	/** Hashes of the final arguments; undefined until they are known. */
 	args?: ArgsHashes;
+	/**
+	 * The `xd://` device a `write` call runs, known with the arguments; the
+	 * user's display choice for the device applies to the call.
+	 */
+	device?: string;
 	mutations: readonly MutationEvidence[];
 	git?: GitMessageDetails;
 	/**
@@ -282,6 +288,7 @@ export class SessionLedger {
 		const call =
 			this.#inRun(id, run) ?? this.#addCall(run, id, toolName, undefined);
 		call.args ??= argsHashes(args);
+		call.device ??= xdDevice(toolName, args);
 		return call;
 	}
 
@@ -349,7 +356,11 @@ export class SessionLedger {
 	/**
 	 * The terminal Git projection of a finished run: aggregate commit hashes
 	 * in call order and the last call carrying evidence, which draws the
-	 * summary row. Computed once: a finished run's evidence is frozen.
+	 * summary row. A call drawn as omp's full card (`open`, or a tool such as
+	 * `ask` that always keeps it) has no row to append the summary to, so it
+	 * is never the anchor: the summary lands on the last evidence call that
+	 * draws rows, and a full card shows its own Git output. Computed once: a
+	 * finished run's evidence and its frozen settings do not change.
 	 */
 	projection(run: RunRecord): GitProjection | undefined {
 		if (run.phase === "working") return undefined;
@@ -359,7 +370,15 @@ export class SessionLedger {
 		for (const call of run.calls) {
 			const commits = call.git ? gitCommitHashes(call.git) : [];
 			hashes.push(...commits);
-			if (call.mutations.length > 0 || commits.length > 0) anchor = call;
+			if (
+				(call.mutations.length > 0 || commits.length > 0) &&
+				effectiveToolDisplay(
+					toolDisplayKey(call.toolName, call.device),
+					run.mode.tools,
+				) !== "open"
+			) {
+				anchor = call;
+			}
 		}
 		run.projection = { hashes, anchor };
 		return run.projection;
@@ -434,9 +453,10 @@ export class SessionLedger {
 			// that id and other arguments is history.
 			if (open && (!open.args || !hashes || sameArgs(open.args, hashes))) {
 				open.args ??= hashes;
+				open.device ??= xdDevice(name, args);
 				return;
 			}
-			this.#addCall(ensureRun(), id, name, hashes);
+			this.#addCall(ensureRun(), id, name, hashes, xdDevice(name, args));
 			restored.push(id);
 		};
 		for (const value of entries) {
@@ -564,9 +584,11 @@ export class SessionLedger {
 		id: string,
 		toolName: string,
 		args: ArgsHashes | undefined,
+		device?: string,
 	): CallRecord {
 		const call: CallRecord = { id, toolName, run, mutations: [] };
 		if (args) call.args = args;
+		if (device !== undefined) call.device = device;
 		run.calls.push(call);
 		const records = this.#calls.get(id);
 		if (!records) {

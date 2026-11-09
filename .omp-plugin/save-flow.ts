@@ -3,18 +3,19 @@ import type {
 	CompactSettings,
 	CompactSettingsStore,
 } from "./config";
+import { canonicalize } from "./display-cycle";
 import { createKeyedQueue } from "./keyed-queue";
 
 export interface SaveFlowDeps {
 	store: CompactSettingsStore;
 	/**
-	 * Settings as they were before this save, when the caller knows them. Used
-	 * only to notice a changed display-cycle chord: the host cannot unregister
-	 * a shortcut, so a new chord starts working only after a restart, and the
-	 * user has to be told. Omitted by callers that change no chord.
+	 * The save is the user's own edit of the settings on disk (the settings
+	 * dialog): a functional `next` runs on `store.persistedSnapshot()`, and
+	 * the store keeps a value even when it equals a hard env override.
+	 * Without it, `next` runs on the effective snapshot and the store drops
+	 * such values as echoes of that snapshot.
 	 */
-	previous?: CompactSettings;
-	notify?(level: "info" | "warning", message: string): void;
+	explicit?: boolean;
 }
 
 /**
@@ -53,8 +54,6 @@ export interface SaveOutcome {
 	persisted: CompactSettings;
 	/** The effective snapshot with hard env overrides reapplied. */
 	effective: CompactSettings;
-	/** True when the save changed the cycle chord, which needs a restart. */
-	restartRequired: boolean;
 	/** True when a hard env override masks a persisted enabled/mode value. */
 	masked: boolean;
 	/** Per-field mask facts; empty when nothing is masked. */
@@ -62,16 +61,11 @@ export interface SaveOutcome {
 }
 
 /**
- * Persist a settings save and report it once:
- *   1. store.update (throws => no notification, the caller surfaces the
- *      error and keeps its unsaved state)
- *   2. exactly one success notification through notify(): the plain
- *      `omp-compact settings saved` for an unmasked save, or a single
- *      message carrying both facts (saved + effective) when a hard env
- *      override masks the just-persisted enabled/mode — never a separate
- *      warning plus a generic success
- *   3. when the cycle chord changed, an honest note that it binds after a
- *      restart of OMP.
+ * Persist a settings save: store.update, then the facts of what landed on
+ * disk and what an env override keeps in force. Throws when store.update
+ * throws. Reporting is the caller's: the settings dialog reports a whole
+ * session once through {@link notifySaveOutcome}, the display cycle prints
+ * its own status line.
  *
  * `next` may be a function of the current settings; it then runs inside the
  * store's queue turn (see {@link withSaveFlowQueue}).
@@ -80,52 +74,81 @@ export async function saveSettingsFlow(
 	next: CompactSettings | ((current: CompactSettings) => CompactSettings),
 	deps: SaveFlowDeps,
 ): Promise<SaveOutcome> {
-	return withSaveFlowQueue(deps.store, async () =>
-		runSaveSettingsFlow(
-			typeof next === "function" ? next(await deps.store.load()) : next,
-			deps,
-		),
-	);
+	const { store } = deps;
+	return withSaveFlowQueue(store, async () => {
+		// Without a persisted layer only the effective snapshot exists, whose
+		// env echoes must still be stripped (as in the function path below).
+		if (typeof next !== "function") {
+			return runSaveSettingsFlow(
+				next,
+				store,
+				deps.explicit === true && store.persistedSnapshot !== undefined,
+			);
+		}
+		const effective = await store.load();
+		// A store without a persisted layer only offers the effective
+		// snapshot, whose env echoes must still be stripped.
+		const persisted = deps.explicit ? store.persistedSnapshot?.() : undefined;
+		return runSaveSettingsFlow(
+			next(persisted ?? effective),
+			store,
+			persisted !== undefined,
+		);
+	});
 }
 
 async function runSaveSettingsFlow(
 	next: CompactSettings,
-	deps: SaveFlowDeps,
+	store: CompactSettingsStore,
+	explicit: boolean,
 ): Promise<SaveOutcome> {
-	const effective = await deps.store.update(next);
-	const onDisk = deps.store.persistedSnapshot?.() ?? next;
-	const masks = maskedByEnv(onDisk, deps.store, effective);
-	const masked = masks.length > 0;
-	deps.notify?.(
+	const effective = await store.update(next, { explicit });
+	const onDisk = store.persistedSnapshot?.() ?? next;
+	const masks = maskedByEnv(onDisk, store, effective);
+	return { persisted: onDisk, effective, masked: masks.length > 0, masks };
+}
+
+/**
+ * Report saved settings once:
+ *   1. exactly one success notification: the plain `omp-compact settings
+ *      saved` for an unmasked save, or a single message carrying both facts
+ *      (saved + effective) when a hard env override masks the persisted
+ *      enabled/mode — never a separate warning plus a generic success
+ *   2. when the cycle chord on disk differs from the one omp bound at
+ *      startup, an honest note that it binds after a restart of OMP: the
+ *      host offers no way to unregister the old shortcut, so the new one
+ *      only binds on the next start. Changing the chord back to the bound
+ *      one needs no restart and gets no note.
+ *
+ * `outcome` is the last save of the session, so it carries the final state
+ * on disk; `boundCycleKey` is the chord registered when OMP started.
+ */
+export function notifySaveOutcome(
+	outcome: SaveOutcome,
+	boundCycleKey: string,
+	notify: (level: "info" | "warning", message: string) => void,
+): void {
+	notify(
 		"info",
-		masked ? maskedSaveMessage(masks) : "omp-compact settings saved",
+		outcome.masked
+			? maskedSaveMessage(outcome.masks)
+			: "omp-compact settings saved",
 	);
-	// The chord changed: the host offers no way to unregister the old shortcut,
-	// so the new one only binds on the next start.
-	const chordChanged =
-		deps.previous !== undefined &&
-		deps.previous.displayCycleKey !== next.displayCycleKey;
-	if (chordChanged) {
-		deps.notify?.(
-			"info",
-			"The cycle shortcut takes effect after restarting OMP",
-		);
+	if (
+		canonicalize(outcome.persisted.displayCycleKey) !==
+		canonicalize(boundCycleKey)
+	) {
+		notify("info", "The cycle shortcut takes effect after restarting OMP");
 	}
-	return {
-		persisted: onDisk,
-		effective,
-		restartRequired: chordChanged,
-		masked,
-		masks,
-	};
 }
 
 /**
  * Per-field env masks for the `enabled`/`mode` values now on disk.
  * The baseline is `onDisk` — the store's PERSISTED layer, not the values the
- * caller requested: the dialog is seeded from the effective snapshot, so a
- * masked field arrives already carrying the forced value and the store
- * deliberately does not persist that echo (`omitEnvEchoes` in config.ts).
+ * caller requested: a save built from the effective snapshot (the display
+ * cycle's) arrives with a masked field already carrying the forced value,
+ * and the store deliberately does not persist that echo (`omitEnvEchoes` in
+ * config.ts).
  * Comparing against the request would then find no difference and stay
  * silent in exactly the case the user needs to hear about. Only the
  * variables the store reports as active are named — never inferred from the

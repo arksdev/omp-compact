@@ -1,38 +1,24 @@
+import type { Component, OverlayOptions, TUI } from "@oh-my-pi/pi-tui";
+
 import {
 	DEFAULT_DISPLAY_CYCLE_KEY,
 	validateDisplayCycleKey,
 } from "./display-cycle";
 
 // =============================================================================
-// Structural host types (no runtime dependency on the host packages)
+// Structural host types
 // =============================================================================
 
-export interface ThemeLike {
-	fg(color: string, text: string): string;
-	bold(text: string): string;
-	italic?(text: string): string;
-	underline?(text: string): string;
-}
-
-export interface KeybindingsLike {
-	matches(data: string, action: string): boolean;
-}
-
-export interface ComponentLike {
-	render(width: number): readonly string[];
-	handleInput?(data: string): void;
-	invalidate?(): void;
-	dispose?(): void;
-}
-
+/** The `ui.custom` slice of the host's UI context the settings dialog uses. */
 export interface SettingsUiLike {
 	custom<T>(
 		factory: (
-			tui: unknown,
-			theme: ThemeLike,
-			keybindings: KeybindingsLike,
+			tui: TUI,
+			theme: unknown,
+			keybindings: unknown,
 			done: (result: T) => void,
-		) => ComponentLike | Promise<ComponentLike>,
+		) => Component,
+		options?: { overlay?: boolean; overlayOptions?: OverlayOptions },
 	): Promise<T>;
 }
 
