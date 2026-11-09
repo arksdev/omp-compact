@@ -3,7 +3,7 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
-## Не выпущено / Unreleased
+## 2.2.0 — 9 ноября 2026
 
 ### Изменено
 
@@ -13,6 +13,8 @@
 ### Добавлено
 
 - В `/compact-settings` появился раздел `Tool cards`: для каждого инструмента, включая инструменты расширений, MCP и устройства `xd://`, можно выбрать `rows`, `newest` (самая новая карточка открыта, пока агент работает) или `open` (полная карточка всегда). В JSON это поле `tools`.
+
+Спасибо @materemias за #22.
 
 ---
 
@@ -25,7 +27,10 @@
 
 - `/compact-settings` has a `Tool cards` section: for each tool, extension, MCP tools and `xd://` devices included, pick `rows`, `newest` (the newest card stays open while the agent works) or `open` (always the full card). The JSON field is `tools`.
 
+Thanks to @materemias for #22.
+
 ---
+
 ## 2.1.0 — 7 ноября 2026
 
 ### Изменено
