@@ -265,7 +265,14 @@
 						"Сначала изменить формулировки"
 					],
 					"multi": false,
-					"selectedOptions": ["Записать как предложено"]
+					"selectedOptions": ["Записать как предложено"],
+					"answers": [
+						{
+							"name": "choice",
+							"question": "Согласовать эти три записи решений и расположение `work/context/compact-plugin-rendering.md`?",
+							"answer": "Записать как предложено"
+						}
+					]
 				}
 			},
 			"isError": false,

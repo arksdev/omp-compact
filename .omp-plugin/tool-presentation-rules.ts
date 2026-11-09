@@ -321,6 +321,7 @@ const ASK_ARGS = [
 	"description",
 	"preview",
 	"recommended",
+	"html",
 ] as const;
 const ASK_DETAILS = [
 	"question",
@@ -333,6 +334,7 @@ const ASK_DETAILS = [
 	"timedOut",
 	"results",
 	"chatRedirect",
+	"answers",
 ] as const;
 const AST_GREP_ARGS = ["pat", "path", "lang", "skip"] as const;
 const AST_GREP_DETAILS = [

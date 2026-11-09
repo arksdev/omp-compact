@@ -3,6 +3,21 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.18.3. Поддержка OMP 18.17.0 и выше сохранена.
+- В реестре презентации инструментов добавлена поддержка схемы нового инструмента `ask` из OMP 18.18.3 (`html`, `answers`).
+
+---
+
+### Changed
+
+- Updated the supported OMP version to 18.18.3. Support for OMP 18.17.0 and later is preserved.
+- Added support for OMP 18.18.3 HTML `<form>` schema (`html`, `answers`) in the `ask` tool presentation rules.
+
+---
 ## 2.2.0 — 9 ноября 2026
 
 ### Изменено
