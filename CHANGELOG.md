@@ -14,6 +14,10 @@
 
 - В `/compact-settings` появился раздел `Tool cards`: для каждого инструмента, включая инструменты расширений, MCP и устройства `xd://`, можно выбрать `rows`, `newest` (самая новая карточка открыта, пока агент работает) или `open` (полная карточка всегда). В JSON это поле `tools`.
 
+### Исправлено
+
+- Восстановленная история (resume, `/tree`, `/branch`) больше не показывает весь лог вызовов у прогона, в который во время работы было отправлено steering-сообщение. Такое сообщение раньше считалось началом нового прогона, и часть до него оставалась без ответа; теперь оно, как и вживую, остаётся внутри своего прогона, и `live` и `clear` снова скрывают временные строки.
+
 ---
 
 ### Changed
@@ -24,6 +28,10 @@
 ### Added
 
 - `/compact-settings` has a `Tool cards` section: for each tool, extension, MCP tools and `xd://` devices included, pick `rows`, `newest` (the newest card stays open while the agent works) or `open` (always the full card). The JSON field is `tools`.
+
+### Fixed
+
+- Restored history (resume, `/tree`, `/branch`) no longer shows the whole call log of a run that received a steering message while it worked. The walk took that message for a new run, so the part before it had no answer; it now stays inside its run, as it does live, and `live` and `clear` hide the temporary rows again.
 
 ---
 ## 2.1.0 — 7 ноября 2026

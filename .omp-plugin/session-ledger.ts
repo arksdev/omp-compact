@@ -15,7 +15,8 @@
  * `MUTATION`/`GIT`/`STATS` entries.
  *
  * A logical run spans toolUse/willContinue continuations. It ends at a
- * terminal `agent_end` (live) or at the next user message (walk); its phase
+ * terminal `agent_end` (live) or at the next user message that is not a
+ * steering message typed mid-run (walk); its phase
  * then freezes and its Git projection (aggregate commit hashes plus the call
  * that carries the summary row) is computed once.
  */
@@ -464,8 +465,13 @@ export class SessionLedger {
 			if (entry.type === "message") {
 				const message = objectRecord(entry.message);
 				if (message.role === "user") {
-					close();
-					run = undefined;
+					// A steering message typed while the run works joins it, as it
+					// did live. After an abort or error, omp delivers queued
+					// steering into a new run, so it opens one like any prompt.
+					if (message.steering !== true || ended) {
+						close();
+						run = undefined;
+					}
 					ensureRun();
 				} else if (message.role === "assistant") {
 					if (Array.isArray(message.content))
@@ -508,6 +514,8 @@ export class SessionLedger {
 		customType: unknown,
 		details: unknown,
 		run: RunRecord | undefined,
+		// Whether the last assistant message aborted or failed its run.
+		let ended = false;
 	): void {
 		if (
 			customType === MUTATION_MESSAGE_TYPE &&
@@ -519,6 +527,7 @@ export class SessionLedger {
 			call.mutations = keptMutations([...call.mutations, details]);
 			return;
 		}
+					ended = false;
 		if (customType === GIT_MESSAGE_TYPE && isGitMessageDetails(details)) {
 			const call = run && this.#inRun(details.toolCallId, run);
 			if (call?.run.restored) call.git = details;
@@ -532,6 +541,8 @@ export class SessionLedger {
 				anchor === undefined
 					? undefined
 					: this.#calls.get(anchor)?.findLast((call) => call.run.restored);
+					ended =
+						message.stopReason === "aborted" || message.stopReason === "error";
 			const owner = anchored?.run ?? run;
 			if (owner && !this.#runs.has(details.runId))
 				this.#runs.set(details.runId, owner);

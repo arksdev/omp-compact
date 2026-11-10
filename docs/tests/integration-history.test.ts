@@ -188,6 +188,36 @@ stockDescribe("history", () => {
 		expect(rows(booted)).toContain("grep: needle");
 	});
 
+	test("a steering message mid-run stays in the run its answer filters", async () => {
+		const branch = answeredRun();
+		branch.splice(3, 0, {
+			type: "message",
+			message: { role: "user", content: "also this", steering: true },
+		});
+		const live = await resumed("live", branch);
+		expect(live).not.toContain("grep: needle");
+		expect(live).toContain("notes.txt");
+	});
+
+	test("steering queued past an abort opens the next run; the aborted log stays", async () => {
+		const branch = answeredRun();
+		branch.splice(
+			3,
+			0,
+			{
+				type: "message",
+				message: { role: "assistant", stopReason: "aborted", content: [] },
+			},
+			{
+				type: "message",
+				message: { role: "user", content: "also this", steering: true },
+			},
+		);
+		const live = await resumed("live", branch);
+		expect(live).toContain("grep: needle");
+		expect(live).toContain("notes.txt");
+	});
+
 	test("the restored stats row still shows the calls its run hid", async () => {
 		const booted = await boot("live", { branch: answeredRun(), stats: true });
 		drawHistory(booted);
