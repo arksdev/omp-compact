@@ -190,23 +190,83 @@ stockDescribe("presenter: non-tool blocks", () => {
 		);
 	});
 
-	test("a skill prompt is one identity row", async () => {
-		terminalView();
-		const booted = await boot("compact");
-		const message = custom("skill-prompt", {
-			name: "polish",
-			path: "/skills/polish/SKILL.md",
-			args: "HEAD~1",
-			lineCount: 12,
-		});
+	/** A user's `/skill:polish HEAD~1`, drawn as omp draws it. */
+	function presentSkill(booted: BootedPlugin, timestamp = stamp()) {
+		const message = {
+			...custom("skill-prompt", {
+				name: "polish",
+				path: "/skills/polish/SKILL.md",
+				args: "HEAD~1",
+				lineCount: 12,
+			}),
+			attribution: "user",
+			timestamp,
+		};
 		present(
 			booted,
 			new booted.host.SkillMessageComponent(message),
 			booted.host.messageBlock(message),
 		);
-		expect(rows(booted)).toBe(
-			"• skill polish HEAD~1 · /skills/polish/SKILL.md · 12 lines",
-		);
+	}
+	const SKILL_ROW =
+		"• skill polish HEAD~1 · /skills/polish/SKILL.md · 12 lines";
+
+	function bootQuiet(mode: "live" | "compact" | "clear") {
+		return boot(mode, { stats: { ...DEFAULT_SETTINGS.stats, enabled: false } });
+	}
+
+	test("a skill prompt keeps its card while its run works, then is one row", async () => {
+		terminalView();
+		const booted = await bootQuiet("live");
+		// omp stamps the prompt before the run it opens starts.
+		presentSkill(booted);
+		const card = rows(booted);
+		expect(card).toContain("polish");
+		expect(card).not.toBe(SKILL_ROW);
+		await dispatch(booted, { type: "agent_start" });
+		expect(rows(booted)).toBe(card);
+		await answer(booted);
+		expect(rows(booted)).toBe(SKILL_ROW);
+	});
+
+	test("a skill prompt drawn after its run started joins it", async () => {
+		terminalView();
+		const booted = await bootQuiet("compact");
+		const stamped = stamp();
+		await dispatch(booted, { type: "agent_start" });
+		presentSkill(booted, stamped);
+		expect(rows(booted)).not.toBe(SKILL_ROW);
+		await answer(booted);
+		expect(rows(booted)).toBe(SKILL_ROW);
+	});
+
+	test("a skill prompt queued before an abort opens its card in the next run", async () => {
+		terminalView();
+		const booted = await bootQuiet("live");
+		await dispatch(booted, { type: "agent_start" });
+		const queued = stamp();
+		await dispatch(booted, {
+			type: "agent_end",
+			messages: [{ role: "assistant", stopReason: "aborted", content: [] }],
+			willContinue: false,
+		});
+		await dispatch(booted, { type: "agent_start" });
+		presentSkill(booted, queued);
+		expect(rows(booted)).not.toBe(SKILL_ROW);
+		await answer(booted);
+		expect(rows(booted)).toBe(SKILL_ROW);
+	});
+
+	test("clear and history keep a skill prompt one row", async () => {
+		terminalView();
+		const clear = await bootQuiet("clear");
+		presentSkill(clear);
+		await dispatch(clear, { type: "agent_start" });
+		expect(rows(clear)).toBe(SKILL_ROW);
+
+		const history = await bootQuiet("live");
+		presentSkill(history, 1);
+		expect(rows(history)).toBe(SKILL_ROW);
 	});
 
 	test("late diagnostics are one severity row", async () => {
@@ -449,7 +509,11 @@ stockDescribe("presenter: non-tool blocks", () => {
 		const booted = await boot("compact", { compactAdvisorNotes: true });
 		await dispatch(booted, { type: "agent_start" });
 		await runTool(booted, "c2", "read", { path: "proc://jobs" });
-		const message = custom("skill-prompt", { name: "polish", lineCount: 3 });
+		// A prompt from history, so its row shows while this run works.
+		const message = {
+			...custom("skill-prompt", { name: "polish", lineCount: 3 }),
+			timestamp: 1,
+		};
 		present(
 			booted,
 			new booted.host.SkillMessageComponent(message),
