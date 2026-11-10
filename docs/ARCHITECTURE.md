@@ -112,7 +112,7 @@ omp also asks about blocks that are not tool calls. The plugin reads each from i
 | --- | --- |
 | event `ttsr_triggered` | the injected rule rows |
 | event `todo_reminder` | one reminder row |
-| message `skill-prompt` | one skill row |
+| message `skill-prompt` | a user's `/skill:` keeps omp's card while its run works (`compact` and `live`), then one skill row; one row throughout in `clear`, in history and for a skill the agent loaded. omp stamps the prompt before the run it opens starts, so `promptRun` ties it to the open run, or holds it pending until the next one starts; a prompt from before the session started is history |
 | message `lsp-late-diagnostic` | one late-diagnostics row |
 | message `bashExecution`, `pythonExecution` | one row for a user `!`/`$` run |
 | message `advisor` | one row per `nit`/`concern` note, only with `compactAdvisorNotes`; a `blocker`, an unknown severity or unreadable details answer `"full"` |

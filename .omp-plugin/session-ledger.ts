@@ -183,10 +183,27 @@ export class SessionLedger {
 	#leafRuns = new Map<string, RunRecord | undefined>();
 	/** Whether the current branch has been walked. */
 	#restored = false;
+	/** When the ledger started on this session: older prompts are history. */
+	#sessionStart: number;
+	/**
+	 * When the session last went idle: a live run's terminal `agent_end`, or
+	 * the ledger starting. A prompt stamped since then while no run is open
+	 * waits for the run it opens: omp stamps a prompt before that run starts.
+	 */
+	#idleSince: number;
+	/**
+	 * Prompt blocks of live runs. Kept across branch changes, so a rebuild
+	 * finds the run a prompt was drawn in instead of guessing from its stamp.
+	 */
+	#promptRuns = new Map<string, RunRecord>();
+	/** Prompt blocks recorded while idle, waiting for the run they open. */
+	#pendingPrompts = new Set<string>();
 
 	constructor(options: SessionLedgerOptions) {
 		this.#options = options;
 		this.#now = options.now ?? Date.now;
+		this.#sessionStart = this.#now();
+		this.#idleSince = this.#sessionStart;
 	}
 
 	/** The run in progress, if any. */
@@ -216,6 +233,8 @@ export class SessionLedger {
 		this.#continuing = false;
 		const run = this.#newRun(newRunId("omp-compact-run-"), mode(), false);
 		this.#active = run;
+		for (const id of this.#pendingPrompts) this.#bindPrompt(id, run);
+		this.#pendingPrompts.clear();
 		return run;
 	}
 
@@ -263,6 +282,35 @@ export class SessionLedger {
 		this.#leafRuns.set(id, run);
 		run?.leaves.push(id);
 		return run;
+	}
+
+	/**
+	 * The run a user's `/skill:` prompt belongs to. A prompt from before the
+	 * ledger started on this session is history, as in `leafRun`. Otherwise
+	 * it joins the open run, which also takes a prompt queued during an
+	 * earlier run. With no run open, a prompt stamped since the session went
+	 * idle is `"pending"` until the run it opens starts; an older one
+	 * belongs to a finished run and is history.
+	 */
+	promptRun(id: string, timestamp: number): RunRecord | "pending" | undefined {
+		const known = this.#promptRuns.get(id);
+		if (known) return known;
+		if (this.#pendingPrompts.has(id)) return "pending";
+		const active = this.#active;
+		if (timestamp >= this.#sessionStart && active) {
+			this.#bindPrompt(id, active);
+			return active;
+		}
+		if (!active && timestamp >= this.#idleSince) {
+			this.#pendingPrompts.add(id);
+			return "pending";
+		}
+		return this.leafRun(id, timestamp);
+	}
+
+	#bindPrompt(id: string, run: RunRecord): void {
+		this.#promptRuns.set(id, run);
+		run.leaves.push(id);
 	}
 
 	/**
@@ -334,6 +382,7 @@ export class SessionLedger {
 			return undefined;
 		}
 		this.#active = undefined;
+		this.#idleSince = this.#now();
 		this.#continuing = false;
 		return run;
 	}
@@ -415,6 +464,10 @@ export class SessionLedger {
 		this.#continuing = false;
 		this.#stray = undefined;
 		this.#restored = false;
+		this.#promptRuns = new Map();
+		this.#pendingPrompts.clear();
+		this.#sessionStart = this.#now();
+		this.#idleSince = this.#sessionStart;
 	}
 
 	/**
@@ -460,6 +513,8 @@ export class SessionLedger {
 			this.#addCall(ensureRun(), id, name, hashes, xdDevice(name, args));
 			restored.push(id);
 		};
+		// Whether the last assistant message aborted or failed its run.
+		let ended = false;
 		for (const value of entries) {
 			const entry = objectRecord(value);
 			if (entry.type === "message") {
@@ -472,6 +527,7 @@ export class SessionLedger {
 						close();
 						run = undefined;
 					}
+					ended = false;
 					ensureRun();
 				} else if (message.role === "assistant") {
 					if (Array.isArray(message.content))
@@ -485,6 +541,8 @@ export class SessionLedger {
 						willContinue: false,
 					});
 					if (phase === "filtered" && run) this.finalizeRun(run, phase);
+					ended =
+						message.stopReason === "aborted" || message.stopReason === "error";
 				} else if (
 					message.role === "toolResult" &&
 					typeof message.toolCallId === "string"
@@ -514,8 +572,6 @@ export class SessionLedger {
 		customType: unknown,
 		details: unknown,
 		run: RunRecord | undefined,
-		// Whether the last assistant message aborted or failed its run.
-		let ended = false;
 	): void {
 		if (
 			customType === MUTATION_MESSAGE_TYPE &&
@@ -527,7 +583,6 @@ export class SessionLedger {
 			call.mutations = keptMutations([...call.mutations, details]);
 			return;
 		}
-					ended = false;
 		if (customType === GIT_MESSAGE_TYPE && isGitMessageDetails(details)) {
 			const call = run && this.#inRun(details.toolCallId, run);
 			if (call?.run.restored) call.git = details;
@@ -541,8 +596,6 @@ export class SessionLedger {
 				anchor === undefined
 					? undefined
 					: this.#calls.get(anchor)?.findLast((call) => call.run.restored);
-					ended =
-						message.stopReason === "aborted" || message.stopReason === "error";
 			const owner = anchored?.run ?? run;
 			if (owner && !this.#runs.has(details.runId))
 				this.#runs.set(details.runId, owner);

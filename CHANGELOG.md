@@ -13,6 +13,7 @@
 ### Добавлено
 
 - В `/compact-settings` появился раздел `Tool cards`: для каждого инструмента, включая инструменты расширений, MCP и устройства `xd://`, можно выбрать `rows`, `newest` (самая новая карточка открыта, пока агент работает) или `open` (полная карточка всегда). В JSON это поле `tools`.
+- Карточка skill-промпта (`/skill:…`) в режимах `compact` и `live` остаётся открытой, пока работает её прогон, и сворачивается в одну строку, когда прогон заканчивается. В `clear` и в восстановленной истории это по-прежнему одна строка.
 
 ### Исправлено
 
@@ -28,6 +29,7 @@
 ### Added
 
 - `/compact-settings` has a `Tool cards` section: for each tool, extension, MCP tools and `xd://` devices included, pick `rows`, `newest` (the newest card stays open while the agent works) or `open` (always the full card). The JSON field is `tools`.
+- A skill prompt's card (`/skill:…`) stays open in `compact` and `live` while its run works and folds into one row when the run ends. In `clear` and in restored history it is still one row.
 
 ### Fixed
 
