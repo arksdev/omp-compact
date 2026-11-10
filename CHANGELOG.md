@@ -9,11 +9,23 @@
 
 - Обновлена поддерживаемая версия OMP до 18.18.6. Поддержка OMP 18.17.0 и выше сохранена.
 
+### Исправлено
+
+- Восстановленная история (resume, `/tree`, `/branch`) больше не показывает весь лог вызовов у прогона, в который во время работы было отправлено steering-сообщение. Такое сообщение раньше считалось началом нового прогона, и часть до него оставалась без ответа; теперь оно, как и вживую, остаётся внутри своего прогона, и `live` и `clear` снова скрывают временные строки.
+
+Спасибо @materemias за #24.
+
 ---
 
 ### Changed
 
 - Updated the supported OMP version to 18.18.6. Support for OMP 18.17.0 and later is preserved.
+
+### Fixed
+
+- Restored history (resume, `/tree`, `/branch`) no longer shows the whole call log of a run that received a steering message while it worked. The walk took that message for a new run, so the part before it had no answer; it now stays inside its run, as it does live, and `live` and `clear` hide the temporary rows again.
+
+Thanks to @materemias for #24.
 
 ---
 ## 2.2.1 — 9 ноября 2026
