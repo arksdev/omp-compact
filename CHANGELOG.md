@@ -3,6 +3,19 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Добавлено
+
+- Карточка skill-промпта (`/skill:…`) в режимах `compact` и `live` остаётся открытой, пока работает её прогон, и сворачивается в одну строку, когда прогон заканчивается. В `clear` и в восстановленной истории это по-прежнему одна строка.
+
+---
+
+### Added
+
+- A skill prompt's card (`/skill:…`) stays open in `compact` and `live` while its run works and folds into one row when the run ends. In `clear` and in restored history it is still one row.
+
+---
 ## 2.2.1 — 9 ноября 2026
 
 ### Изменено

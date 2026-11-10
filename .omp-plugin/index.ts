@@ -484,7 +484,12 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	listen("agent_start", async () => {
 		// A logical run starts here and spans toolUse/willContinue
 		// continuations; its settings are captured only at the true start.
-		ledger.beginRun(() => modePolicy.prepareRun());
+		const previous = ledger.active;
+		const run = ledger.beginRun(() => modePolicy.prepareRun());
+		// A run whose terminal `agent_end` never came was just finalized: its
+		// blocks, an open skill card among them, take their final view.
+		if (previous && previous !== run)
+			refresh([...previous.calls.map((call) => call.id), ...previous.leaves]);
 		runStats.start();
 	});
 
