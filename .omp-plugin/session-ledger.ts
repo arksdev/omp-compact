@@ -15,7 +15,8 @@
  * `MUTATION`/`GIT`/`STATS` entries.
  *
  * A logical run spans toolUse/willContinue continuations. It ends at a
- * terminal `agent_end` (live) or at the next user message (walk); its phase
+ * terminal `agent_end` (live) or at the next user message that is not a
+ * steering message typed mid-run (walk); its phase
  * then freezes and its Git projection (aggregate commit hashes plus the call
  * that carries the summary row) is computed once.
  */
@@ -459,13 +460,21 @@ export class SessionLedger {
 			this.#addCall(ensureRun(), id, name, hashes, xdDevice(name, args));
 			restored.push(id);
 		};
+		// Whether the last assistant message aborted or failed its run.
+		let ended = false;
 		for (const value of entries) {
 			const entry = objectRecord(value);
 			if (entry.type === "message") {
 				const message = objectRecord(entry.message);
 				if (message.role === "user") {
-					close();
-					run = undefined;
+					// A steering message typed while the run works joins it, as it
+					// did live. After an abort or error, omp delivers queued
+					// steering into a new run, so it opens one like any prompt.
+					if (message.steering !== true || ended) {
+						close();
+						run = undefined;
+					}
+					ended = false;
 					ensureRun();
 				} else if (message.role === "assistant") {
 					if (Array.isArray(message.content))
@@ -479,6 +488,8 @@ export class SessionLedger {
 						willContinue: false,
 					});
 					if (phase === "filtered" && run) this.finalizeRun(run, phase);
+					ended =
+						message.stopReason === "aborted" || message.stopReason === "error";
 				} else if (
 					message.role === "toolResult" &&
 					typeof message.toolCallId === "string"

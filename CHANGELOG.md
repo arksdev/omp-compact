@@ -3,6 +3,19 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Исправлено
+
+- Восстановленная история (resume, `/tree`, `/branch`) больше не показывает весь лог вызовов у прогона, в который во время работы было отправлено steering-сообщение. Такое сообщение раньше считалось началом нового прогона, и часть до него оставалась без ответа; теперь оно, как и вживую, остаётся внутри своего прогона, и `live` и `clear` снова скрывают временные строки.
+
+---
+
+### Fixed
+
+- Restored history (resume, `/tree`, `/branch`) no longer shows the whole call log of a run that received a steering message while it worked. The walk took that message for a new run, so the part before it had no answer; it now stays inside its run, as it does live, and `live` and `clear` hide the temporary rows again.
+
+---
 ## 2.2.1 — 9 ноября 2026
 
 ### Изменено
