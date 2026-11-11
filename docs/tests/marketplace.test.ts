@@ -58,12 +58,17 @@ describe("marketplace catalog", () => {
 		expect(plugin.repository).toBe(pkg.repository?.url);
 		expect(plugin.license).toBe(pkg.license);
 		expect(plugin.keywords).toEqual(pkg.keywords);
-		// Deliberate host-pin gate: a bump must fail here so it cannot happen
-		// silently. The floor and the pinned devDependency are separate
-		// contracts — the floor is what the plugin claims to support, the pin
-		// is what the suite actually verifies against.
+		// The floor is what the plugin claims to support, so changing it must
+		// be deliberate. The pinned host is what the suite runs against; it
+		// moves with every host bump and with the daily drift job, so only its
+		// relation to the floor is a contract.
 		expect(pkg.engines.omp).toBe(">=18.17.0");
-		expect(pkg.devDependencies["@oh-my-pi/pi-coding-agent"]).toBe("18.18.6");
+		expect(
+			Bun.semver.satisfies(
+				pkg.devDependencies["@oh-my-pi/pi-coding-agent"],
+				pkg.engines.omp,
+			),
+		).toBe(true);
 		expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
 		expect(await Bun.file(join(repoRoot, "CHANGELOG.md")).text()).toContain(
 			`## ${pkg.version}`,
