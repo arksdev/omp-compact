@@ -281,8 +281,20 @@ export class TranscriptPresenterState {
 					: "full";
 			}
 			case "skill-prompt": {
-				if (!this.#leafMode(block.id, message.timestamp).enabled)
-					return undefined;
+				// A user's `/skill:` card stays open while its run works; the
+				// run's end refreshes it into one row. `clear` keeps the row
+				// throughout, and so does a skill the agent loaded.
+				const owner =
+					message.attribution === "user"
+						? this.#deps.ledger.promptRun(block.id, message.timestamp)
+						: this.#deps.ledger.leafRun(block.id, message.timestamp);
+				const pending = owner === "pending";
+				const run = pending ? undefined : owner;
+				const mode = run?.mode ?? this.#deps.historicalMode();
+				if (!mode.enabled) return undefined;
+				const working = pending || run?.phase === "working";
+				if (working && message.attribution === "user" && mode.mode !== "clear")
+					return "full";
 				return compactAnswer(
 					renderSkillMessageRow(
 						skillMessageView(message.details),

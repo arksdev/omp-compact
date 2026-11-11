@@ -5,15 +5,48 @@
 ---
 ## Не выпущено / Unreleased
 
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.18.8. Поддержка OMP 18.17.0 и выше сохранена.
+
+---
+
+### Changed
+
+- Updated the supported OMP version to 18.18.8. Support for OMP 18.17.0 and later is preserved.
+
+---
+## 2.3.0 — 10 ноября 2026
+
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.18.6. Поддержка OMP 18.17.0 и выше сохранена.
+
+### Добавлено
+
+- Карточка skill-промпта (`/skill:…`) в режимах `compact` и `live` остаётся открытой, пока работает её прогон, и сворачивается в одну строку, когда прогон заканчивается. В `clear` и в восстановленной истории это по-прежнему одна строка.
+
 ### Исправлено
 
 - Восстановленная история (resume, `/tree`, `/branch`) больше не показывает весь лог вызовов у прогона, в который во время работы было отправлено steering-сообщение. Такое сообщение раньше считалось началом нового прогона, и часть до него оставалась без ответа; теперь оно, как и вживую, остаётся внутри своего прогона, и `live` и `clear` снова скрывают временные строки.
 
+Спасибо @materemias за #24 и #25.
+
 ---
+
+### Changed
+
+- Updated the supported OMP version to 18.18.6. Support for OMP 18.17.0 and later is preserved.
+
+### Added
+
+- A skill prompt's card (`/skill:…`) stays open in `compact` and `live` while its run works and folds into one row when the run ends. In `clear` and in restored history it is still one row.
 
 ### Fixed
 
 - Restored history (resume, `/tree`, `/branch`) no longer shows the whole call log of a run that received a steering message while it worked. The walk took that message for a new run, so the part before it had no answer; it now stays inside its run, as it does live, and `live` and `clear` hide the temporary rows again.
+
+Thanks to @materemias for #24 and #25.
 
 ---
 ## 2.2.1 — 9 ноября 2026
