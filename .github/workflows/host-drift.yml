@@ -38,15 +38,20 @@ jobs:
           echo "Testing against omp $version" | tee -a "$GITHUB_STEP_SUMMARY"
       - run: bun run typecheck
       # The `test` script sets OMP_STOCK_BIN, so the stock-host suites and
-      # host-health.test.ts run against the swapped omp.
+      # host-health.test.ts run against the swapped omp. They run after a
+      # failed typecheck too: a moved helper fails tsc on its type import
+      # first, and host-health.test.ts is what names the disabled component.
       - run: bun run test
+        if: ${{ !cancelled() && steps.host.outcome == 'success' }}
 
+      # Only a failure against the swapped omp is drift. A failed checkout,
+      # install or registry call fails the run without touching the issue.
       - name: Open or update the drift issue
-        if: failure()
+        if: ${{ failure() && steps.host.outcome == 'success' }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          VERSION: ${{ steps.host.outputs.version || 'latest' }}
+          VERSION: ${{ steps.host.outputs.version }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           gh label create host-drift --color D93F0B \
