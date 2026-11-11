@@ -1,8 +1,8 @@
 /**
- * Whether the installed omp still provides everything the plugin reaches
- * outside omp's public entry points.
+ * Whether the installed omp still provides every host helper the plugin
+ * takes from omp's package root.
  *
- * `host-modules.ts` loads those helpers optionally, so a host that moved one
+ * `host-modules.ts` loads those helpers optionally, so a host that dropped one
  * keeps the plugin running with one feature off. Users get a warning; this
  * suite turns the same condition into a failure, so the daily drift job
  * (`.github/workflows/host-drift.yml`, which swaps in the newest published

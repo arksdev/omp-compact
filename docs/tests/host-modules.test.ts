@@ -5,21 +5,23 @@
  * host-health.test.ts checks stays untouched.
  */
 import { describe, expect, test } from "bun:test";
-
 import {
 	type DisabledComponent,
 	disabledComponentsWarning,
 	loadHostModule,
 } from "../../.omp-plugin/host-modules";
+import pkg from "../../package.json";
 
 const ROOT = "@oh-my-pi/pi-coding-agent";
+// Where a helper would load from after leaving the root (CONTRIBUTING, "Host drift").
+const FALLBACK = "@oh-my-pi/pi-tui";
 
 describe("loadHostModule", () => {
-	test("a root that fails to load disables every export the feature needs", async () => {
+	test("a fallback module that fails to load disables every export the feature needs", async () => {
 		const disabled: DisabledComponent[] = [];
 		const module = await loadHostModule(
 			"xd:// device rows",
-			ROOT,
+			FALLBACK,
 			(): Promise<{ parseXdUrl: unknown; stripXdUrlPrefix: unknown }> =>
 				Promise.reject(new Error("Cannot find module")),
 			["parseXdUrl", "stripXdUrlPrefix"],
@@ -32,7 +34,7 @@ describe("loadHostModule", () => {
 		]);
 		for (const entry of disabled) {
 			expect(entry.component).toBe("xd:// device rows");
-			expect(entry.specifier).toBe(ROOT);
+			expect(entry.specifier).toBe(FALLBACK);
 			expect(entry.reason).toContain("Cannot find module");
 		}
 	});
@@ -118,15 +120,22 @@ describe("disabledComponentsWarning", () => {
 			{
 				// A helper loaded from a fallback location after it left the root.
 				component: "settings dialog",
-				specifier: "@oh-my-pi/pi-tui",
+				specifier: FALLBACK,
 				symbol: "editorKey",
 				reason: "export not found",
 			},
 		]);
 		const lines = (warning ?? "").split("\n");
 		expect(lines.filter((line) => line.startsWith("- "))).toEqual([
-			`- settings dialog (formTheme, theme from ${ROOT}; editorKey from @oh-my-pi/pi-tui)`,
+			`- settings dialog (formTheme, theme from ${ROOT}; editorKey from ${FALLBACK})`,
 			`- xd:// device rows (parseXdUrl from ${ROOT})`,
 		]);
+		// The remedy names the floor and tracker package.json declares; the
+		// plugin cannot read package.json at runtime.
+		const remedy = lines.at(-1) ?? "";
+		expect(remedy).toContain(
+			`omp to ${pkg.engines.omp.replace(">=", "")} or later`,
+		);
+		expect(remedy).toContain(pkg.bugs.url);
 	});
 });

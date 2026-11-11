@@ -236,7 +236,7 @@ Oversized values are dropped, never truncated into a claim.
 
 Most of what the plugin takes from omp comes through omp's extension API. It needs a few helpers beyond that API, and omp 18.18.9 exports all of them from the package root, `@oh-my-pi/pi-coding-agent`. Before that they lived at deep paths, which omp moves between releases. A static value import of a helper that moved or went away fails the plugin's module graph at link time, and omp then loads none of the plugin; omp 18.17 did that to `unwrapHashlineHeaderPath`.
 
-`host-modules.ts` loads the root once with a dynamic `import()`, and each component below checks it for the exports it reads. A missing export, or a root that fails to load, adds a disabled component `{ component, specifier, symbol, reason }` to one registry (`disabledComponents()`), and the consumer falls back to the narrowest loss. Only the component that lists the missing export turns off:
+`host-modules.ts` loads the root once with a dynamic `import()`, and each component below checks it for the exports it reads. A missing export adds a disabled component `{ component, specifier, symbol, reason }` to one registry (`disabledComponents()`), and the consumer falls back to the narrowest loss. Only the component that lists the missing export turns off. The root itself cannot be missing: `index.ts` imports `settings` from it statically, so without it omp loads none of the plugin. An omp older than 18.18.9 still loads the plugin, since omp does not enforce `engines.omp`, and its warning lists every component its root lacks.
 
 | Component | Exports from `@oh-my-pi/pi-coding-agent` | Without it |
 | --- | --- | --- |
@@ -246,7 +246,7 @@ Most of what the plugin takes from omp comes through omp's extension API. It nee
 | Transcript-presenters setting hint | `cfgExtensionTranscriptPresenters` | The plugin cannot tell whether the setting is off and shows no hint. |
 | Hashline header paths in the write audit | `unwrapHashlineHeaderPath` | A write addressed as `[path#TAG]` keeps that path, which names no file, so it gets no mutation evidence. |
 
-On the first session start the plugin warns once through its usual sink (the session UI, or omp's log without one) and lists every disabled component with the exports and the specifier behind it. The `import()` specifier stays a string literal: omp rewrites an extension's literal import targets to its bundled modules, and a computed specifier would bypass that inside a compiled omp binary. `docs/tests/host-health.test.ts` fails on any disabled component, and the daily drift job runs it against the newest published omp (see [Contributing](CONTRIBUTING.md#host-drift)).
+On the first session start the plugin warns once through its usual sink (the session UI, or omp's log without one), lists every disabled component with the exports and the specifier behind it, and tells the user to update omp to 18.18.9 or later and omp-compact to its latest release. The `import()` specifier stays a string literal: omp rewrites an extension's literal import targets to its bundled modules, and a computed specifier would bypass that inside a compiled omp binary. `docs/tests/host-health.test.ts` fails on any disabled component, and the daily drift job runs it against the newest published omp (see [Contributing](CONTRIBUTING.md#host-drift)).
 
 Type-only imports are erased before omp loads the plugin and need none of this.
 

@@ -8,9 +8,14 @@
  * a link-time error: the plugin module graph fails to link and omp loads
  * nothing of the plugin. omp 18.17 did exactly that to
  * `unwrapHashlineHeaderPath`. The root is therefore loaded once with a
- * dynamic `import()` and a rejection fallback, and each feature checks it for
- * the exports it reads. A missing export records a disabled component, and
- * its consumer falls back to the narrowest loss (see each export below).
+ * dynamic `import()`, and each feature checks it for the exports it reads. A
+ * missing export records a disabled component, and its consumer falls back to
+ * the narrowest loss (see each export below).
+ *
+ * The root itself cannot fail here: `index.ts` imports `settings` from it
+ * statically, so a host without it loads none of the plugin. The rejection
+ * fallback in `loadHostModule` is for a helper that leaves the root and gets
+ * its own specifier (docs/CONTRIBUTING.md, "Host drift").
  *
  * The specifier stays a string literal: omp rewrites an extension's literal
  * `import()` targets to its bundled host modules, and a computed specifier
@@ -19,9 +24,6 @@
  * Type-only imports are erased at transpile time and need no fallback.
  */
 import type * as HostRoot from "@oh-my-pi/pi-coding-agent";
-
-/** Where every helper below comes from. */
-const HOST_ROOT = "@oh-my-pi/pi-coding-agent";
 
 /** One host export the plugin could not load, and the feature it turned off. */
 export interface DisabledComponent {
@@ -68,9 +70,11 @@ export function disabledComponentsWarning(
 	return [
 		"omp-compact: this omp version lacks helpers the plugin uses; these features are off:",
 		...lines,
-		// Same tracker as package.json `bugs.url`; the plugin does not read
-		// package.json at runtime, so a repository move must update both.
-		"Update omp-compact, or report it at https://github.com/arksdev/omp-compact/issues",
+		// The floor is package.json `engines.omp` and the tracker its
+		// `bugs.url`; the plugin does not read package.json at runtime, so
+		// host-modules.test.ts checks both against it. omp does not enforce
+		// `engines.omp`, so an older omp loads the plugin and lands here.
+		"Update omp to 18.18.9 or later and omp-compact to its latest release, or report it at https://github.com/arksdev/omp-compact/issues",
 	].join("\n");
 }
 
@@ -78,17 +82,21 @@ export function disabledComponentsWarning(
  * The host module `load` resolves to when it loads and carries every export
  * in `symbols`; otherwise `undefined`, with one disabled-component record per
  * missing export appended to `into` (the process registry by default). The
- * namespace itself is returned, so live bindings (omp's `theme`) stay live.
- * Several features may pass the same pending `load()` result: each checks
- * only its own `symbols`.
+ * namespace itself is returned, so live bindings (omp's `theme`) stay live;
+ * its type shows only `symbols`, so a feature cannot read an export it did
+ * not check. Several features may pass the same pending `load()` result:
+ * each checks only its own `symbols`.
  */
-export async function loadHostModule<M extends object>(
+export async function loadHostModule<
+	M extends object,
+	K extends keyof M & string,
+>(
 	component: string,
 	specifier: string,
 	load: () => Promise<M>,
-	symbols: readonly (keyof M & string)[],
+	symbols: readonly K[],
 	into: DisabledComponent[] = disabled,
-): Promise<M | undefined> {
+): Promise<Pick<M, K> | undefined> {
 	let module: M;
 	try {
 		module = await load();
@@ -110,13 +118,19 @@ export async function loadHostModule<M extends object>(
 }
 
 // One load for every feature: each check below sees the same namespace, so a
-// missing export disables only the feature that lists it.
+// missing export disables only the feature that lists it. `HOST_ROOT` names
+// the literal `import()` specifier in the warning; keep the two equal.
+const HOST_ROOT = "@oh-my-pi/pi-coding-agent";
 const hostRoot: Promise<typeof HostRoot> = import("@oh-my-pi/pi-coding-agent");
-const fromRoot = (): Promise<typeof HostRoot> => hostRoot;
+const rootFeature = <K extends keyof typeof HostRoot & string>(
+	component: string,
+	symbols: readonly K[],
+): Promise<Pick<typeof HostRoot, K> | undefined> =>
+	loadHostModule(component, HOST_ROOT, () => hostRoot, symbols);
 
 const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 	await Promise.all([
-		loadHostModule("/compact-settings dialog", HOST_ROOT, fromRoot, [
+		rootFeature("/compact-settings dialog", [
 			"formTheme",
 			"editorKey",
 			"editorKeys",
@@ -124,25 +138,18 @@ const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 			"getSettingsListTheme",
 			"theme",
 		]),
-		loadHostModule(
-			"styled compact rows and the clickable stats row",
-			HOST_ROOT,
-			fromRoot,
-			["compactText", "rowsText", "styledSpans"],
-		),
-		loadHostModule("xd:// device rows", HOST_ROOT, fromRoot, ["parseXdUrl"]),
-		loadHostModule(
-			"the transcript-presenters setting hint",
-			HOST_ROOT,
-			fromRoot,
-			["cfgExtensionTranscriptPresenters"],
-		),
-		loadHostModule(
-			"hashline header paths in the write audit",
-			HOST_ROOT,
-			fromRoot,
-			["unwrapHashlineHeaderPath"],
-		),
+		rootFeature("styled compact rows and the clickable stats row", [
+			"compactText",
+			"rowsText",
+			"styledSpans",
+		]),
+		rootFeature("xd:// device rows", ["parseXdUrl"]),
+		rootFeature("the transcript-presenters setting hint", [
+			"cfgExtensionTranscriptPresenters",
+		]),
+		rootFeature("hashline header paths in the write audit", [
+			"unwrapHashlineHeaderPath",
+		]),
 	]);
 
 /** What `/compact-settings` draws with: omp's settings-list chrome. */
@@ -152,7 +159,11 @@ export interface SettingsDialogHost {
 	readonly editorKeys: typeof HostRoot.editorKeys;
 	readonly formatKeyHint: typeof HostRoot.formatKeyHint;
 	readonly getSettingsListTheme: typeof HostRoot.getSettingsListTheme;
-	/** omp's active theme, read per call: omp swaps it on `/theme`. */
+	/**
+	 * omp's active theme, read per call: omp swaps it on `/theme`. This stays
+	 * live only because `loadHostModule` returns the module namespace itself;
+	 * a copy of it would freeze the theme at load time.
+	 */
 	theme(): typeof HostRoot.theme;
 }
 
@@ -175,9 +186,7 @@ export const settingsDialogHost: SettingsDialogHost | undefined = dialogRoot
  * omp's ANSI-to-spans conversion, or `undefined`: rows then reach omp as
  * plain text and the stats row draws as rendered lines without its click.
  */
-export const nativeSpans:
-	| Pick<typeof HostRoot, "compactText" | "rowsText" | "styledSpans">
-	| undefined = spansRoot;
+export const nativeSpans = spansRoot;
 
 /**
  * omp's `xd://` grammar, or `undefined`: a device write then reads as a

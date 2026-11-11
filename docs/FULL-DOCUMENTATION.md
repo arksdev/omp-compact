@@ -443,7 +443,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `config.ts`, `mode-policy.ts` | Persistent config и immutable run snapshot. |
 | `settings-ui.ts`, `settings-dialog.ts`, `save-flow.ts`, `cycle-handler.ts` | Settings dialog на `SettingsList` OMP, display cycle и сохранение. |
 | `host-api.ts` | Структурные host API типы и регистрация command/shortcut. |
-| `host-modules.ts` | Необязательная загрузка helpers OMP из глубоких путей и реестр отключённых компонентов. |
+| `host-modules.ts` | Необязательная загрузка helpers OMP из корневого экспорта `@oh-my-pi/pi-coding-agent` и реестр отключённых компонентов. |
 | `run-stats.ts` | Usage aggregation, persisted evidence и stats row. |
 | `display-path.ts` | Display-only project-relative paths. |
 
@@ -458,7 +458,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 
 ### Предупреждение «this omp version lacks helpers the plugin uses»
 
-Плагин берёт несколько helpers OMP из корневого экспорта `@oh-my-pi/pi-coding-agent`, и новая версия OMP может перенести или убрать один из них. Если helper не нашёлся, плагин отключает только зависящую от него функцию и при старте сессии один раз перечисляет отключённые компоненты. Например, без helpers для `/compact-settings` команда предупреждает и не открывается, но JSON-конфиг и сочетание клавиш для переключения режима работают; без конвертации в spans строки приходят в OMP простым текстом без цвета. Полный список — в [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). Обновите omp-compact или сообщите о проблеме в [GitHub Issues](https://github.com/arksdev/omp-compact/issues), указав версию OMP и текст предупреждения.
+Плагин берёт несколько helpers OMP из корневого экспорта `@oh-my-pi/pi-coding-agent`, и новая версия OMP может перенести или убрать один из них. Если helper не нашёлся, плагин отключает только зависящую от него функцию и при старте сессии один раз перечисляет отключённые компоненты. Например, без helpers для `/compact-settings` команда предупреждает и не открывается, но JSON-конфиг и сочетание клавиш для переключения режима работают; без конвертации в spans строки приходят в OMP простым текстом без цвета. Полный список — в [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). OMP старше 18.18.9 тоже загружает плагин, но без этих helpers, и показывает то же предупреждение. Обновите OMP до 18.18.9 или новее и omp-compact до последней версии или сообщите о проблеме в [GitHub Issues](https://github.com/arksdev/omp-compact/issues), указав версию OMP и текст предупреждения.
 
 ### Меню сообщает, что нужен interactive terminal
 
