@@ -343,8 +343,9 @@ function captureFileCandidate(
 	readBefore: boolean,
 	acceptTarget?: WriteTargetObserver,
 ): MutationCandidate | undefined {
-	// Without omp's helper a hashline header path stays as written: it names
-	// no file, so the audit records nothing for it.
+	// Without omp's helper a hashline header path stays as written. Capture
+	// still runs on that literal path, but it names no file omp writes, so
+	// completion finds no matching resolved path and publishes nothing.
 	const displayPath = unwrapHashlineHeaderPath?.(path) ?? path;
 	if (
 		!displayPath ||
