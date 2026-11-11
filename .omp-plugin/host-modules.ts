@@ -48,13 +48,15 @@ export function disabledComponents(): readonly DisabledComponent[] {
 }
 
 /**
- * The warning that names every disabled feature, or `undefined` when all
- * host helpers loaded. One line per feature, with the exports behind it.
+ * The warning that names every disabled feature in `entries`, or `undefined`
+ * when there is none. One line per feature, with the exports behind it.
  */
-export function disabledComponentsWarning(): string | undefined {
-	if (disabled.length === 0) return undefined;
+export function disabledComponentsWarning(
+	entries: readonly DisabledComponent[],
+): string | undefined {
+	if (entries.length === 0) return undefined;
 	const byComponent = new Map<string, string[]>();
-	for (const entry of disabled) {
+	for (const entry of entries) {
 		const symbols = byComponent.get(entry.component) ?? [];
 		symbols.push(`${entry.symbol} from ${entry.specifier}`);
 		byComponent.set(entry.component, symbols);
@@ -65,6 +67,8 @@ export function disabledComponentsWarning(): string | undefined {
 	return [
 		"omp-compact: this omp version lacks helpers the plugin uses; these features are off:",
 		...lines,
+		// Same tracker as package.json `bugs.url`; the plugin does not read
+		// package.json at runtime, so a repository move must update both.
 		"Update omp-compact, or report it at https://github.com/arksdev/omp-compact/issues",
 	].join("\n");
 }
@@ -72,14 +76,15 @@ export function disabledComponentsWarning(): string | undefined {
 /**
  * The host module `load` resolves to when it loads and carries every export
  * in `symbols`; otherwise `undefined`, with one disabled-component record per
- * export. The namespace itself is returned, so live bindings (omp's `theme`)
- * stay live.
+ * missing export appended to `into` (the process registry by default). The
+ * namespace itself is returned, so live bindings (omp's `theme`) stay live.
  */
-async function hostModule<M extends object>(
+export async function loadHostModule<M extends object>(
 	component: string,
 	specifier: string,
 	load: () => Promise<M>,
 	symbols: readonly (keyof M & string)[],
+	into: DisabledComponent[] = disabled,
 ): Promise<M | undefined> {
 	let module: M;
 	try {
@@ -87,12 +92,12 @@ async function hostModule<M extends object>(
 	} catch (error) {
 		const reason = `module did not load: ${error instanceof Error ? error.message : String(error)}`;
 		for (const symbol of symbols)
-			disabled.push({ component, specifier, symbol, reason });
+			into.push({ component, specifier, symbol, reason });
 		return undefined;
 	}
 	const missing = symbols.filter((symbol) => !(symbol in module));
 	for (const symbol of missing)
-		disabled.push({
+		into.push({
 			component,
 			specifier,
 			symbol,
@@ -108,58 +113,58 @@ const [
 	keybindingHints,
 	keyHintFormat,
 	themeModule,
-	spans,
+	nativeSpans,
 	xdUrl,
 	extensionSettings,
 	agentRoot,
 ] = await Promise.all([
-	hostModule(
+	loadHostModule(
 		SETTINGS_DIALOG,
 		"@oh-my-pi/pi-tui/chrome/form-theme",
 		(): Promise<typeof FormTheme> =>
 			import("@oh-my-pi/pi-tui/chrome/form-theme"),
 		["formTheme"],
 	),
-	hostModule(
+	loadHostModule(
 		SETTINGS_DIALOG,
 		"@oh-my-pi/pi-tui/chrome/keybinding-hints",
 		(): Promise<typeof KeybindingHints> =>
 			import("@oh-my-pi/pi-tui/chrome/keybinding-hints"),
 		["editorKey", "editorKeys"],
 	),
-	hostModule(
+	loadHostModule(
 		SETTINGS_DIALOG,
 		"@oh-my-pi/pi-tui/key-hint-format",
 		(): Promise<typeof KeyHintFormat> =>
 			import("@oh-my-pi/pi-tui/key-hint-format"),
 		["formatKeyHint"],
 	),
-	hostModule(
+	loadHostModule(
 		SETTINGS_DIALOG,
 		"@oh-my-pi/pi-tui/theme/theme",
 		(): Promise<typeof ThemeModule> => import("@oh-my-pi/pi-tui/theme/theme"),
 		["getSettingsListTheme", "theme"],
 	),
-	hostModule(
+	loadHostModule(
 		"styled compact rows and the clickable stats row",
 		"@oh-my-pi/pi-tui/native/spans",
 		(): Promise<typeof NativeSpans> => import("@oh-my-pi/pi-tui/native/spans"),
 		["compactText", "rowsText", "styledSpans"],
 	),
-	hostModule(
+	loadHostModule(
 		"xd:// device rows",
 		"@oh-my-pi/pi-tui/tools/xd-url",
 		(): Promise<typeof XdUrl> => import("@oh-my-pi/pi-tui/tools/xd-url"),
 		["parseXdUrl"],
 	),
-	hostModule(
+	loadHostModule(
 		"the transcript-presenters setting hint",
 		"@oh-my-pi/pi-coding-agent/extensibility/settings",
 		(): Promise<typeof ExtensionSettings> =>
 			import("@oh-my-pi/pi-coding-agent/extensibility/settings"),
 		["cfgExtensionTranscriptPresenters"],
 	),
-	hostModule(
+	loadHostModule(
 		"hashline header paths in the write audit",
 		"@oh-my-pi/pi-coding-agent",
 		(): Promise<typeof AgentRoot> => import("@oh-my-pi/pi-coding-agent"),
@@ -198,7 +203,7 @@ export const settingsDialogHost: SettingsDialogHost | undefined =
  * omp's ANSI-to-spans conversion, or `undefined`: rows then reach omp as
  * plain text and the stats row draws as rendered lines without its click.
  */
-export const nativeSpans: typeof NativeSpans | undefined = spans;
+export { nativeSpans };
 
 /**
  * omp's `xd://` grammar, or `undefined`: a device write then reads as a

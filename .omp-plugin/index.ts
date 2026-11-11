@@ -25,6 +25,7 @@ import { resolveSessionCwd } from "./display-path";
 import { formatGitRecords, recognizeGitCommands } from "./git-records";
 import {
 	cfgExtensionTranscriptPresenters,
+	disabledComponents,
 	disabledComponentsWarning,
 } from "./host-modules";
 import { IdleQueue } from "./idle-queue";
@@ -463,7 +464,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		hintPresenterSetting(context);
 		if (!hostChecked) {
 			hostChecked = true;
-			const disabled = disabledComponentsWarning();
+			const disabled = disabledComponentsWarning(disabledComponents());
 			if (disabled) warn(disabled);
 			const conflict = shortcutConflict(cycleKey);
 			if (
