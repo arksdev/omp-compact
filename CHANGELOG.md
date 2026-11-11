@@ -3,16 +3,18 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
-## Unreleased
+## Не выпущено / Unreleased
 
 ### Изменено
 
+- Обновлена поддерживаемая версия OMP до 18.18.8. Поддержка OMP 18.17.0 и выше сохранена.
 - Если новая версия OMP перенесла или убрала один из внутренних helpers, которыми пользуется плагин, плагин всё равно загружается. Отключается только функция, которой нужен этот helper (например, `/compact-settings` или цвет в compact rows), и при старте сессии одно предупреждение перечисляет, что отключено.
 
 ---
 
 ### Changed
 
+- Updated the supported OMP version to 18.18.8. Support for OMP 18.17.0 and later is preserved.
 - When an omp release moves or drops one of the internal helpers the plugin uses, the plugin still loads. Only the feature that needs the helper turns off (for example `/compact-settings`, or colour in compact rows), and one warning at session start lists what is off.
 
 ---
