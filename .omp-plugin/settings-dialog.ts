@@ -238,13 +238,12 @@ export class SettingsDialog implements Component {
 	#closing = false;
 	#native?: NativeNode;
 
+	/** `host`: omp's settings-list chrome (`settingsDialogHost`). */
 	constructor(
 		deps: SettingsDialogDeps,
 		done: (result: CompactSettings | undefined) => void,
+		host: SettingsDialogHost,
 	) {
-		// `openSettingsDialog` checks this before it constructs a dialog.
-		const host = settingsDialogHost;
-		if (!host) throw new Error("omp's settings-list chrome did not load");
 		this.#host = host;
 		this.#deps = deps;
 		this.#done = done;
@@ -738,7 +737,8 @@ export function openSettingsDialog(
 		);
 		return Promise.resolve(undefined);
 	}
-	if (!settingsDialogHost) {
+	const host = settingsDialogHost;
+	if (!host) {
 		deps.warn(
 			"omp-compact: /compact-settings is off because this omp lacks the settings-list helpers it draws with; edit the config file instead",
 		);
@@ -755,6 +755,7 @@ export function openSettingsDialog(
 					requestRender: () => tui?.requestRender?.(),
 				},
 				done,
+				host,
 			),
 		// The path omp's own `/settings` takes: a fullscreen overlay. In Tern
 		// that makes the page a sheet of fixed size; in the editor's place it

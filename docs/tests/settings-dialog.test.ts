@@ -19,12 +19,19 @@ import {
 	type EnvLike,
 	type ToolDisplay,
 } from "../../.omp-plugin/config";
+import { settingsDialogHost } from "../../.omp-plugin/host-modules";
 import {
 	openSettingsDialog,
 	runSettingsSession,
 	SettingsDialog,
 	type SettingsDialogDeps,
 } from "../../.omp-plugin/settings-dialog";
+
+const host =
+	settingsDialogHost ??
+	((): never => {
+		throw new Error("omp's settings-list chrome did not load");
+	})();
 
 const ENTER = "\r";
 const ESCAPE = "\u001b";
@@ -86,6 +93,7 @@ function harness(
 		(value) => {
 			h.closed = { value };
 		},
+		host,
 	);
 	return h;
 }
