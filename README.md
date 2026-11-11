@@ -6,7 +6,7 @@
 
 ## Install from the Marketplace
 
-You need **OMP 18.17 or later**, from [https://omp.sh/](https://omp.sh/).
+You need **OMP 18.18.9 or later**, from [https://omp.sh/](https://omp.sh/).
 
 ```bash
 omp plugin marketplace add arksdev/omp-compact
@@ -278,7 +278,7 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 ## Compatibility and documentation
 
-The plugin needs **OMP 18.17 or later**. It draws through OMP's public transcript presenter API (`pi.registerTranscriptPresenter`) and patches none of OMP's own classes.
+The plugin needs **OMP 18.18.9 or later**. It draws through OMP's public transcript presenter API (`pi.registerTranscriptPresenter`) and patches none of OMP's own classes.
 
 The compact rows also appear in [Tern](https://stencil.so) panes, where OMP hands the transcript to Tern's native view. A compact row there opens OMP's full card with its toggle. In `live` and `clear`, click a turn's stats row to bring back the calls the turn hid, each in its own place; a second click hides them again.
 

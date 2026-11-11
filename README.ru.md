@@ -6,7 +6,7 @@
 
 ## Установка через Marketplace
 
-Требуется **OMP 18.17 или новее**, см. [https://omp.sh/](https://omp.sh/).
+Требуется **OMP 18.18.9 или новее**, см. [https://omp.sh/](https://omp.sh/).
 
 ```bash
 omp plugin marketplace add arksdev/omp-compact
@@ -278,7 +278,7 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 ## Совместимость и документация
 
-Плагину нужен **OMP 18.17 или новее**. Он рисует через публичный API OMP для transcript presenters (`pi.registerTranscriptPresenter`) и не патчит собственные классы OMP.
+Плагину нужен **OMP 18.18.9 или новее**. Он рисует через публичный API OMP для transcript presenters (`pi.registerTranscriptPresenter`) и не патчит собственные классы OMP.
 
 Компактные строки работают и в панелях [Tern](https://stencil.so), где OMP передаёт transcript нативному представлению Tern. Компактная строка там открывает полную карточку OMP своим переключателем. В режимах `live` и `clear` щелчок по строке статистики хода возвращает скрытые вызовы этого хода на их места; повторный щелчок снова их скрывает.
 
