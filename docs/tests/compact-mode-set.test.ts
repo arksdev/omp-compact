@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { ensureThemeSync } from "@oh-my-pi/pi-tui/theme/theme";
+import { ensureThemeSync } from "@oh-my-pi/pi-coding-agent";
 
 import {
 	type CompactMode,
