@@ -335,6 +335,7 @@ const ASK_DETAILS = [
 	"results",
 	"chatRedirect",
 	"answers",
+	"notes",
 ] as const;
 const AST_GREP_ARGS = ["pat", "path", "lang", "skip"] as const;
 const AST_GREP_DETAILS = [
