@@ -56,7 +56,8 @@ test("every host helper the plugin imports loads from the installed omp", () => 
 
 interface RpcRun {
 	readonly frames: readonly Record<string, unknown>[];
-	readonly stderr: string;
+	/** stdout lines that were not protocol frames, plus stderr. */
+	readonly noise: string;
 }
 
 /**
@@ -100,32 +101,46 @@ async function runPluginInOmp(): Promise<RpcRun> {
 				timeout: RPC_TIMEOUT_MS,
 			},
 		);
-		const stderr = new Response(child.stderr).text();
-		const frames: Record<string, unknown>[] = [];
-		child.stdin.write(
-			`${JSON.stringify({ type: "get_available_commands", id: "health" })}\n`,
-		);
-		child.stdin.flush();
-		let buffered = "";
-		const decoder = new TextDecoder();
-		for await (const chunk of child.stdout) {
-			buffered += decoder.decode(chunk, { stream: true });
-			let newline = buffered.indexOf("\n");
-			while (newline !== -1) {
-				const line = buffered.slice(0, newline).trim();
-				buffered = buffered.slice(newline + 1);
-				newline = buffered.indexOf("\n");
-				if (!line) continue;
-				const frame = JSON.parse(line) as Record<string, unknown>;
-				frames.push(frame);
-				// The answer means startup finished: closing stdin ends the run,
-				// and omp flushes whatever its session start produced first.
-				if (frame.type === "response" && frame.id === "health")
-					child.stdin.end();
+		try {
+			const stderr = new Response(child.stderr).text();
+			const frames: Record<string, unknown>[] = [];
+			const stray: string[] = [];
+			child.stdin.write(
+				`${JSON.stringify({ type: "get_available_commands", id: "health" })}\n`,
+			);
+			child.stdin.flush();
+			let buffered = "";
+			const decoder = new TextDecoder();
+			for await (const chunk of child.stdout) {
+				buffered += decoder.decode(chunk, { stream: true });
+				let newline = buffered.indexOf("\n");
+				while (newline !== -1) {
+					const line = buffered.slice(0, newline).trim();
+					buffered = buffered.slice(newline + 1);
+					newline = buffered.indexOf("\n");
+					if (!line) continue;
+					let frame: Record<string, unknown>;
+					try {
+						frame = JSON.parse(line) as Record<string, unknown>;
+					} catch {
+						// A newer omp printing outside the protocol is reported with
+						// the failure, not thrown from the reader.
+						stray.push(line);
+						continue;
+					}
+					frames.push(frame);
+					// The answer means startup finished: closing stdin ends the
+					// run, and omp flushes whatever its session start produced.
+					if (frame.type === "response" && frame.id === "health")
+						child.stdin.end();
+				}
 			}
+			await child.exited;
+			return { frames, noise: [...stray, await stderr].join("\n") };
+		} finally {
+			// No-op after a clean exit; ends a child the reader gave up on.
+			child.kill();
 		}
-		await child.exited;
-		return { frames, stderr: await stderr };
 	} finally {
 		rmSync(home, { recursive: true, force: true });
 	}
@@ -133,11 +148,11 @@ async function runPluginInOmp(): Promise<RpcRun> {
 
 stockDescribe("the plugin inside the installed omp", () => {
 	test("omp loads the plugin, registers its commands and reports nothing disabled", async () => {
-		const { frames, stderr } = await runPluginInOmp();
+		const { frames, noise } = await runPluginInOmp();
 		const response = frames.find(
 			(frame) => frame.type === "response" && frame.id === "health",
 		);
-		expect(response, `no RPC answer; stderr:\n${stderr}`).toBeDefined();
+		expect(response, `no RPC answer; omp output:\n${noise}`).toBeDefined();
 		const data = response?.data as
 			| { commands?: readonly { name?: unknown }[] }
 			| undefined;
