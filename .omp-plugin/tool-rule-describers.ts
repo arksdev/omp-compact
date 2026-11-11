@@ -8,8 +8,6 @@
  * function is a pure `args → ToolDescription` (or `result → meta`) mapping
  * that never touches the filesystem.
  */
-import { parseXdUrl } from "@oh-my-pi/pi-tui/tools/xd-url";
-
 import {
 	editPathsFromInput,
 	genericToolDescription,
@@ -20,6 +18,7 @@ import {
 	type ToolDescription,
 } from "./compact";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
+import { parseXdUrl } from "./host-modules";
 import { objectRecord as record } from "./object-record";
 import type { ToolPresentationRule } from "./tool-presentation-rules";
 
@@ -127,12 +126,14 @@ const TEXT_DEVICES: Readonly<Partial<Record<string, TextDevicePresentation>>> =
  * an ordinary path. `parseXdUrl` is the stock grammar: `null` for a non-device
  * or malformed URL, `name: null` for the bare `xd://` root — both stay
  * `undefined` here, so an unrecognized target keeps plain write presentation.
+ * A host without the grammar recognizes no device: the call reads as a write
+ * of its `xd://` path, and the audit's URI-scheme guard refuses the target.
  */
 export function writeDeviceName(
 	value: Record<string, unknown>,
 ): string | undefined {
 	const path = stringValue(value, "path") || stringValue(value, "file_path");
-	if (!path) return undefined;
+	if (!path || !parseXdUrl) return undefined;
 	return parseXdUrl(path)?.name ?? undefined;
 }
 

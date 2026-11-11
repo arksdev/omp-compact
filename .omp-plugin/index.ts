@@ -4,7 +4,6 @@ import {
 	type ExtensionContext,
 	settings,
 } from "@oh-my-pi/pi-coding-agent";
-import { cfgExtensionTranscriptPresenters } from "@oh-my-pi/pi-coding-agent/extensibility/settings";
 import type { KeyId } from "@oh-my-pi/pi-tui";
 import type { EditCapture } from "./audit";
 
@@ -24,6 +23,10 @@ import {
 } from "./display-cycle";
 import { resolveSessionCwd } from "./display-path";
 import { formatGitRecords, recognizeGitCommands } from "./git-records";
+import {
+	cfgExtensionTranscriptPresenters,
+	disabledComponentsWarning,
+} from "./host-modules";
 import { IdleQueue } from "./idle-queue";
 import {
 	GIT_MESSAGE_TYPE,
@@ -65,10 +68,12 @@ import { defaultWarn } from "./warn-sink";
 const PRESENTER_SETTING_PATH =
 	"/settings -> Tools -> Extensions -> Extension Transcript Presenters";
 /**
- * Whether OMP has extension transcript presenters enabled.
- * Safe fallback to false if settings are unavailable or uninitialized.
+ * Whether OMP has extension transcript presenters enabled; `undefined` when
+ * this omp does not expose the setting. False if settings are unavailable or
+ * uninitialized.
  */
-function isPresenterSettingEnabled(): boolean {
+function isPresenterSettingEnabled(): boolean | undefined {
+	if (!cfgExtensionTranscriptPresenters) return undefined;
 	try {
 		return cfgExtensionTranscriptPresenters.get(settings) === true;
 	} catch {
@@ -270,7 +275,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			},
 		},
 	);
-	let cycleKeyChecked = false;
+	/** Disabled host helpers and a taken cycle chord warn on the first session start only. */
+	let hostChecked = false;
 
 	// One settings snapshot per logical run, captured at agent_start; settings
 	// changes (incl. global disable) apply at the next run boundary.
@@ -346,7 +352,8 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	function hintPresenterSetting(context: ExtensionContext): void {
 		if (presenterHintShown || presenter.asked) return;
 		if (!context.hasUI || context.mode !== "tui") return;
-		if (isPresenterSettingEnabled()) return;
+		// Unknown (the setting is gone from this omp): no hint either way.
+		if (isPresenterSettingEnabled() !== false) return;
 		presenterHintShown = true;
 		try {
 			context.ui.notify(
@@ -454,8 +461,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		await modePolicy.ready();
 		reloadHistory();
 		hintPresenterSetting(context);
-		if (!cycleKeyChecked) {
-			cycleKeyChecked = true;
+		if (!hostChecked) {
+			hostChecked = true;
+			const disabled = disabledComponentsWarning();
+			if (disabled) warn(disabled);
 			const conflict = shortcutConflict(cycleKey);
 			if (
 				context.hasUI &&

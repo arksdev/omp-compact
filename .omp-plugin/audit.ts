@@ -11,7 +11,6 @@ import {
 import type { FileHandle } from "node:fs/promises";
 import { open, realpath } from "node:fs/promises";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
-import { unwrapHashlineHeaderPath } from "@oh-my-pi/pi-coding-agent";
 import { diffLines } from "@oh-my-pi/pi-natives";
 
 import {
@@ -20,6 +19,7 @@ import {
 	trimmedMiddleLines,
 } from "./audit-diff";
 import { editPathsFromInput } from "./compact";
+import { unwrapHashlineHeaderPath } from "./host-modules";
 
 import { MAX_EVIDENCE_PATH_LENGTH } from "./messages";
 import type { MutationMessageDetails } from "./messages";
@@ -343,7 +343,9 @@ function captureFileCandidate(
 	readBefore: boolean,
 	acceptTarget?: WriteTargetObserver,
 ): MutationCandidate | undefined {
-	const displayPath = unwrapHashlineHeaderPath(path);
+	// Without omp's helper a hashline header path stays as written: it names
+	// no file, so the audit records nothing for it.
+	const displayPath = unwrapHashlineHeaderPath?.(path) ?? path;
 	if (
 		!displayPath ||
 		URI_SCHEME.test(displayPath) ||

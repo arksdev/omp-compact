@@ -8,15 +8,16 @@
  * rewritten to the basic SGR colours that map to the semantic tokens keeping
  * their meaning: green additions, resolve and stats ink (`success`), rust
  * removals and reject (`error`), purple computer use (`accent`).
+ *
+ * Without omp's span conversion (`nativeSpans` in host-modules.ts) a row
+ * reaches omp as plain text, and a rows node is no node at all: omp then
+ * draws the component from its rendered ANSI lines.
  */
 
 import type { NativeNode } from "@oh-my-pi/pi-tui";
-import {
-	compactText,
-	rowsText,
-	styledSpans,
-} from "@oh-my-pi/pi-tui/native/spans";
 import type { TspText } from "@oh-my-pi/pi-wire";
+
+import { nativeSpans } from "./host-modules";
 
 const FIXED_COLOR_SGR = (
 	[
@@ -38,18 +39,21 @@ function themed(line: string): string {
 
 /** One ANSI row as presenter text: plain or styled, one line. */
 export function nativeText(line: string): TspText {
-	return compactText(styledSpans(themed(line)));
+	if (!nativeSpans) return Bun.stripANSI(line);
+	return nativeSpans.compactText(nativeSpans.styledSpans(themed(line)));
 }
 
 /**
  * Rows as one unwrapped native `text` node. With `click`, a click on the node
  * reaches the describing component as an `action` event carrying that act.
+ * `null` without omp's span conversion: omp draws the rendered rows instead.
  */
 export function rowsNode(
 	lines: readonly string[],
 	click?: { readonly act: string; readonly title: string },
-): NativeNode {
-	const node = rowsText(lines.map(themed));
+): NativeNode | null {
+	if (!nativeSpans) return null;
+	const node = nativeSpans.rowsText(lines.map(themed));
 	if (!click) return node;
 	return {
 		...node,

@@ -159,7 +159,7 @@ An empty creation is exact `+0|0` with `created: true`; an empty overwrite is a 
 
 **Path confinement (POSIX-only).** Pre-image reads and config-path acceptance share `isPathInsideRoot` (`path-inside-root.ts`). Pre- and post-image opens use `O_NOFOLLOW` on the confined destination; nested symlink hops are refused.
 
-**Device dispatches.** A `write` to `xd://<device>` runs a mounted tool. `resolveToolAudit` gives it the audit kind `none`, so it never opens a write record. The device grammar is omp's own `parseXdUrl`.
+**Device dispatches.** A `write` to `xd://<device>` runs a mounted tool. `resolveToolAudit` gives it the audit kind `none`, so it never opens a write record. The device grammar is omp's own `parseXdUrl`. On an omp without it, no device is recognized and the call takes the write route, where the URI-scheme guard refuses the `xd://` target before any read.
 
 ### Edit verification (audit-diff.ts)
 
@@ -231,6 +231,24 @@ A `/fork` keeps the conversation and omp does not rebuild it, so the ledger stay
 - Stats evidence: run id 128 characters, anchor call id as any tool call id, counts bounded per field
 
 Oversized values are dropped, never truncated into a claim.
+
+## Host helpers (host-modules.ts)
+
+Most of what the plugin takes from omp comes through omp's public entries: `@oh-my-pi/pi-coding-agent` and `@oh-my-pi/pi-tui`. A few helpers live at deep paths, and omp moves files between releases. A static import of a moved file fails the plugin's module graph at link time, and omp then loads none of the plugin; omp 18.17 did that to `unwrapHashlineHeaderPath`.
+
+`host-modules.ts` loads each of those helpers with a dynamic `import()` and checks the exports the plugin reads. A module that fails to load, or lacks an export, adds a disabled component `{ component, specifier, symbol, reason }` to one registry (`disabledComponents()`), and the consumer falls back to the narrowest loss:
+
+| Component | Specifier: exports | Without it |
+| --- | --- | --- |
+| `/compact-settings` dialog | `pi-tui/chrome/form-theme`: `formTheme`; `pi-tui/chrome/keybinding-hints`: `editorKey`, `editorKeys`; `pi-tui/key-hint-format`: `formatKeyHint`; `pi-tui/theme/theme`: `getSettingsListTheme`, `theme` | The command warns and opens nothing. The config file and the display-cycle shortcut still work. |
+| Styled compact rows and the clickable stats row | `pi-tui/native/spans`: `compactText`, `rowsText`, `styledSpans` | Rows reach omp as plain text without colour. The stats row describes no native node, so omp draws its rendered line, and the Tern click that shows hidden calls is gone. |
+| `xd://` device rows | `pi-tui/tools/xd-url`: `parseXdUrl` | A device write reads as `write: xd://<device>`, takes the `write` tool's display choice, and still records no evidence (see Device dispatches). |
+| Transcript-presenters setting hint | `pi-coding-agent/extensibility/settings`: `cfgExtensionTranscriptPresenters` | The plugin cannot tell whether the setting is off and shows no hint. |
+| Hashline header paths in the write audit | `pi-coding-agent`: `unwrapHashlineHeaderPath` | A write addressed as `[path#TAG]` keeps that path, which names no file, so it gets no mutation evidence. |
+
+On the first session start the plugin warns once through its usual sink (the session UI, or omp's log without one) and lists every disabled component with the specifier and export behind it. The `import()` specifiers stay string literals: omp rewrites an extension's literal import targets to its bundled modules, and a computed specifier would bypass that inside a compiled omp binary. `docs/tests/host-health.test.ts` fails on any disabled component, and the daily drift job runs it against the newest published omp (see [Contributing](CONTRIBUTING.md#host-drift)).
+
+Type-only imports from deep paths are erased before omp loads the plugin and need none of this.
 
 ## Extension points
 

@@ -14,13 +14,6 @@ import {
 	text,
 	truncateToWidth,
 } from "@oh-my-pi/pi-tui";
-import { formTheme } from "@oh-my-pi/pi-tui/chrome/form-theme";
-import {
-	editorKey,
-	editorKeys,
-} from "@oh-my-pi/pi-tui/chrome/keybinding-hints";
-import { formatKeyHint } from "@oh-my-pi/pi-tui/key-hint-format";
-import { getSettingsListTheme, theme } from "@oh-my-pi/pi-tui/theme/theme";
 import type {
 	TspPrefsControl,
 	TspPrefsProps,
@@ -39,6 +32,7 @@ import {
 } from "./config";
 import { canonicalize, validateDisplayCycleKey } from "./display-cycle";
 import type { SettingsUiLike } from "./host-api";
+import { type SettingsDialogHost, settingsDialogHost } from "./host-modules";
 import {
 	notifySaveOutcome,
 	type SaveOutcome,
@@ -232,6 +226,7 @@ function withoutTool(
  */
 export class SettingsDialog implements Component {
 	readonly #deps: SettingsDialogDeps;
+	readonly #host: SettingsDialogHost;
 	readonly #done: (result: CompactSettings | undefined) => void;
 	readonly #list: SettingsList;
 	/** The settings the last successful save returned. */
@@ -247,18 +242,22 @@ export class SettingsDialog implements Component {
 		deps: SettingsDialogDeps,
 		done: (result: CompactSettings | undefined) => void,
 	) {
+		// `openSettingsDialog` checks this before it constructs a dialog.
+		const host = settingsDialogHost;
+		if (!host) throw new Error("omp's settings-list chrome did not load");
+		this.#host = host;
 		this.#deps = deps;
 		this.#done = done;
 		this.#saved = deps.settings;
 		this.#list = new SettingsList(
 			this.#items(),
 			DEFAULT_VISIBLE_ROWS,
-			getSettingsListTheme(),
+			host.getSettingsListTheme(),
 			(id, value) => this.#change(id, value),
 			() => this.#close(),
 			{
 				layout: "auto",
-				hint: `${editorKey("tui.select.confirm")}/${formatKeyHint("space")} to change · ${editorKeys("tui.select.pageUp", "tui.select.pageDown")} to jump sections · Type to search · ${editorKey("tui.select.cancel")} to close`,
+				hint: `${host.editorKey("tui.select.confirm")}/${host.formatKeyHint("space")} to change · ${host.editorKeys("tui.select.pageUp", "tui.select.pageDown")} to jump sections · Type to search · ${host.editorKey("tui.select.cancel")} to close`,
 			},
 		);
 	}
@@ -354,8 +353,9 @@ export class SettingsDialog implements Component {
 	 * implies), the spelling the store persists and the host registers.
 	 */
 	#chordEditor(current: string, done: (value?: string) => void): TextFormField {
+		const host = this.#host;
 		return new TextFormField({
-			theme: formTheme,
+			theme: host.formTheme,
 			label: "Cycle shortcut",
 			description: ROW_HELP.displayCycleKey,
 			// Empty, not prefilled: a chord is typed whole, and an empty
@@ -373,7 +373,7 @@ export class SettingsDialog implements Component {
 				done(chord === current ? undefined : chord);
 			},
 			onCancel: () => done(),
-			hint: `  ${editorKey("tui.input.submit")} to save · ${editorKey("tui.select.cancel")} to go back`,
+			hint: `  ${host.editorKey("tui.input.submit")} to save · ${host.editorKey("tui.select.cancel")} to go back`,
 		});
 	}
 
@@ -479,7 +479,7 @@ export class SettingsDialog implements Component {
 		);
 		const list = this.#list.render(width);
 		const frame = titled
-			? [truncateToWidth(theme.bold(TITLE), width), "", ...list]
+			? [truncateToWidth(this.#host.theme().bold(TITLE), width), "", ...list]
 			: list;
 		// The list never draws fewer than its minimum viewport plus its
 		// chrome. On a terminal shorter than that the rows below the viewport
@@ -735,6 +735,12 @@ export function openSettingsDialog(
 	if (typeof ui?.custom !== "function") {
 		deps.warn(
 			"omp-compact: interactive settings UI unavailable; nothing was changed",
+		);
+		return Promise.resolve(undefined);
+	}
+	if (!settingsDialogHost) {
+		deps.warn(
+			"omp-compact: /compact-settings is off because this omp lacks the settings-list helpers it draws with; edit the config file instead",
 		);
 		return Promise.resolve(undefined);
 	}

@@ -133,6 +133,7 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/session-ledger.ts` — runs, calls and evidence by `toolCallId`, plus the branch walk
 - `.omp-plugin/leaf-views.ts` — compact views of non-tool blocks from their data
 - `.omp-plugin/native-text.ts` — ANSI rows to omp's `TspText`
+- `.omp-plugin/host-modules.ts` — optional loading of omp helpers from deep import paths, and the disabled-component registry, only
 - `.omp-plugin/render-decision.ts` — decision tables only
 - `.omp-plugin/render.ts` — row construction only
 - `.omp-plugin/tool-presentation-rules.ts` — rules registry (routes, aliases, shapes, lookups) only
@@ -170,6 +171,8 @@ index.ts
       → host-api.ts
       → save-flow.ts / cycle-handler.ts / settings-dialog.ts
 ```
+
+`host-modules.ts` sits below every module that needs an omp helper from a deep path: `native-text.ts`, `tool-rule-describers.ts`, `audit.ts`, `settings-dialog.ts` and `index.ts`. It imports no plugin module.
 
 ---
 
