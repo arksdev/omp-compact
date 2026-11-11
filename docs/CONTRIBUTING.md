@@ -343,8 +343,6 @@ export const TOOL_RULES: Readonly<Partial<Record<string, ToolPresentationRule>>>
     my_new_tool: {
         route: "compact",              // or "read-group" or "native-live"
         audit: "write",                // or "edit" or "git-bash" or "none"
-        knownArgs: ["path", "content"],
-        knownDetails: ["resolvedPath", "size"],
         describe(args: unknown): ToolDescription {
             const path = stringValue(record(args), "path");
             return { title: "my_new_tool", description: path, meta: [] };

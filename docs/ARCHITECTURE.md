@@ -254,7 +254,7 @@ Type-only imports from deep paths are erased before omp loads the plugin and nee
 
 ### Adding a tool
 
-1. Add a rule in `tool-presentation-rules.ts`: route (`compact`, `native-live`, `live-card` or `kept-row`), audit kind, argument and result shapes, describer.
+1. Add a rule in `tool-presentation-rules.ts`: route (`compact`, `native-live`, `live-card` or `kept-row`), audit kind, describer.
 2. If it needs its own row grammar, add it in `render.ts` (see the vibe tools).
 3. Without a rule, the tool still gets omp's one-row summary, so this step is optional.
 
