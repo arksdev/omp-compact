@@ -43,6 +43,20 @@ CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
+### Host drift
+
+The plugin imports a few omp helpers from deep paths, outside omp's public entry points, and omp moves such files between releases. `.omp-plugin/host-modules.ts` loads each of them optionally: a helper that moved turns off one feature (a disabled component) instead of the whole plugin, and the plugin warns once at session start with the list. The components and what each loses are in [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). Import any new deep-path value from `host-modules.ts` the same way; a static import of one makes the next move fatal again.
+
+`.github/workflows/host-drift.yml` runs every day at 05:17 UTC, and from the Actions tab on demand. It installs the newest published omp over the pinned one without committing the change, then runs `bun run typecheck` and `bun run test`. `docs/tests/host-health.test.ts` fails when any component is disabled, both in-process and inside the real omp started in RPC mode. A failing run opens one issue labelled `host-drift` and titled `Host drift: omp <version>`, or updates the open one. The next green run closes it.
+
+When the issue opens:
+
+1. Read the run log. A host-health failure names the component, the specifier and the export.
+2. Reproduce locally with `bun add -d --exact @oh-my-pi/pi-coding-agent@<version>` and `bun run check`.
+3. For a disabled component, find where the export lives now. Prefer a public entry (`@oh-my-pi/pi-coding-agent`, `@oh-my-pi/pi-tui`) and update both the specifier string and the `import()` in `host-modules.ts`. If older omp versions inside `engines.omp` still need the old path, load the new path first and fall back to the old one.
+4. Other failures (typecheck, replay goldens, integration suites) mean omp changed behavior the plugin depends on. Fix them like any regression.
+5. Commit the fix together with the new pin. The issue closes on the next scheduled run.
+
 ### Testing Locally
 
 Install or link the checkout for manual testing:

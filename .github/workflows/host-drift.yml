@@ -1,0 +1,82 @@
+name: Host drift
+
+# The plugin reaches some omp helpers through deep import paths, and omp moves
+# files between releases without notice. CI (ci.yml) only sees the omp pinned
+# in package.json, so a move shows up when a user updates omp. This job runs
+# the typecheck and the suite every day against the newest published omp,
+# without committing the swap. A failure opens one `host-drift` issue (or
+# updates the open one); the next green run closes it. docs/CONTRIBUTING.md,
+# "Host drift", says how to react.
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: host-drift
+  cancel-in-progress: false
+
+jobs:
+  latest-omp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      # --exact keeps package.json a plain version, which marketplace.test.ts
+      # checks against the engines.omp floor.
+      - name: Swap in the newest published omp
+        id: host
+        run: |
+          bun add -d --exact @oh-my-pi/pi-coding-agent@latest
+          version=$(jq -r .version node_modules/@oh-my-pi/pi-coding-agent/package.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Testing against omp $version" | tee -a "$GITHUB_STEP_SUMMARY"
+      - run: bun run typecheck
+      # The `test` script sets OMP_STOCK_BIN, so the stock-host suites and
+      # host-health.test.ts run against the swapped omp.
+      - run: bun run test
+
+      - name: Open or update the drift issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.host.outputs.version || 'latest' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create host-drift --color D93F0B \
+            --description "The plugin fails against the newest published omp" --force
+          title="Host drift: omp $VERSION"
+          body="The daily host-drift job fails against omp $VERSION: $RUN_URL
+
+          The job log names each failing test. A failure in host-health.test.ts lists the disabled components: an omp helper the plugin imports moved or disappeared, and the plugin runs with that feature off. See \"Host drift\" in docs/CONTRIBUTING.md.
+
+          The next green run closes this issue."
+          number=$(gh issue list --label host-drift --state open --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            gh issue create --title "$title" --label host-drift --body "$body"
+          else
+            previous=$(gh issue view "$number" --json title --jq .title)
+            gh issue edit "$number" --title "$title" --body "$body"
+            # One comment per new omp version, not one per day.
+            if [ "$previous" != "$title" ]; then
+              gh issue comment "$number" --body "Still failing, now against omp $VERSION: $RUN_URL"
+            fi
+          fi
+
+      - name: Close the drift issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.host.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for number in $(gh issue list --label host-drift --state open --json number --jq '.[].number'); do
+            gh issue close "$number" --comment "Passes against omp $VERSION: $RUN_URL"
+          done
