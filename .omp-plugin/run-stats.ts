@@ -484,7 +484,7 @@ export class StatsRow {
 		return true;
 	}
 
-	describe(): NativeNode {
+	describe(): NativeNode | null {
 		const line = this.#line();
 		// Mounted but never laid out, like omp's own empty node.
 		if (!line) return { k: "col", p: { hidden: true } };

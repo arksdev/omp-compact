@@ -1,13 +1,13 @@
 /**
  * Replay-corpus coverage inventory.
  *
- * Classifies every normalized tool/output shape present in the fixture
- * corpus and fails when an unknown shape would silently fall back to native
- * rendering. The single source of truth for tool presentation is the
- * production registry `tool-presentation-rules.ts`: a tool name, arg key,
- * or result-detail key that appears in the corpus but is not declared by
- * its production rule fails the suite, so new fixture shapes force a
- * deliberate production decision instead of being silently ignored.
+ * Classifies every tool shape present in the fixture corpus and fails when
+ * an observed tool would silently fall back to native rendering: every tool
+ * name in the corpus must resolve to an explicit rule in the production
+ * registry `tool-presentation-rules.ts`. Argument and result-detail keys are
+ * not inventoried: a key the registry does not know never changes a route,
+ * and a generically described tool shows it as `key: value` (`unknownArgs`
+ * in compact.ts).
  *
  * Routes are the production registry's own:
  * - "compact"     — routine tools rendered as compact rows.
@@ -102,13 +102,6 @@ function classifyFixture(fixture: ReplayFixture): ShapeFailure[] {
 				continue;
 			}
 			starts.set(String(event.id), { name });
-			for (const key of Object.keys(record(event.args))) {
-				if (!rule.knownArgs.includes(key)) {
-					fail(
-						`${where}: tool "${name}" has undeclared arg key "${key}" (declared: ${rule.knownArgs.join(", ") || "none"})`,
-					);
-				}
-			}
 			continue;
 		}
 		if (event.t === "tool_result") {
@@ -143,13 +136,6 @@ function classifyFixture(fixture: ReplayFixture): ShapeFailure[] {
 							`${where}: undeclared result content block type "${String(type)}"`,
 						);
 					}
-				}
-			}
-			for (const key of Object.keys(record(result.details))) {
-				if (!rule.knownDetails.includes(key)) {
-					fail(
-						`${where}: tool "${name}" has undeclared result detail key "${key}" (declared: ${rule.knownDetails.join(", ") || "none"})`,
-					);
 				}
 			}
 			results.set(id, { name });

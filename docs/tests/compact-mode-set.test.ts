@@ -6,7 +6,14 @@ import {
 	type CompactSettings,
 	DEFAULT_SETTINGS,
 } from "../../.omp-plugin/config";
+import { settingsDialogHost } from "../../.omp-plugin/host-modules";
 import { SettingsDialog } from "../../.omp-plugin/settings-dialog";
+
+const host =
+	settingsDialogHost ??
+	((): never => {
+		throw new Error("omp's settings-list chrome did not load");
+	})();
 
 /**
  * CompactMode is a hand-maintained string union whose members are enumerated
@@ -74,6 +81,7 @@ describe("compact-mode set stays in step between the union and the dialog whitel
 				warn: () => {},
 			},
 			() => {},
+			host,
 		);
 		// The list opens on "Global compact"; one down-arrow lands on Mode.
 		dialog.handleInput("\u001b[B");

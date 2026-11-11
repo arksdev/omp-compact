@@ -2,10 +2,10 @@
  * Typed production registry of compact tool-presentation rules.
  *
  * Single source of truth mapping a structured `toolName + args/result` shape
- * to compact presentation: the row route, the mutation audit kind, the
- * known arg/detail inventory, the pure description, and optional settled
- * result metadata. Rules are data, not behavior switches: adding or changing
- * a known tool's presentation happens here and nowhere else.
+ * to compact presentation: the row route, the mutation audit kind, the pure
+ * description, and optional settled result metadata. Rules are data, not
+ * behavior switches: adding or changing a known tool's presentation happens
+ * here and nowhere else.
  *
  * Nothing here parses native rendered/ANSI text, calls, registers or
  * replaces native tools, or copies tool schemas. Unknown names resolve to
@@ -64,10 +64,6 @@ export interface ToolPresentationRule {
 	readonly route: ToolRoute;
 	/** Audit kind for mutation evidence of this tool. */
 	readonly audit: ToolAuditKind;
-	/** Arg keys this tool is known to carry (replay-inventory coverage). */
-	readonly knownArgs: readonly string[];
-	/** Result `details` keys this tool is known to return. */
-	readonly knownDetails: readonly string[];
 	/** Pure description from structured args; never touches the filesystem. */
 	describe(args: unknown, displayPaths?: DisplayPathOptions): ToolDescription;
 	/**
@@ -77,486 +73,6 @@ export interface ToolPresentationRule {
 	 */
 	resultMeta?(result: unknown, args?: unknown): readonly string[];
 }
-
-const READ_ARGS = ["path", "file_path", "offset", "limit"] as const;
-const READ_DETAILS = [
-	"resolvedPath",
-	"contentType",
-	"displayContent",
-	"meta",
-	"isDirectory",
-	"fileSize",
-	"truncation",
-	"notes",
-	"displayReadTargets",
-	"summary",
-] as const;
-const BASH_ARGS = [
-	"command",
-	"cwd",
-	"timeout",
-	"pty",
-	// 18.3.0 async jobs and supervised `bash` services (`BashToolSchema`).
-	"async",
-	"name",
-	"ready",
-	"log",
-	"port",
-	"host",
-	"env",
-] as const;
-const BASH_DETAILS = [
-	"meta",
-	"timeoutSeconds",
-	"requestedTimeoutSeconds",
-	"timeoutDisabled",
-	"wallTimeMs",
-	"exitCode",
-	"timedOut",
-	"terminalId",
-	// Service/async envelopes (`BashToolDetails`).
-	"service",
-	"async",
-	// Live progress variant (`BashProgressDetails`).
-	"images",
-] as const;
-const WRITE_ARGS = ["path", "content"] as const;
-const WRITE_DETAILS = [
-	"resolvedPath",
-	"xdev",
-	"__synthetic",
-	"source",
-	"executed",
-] as const;
-const EDIT_ARGS = [
-	"path",
-	"file_path",
-	"paths",
-	"input",
-	"_input",
-	"old_string",
-	"new_string",
-	"replace_all",
-	"edits",
-] as const;
-const EDIT_DETAILS = [
-	"diff",
-	"path",
-	"firstChangedLine",
-	"oldText",
-	"newText",
-	"snapshotsPruned",
-	"op",
-	"perFileResults",
-	"__synthetic",
-	"source",
-	"executed",
-] as const;
-const GREP_ARGS = ["pattern", "path", "case", "gitignore", "skip"] as const;
-const GREP_DETAILS = [
-	"scopePath",
-	"searchPath",
-	"cwd",
-	"matchCount",
-	"fileCount",
-	"files",
-	"fileMatches",
-	"truncated",
-	"displayContent",
-	"fileLimitReached",
-	"linesTruncated",
-	"meta",
-] as const;
-const GLOB_ARGS = ["path", "gitignore", "hidden", "limit"] as const;
-const GLOB_DETAILS = [
-	"scopePath",
-	"fileCount",
-	"files",
-	"truncated",
-	"cwd",
-] as const;
-// Semantic search (`src/tools/jfind`): the stock schema is query +
-// grep_keywords + one optional directory, and `FindToolDetails` carries the
-// ranked hits plus the search accounting the settled row reports.
-const FIND_ARGS = ["query", "grep_keywords", "path"] as const;
-const FIND_DETAILS = [
-	"query",
-	"used",
-	"keywords",
-	"threshold",
-	"hits",
-	"stats",
-	"elapsedMs",
-	"cwd",
-	"scopePath",
-	"meta",
-] as const;
-const HUB_ARGS = [
-	"op",
-	"to",
-	"from",
-	"message",
-	"replyTo",
-	"await",
-	// jobs / wait
-	"ids",
-	"timeoutMs",
-	"peek",
-	// launch (process supervision)
-	"name",
-	"application",
-	"args",
-	"env",
-	"cwd",
-	"pty",
-	"ready",
-	"restart",
-	"persist",
-	"detached",
-	"lines",
-	"head",
-	"grep",
-	"follow",
-	"cursor",
-	"for",
-	"pattern",
-	"text",
-	"enter",
-	"keys",
-	"signal",
-	"timeout",
-] as const;
-const HUB_DETAILS = [
-	"op",
-	"from",
-	"to",
-	"receipts",
-	"waited",
-	"isError",
-	"error",
-	"inbox",
-	"peers",
-	"jobs",
-	"cancelled",
-	"agents",
-	// launch result details
-	"daemon",
-	"daemons",
-	"cursor",
-	"timedOut",
-	"state",
-	"terminalRows",
-	"matched",
-	"spec",
-] as const;
-// OMP 18.3.0 renamed the builtin coordination tool `hub` → `wait` and stripped
-// its schema to `type({})`: process supervision moved to `write` (`proc://<id>/…`)
-// and supervised `bash` services, while `wait` now only blocks for background
-// results and peer messages. Both rules stay registered — `hub` is still the
-// wire name on hosts up to 18.2.11 and the public floor is 18.0.1.
-const WAIT_ARGS: readonly string[] = [];
-const WAIT_DETAILS = [
-	"meta",
-	"op",
-	"from",
-	"to",
-	"receipts",
-	"waited",
-	"jobs",
-	"cancelled",
-	"agents",
-	"interrupted",
-] as const;
-const TODO_ARGS = [
-	"op",
-	"task",
-	"phase",
-	"items",
-	"list",
-	"reason",
-	"here",
-] as const;
-const TODO_DETAILS = ["op", "phases", "storage", "completedTasks"] as const;
-// `evalSchema` is `language` plus the shared cell fields.
-const EVAL_ARGS = ["language", "code", "title", "timeout", "reset"] as const;
-const EVAL_DETAILS = [
-	"language",
-	"languages",
-	"cells",
-	"jsonOutputs",
-	"images",
-	"statusEvents",
-	"isError",
-	"meta",
-	"notice",
-	"async",
-] as const;
-const YIELD_ARGS = [
-	"data",
-	"type",
-	"result",
-	"status",
-	"error",
-	"useLastTurn",
-	"complete",
-	"schemaOverridden",
-] as const;
-const YIELD_DETAILS = [
-	"data",
-	"status",
-	"error",
-	"type",
-	"useLastTurn",
-	"complete",
-	"schemaOverridden",
-] as const;
-const ASK_ARGS = [
-	"questions",
-	"question",
-	"options",
-	"multi",
-	"id",
-	"header",
-	"label",
-	"description",
-	"preview",
-	"recommended",
-	"html",
-] as const;
-const ASK_DETAILS = [
-	"question",
-	"questions",
-	"options",
-	"multi",
-	"selectedOptions",
-	"customInput",
-	"note",
-	"timedOut",
-	"results",
-	"chatRedirect",
-	"answers",
-	"notes",
-] as const;
-const AST_GREP_ARGS = ["pat", "path", "lang", "skip"] as const;
-const AST_GREP_DETAILS = [
-	"count",
-	"matchCount",
-	"fileCount",
-	"files",
-	"fileMatches",
-	"filesSearched",
-	"limitReached",
-	"parseErrors",
-	"parseErrorsTotal",
-	"scopePath",
-	"searchPath",
-	"path",
-	"cwd",
-	"displayContent",
-	"meta",
-] as const;
-const AST_EDIT_ARGS = ["ops", "paths"] as const;
-const AST_EDIT_DETAILS = [
-	"totalReplacements",
-	"filesTouched",
-	"filesSearched",
-	"applied",
-	"limitReached",
-	"parseErrors",
-	"parseErrorsTotal",
-	"scopePath",
-	"files",
-	"fileReplacements",
-	"displayContent",
-	"searchPath",
-	"cwd",
-	"meta",
-] as const;
-const INSPECT_IMAGE_ARGS = ["path", "question"] as const;
-const WEB_SEARCH_ARGS = [
-	"i",
-	"query",
-	"recency",
-	"limit",
-	"max_tokens",
-	"num_search_results",
-	"temperature",
-] as const;
-const BROWSER_ARGS = [
-	"action",
-	"name",
-	"url",
-	"app",
-	"viewport",
-	"wait_until",
-	"dialogs",
-	"code",
-	"timeout",
-	"all",
-	"kill",
-] as const;
-const BROWSER_DETAILS = [
-	"action",
-	"name",
-	"url",
-	"browser",
-	"viewport",
-	"observation",
-	"screenshots",
-] as const;
-const COMPUTER_ARGS = ["code", "i", "read_only", "timeout"] as const;
-const COMPUTER_DETAILS = [
-	"code",
-	"readOnly",
-	"screenshots",
-	"returnValue",
-	"backend",
-	"capturePermission",
-	"inputPermission",
-	"axPermission",
-] as const;
-// Resolution devices carry the write call shape (path + one-sentence reason
-// content) plus the generic result envelope (status) and the yield-style
-// `result` payload seen on result tools.
-const RESOLUTION_ARGS = [
-	"path",
-	"file_path",
-	"content",
-	"reason",
-	"status",
-	"result",
-] as const;
-const RESOLUTION_DETAILS = [
-	"xdev",
-	"action",
-	"reason",
-	"sourceToolName",
-	"label",
-	"sourceResultDetails",
-	"status",
-] as const;
-// Vibe worker-session devices (`node_modules/.../src/tools/vibe.ts`): one
-// schema per tool, one shared `VibeToolDetails` payload for all five.
-const VIBE_SPAWN_ARGS = ["cli", "name", "prompt"] as const;
-const VIBE_SEND_ARGS = ["session", "message"] as const;
-const VIBE_WAIT_ARGS = ["sessions", "timeout"] as const;
-const VIBE_KILL_ARGS = ["session"] as const;
-const VIBE_LIST_ARGS: readonly string[] = [];
-const VIBE_DETAILS = [
-	"op",
-	"screens",
-	"spawned",
-	"send",
-	"wait",
-	"killed",
-	// 18.4.2 hides director-killed sessions from `screens` and reports only
-	// their count, so the compact row can name what the wall no longer shows.
-	"hiddenKilled",
-	// Envelope fields the stock card reads out of `spawned`/`send`/`wait`/`killed`.
-	"cli",
-	"id",
-	"jobId",
-	"status",
-	"settled",
-	"stillRunning",
-	"timedOut",
-	"waiting",
-] as const;
-// `ida` (`pi-coding-agent/src/tools/ida.ts`): one schema, `action` selecting
-// the operation and `db` the database the target lives in.
-const IDA_ARGS = [
-	"action",
-	"db",
-	"target",
-	"name",
-	"text",
-	"repeatable",
-	"decl",
-	"code",
-	"save",
-	"timeout",
-] as const;
-const IDA_DETAILS = ["action", "db", "meta"] as const;
-// `github` (`src/tools/gh.ts`): one wide schema for every op.
-const GITHUB_ARGS = [
-	"op",
-	"repo",
-	"branch",
-	"path",
-	"pr",
-	"force",
-	"forceWithLease",
-	"title",
-	"body",
-	"base",
-	"head",
-	"draft",
-	"fill",
-	"reviewer",
-	"assignee",
-	"label",
-	"query",
-	"since",
-	"until",
-	"dateField",
-	"limit",
-	"run",
-	"tail",
-] as const;
-const GITHUB_DETAILS = [
-	"meta",
-	"artifactId",
-	"repo",
-	"branch",
-	"worktreePath",
-	"remote",
-	"remoteBranch",
-	"headSha",
-	"runId",
-	"runIds",
-	"status",
-	"conclusion",
-	"failedJobs",
-	"watch",
-	"checkouts",
-] as const;
-// `lsp` (`src/lsp/types.ts` for the schema, `pi-tui/src/tools/lsp.ts` details).
-const LSP_ARGS = [
-	"action",
-	"file",
-	"line",
-	"symbol",
-	"query",
-	"new_name",
-	"apply",
-	"timeout",
-	"payload",
-] as const;
-const LSP_DETAILS = ["serverName", "action", "success", "request"] as const;
-const CHECKPOINT_ARGS = ["goal"] as const;
-const CHECKPOINT_DETAILS = ["goal", "startedAt", "meta"] as const;
-const REWIND_ARGS = ["report"] as const;
-const REWIND_DETAILS = ["report", "rewound", "meta"] as const;
-const CONTEXT_NOTES_ARGS = ["text"] as const;
-const CONTEXT_NOTES_DETAILS = ["entryId", "text", "bytes"] as const;
-const NEW_CONTEXT_ARGS: readonly string[] = [];
-const NEW_CONTEXT_DETAILS = ["requested"] as const;
-const MEMORY_EDIT_ARGS = [
-	"op",
-	"id",
-	"content",
-	"importance",
-	"replacement_id",
-] as const;
-const MEMORY_EDIT_DETAILS = ["status", "bank", "store"] as const;
-const RETAIN_ARGS = ["items"] as const;
-const RETAIN_DETAILS = ["count"] as const;
-const RECALL_ARGS = ["query"] as const;
-const REFLECT_ARGS = ["query", "context"] as const;
-const LEARN_ARGS = ["memory", "context", "scope", "skill"] as const;
-const LEARN_DETAILS = ["skill", "shadowed"] as const;
-const MANAGE_SKILL_ARGS = ["action", "name", "description", "body"] as const;
-const MANAGE_SKILL_DETAILS = ["action", "name", "shadowed"] as const;
 
 // Null prototype: direct index of collision keys (constructor/toString/…) must
 // yield undefined even for callers that bypass normalizeToolName. Object.hasOwn
@@ -578,16 +94,12 @@ export const TOOL_ALIASES: Readonly<Partial<Record<string, string>>> =
 function presentationRule(
 	route: ToolRoute,
 	audit: ToolAuditKind,
-	knownArgs: readonly string[],
-	knownDetails: readonly string[],
 	describe: ToolPresentationRule["describe"],
 	resultMeta?: ToolPresentationRule["resultMeta"],
 ): ToolPresentationRule {
 	const rule: ToolPresentationRule = {
 		route,
 		audit,
-		knownArgs: Object.freeze(knownArgs.slice()),
-		knownDetails: Object.freeze(knownDetails.slice()),
 		describe,
 	};
 	if (resultMeta !== undefined) rule.resultMeta = resultMeta;
@@ -606,140 +118,35 @@ export const TOOL_RULES: Readonly<
 	Partial<Record<string, ToolPresentationRule>>
 > = Object.freeze(
 	Object.assign(Object.create(null), {
-		read: presentationRule(
-			"read-group",
-			"none",
-			READ_ARGS,
-			READ_DETAILS,
-			describeRead,
-		),
-		bash: presentationRule(
-			"compact",
-			"git-bash",
-			BASH_ARGS,
-			BASH_DETAILS,
-			describeBash,
-			resultMetaBash,
-		),
-		write: presentationRule(
-			"compact",
-			"write",
-			WRITE_ARGS,
-			WRITE_DETAILS,
-			describeWrite,
-			resultMetaWrite,
-		),
-		edit: presentationRule(
-			"compact",
-			"edit",
-			EDIT_ARGS,
-			EDIT_DETAILS,
-			describeEdit,
-		),
-		grep: presentationRule(
-			"compact",
-			"none",
-			GREP_ARGS,
-			GREP_DETAILS,
-			describeGrep,
-			resultMetaGrep,
-		),
-		glob: presentationRule(
-			"compact",
-			"none",
-			GLOB_ARGS,
-			GLOB_DETAILS,
-			describeGlob,
-			resultMetaGlob,
-		),
-		find: presentationRule(
-			"compact",
-			"none",
-			FIND_ARGS,
-			FIND_DETAILS,
-			describeFind,
-			resultMetaFind,
-		),
-		hub: presentationRule(
-			"compact",
-			"none",
-			HUB_ARGS,
-			HUB_DETAILS,
-			describeHub,
-		),
-		wait: presentationRule(
-			"live-card",
-			"none",
-			WAIT_ARGS,
-			WAIT_DETAILS,
-			describeWait,
-			resultMetaWait,
-		),
-		todo: presentationRule(
-			"live-card",
-			"none",
-			TODO_ARGS,
-			TODO_DETAILS,
-			describeTodo,
-			resultMetaTodo,
-		),
-		eval: presentationRule(
-			"compact",
-			"none",
-			EVAL_ARGS,
-			EVAL_DETAILS,
-			genericDescribe("eval"),
-		),
-		yield: presentationRule(
-			"compact",
-			"none",
-			YIELD_ARGS,
-			YIELD_DETAILS,
-			genericDescribe("yield"),
-		),
-		hus: presentationRule("compact", "none", [], [], genericDescribe("hus")),
+		read: presentationRule("read-group", "none", describeRead),
+		bash: presentationRule("compact", "git-bash", describeBash, resultMetaBash),
+		write: presentationRule("compact", "write", describeWrite, resultMetaWrite),
+		edit: presentationRule("compact", "edit", describeEdit),
+		grep: presentationRule("compact", "none", describeGrep, resultMetaGrep),
+		glob: presentationRule("compact", "none", describeGlob, resultMetaGlob),
+		find: presentationRule("compact", "none", describeFind, resultMetaFind),
+		// OMP 18.3.0 renamed the builtin coordination tool `hub` → `wait` and
+		// stripped its schema to `type({})`: process supervision moved to
+		// `write` (`proc://<id>/…`) and supervised `bash` services, while `wait`
+		// now only blocks for background results and peer messages. Both rules
+		// stay registered — `hub` is still the wire name on hosts up to 18.2.11
+		// and the public floor is 18.0.1.
+		hub: presentationRule("compact", "none", describeHub),
+		wait: presentationRule("live-card", "none", describeWait, resultMetaWait),
+		todo: presentationRule("live-card", "none", describeTodo, resultMetaTodo),
+		eval: presentationRule("compact", "none", genericDescribe("eval")),
+		yield: presentationRule("compact", "none", genericDescribe("yield")),
+		hus: presentationRule("compact", "none", genericDescribe("hus")),
 		web_search: presentationRule(
 			"compact",
 			"none",
-			WEB_SEARCH_ARGS,
-			[],
 			genericDescribe("web_search"),
 		),
-		ast_grep: presentationRule(
-			"compact",
-			"none",
-			AST_GREP_ARGS,
-			AST_GREP_DETAILS,
-			describeAstGrep,
-		),
-		ast_edit: presentationRule(
-			"compact",
-			"none",
-			AST_EDIT_ARGS,
-			AST_EDIT_DETAILS,
-			describeAstEdit,
-		),
-		inspect_image: presentationRule(
-			"compact",
-			"none",
-			INSPECT_IMAGE_ARGS,
-			[],
-			describeInspectImage,
-		),
-		browser: presentationRule(
-			"compact",
-			"none",
-			BROWSER_ARGS,
-			BROWSER_DETAILS,
-			describeBrowser,
-		),
-		ask: presentationRule(
-			"native-live",
-			"none",
-			ASK_ARGS,
-			ASK_DETAILS,
-			genericDescribe("ask"),
-		),
+		ast_grep: presentationRule("compact", "none", describeAstGrep),
+		ast_edit: presentationRule("compact", "none", describeAstEdit),
+		inspect_image: presentationRule("compact", "none", describeInspectImage),
+		browser: presentationRule("compact", "none", describeBrowser),
+		ask: presentationRule("native-live", "none", genericDescribe("ask")),
 		// Historical resolution transcripts: keyed by the `resolve`/`reject`
 		// tool names this agent no longer emits (it writes to xd://resolve).
 		// Kept as the reserve for those transcripts; `describeWrite` reaches
@@ -747,27 +154,17 @@ export const TOOL_RULES: Readonly<
 		resolve: presentationRule(
 			"compact",
 			"none",
-			RESOLUTION_ARGS,
-			RESOLUTION_DETAILS,
 			describeTextDevice("resolve"),
 			resultMetaResolution,
 		),
 		reject: presentationRule(
 			"compact",
 			"none",
-			RESOLUTION_ARGS,
-			RESOLUTION_DETAILS,
 			describeTextDevice("reject"),
 			resultMetaResolution,
 		),
-		computer: presentationRule(
-			"compact",
-			"none",
-			COMPUTER_ARGS,
-			COMPUTER_DETAILS,
-			describeComputer,
-		),
-		task: presentationRule("kept-row", "none", [], [], describeTask),
+		computer: presentationRule("compact", "none", describeComputer),
+		task: presentationRule("kept-row", "none", describeTask),
 		// Vibe worker-session devices: compact route, and the rows come from
 		// the dedicated vibe builder in render.ts (not `describe`). The
 		// generic description stays as the bounded fallback for any caller
@@ -775,127 +172,59 @@ export const TOOL_RULES: Readonly<
 		vibe_spawn: presentationRule(
 			"compact",
 			"none",
-			VIBE_SPAWN_ARGS,
-			VIBE_DETAILS,
 			genericDescribe("vibe_spawn"),
 		),
 		vibe_send: presentationRule(
 			"compact",
 			"none",
-			VIBE_SEND_ARGS,
-			VIBE_DETAILS,
 			genericDescribe("vibe_send"),
 		),
 		vibe_wait: presentationRule(
 			"compact",
 			"none",
-			VIBE_WAIT_ARGS,
-			VIBE_DETAILS,
 			genericDescribe("vibe_wait"),
 		),
 		vibe_kill: presentationRule(
 			"compact",
 			"none",
-			VIBE_KILL_ARGS,
-			VIBE_DETAILS,
 			genericDescribe("vibe_kill"),
 		),
 		vibe_list: presentationRule(
 			"compact",
 			"none",
-			VIBE_LIST_ARGS,
-			VIBE_DETAILS,
 			genericDescribe("vibe_list"),
 		),
-		ida: presentationRule(
-			"compact",
-			"none",
-			IDA_ARGS,
-			IDA_DETAILS,
-			genericDescribe("ida"),
-		),
-		github: presentationRule(
-			"compact",
-			"none",
-			GITHUB_ARGS,
-			GITHUB_DETAILS,
-			genericDescribe("github"),
-		),
-		lsp: presentationRule(
-			"compact",
-			"none",
-			LSP_ARGS,
-			LSP_DETAILS,
-			genericDescribe("lsp"),
-		),
+		ida: presentationRule("compact", "none", genericDescribe("ida")),
+		github: presentationRule("compact", "none", genericDescribe("github")),
+		lsp: presentationRule("compact", "none", genericDescribe("lsp")),
 		checkpoint: presentationRule(
 			"compact",
 			"none",
-			CHECKPOINT_ARGS,
-			CHECKPOINT_DETAILS,
 			genericDescribe("checkpoint"),
 		),
-		rewind: presentationRule(
-			"compact",
-			"none",
-			REWIND_ARGS,
-			REWIND_DETAILS,
-			genericDescribe("rewind"),
-		),
+		rewind: presentationRule("compact", "none", genericDescribe("rewind")),
 		context_notes: presentationRule(
 			"compact",
 			"none",
-			CONTEXT_NOTES_ARGS,
-			CONTEXT_NOTES_DETAILS,
 			genericDescribe("context_notes"),
 		),
 		new_context: presentationRule(
 			"compact",
 			"none",
-			NEW_CONTEXT_ARGS,
-			NEW_CONTEXT_DETAILS,
 			genericDescribe("new_context"),
 		),
 		memory_edit: presentationRule(
 			"compact",
 			"none",
-			MEMORY_EDIT_ARGS,
-			MEMORY_EDIT_DETAILS,
 			genericDescribe("memory_edit"),
 		),
-		retain: presentationRule(
-			"compact",
-			"none",
-			RETAIN_ARGS,
-			RETAIN_DETAILS,
-			genericDescribe("retain"),
-		),
-		recall: presentationRule(
-			"compact",
-			"none",
-			RECALL_ARGS,
-			[],
-			genericDescribe("recall"),
-		),
-		reflect: presentationRule(
-			"compact",
-			"none",
-			REFLECT_ARGS,
-			[],
-			genericDescribe("reflect"),
-		),
-		learn: presentationRule(
-			"compact",
-			"none",
-			LEARN_ARGS,
-			LEARN_DETAILS,
-			genericDescribe("learn"),
-		),
+		retain: presentationRule("compact", "none", genericDescribe("retain")),
+		recall: presentationRule("compact", "none", genericDescribe("recall")),
+		reflect: presentationRule("compact", "none", genericDescribe("reflect")),
+		learn: presentationRule("compact", "none", genericDescribe("learn")),
 		manage_skill: presentationRule(
 			"compact",
 			"none",
-			MANAGE_SKILL_ARGS,
-			MANAGE_SKILL_DETAILS,
 			genericDescribe("manage_skill"),
 		),
 	}) as Partial<Record<string, ToolPresentationRule>>,

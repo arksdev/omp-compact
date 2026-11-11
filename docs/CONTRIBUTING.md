@@ -43,6 +43,20 @@ CI runs the same gate on every push and pull request (`.github/workflows/ci.yml`
 
 Config JSON persistence uses an in-process writer queue and atomic rename only — concurrent updates from separate OS processes on the same path are last-writer-wins (no lock file). See [CONFIGURATION.md](CONFIGURATION.md) and [ARCHITECTURE.md](ARCHITECTURE.md).
 
+### Host drift
+
+The plugin imports a few omp helpers from deep paths, outside omp's public entry points, and omp moves such files between releases. `.omp-plugin/host-modules.ts` loads each of them optionally: a helper that moved turns off one feature (a disabled component) instead of the whole plugin, and the plugin warns once at session start with the list. The components and what each loses are in [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). Import any new deep-path value from `host-modules.ts` the same way; a static import of one makes the next move fatal again.
+
+`.github/workflows/host-drift.yml` runs every day at 05:17 UTC, and from the Actions tab on demand. It installs the newest published omp over the pinned one without committing the change, then runs `bun run typecheck` and `bun run test`. The suite runs even when the typecheck fails, because a moved helper breaks its type import first and only `docs/tests/host-health.test.ts` names it. That suite fails when any component is disabled, both in-process and inside the real omp started in RPC mode. A failing run opens one issue labelled `host-drift` and titled `Host drift: omp <version>`, or updates the open one. The next green run closes it. A run that fails before the new omp is installed (checkout, `bun install`, the registry) leaves the issue alone and shows up only as a failed run. GitHub pauses scheduled workflows after 60 days without commits to the repository; re-enable the job from the Actions tab when that happens.
+
+When the issue opens:
+
+1. Read the run log. A host-health failure names the component, the specifier and the export.
+2. Reproduce locally with `bun add -d --exact @oh-my-pi/pi-coding-agent@<version>` and `bun run check`.
+3. For a disabled component, find where the export lives now. Prefer a public entry (`@oh-my-pi/pi-coding-agent`, `@oh-my-pi/pi-tui`) and update both the specifier string and the `import()` in `host-modules.ts`. If older omp versions inside `engines.omp` still need the old path, load the new path first and fall back to the old one.
+4. Other failures (typecheck, replay goldens, integration suites) mean omp changed behavior the plugin depends on. Fix them like any regression.
+5. Commit the fix together with the new pin. The issue closes on the next scheduled run.
+
 ### Testing Locally
 
 Install or link the checkout for manual testing:
@@ -133,6 +147,7 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/session-ledger.ts` — runs, calls and evidence by `toolCallId`, plus the branch walk
 - `.omp-plugin/leaf-views.ts` — compact views of non-tool blocks from their data
 - `.omp-plugin/native-text.ts` — ANSI rows to omp's `TspText`
+- `.omp-plugin/host-modules.ts` — optional loading of omp helpers from deep import paths, and the disabled-component registry, only
 - `.omp-plugin/render-decision.ts` — decision tables only
 - `.omp-plugin/render.ts` — row construction only
 - `.omp-plugin/tool-presentation-rules.ts` — rules registry (routes, aliases, shapes, lookups) only
@@ -170,6 +185,8 @@ index.ts
       → host-api.ts
       → save-flow.ts / cycle-handler.ts / settings-dialog.ts
 ```
+
+`host-modules.ts` sits below every module that needs an omp helper from a deep path: `native-text.ts`, `tool-rule-describers.ts`, `audit.ts`, `settings-dialog.ts` and `index.ts`. It imports no plugin module.
 
 ---
 
@@ -326,8 +343,6 @@ export const TOOL_RULES: Readonly<Partial<Record<string, ToolPresentationRule>>>
     my_new_tool: {
         route: "compact",              // or "read-group" or "native-live"
         audit: "write",                // or "edit" or "git-bash" or "none"
-        knownArgs: ["path", "content"],
-        knownDetails: ["resolvedPath", "size"],
         describe(args: unknown): ToolDescription {
             const path = stringValue(record(args), "path");
             return { title: "my_new_tool", description: path, meta: [] };

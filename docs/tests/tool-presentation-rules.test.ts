@@ -127,25 +127,6 @@ describe("canonical routes and audit kinds", () => {
 			expect(rule).toBeDefined();
 			if (!rule) continue;
 			expect(Object.isFrozen(rule)).toBe(true);
-			expect(Object.isFrozen(rule.knownArgs)).toBe(true);
-			expect(Object.isFrozen(rule.knownDetails)).toBe(true);
-		}
-	});
-
-	test("every rule carries bounded arg/detail inventories", () => {
-		for (const [name, rule] of Object.entries(TOOL_RULES)) {
-			expect(rule, name).toBeDefined();
-			if (!rule) continue;
-			expect(Array.isArray(rule.knownArgs), name).toBe(true);
-			expect(Array.isArray(rule.knownDetails), name).toBe(true);
-			expect(
-				rule.knownArgs.every((key) => typeof key === "string"),
-				name,
-			).toBe(true);
-			expect(
-				rule.knownDetails.every((key) => typeof key === "string"),
-				name,
-			).toBe(true);
 		}
 	});
 });
@@ -243,16 +224,11 @@ describe("transport target write/read presentation", () => {
 });
 
 describe("host tool rename (hub → wait in OMP 18.3.0)", () => {
-	test("wait is a live card with no args and job-shaped details", () => {
+	test("wait is a live card", () => {
 		const rule = TOOL_RULES.wait;
 		expect(rule).toBeDefined();
 		expect(rule?.route).toBe("live-card");
 		expect(rule?.audit).toBe("none");
-		// Stock declares `type({})`: the tool carries no arguments at all.
-		expect(rule?.knownArgs).toEqual([]);
-		expect(rule?.knownDetails).toContain("jobs");
-		expect(rule?.knownDetails).toContain("cancelled");
-		expect(rule?.knownDetails).toContain("agents");
 	});
 
 	test("hub stays registered for hosts up to 18.2.11", () => {
@@ -285,14 +261,12 @@ describe("alias normalization", () => {
 		expect(resolveToolRule("apply_patch")).toBe(TOOL_RULES.edit);
 		expect(resolveToolRule("apply_patch")?.route).toBe("compact");
 		expect(resolveToolRule("apply_patch")?.audit).toBe("edit");
-		expect(resolveToolRule("apply_patch")?.knownArgs).toContain("input");
 	});
 
 	test("jfind resolves to the canonical find rule", () => {
 		expect(normalizeToolName("jfind")).toBe("find");
 		expect(resolveToolRule("jfind")).toBe(TOOL_RULES.find);
 		expect(resolveToolRule("jfind")?.route).toBe("compact");
-		expect(resolveToolRule("jfind")?.knownArgs).toContain("query");
 	});
 
 	test("hyphen/underscore normalization is deterministic for any spelling", () => {
@@ -592,7 +566,6 @@ describe("existing tool descriptions", () => {
 		expect(describeTool("apply_patch", { _input })?.description).toBe(
 			"src/legacy.ts",
 		);
-		expect(resolveToolRule("apply_patch")?.knownArgs).toContain("_input");
 	});
 
 	test("ast_grep/ast_edit/inspect_image keep their labels", () => {
@@ -774,21 +747,10 @@ describe("existing tool descriptions", () => {
 		expect(describeTool("ask", { question: "q" })?.title).toBe("ask");
 	});
 
-	test("web_search is an explicit compact rule with its schema args", () => {
+	test("web_search is an explicit compact rule", () => {
 		const rule = TOOL_RULES.web_search;
 		expect(rule?.route).toBe("compact");
 		expect(rule?.audit).toBe("none");
-		expect(rule?.knownArgs).toEqual([
-			"i",
-			"query",
-			"recency",
-			"limit",
-			"max_tokens",
-			"num_search_results",
-			"temperature",
-		]);
-		// no stock result evidence exists yet — conservative empty inventory
-		expect(rule?.knownDetails).toEqual([]);
 		expect(rule?.resultMeta).toBeUndefined();
 		expect(describeTool("web_search", { query: "registry", limit: 3 })).toEqual(
 			{
@@ -803,19 +765,6 @@ describe("existing tool descriptions", () => {
 		const rule = TOOL_RULES.find;
 		expect(rule?.route).toBe("compact");
 		expect(rule?.audit).toBe("none");
-		expect(rule?.knownArgs).toEqual(["query", "grep_keywords", "path"]);
-		expect(rule?.knownDetails).toEqual([
-			"query",
-			"used",
-			"keywords",
-			"threshold",
-			"hits",
-			"stats",
-			"elapsedMs",
-			"cwd",
-			"scopePath",
-			"meta",
-		]);
 		expect(
 			describeTool("find", {
 				query: "where is the retry budget counted?",
@@ -1203,66 +1152,6 @@ describe("registry shape types", () => {
 			if (!rule) continue;
 			expect(routes).toContain(rule.route);
 			expect(audits).toContain(rule.audit);
-		}
-	});
-
-	test("interactive four carry evidence-based arg/detail inventories", () => {
-		expect(TOOL_RULES.browser?.knownArgs).toEqual([
-			"action",
-			"name",
-			"url",
-			"app",
-			"viewport",
-			"wait_until",
-			"dialogs",
-			"code",
-			"timeout",
-			"all",
-			"kill",
-		]);
-		expect(TOOL_RULES.browser?.knownDetails).toEqual([
-			"action",
-			"name",
-			"url",
-			"browser",
-			"viewport",
-			"observation",
-			"screenshots",
-		]);
-		expect(TOOL_RULES.computer?.knownArgs).toEqual([
-			"code",
-			"i",
-			"read_only",
-			"timeout",
-		]);
-		expect(TOOL_RULES.computer?.knownDetails).toEqual([
-			"code",
-			"readOnly",
-			"screenshots",
-			"returnValue",
-			"backend",
-			"capturePermission",
-			"inputPermission",
-			"axPermission",
-		]);
-		for (const name of ["resolve", "reject"]) {
-			expect(TOOL_RULES[name]?.knownArgs).toEqual([
-				"path",
-				"file_path",
-				"content",
-				"reason",
-				"status",
-				"result",
-			]);
-			expect(TOOL_RULES[name]?.knownDetails).toEqual([
-				"xdev",
-				"action",
-				"reason",
-				"sourceToolName",
-				"label",
-				"sourceResultDetails",
-				"status",
-			]);
 		}
 	});
 
