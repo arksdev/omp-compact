@@ -93,6 +93,10 @@ async function runPluginInOmp(): Promise<RpcRun> {
 					XDG_DATA_HOME: join(home, ".local", "share"),
 					XDG_STATE_HOME: join(home, ".local", "state"),
 					XDG_CACHE_HOME: join(home, ".cache"),
+					// omp's RPC mode stops at startup without a usable model, and a
+					// CI runner has no credentials. The run sends no prompt, so a
+					// placeholder key only lets omp pick a model.
+					ANTHROPIC_API_KEY: "omp-compact-health-check",
 				},
 				stdin: "pipe",
 				stdout: "pipe",
