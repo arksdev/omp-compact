@@ -2,13 +2,13 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ensureThemeSync } from "@oh-my-pi/pi-coding-agent";
 import type {
 	Component,
 	DescribeContext,
 	NativeUiEvent,
 	TUI,
 } from "@oh-my-pi/pi-tui";
-import { ensureThemeSync } from "@oh-my-pi/pi-tui/theme/theme";
 import type { TspPrefsProps } from "@oh-my-pi/pi-wire";
 
 import {

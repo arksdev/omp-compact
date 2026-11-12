@@ -2,13 +2,13 @@
 
 Это расширенное руководство по установке, режимам, настройкам, evidence model, replay и сопровождению `omp-compact`. Краткий обзор доступен на [English](../README.md) и [Русском](../README.ru.md).
 
-`omp-compact` — presentation-плагин для OMP 18.17 и выше. Он показывает активность инструментов как компактный хронологический лог, а после завершения logical run оставляет только полезные для истории строки.
+`omp-compact` — presentation-плагин для OMP 18.18.9 и выше. Он показывает активность инструментов как компактный хронологический лог, а после завершения logical run оставляет только полезные для истории строки.
 
 Плагин не заменяет native tools и не меняет их выполнение. Schemas, approval, concurrency, progress, abort signals и tool results остаются под управлением stock OMP.
 
 ## Совместимость
 
-Поддерживаемый диапазон: **OMP 18.17 и выше**. Плагин рисует через публичный API OMP `pi.registerTranscriptPresenter` и не патчит классы OMP. OMP спрашивает presenter, только пока включена настройка `extensionRenderers.transcriptPresenters` (**Tools → Extensions → Extension Transcript Presenters**, по умолчанию выключена). Плагин эту настройку не меняет; если инструмент запустился, а OMP так и не спросил presenter, плагин один раз показывает предупреждение.
+Поддерживаемый диапазон: **OMP 18.18.9 и выше**. Плагин рисует через публичный API OMP `pi.registerTranscriptPresenter` и не патчит классы OMP. OMP спрашивает presenter, только пока включена настройка `extensionRenderers.transcriptPresenters` (**Tools → Extensions → Extension Transcript Presenters**, по умолчанию выключена). Плагин эту настройку не меняет; если инструмент запустился, а OMP так и не спросил presenter, плагин один раз показывает предупреждение.
 
 ## Установка
 
@@ -23,7 +23,7 @@ omp plugin marketplace add arksdev/omp-compact
 omp plugin install omp-compact@arksdev
 ```
 
-Требуется OMP 18.17 или новее. После установки и перезапуска включите настройку OMP, через которую рисует плагин; по умолчанию она выключена:
+Требуется OMP 18.18.9 или новее. После установки и перезапуска включите настройку OMP, через которую рисует плагин; по умолчанию она выключена:
 
 ```text
 /settings → Tools → Extensions → Extension Transcript Presenters
@@ -443,7 +443,7 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `config.ts`, `mode-policy.ts` | Persistent config и immutable run snapshot. |
 | `settings-ui.ts`, `settings-dialog.ts`, `save-flow.ts`, `cycle-handler.ts` | Settings dialog на `SettingsList` OMP, display cycle и сохранение. |
 | `host-api.ts` | Структурные host API типы и регистрация command/shortcut. |
-| `host-modules.ts` | Необязательная загрузка helpers OMP из глубоких путей и реестр отключённых компонентов. |
+| `host-modules.ts` | Необязательная загрузка helpers OMP из корневого экспорта `@oh-my-pi/pi-coding-agent` и реестр отключённых компонентов. |
 | `run-stats.ts` | Usage aggregation, persisted evidence и stats row. |
 | `display-path.ts` | Display-only project-relative paths. |
 
@@ -454,11 +454,11 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 - Убедитесь, что загружен `index.ts`, а рядом находятся остальные `.ts` files плагина.
 - Проверьте alternative command names `/omp-compact-settings` и `/omp-compact-settings-N`.
 - Для project discovery запускайте OMP из того же directory, где находится `.omp`.
-- Проверьте, что runtime — OMP 18.17 или новее.
+- Проверьте, что runtime — OMP 18.18.9 или новее.
 
 ### Предупреждение «this omp version lacks helpers the plugin uses»
 
-Плагин берёт несколько helpers OMP из внутренних путей, и OMP иногда переносит такие файлы между версиями. Если helper не загрузился, плагин отключает только зависящую от него функцию и при старте сессии один раз перечисляет отключённые компоненты. Например, без helpers для `/compact-settings` команда предупреждает и не открывается, но JSON-конфиг и сочетание клавиш для переключения режима работают; без конвертации в spans строки приходят в OMP простым текстом без цвета. Полный список — в [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). Обновите omp-compact или сообщите о проблеме в [GitHub Issues](https://github.com/arksdev/omp-compact/issues), указав версию OMP и текст предупреждения.
+Плагин берёт несколько helpers OMP из корневого экспорта `@oh-my-pi/pi-coding-agent`, и новая версия OMP может перенести или убрать один из них. Если helper не нашёлся, плагин отключает только зависящую от него функцию и при старте сессии один раз перечисляет отключённые компоненты. Например, без helpers для `/compact-settings` команда предупреждает и не открывается, но JSON-конфиг и сочетание клавиш для переключения режима работают; без конвертации в spans строки приходят в OMP простым текстом без цвета. Полный список — в [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). OMP старше 18.18.9 тоже загружает плагин, но без этих helpers, и показывает то же предупреждение. Обновите OMP до 18.18.9 или новее и omp-compact до последней версии или сообщите о проблеме в [GitHub Issues](https://github.com/arksdev/omp-compact/issues), указав версию OMP и текст предупреждения.
 
 ### Меню сообщает, что нужен interactive terminal
 

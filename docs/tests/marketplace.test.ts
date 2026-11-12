@@ -62,7 +62,7 @@ describe("marketplace catalog", () => {
 		// be deliberate. The pinned host is what the suite runs against; it
 		// moves with every host bump and with the daily drift job, so only its
 		// relation to the floor is a contract.
-		expect(pkg.engines.omp).toBe(">=18.17.0");
+		expect(pkg.engines.omp).toBe(">=18.18.9");
 		expect(
 			Bun.semver.satisfies(
 				pkg.devDependencies["@oh-my-pi/pi-coding-agent"],
