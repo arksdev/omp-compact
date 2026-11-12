@@ -7,6 +7,7 @@
 
 ### Изменено
 
+- Обновлена поддерживаемая версия OMP до 18.19.0. Поддержка OMP 18.18.9 и выше сохранена.
 - Нужен OMP 18.18.9 или новее. С этой версии OMP экспортирует из корня пакета все helpers, которыми пользуется плагин, и плагин больше не импортирует их из внутренних путей OMP, которые меняются между версиями.
 - Если новая версия OMP переименует или уберёт один из этих helpers, плагин всё равно загружается. Отключается только функция, которой нужен этот helper (например, `/compact-settings` или цвет в compact rows), и при старте сессии одно предупреждение перечисляет, что отключено.
 
@@ -14,6 +15,7 @@
 
 ### Changed
 
+- Updated the supported OMP version to 18.19.0. Support for OMP 18.18.9 and later is preserved.
 - Requires OMP 18.18.9 or later. From that release OMP exports every helper the plugin uses from its package root, so the plugin no longer imports them from internal OMP paths that change between releases.
 - When an omp release renames or drops one of those helpers, the plugin still loads. Only the feature that needs the helper turns off (for example `/compact-settings`, or colour in compact rows), and one warning at session start lists what is off.
 
