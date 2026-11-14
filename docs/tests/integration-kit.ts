@@ -32,6 +32,7 @@ export type Mode = "live" | "compact" | "clear";
 export interface BootOptions {
 	cwd?: string;
 	branch?: unknown[];
+	offBranch?: unknown[];
 	stats?: boolean;
 	settings?: Record<string, unknown>;
 }
@@ -43,6 +44,7 @@ export function boot(
 	return bootReplay({
 		cwd: options.cwd ?? "/tmp",
 		branch: options.branch,
+		offBranch: options.offBranch,
 		settings: {
 			...DEFAULT_SETTINGS,
 			mode,
