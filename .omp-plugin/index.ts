@@ -93,6 +93,41 @@ function auditBranch(context: ExtensionContext): readonly unknown[] {
 	return mutationBranchEntries(manager.getBranch(), manager.getEntries());
 }
 
+/**
+ * Ids of branch entries another branch of the conversation continues from:
+ * an off-branch message descends from them. Side chains of metadata alone,
+ * such as `model_usage` entries, are no continuation.
+ */
+function branchForks(context: ExtensionContext): ReadonlySet<string> {
+	const manager = context.sessionManager;
+	const branch = new Set<string>();
+	for (const entry of manager.getBranch()) {
+		const id = objectRecord(entry).id;
+		if (typeof id === "string") branch.add(id);
+	}
+	const parents = new Map<string, string>();
+	const messages: string[] = [];
+	for (const value of manager.getEntries()) {
+		const entry = objectRecord(value);
+		if (typeof entry.id !== "string" || branch.has(entry.id)) continue;
+		if (typeof entry.parentId === "string")
+			parents.set(entry.id, entry.parentId);
+		if (entry.type === "message") messages.push(entry.id);
+	}
+	const forks = new Set<string>();
+	// Off-branch entries already climbed: their branch ancestor is known.
+	const climbed = new Set<string>();
+	for (const start of messages) {
+		let id: string | undefined = start;
+		while (id !== undefined && !branch.has(id) && !climbed.has(id)) {
+			climbed.add(id);
+			id = parents.get(id);
+		}
+		if (id !== undefined && branch.has(id)) forks.add(id);
+	}
+	return forks;
+}
+
 function writeSource(
 	context: ExtensionContext,
 	toolCallId: string,
@@ -296,7 +331,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	function restoreHistory(): readonly string[] {
 		if (ledger.restored || !session) return [];
 		try {
-			return ledger.restore(auditBranch(session));
+			return ledger.restore(auditBranch(session), branchForks(session));
 		} catch {
 			// An unreadable branch leaves history on omp's own cards.
 			return [];

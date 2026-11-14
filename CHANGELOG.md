@@ -3,6 +3,19 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Исправлено
+
+- Восстановленная история больше не показывает весь лог вызовов у прогона, который `/tree` или `/branch` оставили на середине: прогон продолжился, и обычно ответил, в другой ветке. В текущей ветке у него не было ответа, поэтому он рисовался как прерванный; теперь `live` и `clear` сворачивают его как прогон с ответом. Прогон, который действительно остановился без ответа, сохраняет весь лог.
+
+---
+
+### Fixed
+
+- Restored history no longer shows the whole call log of a run that `/tree` or `/branch` left mid-way: the run went on, and usually answered, on the other branch. On the current branch it had no answer, so it was drawn like an interrupted run; `live` and `clear` now fold it like an answered one. A run that really stopped unanswered keeps its whole log.
+
+---
 ## 2.4.1 — 14 ноября 2026
 
 ### Изменено
