@@ -5,12 +5,16 @@
  */
 import { afterAll, afterEach, beforeEach, expect, jest, test } from "bun:test";
 
-import { STATS_MESSAGE_TYPE } from "../../.omp-plugin/run-stats";
+import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
+import {
+	HIDDEN_CALLS_ACTION,
+	STATS_MESSAGE_TYPE,
+} from "../../.omp-plugin/run-stats";
 import {
 	assistant,
+	type BootedPlugin,
 	beginRun,
 	boot,
-	type BootedPlugin,
 	clickStatsRow,
 	continueRun,
 	dispatch,
@@ -205,6 +209,42 @@ stockDescribe("the stats row", () => {
 		waitForIdlePoll();
 		const [sent] = statsSent(booted);
 		expect(clickStatsRow(booted, sent?.message.details)).toBe(false);
+	});
+
+	test("in the text style Tern draws its own text node, click and all", async () => {
+		const booted = await boot("live", {
+			settings: {
+				stats: {
+					...DEFAULT_SETTINGS.stats,
+					enabled: true,
+					clock: false,
+					style: "text",
+				},
+			},
+		});
+		booted.context.isIdle = () => true;
+		await beginRun(booted);
+		await runTool(booted, "g1", "grep", { pattern: "first" });
+		await usage(booted, 100);
+		await endRun(booted);
+		waitForIdlePoll();
+		const [sent] = statsSent(booted);
+		const row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
+			{ details: sent?.message.details },
+			{ expanded: false },
+			booted.context.ui.theme,
+		) as { describe(): unknown } | undefined;
+		expect(row?.describe()).toMatchObject({
+			k: "text",
+			p: {
+				spans: expect.arrayContaining([{ t: "1 actions", s: "muted" }]),
+				actions: { click: HIDDEN_CALLS_ACTION },
+			},
+		});
+		// The terminal still draws its bracketed line.
+		expect(statsRows(booted)[0]).toContain("[ 1 actions");
+		expect(clickStatsRow(booted, sent?.message.details)).toBe(true);
+		expect(rows(booted)).toContain("grep: first");
 	});
 
 	test("stats off sends nothing", async () => {

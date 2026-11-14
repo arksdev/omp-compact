@@ -167,6 +167,26 @@ describe("defaults", () => {
 		]);
 	});
 
+	test("stats.style keeps a known style and names garbage in the diagnostic", () => {
+		const warnings: string[] = [];
+		expect(
+			normalizeSettings({ version: 1, stats: { style: "icons" } }, (m) =>
+				warnings.push(m),
+			).stats.style,
+		).toBe("icons");
+		expect(warnings).toEqual([]);
+
+		const normalized = normalizeSettings(
+			{ version: 1, stats: { style: "fancy", clock: false } },
+			(m) => warnings.push(m),
+		);
+		expect(normalized.stats.style).toBe("rows");
+		expect(normalized.stats.clock).toBe(false);
+		expect(warnings).toEqual([
+			"invalid config field(s): stats.style; using defaults",
+		]);
+	});
+
 	test("a config file without displayCycleKey keeps the default chord", () => {
 		// Files written before the shortcut existed carry no key at all: the
 		// per-field fallback must yield the working default rather than an
@@ -839,6 +859,7 @@ if (process.env.PROBE_OPERATION === "shortcut") {
 			cache: true,
 			time: true,
 			clock: true,
+			style: "rows",
 		});
 	});
 
@@ -1299,6 +1320,37 @@ describe("unknown config keys survive bounded updates (raw-record preservation)"
 		});
 		expect(raw.autoShake).toEqual({ enabled: false, shakeFuture: { x: 1 } });
 		expect(raw.host).toEqual({ recapEnabled: true, hostFuture: "keep" });
+		await rm(dir, { recursive: true, force: true });
+	});
+
+	test("stats.style persists beside unknown stats keys and loads back", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await mkdir(join(dir, "omp-compact"), { recursive: true });
+		const file = join(dir, "omp-compact", "config.json");
+		await writeFile(
+			file,
+			JSON.stringify({
+				version: 1,
+				stats: { clock: false, styleFuture: "keep-me" },
+			}),
+			"utf8",
+		);
+		await store.load();
+		const updated = await store.update({ stats: { style: "chips" } });
+		expect(updated.stats.style).toBe("chips");
+		expect(updated.stats.clock).toBe(false);
+		const raw = JSON.parse(await readFile(file, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		expect(raw.stats).toEqual({
+			clock: false,
+			styleFuture: "keep-me",
+			style: "chips",
+		});
+		const reloaded = storeAt(dir).store;
+		expect((await reloaded.load()).stats.style).toBe("chips");
 		await rm(dir, { recursive: true, force: true });
 	});
 

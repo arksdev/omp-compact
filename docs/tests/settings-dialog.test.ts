@@ -185,6 +185,27 @@ describe("settings dialog", () => {
 		expect(h.saves.at(-1)?.stats.enabled).toBe(false);
 	});
 
+	test("the Tern style row shows while Run statistics is on", async () => {
+		const h = harness({ rows: 60 });
+		expect(rowValue(h.frame(), "Tern style")).toBe("rows");
+		h.type("run statistics");
+		h.dialog.handleInput(ENTER);
+		h.dialog.handleInput(ESCAPE); // clear the search
+		expect(rowValue(h.frame(), "Tern style")).toBeUndefined();
+		await settle();
+		expect(h.saves.at(-1)?.stats.style).toBe("rows");
+	});
+
+	test("enter on Tern style saves the next style", async () => {
+		const h = harness({ rows: 60 });
+		h.type("tern style");
+		h.dialog.handleInput(ENTER); // rows -> text
+		await settle();
+		expect(h.saves.map((saved) => saved.stats.style)).toEqual(["text"]);
+		h.dialog.handleInput(ESCAPE); // clear the search
+		expect(rowValue(h.frame(), "Tern style")).toBe("text");
+	});
+
 	test("cycling a tool back to its default removes its entry", async () => {
 		const h = harness({
 			settings: { ...DEFAULT_SETTINGS, tools: { wait: "open" } },
@@ -437,6 +458,44 @@ describe("native settings page", () => {
 		pointer(h, { type: "action", act: "close", mods: [] });
 		await settle();
 		expect(h.closed?.value?.compactPaths).toBe(false);
+	});
+
+	test("the statistics page offers the Tern style as a segmented choice", async () => {
+		const h = harness();
+		pointer(h, { type: "action", act: "page", value: "statistics", mods: [] });
+		const style = rowsOf(page(h).props).find((row) => row.id === "stats.style");
+		expect(style?.control).toEqual({
+			k: "choice",
+			value: "rows",
+			options: ["rows", "text", "chips", "rule", "icons"].map((value) => ({
+				value,
+				label: value,
+			})),
+			style: "segmented",
+			mono: true,
+		});
+		pointer(h, { type: "change", item: "stats.style", value: "chips" });
+		await settle();
+		expect(h.saves.at(-1)?.stats.style).toBe("chips");
+		expect(
+			page(h).props.pages.find((p) => p.id === "statistics")?.changed,
+		).toBe(1);
+		pointer(h, { type: "change", item: "stats.style", value: null });
+		await settle();
+		expect(h.saves.at(-1)?.stats.style).toBe("rows");
+	});
+
+	test("the statistics page has no Tern style while Run statistics is off", () => {
+		const h = harness({
+			settings: {
+				...DEFAULT_SETTINGS,
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+			},
+		});
+		pointer(h, { type: "action", act: "page", value: "statistics", mods: [] });
+		expect(rowsOf(page(h).props).map((row) => row.id)).toEqual([
+			"stats.enabled",
+		]);
 	});
 });
 

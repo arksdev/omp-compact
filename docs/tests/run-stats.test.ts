@@ -1,13 +1,16 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-
+import type {
+	CompactStatsSettings,
+	StatsStyle,
+} from "../../.omp-plugin/config";
 import { MAX_TOOL_CALL_ID_LENGTH } from "../../.omp-plugin/messages";
-import type { Theme } from "../../.omp-plugin/theme-types";
-
 import type {
 	RunStatsEvidence,
 	RunStatsResult,
 	StatsRow,
+	statsNode,
 } from "../../.omp-plugin/run-stats";
+import type { Theme } from "../../.omp-plugin/theme-types";
 import { loadStockPlugin } from "./test-stock-host";
 
 interface RunStatsModule {
@@ -57,6 +60,8 @@ interface RunStatsModule {
 	resultFromEvidence(evidence: RunStatsEvidence): RunStatsResult;
 	isRunStatsEvidence(value: unknown): value is RunStatsEvidence;
 	StatsRow: typeof StatsRow;
+	statsNode: typeof statsNode;
+	HIDDEN_CALLS_ACTION: string;
 }
 
 let module: RunStatsModule;
@@ -1162,5 +1167,254 @@ describe("stats row", () => {
 		expect(toggles).toBe(1);
 		row.handleNativeEvent({ type: "action", act: "other" });
 		expect(toggles).toBe(1);
+	});
+
+	test("a native node keeps its kind and gains the click and its title", () => {
+		let shown = false;
+		const native = {
+			k: "text",
+			p: { spans: [{ t: "27 actions", s: "muted" }], truncate: "end" },
+		} as const;
+		const row = new module.StatsRow(
+			() => LINE,
+			{ available: () => true, shown: () => shown, toggle: () => {} },
+			() => native,
+		);
+		expect(row.describe()).toEqual({
+			k: "text",
+			p: {
+				...native.p,
+				actions: { click: module.HIDDEN_CALLS_ACTION },
+				title: "Show the calls this turn hid",
+			},
+		});
+		shown = true;
+		expect(row.describe()).toMatchObject({
+			p: { title: "Hide the calls this turn hid" },
+		});
+	});
+
+	test("a native node without hidden calls is drawn as is", () => {
+		const native = {
+			k: "rule",
+			p: { label: [{ t: "x", s: "muted" }] },
+		} as const;
+		const row = new module.StatsRow(
+			() => LINE,
+			{ available: () => false, shown: () => false, toggle: () => {} },
+			() => native,
+		);
+		expect(row.describe()).toEqual(native);
+	});
+});
+
+/** A drawn node, loosely typed for assertions. */
+interface Drawn {
+	k: string;
+	p: Record<string, unknown> & {
+		spans?: { t: string; s: string }[];
+		label?: { t: string; s: string }[];
+		hovercard?: {
+			k: string;
+			p: { items: { k: string; v: string }[]; layout: string };
+		};
+	};
+	c?: Drawn[];
+}
+
+describe("statsNode: the stats row in Tern's own nodes", () => {
+	const NATIVE: readonly StatsStyle[] = ["text", "chips", "rule", "icons"];
+	const CLOCK = () => module.formatClock(result().completedAt);
+
+	function draw(
+		style: StatsStyle,
+		toggles: Partial<CompactStatsSettings> = {},
+		run: RunStatsResult = result(),
+	): Drawn | null {
+		return module.statsNode(run, {
+			...ALL_ON,
+			style,
+			...toggles,
+		}) as unknown as Drawn | null;
+	}
+
+	function drawn(...args: Parameters<typeof draw>): Drawn {
+		const node = draw(...args);
+		if (!node) throw new Error("expected a node");
+		return node;
+	}
+
+	/** Every text the node shows, in order. */
+	function texts(node: Drawn): string[] {
+		const own = [
+			...(typeof node.p.text === "string" ? [node.p.text] : []),
+			...(node.p.spans ?? []).map((span) => span.t),
+			...(node.p.label ?? []).map((span) => span.t),
+		];
+		return [...own, ...(node.c ?? []).flatMap(texts)];
+	}
+
+	const FIGURES_OFF = {
+		actions: false,
+		sent: false,
+		cache: false,
+		received: false,
+		time: false,
+	} as const;
+
+	test("rows, stats off, and a row without figures draw no node", () => {
+		expect(draw("rows")).toBeNull();
+		for (const style of NATIVE) {
+			expect(draw(style, { enabled: false }), style).toBeNull();
+			// The clock alone is not a figure.
+			expect(draw(style, FIGURES_OFF), style).toBeNull();
+		}
+	});
+
+	test("the prompt figure follows the sent and cache toggles", () => {
+		const prompt = (toggles: Partial<CompactStatsSettings>) =>
+			texts(drawn("text", { ...FIGURES_OFF, clock: false, ...toggles }));
+		expect(prompt({ sent: true, cache: true })).toEqual(["508.4k prompt"]);
+		expect(prompt({ sent: true })).toEqual(["28.2k fresh"]);
+		expect(prompt({ cache: true })).toEqual(["480.2k cached (94%)"]);
+		for (const style of NATIVE) {
+			expect(texts(drawn(style)), style).toContain("508.4k prompt");
+			expect(texts(drawn(style, { cache: false })), style).toContain(
+				"28.2k fresh",
+			);
+			expect(texts(drawn(style, { sent: false })), style).toContain(
+				"480.2k cached (94%)",
+			);
+		}
+	});
+
+	test("the hover card splits the prompt only while both prompt toggles are on", () => {
+		for (const style of NATIVE) {
+			expect(drawn(style).p.hovercard, style).toEqual({
+				k: "kv",
+				p: {
+					items: [
+						{ k: "fresh", v: "28.2k" },
+						{ k: "cached", v: "480.2k (94%)" },
+					],
+					layout: "grid",
+				},
+			});
+			expect(drawn(style, { sent: false }).p.hovercard, style).toBeUndefined();
+			expect(drawn(style, { cache: false }).p.hovercard, style).toBeUndefined();
+			expect(
+				drawn(style, {}, result({ sent: 0, cacheRead: 0, cacheWrite: 0 })).p
+					.hovercard,
+				style,
+			).toBeUndefined();
+		}
+	});
+
+	test("the card shows writes when there were some and quotes the row's hit rate", () => {
+		// The cached share is hitRate (94%), not cacheRead over the full
+		// prompt (33% here), so both views quote the same percentage.
+		const card = drawn("text", {}, result({ cacheWrite: 950_005 })).p.hovercard;
+		expect(card?.p.items).toEqual([
+			{ k: "fresh", v: "28.2k" },
+			{ k: "cached", v: "480.2k (94%)" },
+			{ k: "written", v: "950k" },
+		]);
+		expect(
+			texts(drawn("text", { sent: false }, result({ hitRate: 0.5 }))),
+		).toContain("480.2k cached (50%)");
+	});
+
+	test("text and rule end with the clock after ` — `, as the terminal row does", () => {
+		const text = drawn("text");
+		expect(text.k).toBe("text");
+		expect(text.p.truncate).toBe("end");
+		expect(text.p.spans).toEqual([
+			{ t: "27 actions", s: "muted" },
+			{ t: " · ", s: "dim" },
+			{ t: "508.4k prompt", s: "muted" },
+			{ t: " · ", s: "dim" },
+			{ t: "1.3k received", s: "muted" },
+			{ t: " · ", s: "dim" },
+			{ t: "1h 20m 32s", s: "muted" },
+			{ t: " — ", s: "dim" },
+			{ t: CLOCK(), s: "muted" },
+		]);
+		const rule = drawn("rule");
+		expect(rule.k).toBe("rule");
+		expect(rule.p.label).toEqual(text.p.spans);
+		expect(texts(drawn("text", { clock: false }))).not.toContain(" — ");
+	});
+
+	test("a failed call turns text and rule separators to warning, not the clock's", () => {
+		for (const style of ["text", "rule"] as const) {
+			const node = drawn(style, {}, result({ hasError: true }));
+			const spans = node.p.spans ?? node.p.label ?? [];
+			const separators = spans.filter((span) => span.t === " · ");
+			expect(separators.length, style).toBe(3);
+			expect(
+				separators.every((span) => span.s === "warning"),
+				style,
+			).toBe(true);
+			expect(spans.find((span) => span.t === " — ")?.s, style).toBe("dim");
+		}
+	});
+
+	test("chips put the clock in trailing text, not a badge", () => {
+		const node = drawn("chips");
+		expect(node.k).toBe("row");
+		expect(node.p.justify).toBe("between");
+		const [badges, tail, ...rest] = node.c ?? [];
+		expect(rest).toEqual([]);
+		expect(badges?.c?.map((chip) => [chip.k, chip.p.text])).toEqual([
+			["badge", "27 actions"],
+			["badge", "508.4k prompt"],
+			["badge", "1.3k received"],
+			["badge", "1h 20m 32s"],
+		]);
+		expect(tail).toEqual({
+			k: "text",
+			p: { spans: [{ t: CLOCK(), s: "muted" }] },
+		});
+		// No completion instant: no clock, no tail.
+		expect(drawn("chips", {}, result({ completedAt: 0 })).c).toHaveLength(1);
+		expect(drawn("chips", { clock: false }).c).toHaveLength(1);
+	});
+
+	test("a failed call warns on the actions chip only", () => {
+		// Without the actions figure no chip names the failure.
+		for (const [toggles, hasError, tones] of [
+			[{}, true, ["warning", "muted", "muted", "muted"]],
+			[{ actions: false }, true, ["muted", "muted", "muted"]],
+			[{}, false, ["muted", "muted", "muted", "muted"]],
+		] as const) {
+			expect(
+				drawn("chips", toggles, result({ hasError })).c?.[0]?.c?.map(
+					(chip) => chip.p.tone,
+				),
+			).toEqual([...tones]);
+		}
+	});
+
+	test("icons put an icon before each figure and the clock last", () => {
+		const items = drawn("icons").c ?? [];
+		expect(
+			items.map((item) => [item.c?.[0]?.p.name, texts(item).join("")]),
+		).toEqual([
+			["wrench", "27 actions"],
+			["context", "508.4k prompt"],
+			["download", "1.3k received"],
+			["history", "1h 20m 32s"],
+			["clock", CLOCK()],
+		]);
+		expect(items.every((item) => item.c?.[0]?.p.tone === "muted")).toBe(true);
+		const failed = drawn("icons", {}, result({ hasError: true })).c ?? [];
+		expect(failed.every((item) => item.c?.[0]?.p.tone === "warning")).toBe(
+			true,
+		);
+		expect(
+			(drawn("icons", { clock: false }).c ?? []).map(
+				(item) => item.c?.[0]?.p.name,
+			),
+		).not.toContain("clock");
 	});
 });
