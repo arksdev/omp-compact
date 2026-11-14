@@ -7,13 +7,13 @@
 
 ### Добавлено
 
-- Настройка `stats.style` (в `/compact-settings` — `Tern style`) выбирает, как Tern рисует строку статистики: `rows`, `text`, `chips`, `rule` или `icons`. Когда включены и `Fresh input`, и `Cached tokens`, новые виды показывают итог промпта, а его разбивку на свежие, кэшированные и записанные в кэш токены — во всплывающей карточке при наведении. По умолчанию стоит `rows`, и строка выглядит как раньше. В обычном терминале строка не меняется.
+- Настройка `stats.style` (в `/compact-settings` — `Tern style`) выбирает, как Tern рисует строку статистики: `rows`, `text`, `chips`, `rule` или `icons`. Когда включены и `Fresh input`, и `Cached tokens`, новые виды показывают итог промпта, а его разбивку на свежие, кэшированные и записанные в кэш токены — во всплывающей карточке при наведении. По умолчанию стоит `rows`, и строка выглядит как раньше. В обычном терминале строка не меняется, а пункта `Tern style` в меню нет.
 
 ---
 
 ### Added
 
-- The `stats.style` setting (`Tern style` in `/compact-settings`) picks how Tern draws the stats row: `rows`, `text`, `chips`, `rule` or `icons`. With `Fresh input` and `Cached tokens` both on, the new styles show the prompt total, and a hover card over it shows the fresh, cached and written split. The default, `rows`, keeps the row as it is today. A plain terminal draws the same row as before.
+- The `stats.style` setting (`Tern style` in `/compact-settings`) picks how Tern draws the stats row: `rows`, `text`, `chips`, `rule` or `icons`. With `Fresh input` and `Cached tokens` both on, the new styles show the prompt total, and a hover card over it shows the fresh, cached and written split. The default, `rows`, keeps the row as it is today. A plain terminal draws the same row as before, and its menu has no `Tern style` row.
 
 ---
 ## 2.4.1 — 14 ноября 2026

@@ -226,6 +226,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				boundCycleKey: cycleKey,
 				checkShortcut: (chord) =>
 					describeShortcutConflict(chord, shortcutConflict(chord)),
+				ternView: ternNativeView(Bun.env),
 				notify: (level, message) => {
 					try {
 						ctx.ui.notify(message, level);

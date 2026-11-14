@@ -60,6 +60,8 @@ function harness(
 		onChange?: SettingsDialogDeps["onChange"];
 		checkShortcut?: SettingsDialogDeps["checkShortcut"];
 		rows?: number;
+		/** Defaults to `true`: most cases cover Tern's rows. */
+		ternView?: boolean;
 	} = {},
 ): Harness {
 	let stored = options.settings ?? DEFAULT_SETTINGS;
@@ -87,6 +89,7 @@ function harness(
 				}),
 			checkShortcut: options.checkShortcut,
 			warn: (message) => h.warnings.push(message),
+			ternView: options.ternView ?? true,
 			getTerminalRows:
 				options.rows === undefined ? undefined : () => options.rows,
 		},
@@ -194,6 +197,13 @@ describe("settings dialog", () => {
 		expect(rowValue(h.frame(), "Tern style")).toBeUndefined();
 		await settle();
 		expect(h.saves.at(-1)?.stats.style).toBe("rows");
+	});
+
+	test("outside Tern the Tern style row is left out", () => {
+		const h = harness({ rows: 60, ternView: false });
+		const frame = h.frame();
+		expect(rowValue(frame, "Add local time")).toBe("true");
+		expect(rowValue(frame, "Tern style")).toBeUndefined();
 	});
 
 	test("enter on Tern style saves the next style", async () => {

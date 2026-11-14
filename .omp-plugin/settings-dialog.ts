@@ -74,6 +74,11 @@ export interface SettingsDialogDeps {
 	/** Report a change that could not be saved. */
 	warn(message: string): void;
 	/**
+	 * Whether omp draws Tern's native view (`ternNativeView`). The `Tern
+	 * style` row is listed only there, where the style shows. Absent: not Tern.
+	 */
+	ternView?: boolean;
+	/**
 	 * The terminal height in rows, read at every render, so the dialog never
 	 * outgrows a short terminal. Absent or unusable: a fixed list height.
 	 */
@@ -325,15 +330,18 @@ export class SettingsDialog implements Component {
 					),
 				);
 			}
-			items.push({
-				id: "stats.style",
-				label: "Tern style",
-				description: ROW_HELP["stats.style"],
-				currentValue: shown.stats.style,
-				values: [...STATS_STYLES],
-				changed: shown.stats.style !== DEFAULT_SETTINGS.stats.style,
-				defaultLabel: DEFAULT_SETTINGS.stats.style,
-			});
+			// The style shows only in Tern's native view.
+			if (this.#deps.ternView) {
+				items.push({
+					id: "stats.style",
+					label: "Tern style",
+					description: ROW_HELP["stats.style"],
+					currentValue: shown.stats.style,
+					values: [...STATS_STYLES],
+					changed: shown.stats.style !== DEFAULT_SETTINGS.stats.style,
+					defaultLabel: DEFAULT_SETTINGS.stats.style,
+				});
+			}
 		}
 		const tools = this.#deps.tools ?? [];
 		if (tools.length > 0) {
@@ -801,6 +809,8 @@ export interface SettingsSessionDeps {
 	 */
 	boundCycleKey?: string;
 	checkShortcut?(chord: string): string | undefined;
+	/** Whether omp draws Tern's native view; see `SettingsDialogDeps.ternView`. */
+	ternView?: boolean;
 	notify(level: "info" | "warning", message: string): void;
 }
 
@@ -822,6 +832,7 @@ export async function runSettingsSession(
 		settings: opened,
 		tools: toolDisplayOptions(deps.toolNames, opened.tools),
 		checkShortcut: deps.checkShortcut,
+		ternView: deps.ternView,
 		onChange: async (update) => {
 			last = await saveSettingsFlow(update, {
 				store: deps.store,

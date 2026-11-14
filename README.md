@@ -220,7 +220,7 @@ JSON:
 
 ### Statistics
 
-`Run statistics` adds one line under the answer of a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color. `Add local time` appends the local time of the answer beside the row as `— 16:33`; it comes from the instant the turn finished, so restored history reports the time of the answer itself rather than the time of the repaint. `Tern style` picks how the row looks in Tern: `rows` (the terminal line, the default), `text`, `chips`, `rule` or `icons`.
+`Run statistics` adds one line under the answer of a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color. `Add local time` appends the local time of the answer beside the row as `— 16:33`; it comes from the instant the turn finished, so restored history reports the time of the answer itself rather than the time of the repaint. `Tern style` picks how the row looks in Tern: `rows` (the terminal line, the default), `text`, `chips`, `rule` or `icons`; `/compact-settings` lists it only in Tern.
 
 The row appears once the session is idle, so a run that started before then gets its own row after it. It is drawn for you only: the plugin keeps it out of the model's context.
 
