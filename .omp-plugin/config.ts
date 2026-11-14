@@ -35,6 +35,20 @@ export function isToolDisplay(value: unknown): value is ToolDisplay {
 	return value === "rows" || value === "newest" || value === "open";
 }
 
+/**
+ * How Tern's native view draws the stats row. `rows` is the terminal line
+ * as is (mono, brackets); the others are Tern's own nodes: `text` one muted
+ * line, `chips` a badge per figure, `rule` a divider labelled with the
+ * figures, `icons` an icon before each figure, like omp's tool rows. The
+ * terminal always draws the line.
+ */
+export const STATS_STYLES = ["rows", "text", "chips", "rule", "icons"] as const;
+export type StatsStyle = (typeof STATS_STYLES)[number];
+
+export function isStatsStyle(value: unknown): value is StatsStyle {
+	return STATS_STYLES.some((style) => style === value);
+}
+
 export interface CompactStatsSettings {
 	enabled: boolean;
 	actions: boolean;
@@ -43,6 +57,7 @@ export interface CompactStatsSettings {
 	cache: boolean;
 	time: boolean;
 	clock: boolean;
+	style: StatsStyle;
 }
 
 /** Current persisted schema version. Every writer stamps it (update guard);
@@ -144,6 +159,7 @@ const DEFAULT_STATS: CompactStatsSettings = Object.freeze({
 	cache: true,
 	time: true,
 	clock: true,
+	style: "rows",
 });
 
 export const DEFAULT_SETTINGS: CompactSettings = Object.freeze({
@@ -465,6 +481,12 @@ function normalizeWithDiagnostics(
 		// and firing another.
 		return canonicalize(value);
 	};
+	const statsStyle = (value: unknown): StatsStyle => {
+		if (value === undefined) return DEFAULT_SETTINGS.stats.style;
+		if (isStatsStyle(value)) return value;
+		invalid.push("stats.style");
+		return DEFAULT_SETTINGS.stats.style;
+	};
 	const mode =
 		raw.mode === undefined
 			? DEFAULT_SETTINGS.mode
@@ -525,6 +547,7 @@ function normalizeWithDiagnostics(
 			cache: field("stats.cache", raw.stats.cache, settings.stats.cache),
 			time: field("stats.time", raw.stats.time, settings.stats.time),
 			clock: field("stats.clock", raw.stats.clock, settings.stats.clock),
+			style: statsStyle(raw.stats.style),
 		};
 	} else if (raw.stats !== undefined) {
 		invalid.push("stats");
@@ -602,6 +625,7 @@ const STATS_FIELDS = [
 	"cache",
 	"time",
 	"clock",
+	"style",
 ] as const;
 
 /**

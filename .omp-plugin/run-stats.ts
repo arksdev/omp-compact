@@ -1,4 +1,5 @@
 import type { NativeNode } from "@oh-my-pi/pi-tui";
+import type { TspPropNode, TspSpan } from "@oh-my-pi/pi-wire";
 
 import type { Theme } from "./theme-types";
 
@@ -460,6 +461,117 @@ export function isRunStatsEvidence(value: unknown): value is RunStatsEvidence {
 }
 
 /**
+ * The prompt's split as a hover card, drawn while both prompt toggles are
+ * on (the row then shows only the total). The cached share is the terminal
+ * row's `hitRate`, so both views quote the same percentage.
+ */
+function promptCard(result: RunStatsResult): TspPropNode {
+	const items = [
+		{ k: "fresh", v: formatTokens(result.sent) },
+		{
+			k: "cached",
+			v: `${formatTokens(result.cacheRead)} (${Math.round(result.hitRate * 100)}%)`,
+		},
+	];
+	if (result.cacheWrite > 0)
+		items.push({ k: "written", v: formatTokens(result.cacheWrite) });
+	return { k: "kv", p: { items, layout: "grid" } };
+}
+
+/**
+ * The stats row as Tern's own nodes in `stats.style` (config.ts), or `null`
+ * for `rows` and for a row with nothing to show (the caller then draws the
+ * terminal line). Figures follow the same toggles as `statsLine`; with both
+ * prompt toggles on, the row keeps the prompt to its total and the split
+ * moves to a hover card.
+ */
+export function statsNode(
+	result: RunStatsResult,
+	stats: CompactStatsSettings,
+): NativeNode | null {
+	const style = stats.style;
+	if (style === "rows" || !stats.enabled) return null;
+	const figures: { icon: string; text: string }[] = [];
+	if (stats.actions)
+		figures.push({ icon: "wrench", text: `${result.actions} actions` });
+	const prompt = result.sent + result.cacheRead + result.cacheWrite;
+	if (stats.sent && stats.cache)
+		figures.push({ icon: "context", text: `${formatTokens(prompt)} prompt` });
+	else if (stats.sent)
+		figures.push({
+			icon: "context",
+			text: `${formatTokens(result.sent)} fresh`,
+		});
+	else if (stats.cache)
+		figures.push({
+			icon: "context",
+			text: `${formatTokens(result.cacheRead)} cached (${Math.round(result.hitRate * 100)}%)`,
+		});
+	if (stats.received)
+		figures.push({
+			icon: "download",
+			text: `${formatTokens(result.received)} received`,
+		});
+	if (stats.time)
+		figures.push({ icon: "history", text: formatDuration(result.durationMs) });
+	if (figures.length === 0) return null;
+	const clock = stats.clock ? formatClock(result.completedAt) : "";
+	const common =
+		stats.sent && stats.cache && prompt > 0
+			? { hovercard: promptCard(result) }
+			: {};
+	// A run with a failed call warns as the terminal row's separators do.
+	const warn = result.hasError;
+	if (style === "icons") {
+		const items = clock
+			? [...figures, { icon: "clock", text: clock }]
+			: figures;
+		return {
+			k: "row",
+			p: { gap: "md", align: "center", wrap: true, ...common },
+			c: items.map(
+				({ icon, text }): NativeNode => ({
+					k: "row",
+					p: { gap: "xs", align: "center" },
+					c: [
+						{ k: "icon", p: { name: icon, tone: warn ? "warning" : "muted" } },
+						{ k: "text", p: { spans: [{ t: text, s: "muted" }] } },
+					],
+				}),
+			),
+		};
+	}
+	if (style === "chips") {
+		// Only the actions chip carries the warning: failures are actions.
+		const chips: NativeNode[] = figures.map(({ text }, index) => ({
+			k: "badge",
+			p: {
+				text,
+				tone: warn && index === 0 && stats.actions ? "warning" : "muted",
+			},
+		}));
+		const tail: NativeNode[] = clock
+			? [{ k: "text", p: { spans: [{ t: clock, s: "muted" }] } }]
+			: [];
+		return {
+			k: "row",
+			p: { gap: "xs", align: "center", justify: "between", ...common },
+			c: [{ k: "row", p: { gap: "xs", wrap: true }, c: chips }, ...tail],
+		};
+	}
+	const separator = warn ? "warning" : "dim";
+	const spans: TspSpan[] = [];
+	for (const { text } of figures) {
+		if (spans.length > 0) spans.push({ t: " · ", s: separator });
+		spans.push({ t: text, s: "muted" });
+	}
+	// The clock rides after the figures as in the terminal row: ` — hh:mm`.
+	if (clock) spans.push({ t: " — ", s: "dim" }, { t: clock, s: "muted" });
+	if (style === "rule") return { k: "rule", p: { label: spans, ...common } };
+	return { k: "text", p: { spans, truncate: "end", ...common } };
+}
+
+/**
  * The stats message's transcript row. It joins neighbouring compact blocks
  * (no blank row between them in the terminal, no gap in Tern). In Tern's
  * native view, while the run hid calls, a click on the line shows them in
@@ -468,11 +580,20 @@ export function isRunStatsEvidence(value: unknown): value is RunStatsEvidence {
 export class StatsRow {
 	readonly #line: () => string;
 	readonly #reveal: StatsReveal | undefined;
+	readonly #native: () => NativeNode | null;
 
-	/** `line` is read per draw, so settings and theme changes apply. */
-	constructor(line: () => string, reveal?: StatsReveal) {
+	/**
+	 * `line` and `native` are read per draw, so settings and theme changes
+	 * apply; `native` returns `null` where Tern draws the terminal line.
+	 */
+	constructor(
+		line: () => string,
+		reveal?: StatsReveal,
+		native: () => NativeNode | null = () => null,
+	) {
 		this.#line = line;
 		this.#reveal = reveal;
+		this.#native = native;
 	}
 
 	render(width: number): readonly string[] {
@@ -489,13 +610,21 @@ export class StatsRow {
 		// Mounted but never laid out, like omp's own empty node.
 		if (!line) return { k: "col", p: { hidden: true } };
 		const reveal = this.#reveal;
-		if (!reveal?.available()) return rowsNode([line]);
-		return rowsNode([line], {
-			act: HIDDEN_CALLS_ACTION,
-			title: reveal.shown()
-				? "Hide the calls this turn hid"
-				: "Show the calls this turn hid",
-		});
+		const click = reveal?.available()
+			? {
+					act: HIDDEN_CALLS_ACTION,
+					title: reveal.shown()
+						? "Hide the calls this turn hid"
+						: "Show the calls this turn hid",
+				}
+			: undefined;
+		const node = this.#native();
+		if (!node) return rowsNode([line], click);
+		if (!click) return node;
+		return {
+			...node,
+			p: { ...node.p, actions: { click: click.act }, title: click.title },
+		} as NativeNode;
 	}
 
 	handleNativeEvent(event: unknown): void {

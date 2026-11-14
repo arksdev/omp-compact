@@ -53,6 +53,7 @@ import {
 	STATS_MESSAGE_TYPE,
 	StatsRow,
 	statsLine,
+	statsNode,
 } from "./run-stats";
 import { SessionLedger } from "./session-ledger";
 import {
@@ -426,6 +427,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						refresh([...presenter.hiddenCallIds(run), ...run.leaves]);
 					},
 				},
+				() =>
+					statsNode(
+						resultFromEvidence(evidence),
+						settingsStore.snapshot().stats,
+					),
 			);
 		},
 	);
