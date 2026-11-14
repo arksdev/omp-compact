@@ -220,7 +220,7 @@ JSON:
 
 ### Statistics
 
-`Run statistics` adds one line under the answer of a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color. `Add local time` appends the local time of the answer beside the row as `— 16:33`; it comes from the instant the turn finished, so restored history reports the time of the answer itself rather than the time of the repaint.
+`Run statistics` adds one line under the answer of a completed run. You can independently enable actions, sent and received tokens, cache hits, and elapsed time. If any tool failed, the row uses the warning color. `Add local time` appends the local time of the answer beside the row as `— 16:33`; it comes from the instant the turn finished, so restored history reports the time of the answer itself rather than the time of the repaint. `Tern style` picks how the row looks in Tern: `rows` (the terminal line, the default), `text`, `chips`, `rule` or `icons`.
 
 The row appears once the session is idle, so a run that started before then gets its own row after it. It is drawn for you only: the plugin keeps it out of the model's context.
 
@@ -280,7 +280,7 @@ omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 
 The plugin needs **OMP 18.18.9 or later**. It draws through OMP's public transcript presenter API (`pi.registerTranscriptPresenter`) and patches none of OMP's own classes.
 
-The compact rows also appear in [Tern](https://stencil.so) panes, where OMP hands the transcript to Tern's native view. A compact row there opens OMP's full card with its toggle. In `live` and `clear`, click a turn's stats row to bring back the calls the turn hid, each in its own place; a second click hides them again.
+The compact rows also appear in [Tern](https://stencil.so) panes, where OMP hands the transcript to Tern's native view. A compact row there opens OMP's full card with its toggle. In `live` and `clear`, click a turn's stats row to bring back the calls the turn hid, each in its own place; a second click hides them again. In every `Tern style` except `rows`, with fresh and cached tokens both on, the stats row shows the prompt total, and hovering the row shows its fresh, cached and written split.
 
 - [Full documentation](docs/FULL-DOCUMENTATION.md)
 - [Configuration](docs/CONFIGURATION.md)

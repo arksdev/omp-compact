@@ -128,7 +128,9 @@ The row is a display custom message sent with `pi.sendMessage({ display: true },
 
 The message renderer draws the row from `details` on every draw, so stats settings apply to old rows at once. The message `content` is a fixed marker, `[omp-compact turn stats]`, kept non-empty for providers in case the plugin is removed later. A `context` handler strips the message from the model's context. Advisors read session messages directly and bypass that handler, which is why the content carries no numbers.
 
-In Tern's native view the row is clickable while its run hid calls: a click flips the run's reveal and refreshes the hidden ids, and a second click hides them again.
+In Tern's native view, `stats.style` picks the row's node. `rows`, the default, hands omp the terminal line as styled rows. The other styles (`text`, `chips`, `rule`, `icons`) come from `statsNode`, which builds Tern's own nodes from the same evidence and the same toggles as `statsLine`. With both `stats.sent` and `stats.cache` on, it keeps the prompt to its total and puts the fresh/cached/written split in a hover card; `statsNode` returns `null` for `rows` and for a row with no figures, and the line is drawn instead. The settings are read on every draw, so a new style applies to old rows at once.
+
+The row is clickable while its run hid calls, in any style: a click flips the run's reveal and refreshes the hidden ids, and a second click hides them again.
 
 ## Mutation audit
 
@@ -241,7 +243,7 @@ Most of what the plugin takes from omp comes through omp's extension API. It nee
 | Component | Exports from `@oh-my-pi/pi-coding-agent` | Without it |
 | --- | --- | --- |
 | `/compact-settings` dialog | `formTheme`, `editorKey`, `editorKeys`, `formatKeyHint`, `getSettingsListTheme`, `theme` | The command warns and opens nothing. The config file and the display-cycle shortcut still work. |
-| Styled compact rows and the clickable stats row | `compactText`, `rowsText`, `styledSpans` | Rows reach omp as plain text without colour. The stats row describes no native node, so omp draws its rendered line, and the Tern click that shows hidden calls is gone. |
+| Styled compact rows and the clickable stats row | `compactText`, `rowsText`, `styledSpans` | Rows reach omp as plain text without colour. With `stats.style` set to `rows`, the stats row describes no native node, so omp draws its rendered line, and the Tern click that shows hidden calls is gone. The other styles build their nodes without these exports and keep the click. |
 | `xd://` device rows | `parseXdUrl` | A device write reads as `write: xd://<device>`, takes the `write` tool's display choice, and still records no evidence (see Device dispatches). |
 | Transcript-presenters setting hint | `cfgExtensionTranscriptPresenters` | The plugin cannot tell whether the setting is off and shows no hint. |
 | Hashline header paths in the write audit | `unwrapHashlineHeaderPath` | A write addressed as `[path#TAG]` keeps that path, which names no file, so it gets no mutation evidence. |
