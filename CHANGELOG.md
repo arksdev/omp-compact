@@ -3,11 +3,15 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
-## Не выпущено / Unreleased
+## Не выпущено
 
 ### Добавлено
 
 - Настройка `stats.style` (в `/compact-settings` — `Tern style`) выбирает, как Tern рисует строку статистики: `rows`, `text`, `chips`, `rule` или `icons`. Когда включены и `Fresh input`, и `Cached tokens`, новые виды показывают итог промпта, а его разбивку на свежие, кэшированные и записанные в кэш токены — во всплывающей карточке при наведении. По умолчанию стоит `rows`, и строка выглядит как раньше. В обычном терминале строка не меняется, а пункта `Tern style` в меню нет.
+
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.20.2. Поддержка OMP 18.18.9 и выше сохранена.
 
 ### Исправлено
 
@@ -18,6 +22,10 @@
 ### Added
 
 - The `stats.style` setting (`Tern style` in `/compact-settings`) picks how Tern draws the stats row: `rows`, `text`, `chips`, `rule` or `icons`. With `Fresh input` and `Cached tokens` both on, the new styles show the prompt total, and a hover card over it shows the fresh, cached and written split. The default, `rows`, keeps the row as it is today. A plain terminal draws the same row as before, and its menu has no `Tern style` row.
+
+### Changed
+
+- Updated the supported OMP version to 18.20.2. Support for OMP 18.18.9 and later is preserved.
 
 ### Fixed
 
