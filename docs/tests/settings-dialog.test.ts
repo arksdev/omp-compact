@@ -60,6 +60,8 @@ function harness(
 		onChange?: SettingsDialogDeps["onChange"];
 		checkShortcut?: SettingsDialogDeps["checkShortcut"];
 		rows?: number;
+		/** Defaults to `true`: most cases cover Tern's rows. */
+		ternView?: boolean;
 	} = {},
 ): Harness {
 	let stored = options.settings ?? DEFAULT_SETTINGS;
@@ -87,6 +89,7 @@ function harness(
 				}),
 			checkShortcut: options.checkShortcut,
 			warn: (message) => h.warnings.push(message),
+			ternView: options.ternView ?? true,
 			getTerminalRows:
 				options.rows === undefined ? undefined : () => options.rows,
 		},
@@ -183,6 +186,34 @@ describe("settings dialog", () => {
 		}
 		await settle();
 		expect(h.saves.at(-1)?.stats.enabled).toBe(false);
+	});
+
+	test("the Tern style row shows while Run statistics is on", async () => {
+		const h = harness({ rows: 60 });
+		expect(rowValue(h.frame(), "Tern style")).toBe("rows");
+		h.type("run statistics");
+		h.dialog.handleInput(ENTER);
+		h.dialog.handleInput(ESCAPE); // clear the search
+		expect(rowValue(h.frame(), "Tern style")).toBeUndefined();
+		await settle();
+		expect(h.saves.at(-1)?.stats.style).toBe("rows");
+	});
+
+	test("outside Tern the Tern style row is left out", () => {
+		const h = harness({ rows: 60, ternView: false });
+		const frame = h.frame();
+		expect(rowValue(frame, "Add local time")).toBe("true");
+		expect(rowValue(frame, "Tern style")).toBeUndefined();
+	});
+
+	test("enter on Tern style saves the next style", async () => {
+		const h = harness({ rows: 60 });
+		h.type("tern style");
+		h.dialog.handleInput(ENTER); // rows -> text
+		await settle();
+		expect(h.saves.map((saved) => saved.stats.style)).toEqual(["text"]);
+		h.dialog.handleInput(ESCAPE); // clear the search
+		expect(rowValue(h.frame(), "Tern style")).toBe("text");
 	});
 
 	test("cycling a tool back to its default removes its entry", async () => {
@@ -437,6 +468,44 @@ describe("native settings page", () => {
 		pointer(h, { type: "action", act: "close", mods: [] });
 		await settle();
 		expect(h.closed?.value?.compactPaths).toBe(false);
+	});
+
+	test("the statistics page offers the Tern style as a segmented choice", async () => {
+		const h = harness();
+		pointer(h, { type: "action", act: "page", value: "statistics", mods: [] });
+		const style = rowsOf(page(h).props).find((row) => row.id === "stats.style");
+		expect(style?.control).toEqual({
+			k: "choice",
+			value: "rows",
+			options: ["rows", "text", "chips", "rule", "icons"].map((value) => ({
+				value,
+				label: value,
+			})),
+			style: "segmented",
+			mono: true,
+		});
+		pointer(h, { type: "change", item: "stats.style", value: "chips" });
+		await settle();
+		expect(h.saves.at(-1)?.stats.style).toBe("chips");
+		expect(
+			page(h).props.pages.find((p) => p.id === "statistics")?.changed,
+		).toBe(1);
+		pointer(h, { type: "change", item: "stats.style", value: null });
+		await settle();
+		expect(h.saves.at(-1)?.stats.style).toBe("rows");
+	});
+
+	test("the statistics page has no Tern style while Run statistics is off", () => {
+		const h = harness({
+			settings: {
+				...DEFAULT_SETTINGS,
+				stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
+			},
+		});
+		pointer(h, { type: "action", act: "page", value: "statistics", mods: [] });
+		expect(rowsOf(page(h).props).map((row) => row.id)).toEqual([
+			"stats.enabled",
+		]);
 	});
 });
 

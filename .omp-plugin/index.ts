@@ -53,6 +53,7 @@ import {
 	STATS_MESSAGE_TYPE,
 	StatsRow,
 	statsLine,
+	statsNode,
 } from "./run-stats";
 import { SessionLedger } from "./session-ledger";
 import {
@@ -260,6 +261,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 				boundCycleKey: cycleKey,
 				checkShortcut: (chord) =>
 					describeShortcutConflict(chord, shortcutConflict(chord)),
+				ternView: ternNativeView(Bun.env),
 				notify: (level, message) => {
 					try {
 						ctx.ui.notify(message, level);
@@ -461,6 +463,11 @@ export default function ompCompact(pi: ExtensionAPI): void {
 						refresh([...presenter.hiddenCallIds(run), ...run.leaves]);
 					},
 				},
+				() =>
+					statsNode(
+						resultFromEvidence(evidence),
+						settingsStore.snapshot().stats,
+					),
 			);
 		},
 	);

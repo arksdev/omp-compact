@@ -27,6 +27,7 @@ import {
 	type CompactSettingsStore,
 	type CompactStatsSettings,
 	DEFAULT_SETTINGS,
+	STATS_STYLES,
 	TOOL_DISPLAYS,
 	type ToolDisplay,
 } from "./config";
@@ -73,6 +74,11 @@ export interface SettingsDialogDeps {
 	/** Report a change that could not be saved. */
 	warn(message: string): void;
 	/**
+	 * Whether omp draws Tern's native view (`ternNativeView`). The `Tern
+	 * style` row is listed only there, where the style shows. Absent: not Tern.
+	 */
+	ternView?: boolean;
+	/**
 	 * The terminal height in rows, read at every render, so the dialog never
 	 * outgrows a short terminal. Absent or unusable: a fixed list height.
 	 */
@@ -118,6 +124,8 @@ const ROW_HELP = {
 		"Cached tokens, share, and writes; fresh + cached + written = full prompt",
 	"stats.time": "Run time in the usage row",
 	"stats.clock": "Local time of the answer, beside the usage row",
+	"stats.style":
+		"How Tern draws the usage row: rows (terminal line) / text / chips / rule / icons",
 } as const;
 
 /**
@@ -141,7 +149,7 @@ const DISPLAY_TOGGLES: readonly { id: DisplayToggle; label: string }[] = [
 	{ id: "compactAdvisorNotes", label: "Advisor nit/concern" },
 ];
 
-type StatsChild = Exclude<keyof CompactStatsSettings, "enabled">;
+type StatsChild = Exclude<keyof CompactStatsSettings, "enabled" | "style">;
 
 const STATS_CHILDREN: readonly { key: StatsChild; label: string }[] = [
 	{ key: "actions", label: "Actions" },
@@ -322,6 +330,18 @@ export class SettingsDialog implements Component {
 					),
 				);
 			}
+			// The style shows only in Tern's native view.
+			if (this.#deps.ternView) {
+				items.push({
+					id: "stats.style",
+					label: "Tern style",
+					description: ROW_HELP["stats.style"],
+					currentValue: shown.stats.style,
+					values: [...STATS_STYLES],
+					changed: shown.stats.style !== DEFAULT_SETTINGS.stats.style,
+					defaultLabel: DEFAULT_SETTINGS.stats.style,
+				});
+			}
 		}
 		const tools = this.#deps.tools ?? [];
 		if (tools.length > 0) {
@@ -391,6 +411,12 @@ export class SettingsDialog implements Component {
 		}
 		const toggle = DISPLAY_TOGGLES.find((row) => row.id === id);
 		if (toggle) return (current) => ({ ...current, [toggle.id]: on });
+		if (id === "stats.style") {
+			const style = STATS_STYLES.find((candidate) => candidate === value);
+			return style
+				? (current) => ({ ...current, stats: { ...current.stats, style } })
+				: undefined;
+		}
 		if (id.startsWith(STATS_PREFIX)) {
 			const key = id.slice(STATS_PREFIX.length) as keyof CompactStatsSettings;
 			return (current) => ({
@@ -783,6 +809,8 @@ export interface SettingsSessionDeps {
 	 */
 	boundCycleKey?: string;
 	checkShortcut?(chord: string): string | undefined;
+	/** Whether omp draws Tern's native view; see `SettingsDialogDeps.ternView`. */
+	ternView?: boolean;
 	notify(level: "info" | "warning", message: string): void;
 }
 
@@ -804,6 +832,7 @@ export async function runSettingsSession(
 		settings: opened,
 		tools: toolDisplayOptions(deps.toolNames, opened.tools),
 		checkShortcut: deps.checkShortcut,
+		ternView: deps.ternView,
 		onChange: async (update) => {
 			last = await saveSettingsFlow(update, {
 				store: deps.store,

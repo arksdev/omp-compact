@@ -102,6 +102,7 @@ The parts of the usage row (`Actions` to `Add local time`) are listed only while
 | **stats.cache** | `true` | Cached tokens, their share, and cache writes |
 | **stats.time** | `true` | Wall time duration |
 | **stats.clock** | `true` | Local completion time as `hh:mm`, appended after the bracketed segments. Needs a row to ride on: with every other stats field off, nothing renders |
+| **stats.style** | `"rows"` | How Tern draws the row: `rows` (the terminal line), `text` (one muted line), `chips` (a badge per figure), `rule` (a divider labelled with the figures), `icons` (an icon before each figure). Figures follow the same toggles as the terminal row. With `stats.sent` and `stats.cache` both on, the native styles show the prompt total and put the fresh/cached/written split in a hover card. A plain terminal always draws the line |
 
 ---
 
@@ -127,7 +128,8 @@ The parts of the usage row (`Actions` to `Add local time`) are listed only while
     "received": true,
     "cache": true,
     "time": true,
-    "clock": true
+    "clock": true,
+    "style": "rows"
   }
 }
 ```
