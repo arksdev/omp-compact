@@ -473,9 +473,15 @@ export class SessionLedger {
 	/**
 	 * Walk a session branch into runs, calls and evidence, unless the current
 	 * branch was already walked. Calls the open run owns keep their live state.
+	 * `forks` holds the ids of branch entries another branch continues from:
+	 * a run whose last entries on this branch hold one was cut there by `/tree`
+	 * or `/branch`, not aborted, and folds like an answered run.
 	 * Returns the ids of the restored calls.
 	 */
-	restore(entries: readonly unknown[]): readonly string[] {
+	restore(
+		entries: readonly unknown[],
+		forks: ReadonlySet<string> = new Set(),
+	): readonly string[] {
 		if (this.#restored) return [];
 		this.#restored = true;
 		const restored: string[] = [];
@@ -490,8 +496,12 @@ export class SessionLedger {
 				);
 			return run;
 		};
+		// Whether the walk left the run's own continuation after its last
+		// message: another branch goes on from there.
+		let cut = false;
 		const close = (): void => {
-			if (run?.phase === "working") this.finalizeRun(run, "full");
+			if (run?.phase === "working")
+				this.finalizeRun(run, cut && !ended ? "filtered" : "full");
 		};
 		const addCall = (id: unknown, name: unknown, args: unknown): void => {
 			if (
@@ -517,6 +527,7 @@ export class SessionLedger {
 		let ended = false;
 		for (const value of entries) {
 			const entry = objectRecord(value);
+			const forked = typeof entry.id === "string" && forks.has(entry.id);
 			if (entry.type === "message") {
 				const message = objectRecord(entry.message);
 				if (message.role === "user") {
@@ -528,6 +539,7 @@ export class SessionLedger {
 						run = undefined;
 					}
 					ended = false;
+					cut = false;
 					ensureRun();
 				} else if (message.role === "assistant") {
 					if (Array.isArray(message.content))
@@ -543,6 +555,7 @@ export class SessionLedger {
 					if (phase === "filtered" && run) this.finalizeRun(run, phase);
 					ended =
 						message.stopReason === "aborted" || message.stopReason === "error";
+					cut = forked;
 				} else if (
 					message.role === "toolResult" &&
 					typeof message.toolCallId === "string"
@@ -551,9 +564,11 @@ export class SessionLedger {
 						.get(message.toolCallId)
 						?.findLast((known) => known.run.restored);
 					if (call) call.settledAt ??= this.#now();
+					cut = forked;
 				}
 				continue;
 			}
+			cut ||= forked;
 			if (entry.type === "custom") {
 				if (entry.customType === "tool_execution_start") {
 					const data = objectRecord(entry.data);
