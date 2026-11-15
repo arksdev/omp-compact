@@ -78,6 +78,8 @@ export async function bootReplay(options: {
 	settings?: Record<string, unknown>;
 	cwd?: string;
 	branch?: unknown[];
+	/** Entries of other branches, which only `getEntries` returns. */
+	offBranch?: unknown[];
 }): Promise<BootedPlugin> {
 	const host = await loadHost();
 	await host.initTheme();
@@ -191,7 +193,7 @@ export async function bootReplay(options: {
 		isIdle: () => true,
 		sessionManager: {
 			getBranch: () => branch,
-			getEntries: () => branch,
+			getEntries: () => [...branch, ...(options.offBranch ?? [])],
 			getEntry: (id) =>
 				branch.find((entry) => (entry as { id?: string }).id === id),
 		},

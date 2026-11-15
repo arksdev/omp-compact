@@ -9,11 +9,19 @@
 
 - Настройка `stats.style` (в `/compact-settings` — `Tern style`) выбирает, как Tern рисует строку статистики: `rows`, `text`, `chips`, `rule` или `icons`. Когда включены и `Fresh input`, и `Cached tokens`, новые виды показывают итог промпта, а его разбивку на свежие, кэшированные и записанные в кэш токены — во всплывающей карточке при наведении. По умолчанию стоит `rows`, и строка выглядит как раньше. В обычном терминале строка не меняется, а пункта `Tern style` в меню нет.
 
+### Исправлено
+
+- Восстановленная история больше не показывает весь лог вызовов у прогона, который `/tree` или `/branch` оставили на середине: прогон продолжился, и обычно ответил, в другой ветке. В текущей ветке у него не было ответа, поэтому он рисовался как прерванный; теперь `live` и `clear` сворачивают его как прогон с ответом. Прогон, который действительно остановился без ответа, сохраняет весь лог.
+
 ---
 
 ### Added
 
 - The `stats.style` setting (`Tern style` in `/compact-settings`) picks how Tern draws the stats row: `rows`, `text`, `chips`, `rule` or `icons`. With `Fresh input` and `Cached tokens` both on, the new styles show the prompt total, and a hover card over it shows the fresh, cached and written split. The default, `rows`, keeps the row as it is today. A plain terminal draws the same row as before, and its menu has no `Tern style` row.
+
+### Fixed
+
+- Restored history no longer shows the whole call log of a run that `/tree` or `/branch` left mid-way: the run went on, and usually answered, on the other branch. On the current branch it had no answer, so it was drawn like an interrupted run; `live` and `clear` now fold it like an answered one. A run that really stopped unanswered keeps its whole log.
 
 ---
 ## 2.4.1 — 14 ноября 2026

@@ -188,6 +188,31 @@ stockDescribe("history", () => {
 		expect(rows(booted)).toContain("grep: needle");
 	});
 
+	test("a run /tree cut mid-way folds like an answered one", async () => {
+		// The branch leaves the run after its write; the run went on, and
+		// answered, on the branch that continues from there.
+		const cutRun = answeredRun().slice(0, 6);
+		cutRun[4] = { id: "cut", ...toolResult("w1") };
+		const branch = [...cutRun, user];
+		const offBranch = [
+			{ id: "off", parentId: "cut", ...toolCall("b1", "bash", ARGS.b1) },
+		];
+
+		const cut = await boot("live", { branch, offBranch });
+		drawHistory(cut);
+		expect(rows(cut)).not.toContain("grep: needle");
+		expect(rows(cut)).toContain("notes.txt");
+
+		// Without a branch going on, the same run stopped there: whole log.
+		// Usage metadata beside the path is no branch.
+		const stopped = await boot("live", {
+			branch,
+			offBranch: [{ id: "usage", parentId: "cut", type: "model_usage" }],
+		});
+		drawHistory(stopped);
+		expect(rows(stopped)).toContain("grep: needle");
+	});
+
 	test("a steering message mid-run stays in the run its answer filters", async () => {
 		const branch = answeredRun();
 		branch.splice(3, 0, {
