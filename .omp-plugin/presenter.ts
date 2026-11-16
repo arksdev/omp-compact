@@ -213,8 +213,14 @@ export class TranscriptPresenterState {
 			.map((call) => call.id);
 	}
 
-	/** The older call whose live card a new call of the same tool replaces. */
+	/**
+	 * The older call whose live card a new call of the same tool replaces.
+	 * Only in Tern's native view: in a row-rendered terminal the older card has
+	 * usually scrolled into history, and folding it there makes omp erase and
+	 * replay the whole scrollback, so it folds with the rest when the run ends.
+	 */
 	replacedLiveCard(call: CallRecord): string | undefined {
+		if (!this.#deps.nativeView()) return undefined;
 		if (displayOf(call, call.toolName) !== "newest") return undefined;
 		return previousOfTool(call)?.id;
 	}
@@ -440,8 +446,12 @@ export class TranscriptPresenterState {
 				? this.#deps.ledger.projection(run)
 				: undefined;
 		const display = displayOf(call, toolName);
+		// Outside Tern's native view every card stays open until the run ends
+		// (see `replacedLiveCard`).
 		const newestOfTool =
-			display === "newest" && run.phase === "working" && isNewestOfTool(call);
+			display === "newest" &&
+			run.phase === "working" &&
+			(!this.#deps.nativeView() || isNewestOfTool(call));
 		return decideToolRender({
 			route: displayRoute(
 				resolveToolRule(toolName)?.route,
