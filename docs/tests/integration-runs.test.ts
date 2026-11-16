@@ -31,6 +31,21 @@ const COMMIT = textResult(
 	"[main abc1234] change\n 1 file changed, 1 insertion(+)",
 );
 
+/** Runs `body` as inside Tern's native view, where `newest` folds older cards. */
+async function inTern(body: () => Promise<void>): Promise<void> {
+	const savedTerm = Bun.env.TERM_PROGRAM;
+	const savedNative = Bun.env.PI_TUI_NATIVE;
+	Bun.env.TERM_PROGRAM = "tern";
+	delete Bun.env.PI_TUI_NATIVE;
+	try {
+		await body();
+	} finally {
+		if (savedTerm === undefined) delete Bun.env.TERM_PROGRAM;
+		else Bun.env.TERM_PROGRAM = savedTerm;
+		if (savedNative !== undefined) Bun.env.PI_TUI_NATIVE = savedNative;
+	}
+}
+
 const VIBE_LIST = {
 	content: [{ type: "text", text: "- `audit-worker` [good] idle" }],
 	details: {
@@ -217,12 +232,8 @@ stockDescribe("a logical run", () => {
 		expect(rows(booted)).toBe("");
 	});
 
-	test("in Tern a row with Git evidence keeps the plugin's label", async () => {
-		const savedTerm = Bun.env.TERM_PROGRAM;
-		const savedNative = Bun.env.PI_TUI_NATIVE;
-		Bun.env.TERM_PROGRAM = "tern";
-		delete Bun.env.PI_TUI_NATIVE;
-		try {
+	test("in Tern a row with Git evidence keeps the plugin's label", () =>
+		inTern(async () => {
 			const booted = await boot("compact");
 			await beginRun(booted);
 			await runTool(
@@ -233,12 +244,7 @@ stockDescribe("a logical run", () => {
 				COMMIT,
 			);
 			expect(rows(booted)).toContain("git commit abc1234 change");
-		} finally {
-			if (savedTerm === undefined) delete Bun.env.TERM_PROGRAM;
-			else Bun.env.TERM_PROGRAM = savedTerm;
-			if (savedNative !== undefined) Bun.env.PI_TUI_NATIVE = savedNative;
-		}
-	});
+		}));
 
 	test("a repeated tool id leaves a compact run's row in place when a live run reuses it", async () => {
 		const booted = await boot("compact");
@@ -367,14 +373,27 @@ stockDescribe("a logical run", () => {
 		expect(rows(stock)).toContain("audit-worker");
 	});
 
-	test("only the newest todo card stays open; the answer removes it", async () => {
+	test("in Tern only the newest todo card stays open; the answer removes it", () =>
+		inTern(async () => {
+			const booted = await boot("live");
+			await beginRun(booted);
+			await runTool(booted, "t1", "todo", { op: "start" }, todoList("First"));
+			expect(rows(booted)).toContain("First");
+
+			await runTool(booted, "t2", "todo", { op: "done" }, todoList("Second"));
+			expect(rows(booted)).not.toContain("First");
+			expect(rows(booted)).toContain("Second");
+
+			await endRun(booted);
+			expect(rows(booted)).toBe("");
+		}));
+
+	test("outside Tern an older todo card stays open until the answer", async () => {
 		const booted = await boot("live");
 		await beginRun(booted);
 		await runTool(booted, "t1", "todo", { op: "start" }, todoList("First"));
-		expect(rows(booted)).toContain("First");
-
 		await runTool(booted, "t2", "todo", { op: "done" }, todoList("Second"));
-		expect(rows(booted)).not.toContain("First");
+		expect(rows(booted)).toContain("First");
 		expect(rows(booted)).toContain("Second");
 
 		await endRun(booted);
@@ -393,24 +412,24 @@ stockDescribe("a logical run", () => {
 		expect(text).toContain("needle");
 	});
 
-	test("a new wait folds the previous wait card to its row", async () => {
-		const booted = await boot("live");
-		await beginRun(booted);
-		await runTool(booted, "w1", "wait", { i: "First poll" }, jobs("running"));
-		expect(rows(booted)).toBe("ⓘ waiting on 1 job");
+	test("in Tern a new wait folds the previous wait card to its row", () =>
+		inTern(async () => {
+			const booted = await boot("live");
+			await beginRun(booted);
+			await runTool(booted, "w1", "wait", { i: "First poll" }, jobs("running"));
+			expect(rows(booted)).toBe("ⓘ waiting on 1 job");
 
-		await runTool(
-			booted,
-			"w2",
-			"wait",
-			{ i: "Second poll" },
-			jobs("completed"),
-		);
-		const text = rows(booted);
-		expect(text).toContain("wait: First poll · 1 job running");
-		expect(text).not.toContain("Second poll");
-		expect(text).not.toContain("waiting on 1 job");
-	});
+			await runTool(
+				booted,
+				"w2",
+				"wait",
+				{ i: "Second poll" },
+				jobs("completed"),
+			);
+			const text = rows(booted);
+			expect(text).not.toContain("waiting on 1 job");
+			expect(text).toContain("Scout done");
+		}));
 
 	test("a live card folds to its row when the run ends in compact or on abort", async () => {
 		const compact = await boot("compact");
@@ -485,31 +504,32 @@ stockDescribe("a logical run", () => {
 			expect(rows(booted)).not.toContain("waiting on");
 		});
 
-		test("newest opens only the newest call of a row tool, and the answer hides it", async () => {
-			const booted = await withTools("live", { grep: "newest" });
-			await beginRun(booted);
-			await runTool(
-				booted,
-				"g1",
-				"grep",
-				{ pattern: "alpha" },
-				textResult("a.ts:1:alpha-hit"),
-			);
-			expect(rows(booted)).toContain("alpha-hit");
-			await runTool(
-				booted,
-				"g2",
-				"grep",
-				{ pattern: "beta" },
-				textResult("b.ts:1:beta-hit"),
-			);
-			const text = rows(booted);
-			expect(text).not.toContain("alpha-hit");
-			expect(text).toContain("grep: alpha");
-			expect(text).toContain("beta-hit");
-			await endRun(booted);
-			expect(rows(booted)).toBe("");
-		});
+		test("in Tern newest opens only the newest call of a row tool, and the answer hides it", () =>
+			inTern(async () => {
+				const booted = await withTools("live", { grep: "newest" });
+				await beginRun(booted);
+				await runTool(
+					booted,
+					"g1",
+					"grep",
+					{ pattern: "alpha" },
+					textResult("a.ts:1:alpha-hit"),
+				);
+				expect(rows(booted)).toContain("alpha-hit");
+				await runTool(
+					booted,
+					"g2",
+					"grep",
+					{ pattern: "beta" },
+					textResult("b.ts:1:beta-hit"),
+				);
+				const text = rows(booted);
+				expect(text).not.toContain("alpha-hit");
+				expect(text).toContain("• grep");
+				expect(text).toContain("beta-hit");
+				await endRun(booted);
+				expect(rows(booted)).toBe("");
+			}));
 
 		test("a device choice applies to writes to that device only", async () => {
 			const booted = await withTools("live", { github: "open" });

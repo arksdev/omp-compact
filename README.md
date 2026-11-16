@@ -181,7 +181,7 @@ JSON:
 The `Tool cards` section lists every tool OMP has loaded, extension tools, MCP tools and `xd://` devices included, and lets you pick how each one is drawn:
 
 - `rows`: one-line rows that follow the mode, like any routine call.
-- `newest`: the newest call keeps OMP's full card while the agent works; older calls become rows. This is the default for `wait` and `todo`.
+- `newest`: the newest call keeps OMP's full card while the agent works; older calls become rows. This is the default for `wait` and `todo`. In a plain terminal every call keeps its card until the answer, since folding a card that already scrolled away would make OMP redraw the whole scrollback.
 - `open`: OMP's full card in every mode, `clear` included, and after the answer.
 
 A row in the changed color has a saved choice; picking the tool's default again removes the entry. `ask` and the vibe tools are not listed: `ask` needs its card to answer, and the vibe tools have their own switch. A change applies from the next run.
