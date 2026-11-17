@@ -5,16 +5,23 @@
 ---
 ## Не выпущено / Unreleased
 
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.22.0. Поддержка OMP 18.18.9 и выше сохранена.
+
 ### Исправлено
 
 - В обычном терминале (не в Tern) новый вызов `wait` или `todo` больше не сворачивает предыдущую карточку во время работы: OMP для этого стирал и заново выводил всю прокрутку, и в терминалах, которые сохраняют историю, транскрипт повторялся несколько раз. Карточки сворачиваются вместе с прогоном, когда приходит ответ. В Tern по-прежнему открыта только самая новая.
 
 ---
 
+### Changed
+
+- Updated the supported OMP version to 18.22.0. Support for OMP 18.18.9 and later is preserved.
+
 ### Fixed
 
 - In a plain terminal (not Tern), a new `wait` or `todo` call no longer folds the previous card while the agent works: OMP erased and replayed the whole scrollback to do it, and terminals that keep their history showed the transcript several times. The cards fold with the run when the answer arrives. Tern still keeps only the newest one open.
-
 ---
 ## 2.5.0 — 15 ноября 2026
 
