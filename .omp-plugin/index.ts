@@ -411,17 +411,23 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			? statsLine(resultFromEvidence(evidence), stats, theme)
 			: "";
 		if (!line) return;
+		const message = {
+			customType: STATS_MESSAGE_TYPE,
+			// A fixed marker, not the line: whatever reads session messages
+			// directly (an advisor) must not quote the stats. The row is
+			// drawn from `details`; the content stays non-empty for
+			// providers should the plugin be removed later.
+			content: STATS_MESSAGE_CONTENT,
+			display: true,
+			details: evidence,
+			// Kept out of the model's context by omp itself, so omp's
+			// next-prompt prediction outlives the row. Older omp drops the
+			// field (and its types lack it, hence the variable rather than an
+			// inline literal); the `context` filter below covers it there.
+			excludeFromContext: true,
+		};
 		pi.sendMessage<RunStatsEvidence>(
-			{
-				customType: STATS_MESSAGE_TYPE,
-				// A fixed marker, not the line: whatever reads session messages
-				// directly (an advisor) must not quote the stats. The row is
-				// drawn from `details`; the content stays non-empty for
-				// providers should the plugin be removed later.
-				content: STATS_MESSAGE_CONTENT,
-				display: true,
-				details: evidence,
-			},
+			message,
 			// omp's silent idle append: persisted with its details and added to
 			// the chat. `triggerTurn: false` alone rebuilds the whole transcript,
 			// which duplicates scrollback in tmux and resets expanded cards.
@@ -472,7 +478,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		},
 	);
 
-	// The stats row is for the user only: it never reaches the model.
+	// The stats row is for the user only: it never reaches the model. omp with
+	// `excludeFromContext` already drops new rows; this also covers older omp
+	// and rows saved before the flag.
 	pi.on("context", (event) => {
 		const messages = event.messages.filter(
 			(message) =>
