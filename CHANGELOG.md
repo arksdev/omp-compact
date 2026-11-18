@@ -5,9 +5,23 @@
 ---
 ## Не выпущено / Unreleased
 
+### Изменено
+
+- Обновлена поддерживаемая версия OMP до 18.22.2. Поддержка OMP 18.18.9 и выше сохранена.
+
 ### Исправлено
 
 - Подсказка следующего промпта в OMP снова появляется после хода: строка статистики больше не сбрасывает её. Нужен OMP с `excludeFromContext` для сообщений расширений ([can1357/oh-my-pi#19550](https://github.com/can1357/oh-my-pi/pull/19550)); на старых версиях всё работает как раньше.
+
+---
+
+### Changed
+
+- Updated the supported OMP version to 18.22.2. Support for OMP 18.18.9 and later is preserved.
+
+### Fixed
+
+- OMP's next-prompt suggestion appears again after a turn: the stats row no longer drops it. Requires OMP with `excludeFromContext` for extension messages ([can1357/oh-my-pi#19550](https://github.com/can1357/oh-my-pi/pull/19550)); older versions continue working as before.
 
 ---
 ## 2.5.1 — 17 ноября 2026
