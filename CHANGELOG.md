@@ -3,7 +3,7 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
-## Не выпущено / Unreleased
+## 2.5.2 — 18 ноября 2026
 
 ### Изменено
 
@@ -12,6 +12,8 @@
 ### Исправлено
 
 - Подсказка следующего промпта в OMP снова появляется после хода: строка статистики больше не сбрасывает её. Нужен OMP с `excludeFromContext` для сообщений расширений ([can1357/oh-my-pi#19550](https://github.com/can1357/oh-my-pi/pull/19550)); на старых версиях всё работает как раньше.
+
+Спасибо @materemias за #31.
 
 ---
 
@@ -22,6 +24,8 @@
 ### Fixed
 
 - OMP's next-prompt suggestion appears again after a turn: the stats row no longer drops it. Requires OMP with `excludeFromContext` for extension messages ([can1357/oh-my-pi#19550](https://github.com/can1357/oh-my-pi/pull/19550)); older versions continue working as before.
+
+Thanks to @materemias for #31.
 
 ---
 ## 2.5.1 — 17 ноября 2026
