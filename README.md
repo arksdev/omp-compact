@@ -276,6 +276,14 @@ Direct launch for one run:
 omp -e /absolute/path/to/omp-compact/.omp-plugin/index.ts
 ```
 
+## Works well with
+
+These are separate projects, and the plugin needs none of them. Each covers a part of the session that `omp-compact` leaves alone.
+
+- [omp-stretch](https://github.com/materemias/omp-stretch) shortens the answer the way `omp-compact` shortens the tool log. Each reply opens at its gist, and clicking a phrase grows its detail in place. With both, a long run reads in a few lines: one row per action, then the gist of the answer. It works in Tern and in a plain terminal.
+- [tern-awui](https://github.com/materemias/tern-awui) is a phone and browser app for the OMP sessions running in Tern. On the phone it folds each tool run to one line, as the plugin does in the pane, and the two need no setup to run side by side.
+- [CodexBar AgentView](https://github.com/materemias/codexbar-agentview) lists your agent sessions in a Tern dashboard and marks the ones waiting for you. `omp-compact` cuts what you read in each session; AgentView tells you which session to read next.
+
 ## Compatibility and documentation
 
 The plugin needs **OMP 18.18.9 or later**. It draws through OMP's public transcript presenter API (`pi.registerTranscriptPresenter`) and patches none of OMP's own classes.
