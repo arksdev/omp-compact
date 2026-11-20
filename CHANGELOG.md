@@ -7,13 +7,13 @@
 
 ### Изменено
 
-- Обновлена поддерживаемая версия OMP до 19.0.0. Поддержка OMP 18.18.9 и выше сохранена.
+- Обновлена поддерживаемая версия OMP до 19.0.1. Поддержка OMP 18.18.9 и выше сохранена.
 
 ---
 
 ### Changed
 
-- Updated the supported OMP version to 19.0.0. Support for OMP 18.18.9 and later is preserved.
+- Updated the supported OMP version to 19.0.1. Support for OMP 18.18.9 and later is preserved.
 
 ---
 ## 2.5.2 — 18 ноября 2026
