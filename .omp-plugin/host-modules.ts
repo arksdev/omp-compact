@@ -128,26 +128,53 @@ const rootFeature = <K extends keyof typeof HostRoot & string>(
 ): Promise<Pick<typeof HostRoot, K> | undefined> =>
 	loadHostModule(component, HOST_ROOT, () => hostRoot, symbols);
 
-/** omp's `xd://` grammar, typed here: omp 19.1.0 no longer declares it. */
+/**
+ * omp's `xd://` grammar as 19.0.1 declared it, typed here: 19.1.0 dropped
+ * the declaration with the devices, so nothing checks this shape any more.
+ */
 type XdUrlParser = (input: string) => { name: string | null } | null;
 
-/** The omp release that replaced `xd://` devices with bash tool commands. */
-const XD_DEVICES_RETIRED_IN = "19.1.0";
+/**
+ * The omp release that replaced `xd://` devices with bash tool commands, as
+ * its lowest prerelease: a 19.1.0 beta or nightly has dropped them too.
+ */
+const XD_DEVICES_RETIRED_IN = "19.1.0-0";
 
 /**
  * Whether an omp reporting `version` has no `xd://` devices, so the missing
- * `parseXdUrl` turns nothing off. An unknown version counts as older.
+ * `parseXdUrl` turns nothing off. An unknown or malformed version counts as
+ * older: `Bun.semver.order` throws on a non-semver string, and a throw here
+ * would fail the module and take the whole plugin down.
  */
-export function xdDevicesRetired(version: unknown): boolean {
-	return (
-		typeof version === "string" &&
-		Bun.semver.order(version, XD_DEVICES_RETIRED_IN) >= 0
+function xdDevicesRetired(version: unknown): boolean {
+	if (typeof version !== "string") return false;
+	try {
+		return Bun.semver.order(version, XD_DEVICES_RETIRED_IN) >= 0;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * The `xd://` grammar from `load`, checked like any other feature, except
+ * that on an omp at `version` that retired the devices its absence records
+ * nothing into `into`.
+ */
+export function loadXdGrammar(
+	version: unknown,
+	load: () => Promise<{ VERSION?: string; parseXdUrl?: XdUrlParser }>,
+	into: DisabledComponent[] = disabled,
+): Promise<{ parseXdUrl?: XdUrlParser } | undefined> {
+	return loadHostModule(
+		"xd:// device rows",
+		HOST_ROOT,
+		load,
+		["parseXdUrl"],
+		xdDevicesRetired(version) ? [] : into,
 	);
 }
 
-// The xd:// check records into its own list: on an omp that retired the
-// devices, a missing `parseXdUrl` is expected and must not warn.
-const xdMissing: DisabledComponent[] = [];
+const { VERSION: hostVersion } = await hostRoot;
 
 const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 	await Promise.all([
@@ -164,13 +191,7 @@ const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 			"rowsText",
 			"styledSpans",
 		]),
-		loadHostModule(
-			"xd:// device rows",
-			HOST_ROOT,
-			(): Promise<{ VERSION: string; parseXdUrl?: XdUrlParser }> => hostRoot,
-			["parseXdUrl"],
-			xdMissing,
-		),
+		loadXdGrammar(hostVersion, () => hostRoot),
 		rootFeature("the transcript-presenters setting hint", [
 			"cfgExtensionTranscriptPresenters",
 		]),
@@ -178,7 +199,6 @@ const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 			"unwrapHashlineHeaderPath",
 		]),
 	]);
-if (!xdDevicesRetired((await hostRoot).VERSION)) disabled.push(...xdMissing);
 
 /** What `/compact-settings` draws with: omp's settings-list chrome. */
 export interface SettingsDialogHost {

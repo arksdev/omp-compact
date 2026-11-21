@@ -9,7 +9,7 @@ import {
 	type DisabledComponent,
 	disabledComponentsWarning,
 	loadHostModule,
-	xdDevicesRetired,
+	loadXdGrammar,
 } from "../../.omp-plugin/host-modules";
 import pkg from "../../package.json";
 
@@ -141,15 +141,27 @@ describe("disabledComponentsWarning", () => {
 	});
 });
 
-describe("xdDevicesRetired", () => {
-	test("omp 19.1.0 and later dropped xd:// devices, so their missing grammar does not warn", () => {
-		expect(xdDevicesRetired("19.1.0")).toBe(true);
-		expect(xdDevicesRetired("20.0.0")).toBe(true);
+describe("loadXdGrammar", () => {
+	// omp 19.1.0's root: the devices and their grammar are gone.
+	const retiredRoot = async (): Promise<{ VERSION: string }> => ({
+		VERSION: "19.1.0",
 	});
 
-	test("an older or unknown omp still warns when the grammar is missing", () => {
-		expect(xdDevicesRetired("19.0.1")).toBe(false);
-		expect(xdDevicesRetired("18.18.9")).toBe(false);
-		expect(xdDevicesRetired(undefined)).toBe(false);
+	test("omp 19.1.0 and later, prereleases included, dropped xd:// devices, so the missing grammar does not warn", async () => {
+		for (const version of ["19.1.0", "19.1.0-beta.1", "20.0.0"]) {
+			const disabled: DisabledComponent[] = [];
+			expect(
+				await loadXdGrammar(version, retiredRoot, disabled),
+			).toBeUndefined();
+			expect(disabled).toEqual([]);
+		}
+	});
+
+	test("an older, unknown or malformed version still warns when the grammar is missing", async () => {
+		for (const version of ["19.0.1", "18.18.9", undefined, "", "dev"]) {
+			const disabled: DisabledComponent[] = [];
+			await loadXdGrammar(version, retiredRoot, disabled);
+			expect(disabled.map((entry) => entry.symbol)).toEqual(["parseXdUrl"]);
+		}
 	});
 });
