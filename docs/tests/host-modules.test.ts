@@ -9,6 +9,7 @@ import {
 	type DisabledComponent,
 	disabledComponentsWarning,
 	loadHostModule,
+	xdDevicesRetired,
 } from "../../.omp-plugin/host-modules";
 import pkg from "../../package.json";
 
@@ -137,5 +138,18 @@ describe("disabledComponentsWarning", () => {
 			`omp to ${pkg.engines.omp.replace(">=", "")} or later`,
 		);
 		expect(remedy).toContain(pkg.bugs.url);
+	});
+});
+
+describe("xdDevicesRetired", () => {
+	test("omp 19.1.0 and later dropped xd:// devices, so their missing grammar does not warn", () => {
+		expect(xdDevicesRetired("19.1.0")).toBe(true);
+		expect(xdDevicesRetired("20.0.0")).toBe(true);
+	});
+
+	test("an older or unknown omp still warns when the grammar is missing", () => {
+		expect(xdDevicesRetired("19.0.1")).toBe(false);
+		expect(xdDevicesRetired("18.18.9")).toBe(false);
+		expect(xdDevicesRetired(undefined)).toBe(false);
 	});
 });

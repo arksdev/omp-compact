@@ -128,6 +128,27 @@ const rootFeature = <K extends keyof typeof HostRoot & string>(
 ): Promise<Pick<typeof HostRoot, K> | undefined> =>
 	loadHostModule(component, HOST_ROOT, () => hostRoot, symbols);
 
+/** omp's `xd://` grammar, typed here: omp 19.1.0 no longer declares it. */
+type XdUrlParser = (input: string) => { name: string | null } | null;
+
+/** The omp release that replaced `xd://` devices with bash tool commands. */
+const XD_DEVICES_RETIRED_IN = "19.1.0";
+
+/**
+ * Whether an omp reporting `version` has no `xd://` devices, so the missing
+ * `parseXdUrl` turns nothing off. An unknown version counts as older.
+ */
+export function xdDevicesRetired(version: unknown): boolean {
+	return (
+		typeof version === "string" &&
+		Bun.semver.order(version, XD_DEVICES_RETIRED_IN) >= 0
+	);
+}
+
+// The xd:// check records into its own list: on an omp that retired the
+// devices, a missing `parseXdUrl` is expected and must not warn.
+const xdMissing: DisabledComponent[] = [];
+
 const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 	await Promise.all([
 		rootFeature("/compact-settings dialog", [
@@ -143,7 +164,13 @@ const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 			"rowsText",
 			"styledSpans",
 		]),
-		rootFeature("xd:// device rows", ["parseXdUrl"]),
+		loadHostModule(
+			"xd:// device rows",
+			HOST_ROOT,
+			(): Promise<{ VERSION: string; parseXdUrl?: XdUrlParser }> => hostRoot,
+			["parseXdUrl"],
+			xdMissing,
+		),
 		rootFeature("the transcript-presenters setting hint", [
 			"cfgExtensionTranscriptPresenters",
 		]),
@@ -151,6 +178,7 @@ const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
 			"unwrapHashlineHeaderPath",
 		]),
 	]);
+if (!xdDevicesRetired((await hostRoot).VERSION)) disabled.push(...xdMissing);
 
 /** What `/compact-settings` draws with: omp's settings-list chrome. */
 export interface SettingsDialogHost {
@@ -191,9 +219,9 @@ export const nativeSpans = spansRoot;
 /**
  * omp's `xd://` grammar, or `undefined`: a device write then reads as a
  * `write` of its `xd://` path, and its display choice is the `write` tool's.
+ * omp 19.1.0 and later have neither the grammar nor the devices.
  */
-export const parseXdUrl: typeof HostRoot.parseXdUrl | undefined =
-	xdRoot?.parseXdUrl;
+export const parseXdUrl: XdUrlParser | undefined = xdRoot?.parseXdUrl;
 
 /**
  * omp's transcript-presenters setting, or `undefined`: the plugin then cannot
