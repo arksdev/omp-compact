@@ -245,7 +245,7 @@ Most of what the plugin takes from omp comes through omp's extension API. It nee
 | --- | --- | --- |
 | `/compact-settings` dialog | `formTheme`, `editorKey`, `editorKeys`, `formatKeyHint`, `getSettingsListTheme`, `theme` | The command warns and opens nothing. The config file and the display-cycle shortcut still work. |
 | Styled compact rows and the clickable stats row | `compactText`, `rowsText`, `styledSpans` | Rows reach omp as plain text without colour. With `stats.style` set to `rows`, the stats row describes no native node, so omp draws its rendered line, and the Tern click that shows hidden calls is gone. The other styles build their nodes without these exports and keep the click. |
-| `xd://` device rows | `parseXdUrl` | A device write reads as `write: xd://<device>`, takes the `write` tool's display choice, and still records no evidence (see Device dispatches). |
+| `xd://` device rows | `parseXdUrl` | A device write reads as `write: xd://<device>`, takes the `write` tool's display choice, and still records no evidence (see Device dispatches). omp 19.1.0 replaced devices with bash tool commands and dropped the export, so from that version its absence disables nothing and does not warn. |
 | Transcript-presenters setting hint | `cfgExtensionTranscriptPresenters` | The plugin cannot tell whether the setting is off and shows no hint. |
 | Hashline header paths in the write audit | `unwrapHashlineHeaderPath` | A write addressed as `[path#TAG]` keeps that path, which names no file, so it gets no mutation evidence. |
 

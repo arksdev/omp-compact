@@ -9,6 +9,7 @@ import {
 	type DisabledComponent,
 	disabledComponentsWarning,
 	loadHostModule,
+	loadXdGrammar,
 } from "../../.omp-plugin/host-modules";
 import pkg from "../../package.json";
 
@@ -137,5 +138,30 @@ describe("disabledComponentsWarning", () => {
 			`omp to ${pkg.engines.omp.replace(">=", "")} or later`,
 		);
 		expect(remedy).toContain(pkg.bugs.url);
+	});
+});
+
+describe("loadXdGrammar", () => {
+	// omp 19.1.0's root: the devices and their grammar are gone.
+	const retiredRoot = async (): Promise<{ VERSION: string }> => ({
+		VERSION: "19.1.0",
+	});
+
+	test("omp 19.1.0 and later, prereleases included, dropped xd:// devices, so the missing grammar does not warn", async () => {
+		for (const version of ["19.1.0", "19.1.0-beta.1", "20.0.0"]) {
+			const disabled: DisabledComponent[] = [];
+			expect(
+				await loadXdGrammar(version, retiredRoot, disabled),
+			).toBeUndefined();
+			expect(disabled).toEqual([]);
+		}
+	});
+
+	test("an older, unknown or malformed version still warns when the grammar is missing", async () => {
+		for (const version of ["19.0.1", "18.18.9", undefined, "", "dev"]) {
+			const disabled: DisabledComponent[] = [];
+			await loadXdGrammar(version, retiredRoot, disabled);
+			expect(disabled.map((entry) => entry.symbol)).toEqual(["parseXdUrl"]);
+		}
 	});
 });
