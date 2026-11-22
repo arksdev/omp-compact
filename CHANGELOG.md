@@ -3,6 +3,19 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## Не выпущено / Unreleased
+
+### Исправлено
+
+- На OMP 19.1.0 и новее плагин больше не предупреждает, что «xd:// device rows» выключены. В OMP 19.1.0 устройства `xd://` заменены командами инструментов в bash, так что выключать нечего.
+
+---
+
+### Fixed
+
+- On OMP 19.1.0 and later the plugin no longer warns that "xd:// device rows" are off. OMP 19.1.0 replaced `xd://` devices with tool commands in bash, so nothing is lost.
+
+---
 ## 2.5.3 — 20 ноября 2026
 
 ### Изменено
