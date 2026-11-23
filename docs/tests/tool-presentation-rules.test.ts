@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { parseXdUrl } from "../../.omp-plugin/host-modules";
 import { genericToolDescription } from "../../.omp-plugin/compact";
 import {
 	describeTool,
@@ -138,12 +139,12 @@ describe("effective audit kind of one call", () => {
 		);
 		expect(
 			resolveToolAudit("write", { path: "xd://github", content: "{}" }),
-		).toBe("none");
+		).toBe(parseXdUrl ? "none" : "write");
 		expect(
 			resolveToolAudit("write", { path: "xd://resolve", content: "why" }),
-		).toBe("none");
+		).toBe(parseXdUrl ? "none" : "write");
 		expect(resolveToolAudit("write", { file_path: "xd://github" })).toBe(
-			"none",
+			parseXdUrl ? "none" : "write",
 		);
 	});
 
@@ -431,6 +432,15 @@ describe("existing tool descriptions", () => {
 	});
 
 	test("device write names the device and operation, not the transport path", () => {
+		if (!parseXdUrl) {
+			expect(
+				describeTool("write", {
+					path: "xd://github",
+					content: JSON.stringify({ op: "pr_create", title: "x" }),
+				}),
+			).toEqual({ title: "write", description: "xd://github", meta: [] });
+			return;
+		}
 		expect(
 			describeTool("write", {
 				path: "xd://github",
@@ -454,6 +464,7 @@ describe("existing tool descriptions", () => {
 	});
 
 	test("a device carrying no operation prints the device name alone", () => {
+		if (!parseXdUrl) return;
 		expect(
 			describeTool("write", {
 				path: "xd://ast_grep",
@@ -466,6 +477,7 @@ describe("existing tool descriptions", () => {
 	});
 
 	test("unparsable, oversized and array device content leave the name alone", () => {
+		if (!parseXdUrl) return;
 		for (const content of [
 			'{"op":',
 			"[1,2]",
@@ -496,6 +508,19 @@ describe("existing tool descriptions", () => {
 	});
 
 	test("text devices present as resolutions with their own title and color", () => {
+		if (!parseXdUrl) {
+			expect(
+				describeTool("write", {
+					path: "xd://resolve",
+					content: "applying staged edit",
+				}),
+			).toEqual({
+				title: "write",
+				description: "xd://resolve",
+				meta: [],
+			});
+			return;
+		}
 		expect(
 			describeTool("write", {
 				path: "xd://resolve",
@@ -986,6 +1011,7 @@ describe("tool-specific settled result metadata", () => {
 	});
 
 	test("device write confirms the operation from the dispatched args", () => {
+		if (!parseXdUrl) return;
 		const rule = TOOL_RULES.write;
 		const args = { path: "xd://github", content: "{}" };
 		expect(
@@ -1028,6 +1054,7 @@ describe("tool-specific settled result metadata", () => {
 	});
 
 	test("text device write reports the resolution action and its source", () => {
+		if (!parseXdUrl) return;
 		expect(
 			TOOL_RULES.write?.resultMeta?.(
 				{

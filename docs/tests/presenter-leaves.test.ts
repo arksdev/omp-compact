@@ -5,6 +5,7 @@
  */
 import { afterAll, afterEach, describe, expect, jest, test } from "bun:test";
 
+import { parseXdUrl } from "../../.omp-plugin/host-modules";
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
 import { STATS_MESSAGE_TYPE } from "../../.omp-plugin/run-stats";
 import {
@@ -495,7 +496,11 @@ stockDescribe("presenter: non-tool blocks", () => {
 		// omp's own one-row summary, not the plugin's label.
 		expect(text.slice(0, 2)).toEqual(["• grep", "• grep"]);
 		// A different title is news: the label stays.
-		expect(text.join("\n")).toContain("• github: pr_create");
+		if (parseXdUrl) {
+			expect(text.join("\n")).toContain("• github: pr_create");
+		} else {
+			expect(text.join("\n")).toContain("• Write · xd://github");
+		}
 
 		terminalView();
 		const plain = await boot("compact");

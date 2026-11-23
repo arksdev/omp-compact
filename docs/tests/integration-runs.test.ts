@@ -5,6 +5,7 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 
+import { parseXdUrl } from "../../.omp-plugin/host-modules";
 import {
 	addBlock,
 	beginRun,
@@ -532,6 +533,7 @@ stockDescribe("a logical run", () => {
 			}));
 
 		test("a device choice applies to writes to that device only", async () => {
+			if (!parseXdUrl) return;
 			const booted = await withTools("live", { github: "open" });
 			await beginRun(booted);
 			await runTool(booted, "x1", "write", {
