@@ -331,6 +331,7 @@ export class TranscriptPresenterState {
 					: "full";
 			}
 			case "async-result":
+			case "async-notify":
 			case "launch-completion": {
 				// The notice keeps the verdict of the run that produced it; one
 				// no run owns is earlier history and follows the current mode.
@@ -484,11 +485,22 @@ export class TranscriptPresenterState {
 	 */
 	#callFor(block: ToolCallBlock): CallRecord | undefined {
 		const ledger = this.#deps.ledger;
-		const known = ledger.call(block.id, block.args);
-		if (known) return known;
-		this.#deps.restore();
-		const restored = ledger.call(block.id, block.args);
-		if (restored) return restored;
+		let known = ledger.call(block.id, block.args);
+		if (!known) {
+			this.#deps.restore();
+			known = ledger.call(block.id, block.args);
+		}
+		if (
+			known &&
+			!(
+				ledger.active &&
+				known.run !== ledger.active &&
+				block.isPartial &&
+				block.result === undefined &&
+				(known.run.phase !== "working" || known.settledAt !== undefined)
+			)
+		)
+			return known;
 		const run = ledger.active;
 		if (run && block.id === "")
 			return { id: "", toolName: block.toolName, run, mutations: [] };

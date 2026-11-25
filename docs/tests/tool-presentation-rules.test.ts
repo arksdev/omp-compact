@@ -22,6 +22,7 @@ const CANONICAL_NAMES = [
 	"checkpoint",
 	"computer",
 	"context_notes",
+	"debug",
 	"edit",
 	"eval",
 	"find",
@@ -44,6 +45,7 @@ const CANONICAL_NAMES = [
 	"resolve",
 	"retain",
 	"rewind",
+	"security_scan",
 	"task",
 	"todo",
 	"vibe_kill",
@@ -104,6 +106,8 @@ describe("canonical routes and audit kinds", () => {
 			"reflect",
 			"learn",
 			"manage_skill",
+			"debug",
+			"security_scan",
 		]) {
 			expect(TOOL_RULES[name]?.route, name).toBe("compact");
 		}

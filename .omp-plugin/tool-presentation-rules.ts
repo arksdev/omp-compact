@@ -227,6 +227,12 @@ export const TOOL_RULES: Readonly<
 			"none",
 			genericDescribe("manage_skill"),
 		),
+		debug: presentationRule("compact", "none", genericDescribe("debug")),
+		security_scan: presentationRule(
+			"compact",
+			"none",
+			genericDescribe("security_scan"),
+		),
 	}) as Partial<Record<string, ToolPresentationRule>>,
 );
 

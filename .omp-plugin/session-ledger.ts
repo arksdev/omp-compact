@@ -563,7 +563,12 @@ export class SessionLedger {
 					const call = this.#calls
 						.get(message.toolCallId)
 						?.findLast((known) => known.run.restored);
-					if (call) call.settledAt ??= this.#now();
+					const settledAt =
+						typeof message.timestamp === "number" &&
+						Number.isFinite(message.timestamp)
+							? message.timestamp
+							: this.#now();
+					if (call) call.settledAt ??= settledAt;
 					cut = forked;
 				}
 				continue;

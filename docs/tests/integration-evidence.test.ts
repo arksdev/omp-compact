@@ -244,6 +244,51 @@ stockDescribe("evidence after the answer", () => {
 		await dispatch(booted, { type: "agent_start" });
 		await endTool(booted, block, "b1", "bash", commit("abc1234", "late"));
 		expect(rows(booted)).not.toContain("abc1234");
+		expect(booted.appendedEntries).toEqual([]);
+	});
+
+	test("edit completing after a branch switch or missed end appends no entries", async () => {
+		const cwd = workspace();
+		const booted = await boot("live", { cwd });
+		await beginRun(booted);
+		const editArgs = {
+			path: join(cwd, "a.ts"),
+			edits: [{ op: "update", diff: "@@ -1 +1 @@\n-a\n+b\n" }],
+		};
+		const block = await startTool(booted, "e1", "edit", editArgs);
+		await dispatch(booted, { type: "session_tree" });
+		await endTool(booted, block, "e1", "edit", {
+			...textResult("ok"),
+			details: {
+				diff: "@@ -1 +1 @@\n-a\n+b\n",
+				perFileResults: [
+					{
+						path: join(cwd, "a.ts"),
+						op: "update",
+						diff: "@@ -1 +1 @@\n-a\n+b\n",
+					},
+				],
+			},
+		});
+		expect(booted.appendedEntries).toEqual([]);
+		await beginRun(booted);
+		const lateEdit = await startTool(booted, "e2", "edit", editArgs);
+		// Missed agent_end before the next agent_start supersedes the open run.
+		await beginRun(booted);
+		await endTool(booted, lateEdit, "e2", "edit", {
+			...textResult("ok"),
+			details: {
+				diff: "@@ -1 +1 @@\n-a\n+b\n",
+				perFileResults: [
+					{
+						path: join(cwd, "a.ts"),
+						op: "update",
+						diff: "@@ -1 +1 @@\n-a\n+b\n",
+					},
+				],
+			},
+		});
+		expect(booted.appendedEntries).toEqual([]);
 	});
 	test("write completing after switching away from the issuing branch appends no off-branch entry", async () => {
 		const cwd = workspace();

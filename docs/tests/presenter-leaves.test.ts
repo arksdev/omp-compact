@@ -460,6 +460,42 @@ stockDescribe("presenter: non-tool blocks", () => {
 			expect(rows(booted).includes("server"), mode).toBe(shown);
 		}
 	});
+	test("async-notify follows the active run and current mode", async () => {
+		terminalView();
+		const live = await boot("live");
+		await dispatch(live, { type: "agent_start" });
+		await runTool(live, "c1", "grep", { pattern: "needle" });
+		present(
+			live,
+			notice("Background output job-1 · 2 lines"),
+			live.host.messageBlock(
+				custom("async-notify", {
+					reports: [{ id: "job-1", lines: ["a", "b"], omitted: 0 }],
+				}),
+			),
+		);
+		expect(rows(live)).toContain("job-1");
+		await answer(live);
+		expect(rows(live)).not.toContain("job-1");
+
+		for (const [mode, shown] of [
+			["compact", true],
+			["live", false],
+			["clear", false],
+		] as const) {
+			const booted = await boot(mode);
+			present(
+				booted,
+				notice("Background output job-2 · 1 line"),
+				booted.host.messageBlock(
+					custom("async-notify", {
+						reports: [{ id: "job-2", lines: ["x"], omitted: 0 }],
+					}),
+				),
+			);
+			expect(rows(booted).includes("job-2"), mode).toBe(shown);
+		}
+	});
 
 	test("the stats message carries a marker, not the stats line", async () => {
 		terminalView();

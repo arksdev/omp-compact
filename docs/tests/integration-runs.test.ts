@@ -333,6 +333,29 @@ stockDescribe("a logical run", () => {
 		expect(rows(booted)).toBe("");
 	});
 
+	test("a streaming block with a repeated tool id draws as the open run before tool_execution_start", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		await runTool(booted, "call_0", "grep", { pattern: "first" });
+		await endRun(booted);
+		expect(rows(booted)).toBe("");
+
+		await beginRun(booted);
+		// Stream the new block before tool_execution_start arrives.
+		const block = addBlock(booted, "call_0", "grep", { pattern: "second" });
+		expect(rows(booted)).toContain("grep: second");
+		await dispatch(booted, {
+			type: "tool_execution_start",
+			toolCallId: "call_0",
+			toolName: "grep",
+			args: { pattern: "second" },
+		});
+		await endTool(booted, block, "call_0", "grep");
+		expect(rows(booted)).toContain("grep: second");
+		await endRun(booted);
+		expect(rows(booted)).toBe("");
+	});
+
 	test("an unknown tool gets omp's one-row summary in every mode and phase", async () => {
 		for (const mode of ["live", "compact", "clear"] as const) {
 			const booted = await boot(mode);

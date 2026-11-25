@@ -384,4 +384,49 @@ stockDescribe("history", () => {
 		// No run is open: the call keeps its row rather than vanishing.
 		expect(rows(booted)).toContain("grep: stray");
 	});
+	test("restored vibe cards replay against the toolResult timestamp", async () => {
+		const branch = [
+			user,
+			toolCall("v1", "vibe_wait", {}),
+			{
+				type: "message",
+				message: {
+					role: "toolResult",
+					toolCallId: "v1",
+					timestamp: 10_000,
+				},
+			},
+			{ type: "message", message: assistant("done") },
+		];
+		const booted = await boot("compact", { branch });
+		const block = addBlock(booted, "v1", "vibe_wait", {});
+		block.updateResult(
+			{
+				...textResult("ok"),
+				details: {
+					op: "wait",
+					screens: [
+						{
+							id: "w1",
+							name: "worker",
+							cli: "fast",
+							state: "idle",
+							lastActivity: "boom",
+							lastActivityAt: 9_100,
+							turnStartedAt: 5_000,
+						},
+					],
+					wait: {
+						settled: [{ id: "w1", jobId: "j1", status: "failed" }],
+						stillRunning: [],
+						timedOut: false,
+					},
+				},
+				isError: false,
+			},
+			false,
+			"v1",
+		);
+		expect(rows(booted)).toContain("turn failed — result delivered");
+	});
 });

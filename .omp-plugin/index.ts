@@ -364,6 +364,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	 * restored calls, in case it drew them before the plugin knew them.
 	 */
 	function reloadHistory(): void {
+		auditLifecycle.dispose();
 		presenter.reset();
 		ledger.invalidateHistory();
 		refresh(restoreHistory());
@@ -550,8 +551,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		const run = ledger.beginRun(() => modePolicy.prepareRun());
 		// A run whose terminal `agent_end` never came was just finalized: its
 		// blocks, an open skill card among them, take their final view.
-		if (previous && previous !== run)
+		if (previous && previous !== run) {
+			auditLifecycle.dispose();
 			refresh([...previous.calls.map((call) => call.id), ...previous.leaves]);
+		}
 		runStats.start();
 	});
 
@@ -566,10 +569,12 @@ export default function ompCompact(pi: ExtensionAPI): void {
 
 	listen("tool_execution_start", async (event, context) => {
 		runStats.recordTool(event.toolCallId);
+		const hadPrior = ledger.call(event.toolCallId, event.args) !== undefined;
 		const call = ledger.startCall(event.toolCallId, event.toolName, event.args);
 		if (!call?.run.mode.enabled) return;
 		const replaced = presenter.replacedLiveCard(call);
 		if (replaced) refresh([replaced]);
+		if (hadPrior && replaced !== event.toolCallId) refresh([event.toolCallId]);
 		// Audit routing follows the presentation registry: every unregistered
 		// tool, non-mutating tool, or `xd://` device dispatch riding the write
 		// transport resolves to "none" (no evidence).
