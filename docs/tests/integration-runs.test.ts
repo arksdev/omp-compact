@@ -3,8 +3,9 @@
  * the answer or an abort/error at its end, in each display mode, with
  * settings that change while it runs and tool ids that repeat.
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 
+import { AuditLifecycle } from "../../.omp-plugin/audit-lifecycle";
 import { parseXdUrl } from "../../.omp-plugin/host-modules";
 import {
 	addBlock,
@@ -546,5 +547,22 @@ stockDescribe("a logical run", () => {
 			expect(text).toContain("xd://github");
 			expect(text).not.toContain("lsp");
 		});
+	});
+
+	test("an audit barrier timeout still finalizes the run", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		await runTool(booted, "g1", "grep", { pattern: "first" });
+		expect(rows(booted)).toContain("grep: first");
+		const barrier = spyOn(
+			AuditLifecycle.prototype,
+			"barrier",
+		).mockResolvedValueOnce(false);
+		try {
+			await endRun(booted);
+		} finally {
+			barrier.mockRestore();
+		}
+		expect(rows(booted)).toBe("");
 	});
 });

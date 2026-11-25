@@ -713,8 +713,10 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		);
 		const generation = statsGeneration;
 		if (phase !== "working")
-			void link.then(() => {
+			void link.then((settled) => {
 				if (generation !== statsGeneration) return;
+				if (!settled && run && ledger.finalizeRun(run, phase))
+					refresh([...run.calls.map((call) => call.id), ...run.leaves]);
 				// Sent only once the session is idle: a `nextTurn` message sent
 				// while it still reports busy stays hidden until the next turn.
 				idle.push(

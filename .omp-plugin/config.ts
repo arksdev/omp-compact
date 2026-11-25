@@ -1101,37 +1101,37 @@ export function createSettingsStore(
 		patch: CompactSettingsPatch,
 		options: { explicit?: boolean } = {},
 	): Promise<CompactSettings> {
-		if (!loaded) await load();
-		// Merge on top of the PERSISTED layer: a save expresses the user's
-		// requested values and must not bake environment overrides into the
-		// config file. Callers that save back the EFFECTIVE snapshot they were
-		// handed get the patch stripped of values that merely echo a hard env
-		// override (see `omitEnvEchoes`) — otherwise the leaf diff below would
-		// mistake a forced value for a user edit. An explicit patch was built
-		// from the persisted layer, so it carries no echoes to strip.
-		const requested = options.explicit ? patch : omitEnvEchoes(patch);
-		const merged: Record<string, unknown> = {
-			...persisted,
-			// Skip undefined keys in the patch so they don't overwrite persisted
-			// values; the stats group gets the same treatment.
-			...omitUndefinedValues(requested),
-			stats: { ...persisted.stats, ...omitUndefinedValues(patch.stats) },
-		};
-		const { settings: desired, invalid } = normalizeWithDiagnostics(
-			merged,
-			warn,
-		);
-		if (invalid.length > 0) {
-			throw new Error(
-				`omp-compact: invalid settings update (${invalid.join(", ")}); nothing was saved`,
-			);
-		}
-		// Only the leaf fields this save actually changes relative to
-		// this store's snapshot are written. The bounded in-process queue keeps
-		// reread and atomic rename ordered for Promise.all callers; a same-field
-		// conflict still resolves by queue/rename order (last successful writer).
-		const leafPatch = deriveLeafPatch(persisted, desired);
 		const next = await withUpdateQueue(path, async () => {
+			if (!loaded) await load();
+			// Merge on top of the PERSISTED layer: a save expresses the user's
+			// requested values and must not bake environment overrides into the
+			// config file. Callers that save back the EFFECTIVE snapshot they were
+			// handed get the patch stripped of values that merely echo a hard env
+			// override (see `omitEnvEchoes`) — otherwise the leaf diff below would
+			// mistake a forced value for a user edit. An explicit patch was built
+			// from the persisted layer, so it carries no echoes to strip.
+			const requested = options.explicit ? patch : omitEnvEchoes(patch);
+			const merged: Record<string, unknown> = {
+				...persisted,
+				// Skip undefined keys in the patch so they don't overwrite persisted
+				// values; the stats group gets the same treatment.
+				...omitUndefinedValues(requested),
+				stats: { ...persisted.stats, ...omitUndefinedValues(patch.stats) },
+			};
+			const { settings: desired, invalid } = normalizeWithDiagnostics(
+				merged,
+				warn,
+			);
+			if (invalid.length > 0) {
+				throw new Error(
+					`omp-compact: invalid settings update (${invalid.join(", ")}); nothing was saved`,
+				);
+			}
+			// Only the leaf fields this save actually changes relative to
+			// this store's snapshot are written. The bounded in-process queue keeps
+			// reread, diffing, and atomic rename ordered for Promise.all callers; a
+			// same-field conflict resolves by queue/rename order (last successful writer).
+			const leafPatch = deriveLeafPatch(persisted, desired);
 			// Re-read immediately before the atomic rename and apply only this
 			// leaf patch. A genuinely missing file falls back to defaults; an
 			// existing file that cannot be read, parsed, or validated fails
@@ -1173,17 +1173,17 @@ export function createSettingsStore(
 				);
 			}
 			await persistText(mergedText);
-			return mergedSettings;
+			appliedSnapshot = ++nextSnapshot;
+			persisted = cloneAndFreeze(mergedSettings);
+			current = cloneAndFreeze(applyEnvOverrides(mergedSettings));
+			return current;
 		});
-		appliedSnapshot = ++nextSnapshot;
-		persisted = cloneAndFreeze(next);
-		current = cloneAndFreeze(applyEnvOverrides(next));
 		// Post-commit: the file and snapshots are already authoritative. A
 		// throwing subscriber must not make the save look failed or skip later
 		// listeners. Failures are warn-once by class (never by Error.message).
 		for (const fn of [...subscribers]) {
 			try {
-				fn(current);
+				fn(next);
 			} catch {
 				warnOnce(
 					"subscriber",
@@ -1191,7 +1191,7 @@ export function createSettingsStore(
 				);
 			}
 		}
-		return current;
+		return next;
 	}
 
 	function snapshot(): CompactSettings {

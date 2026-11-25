@@ -1806,6 +1806,19 @@ describe("concurrent stores (E02 leaf-field merge)", () => {
 		await rm(reverse, { recursive: true, force: true });
 	});
 
+	test("concurrent same-store revert on the same field keeps the later update", async () => {
+		const dir = await tempDir();
+		const { store } = storeAt(dir);
+		await store.load();
+		await Promise.all([
+			store.update({ mode: "compact" }),
+			store.update({ mode: "live" }),
+		]);
+		expect(store.snapshot().mode).toBe("live");
+		expect((await readStored(dir)).mode).toBe("live");
+		await rm(dir, { recursive: true, force: true });
+	});
+
 	test("nested same-field conflict follows the same last-writer policy", async () => {
 		const dir = await tempDir();
 		const { a, b } = await twoStores(dir);
