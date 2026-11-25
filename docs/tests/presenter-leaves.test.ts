@@ -560,4 +560,32 @@ stockDescribe("presenter: non-tool blocks", () => {
 		await runTool(plain, "c1", "read", { path: "src.txt" });
 		expect(visibleRows(plain.transcript)).toContain("• read src.txt");
 	});
+	test("session_switch clears remembered advisor block ids", async () => {
+		const booted = await boot("compact", { compactAdvisorNotes: true });
+		const details = { notes: [{ note: "remembered once" }] };
+		const block = booted.host.messageBlock(custom("advisor", details)) as {
+			id: string;
+		};
+		expect(block.id).toBeString();
+		present(
+			booted,
+			booted.host.createAdvisorMessageCard(
+				details,
+				() => false,
+				booted.context.ui.theme,
+			),
+			block,
+		);
+		// Render once so the presenter observes and records block.id.
+		visibleRows(booted.transcript);
+		const refreshed: string[] = [];
+		const originalRefresh = booted.context.ui.refreshTranscript;
+		booted.context.ui.refreshTranscript = (ids) => {
+			refreshed.push(...ids);
+			originalRefresh(ids);
+		};
+		await dispatch(booted, { type: "session_switch", reason: "new" });
+		await booted.shortcuts.get("alt+c")?.(booted.context);
+		expect(refreshed).not.toContain(block.id);
+	});
 });

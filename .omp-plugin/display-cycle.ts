@@ -233,8 +233,10 @@ export function describeShortcutConflict(
  */
 export function validateDisplayCycleKey(key: string): string | undefined {
 	if (key.length === 0) return "shortcut must not be empty";
-	const parts = key.toLowerCase().split("+");
-	const base = parts[parts.length - 1] ?? "";
+	const lower = key.toLowerCase();
+	const plusBase = lower.endsWith("++");
+	const parts = (plusBase ? lower.slice(0, -1) : lower).split("+");
+	const base = plusBase ? "+" : (parts[parts.length - 1] ?? "");
 	const modifiers = parts.slice(0, -1);
 	if (modifiers.length === 0) return "shortcut needs a modifier, e.g. alt+c";
 	const seen = new Set<string>();

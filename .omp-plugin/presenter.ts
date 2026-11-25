@@ -230,6 +230,11 @@ export class TranscriptPresenterState {
 		return [...this.#advisorIds];
 	}
 
+	/** Forget remembered advisor block ids across session or branch resets. */
+	reset(): void {
+		this.#advisorIds.clear();
+	}
+
 	/**
 	 * The label's head: in Tern's native view the block's stock title leads
 	 * the label, so a row leaves out the same word.

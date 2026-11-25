@@ -332,7 +332,7 @@ export async function captureWriteCandidate(
 	);
 	// Keep the existing asynchronous capture boundary after the synchronous
 	// pre-image; native completion must follow the start handler's return.
-	if (candidate) await canonicalPath(candidate.absolutePath);
+	if (candidate) await Promise.resolve();
 	return candidate;
 }
 
@@ -393,13 +393,13 @@ function captureFileCandidate(
 				? resolve(linkTarget)
 				: resolve(dirname(absolutePath), linkTarget);
 			const destinationCanonical = canonicalPathSync(destination);
-			if (acceptTarget?.(destinationCanonical) === false) return undefined;
 			const rootCanonical = canonicalPathSync(rootPath);
 			if (!isPathInsideRoot(destinationCanonical, rootCanonical)) {
 				// Outside destination: never read pre-image, never claim
 				// empty-before creation (dangling or live).
 				return undefined;
 			}
+			if (acceptTarget?.(destinationCanonical) === false) return undefined;
 			snapshotCanonical = destinationCanonical;
 			// Probe destination existence without opening content.
 			let destExistsAsFile = false;
@@ -441,9 +441,9 @@ function captureFileCandidate(
 			// /tmp→/private/tmp and symlinked worktrees need matching
 			// canonical roots (session cwd realpath covers the common case).
 			const pathCanonical = canonicalPathSync(absolutePath);
-			if (acceptTarget?.(pathCanonical) === false) return undefined;
 			const rootCanonical = canonicalPathSync(rootPath);
 			if (!isPathInsideRoot(pathCanonical, rootCanonical)) return undefined;
+			if (acceptTarget?.(pathCanonical) === false) return undefined;
 			if (!readBefore) return undefined;
 			const text = boundedTextSync(absolutePath);
 			if (text === undefined) return undefined;
@@ -574,7 +574,10 @@ export function captureEditCandidates(input: AuditCaptureInput): EditCapture {
 		typeof args.path === "string"
 			? [args.path]
 			: typeof args.input === "string"
-				? editPathsFromInput(args.input)
+				? editPathsFromInput(args.input, {
+						maxPaths: MAX_PER_FILE_RESULTS,
+						maxChars: MAX_TOTAL_SCAN_BYTES,
+					})
 				: [];
 	let readBefore = typeof args.input === "string";
 	if (Array.isArray(args.edits)) {

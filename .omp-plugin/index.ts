@@ -22,7 +22,7 @@ import {
 	type ShortcutConflictLike,
 } from "./display-cycle";
 import { resolveSessionCwd } from "./display-path";
-import { formatGitRecords, recognizeGitCommands } from "./git-records";
+import { formatGitRecords, hasGitCommands } from "./git-records";
 import {
 	cfgExtensionTranscriptPresenters,
 	disabledComponents,
@@ -134,16 +134,10 @@ function writeSource(
 	toolCallId: string,
 	sourceEntryId?: string,
 ): string | undefined {
-	const manager = context.sessionManager;
-	if (sourceEntryId)
-		return writeSourceEntryId(manager.getEntry(sourceEntryId), toolCallId) ===
-			sourceEntryId
-			? sourceEntryId
-			: undefined;
-	const branch = manager.getBranch();
+	const branch = context.sessionManager.getBranch();
 	for (let index = branch.length - 1; index >= 0; index--) {
 		const source = writeSourceEntryId(branch[index], toolCallId);
-		if (source) return source;
+		if (source && (!sourceEntryId || source === sourceEntryId)) return source;
 	}
 	return undefined;
 }
@@ -177,6 +171,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	 * row read it.
 	 */
 	let session: ExtensionContext | undefined;
+	let sessionGeneration = 0;
 
 	// Where the plugin's warnings go. A session with UI gets a notification;
 	// a session without one logs to the host file log, because a subagent
@@ -369,6 +364,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	 * restored calls, in case it drew them before the plugin knew them.
 	 */
 	function reloadHistory(): void {
+		presenter.reset();
 		ledger.invalidateHistory();
 		refresh(restoreHistory());
 	}
@@ -500,16 +496,20 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	}
 
 	function dispose(): void {
+		sessionGeneration++;
 		dropPendingStats();
 		auditLifecycle.dispose();
 		modePolicy.dispose();
 		runStats.dispose();
 		ledger.reset();
+		presenter.reset();
 	}
 
 	listen("session_start", async (_event, context) => {
 		dispose();
+		const generation = sessionGeneration;
 		await modePolicy.ready();
+		if (generation !== sessionGeneration) return;
 		reloadHistory();
 		hintPresenterSetting(context);
 		if (!hostChecked) {
@@ -531,7 +531,9 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		// A fork keeps the in-memory conversation and never rebuilds it.
 		if (event.reason === "fork") return;
 		dispose();
+		const generation = sessionGeneration;
 		await modePolicy.ready();
+		if (generation !== sessionGeneration) return;
 		reloadHistory();
 	});
 	listen("session_before_switch", () => dropPendingStats());
@@ -599,7 +601,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 			}
 			case "git-bash": {
 				const command = objectRecord(event.args).command;
-				if (typeof command === "string" && recognizeGitCommands(command))
+				if (typeof command === "string" && hasGitCommands(command))
 					auditLifecycle.startSync(event.toolCallId, { command });
 				break;
 			}

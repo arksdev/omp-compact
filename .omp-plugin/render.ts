@@ -129,19 +129,6 @@ export interface CompactToolView {
 	git?: GitMessageDetails;
 }
 
-export class CompactLines implements Component {
-	readonly #lines: readonly string[];
-
-	constructor(lines: readonly string[]) {
-		this.#lines = lines;
-	}
-
-	render(width: number): readonly string[] {
-		const safeWidth = Math.max(1, width);
-		return this.#lines.map((line) => truncateToWidth(line, safeWidth));
-	}
-}
-
 function resultText(result: unknown): string {
 	const content = record(result).content;
 	if (!Array.isArray(content)) return "";
@@ -772,5 +759,12 @@ export function gitMessageComponent(
 	details: GitMessageDetails | undefined,
 	theme: Theme,
 ): Component | undefined {
-	return details ? new CompactLines(gitRecordRows(details, theme)) : undefined;
+	if (!details) return undefined;
+	const lines = gitRecordRows(details, theme);
+	return {
+		render(width) {
+			const safeWidth = Math.max(1, width);
+			return lines.map((line) => truncateToWidth(line, safeWidth));
+		},
+	};
 }

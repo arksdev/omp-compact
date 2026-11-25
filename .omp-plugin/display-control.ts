@@ -58,7 +58,7 @@ export function stripRejectedControls(value: string): string {
  * introducer and drops the text after it (`ok\x9B中😀` → `ok`). Here a stray
  * C1 is a control that `stripRejectedControls` drops, and the text stays.
  */
-function stripAnsi(value: string): string {
+export function stripAnsi(value: string): string {
 	let result = "";
 	let segStart = 0;
 	for (let index = 0; index < value.length; ) {

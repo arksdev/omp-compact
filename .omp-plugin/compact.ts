@@ -80,10 +80,20 @@ export function listValue(
 		: [];
 }
 
-export function editPathsFromInput(input: string): string[] {
+export interface EditPathsOptions {
+	maxPaths?: number;
+	maxChars?: number;
+}
+
+export function editPathsFromInput(
+	input: string,
+	options?: EditPathsOptions,
+): string[] {
+	const maxPaths = options?.maxPaths ?? 8;
+	const maxChars = options?.maxChars ?? 16_384;
 	const seen = new Set<string>();
 	const paths: string[] = [];
-	const bounded = input.slice(0, 16_384);
+	const bounded = input.slice(0, maxChars);
 	const addPath = (path: string): void => {
 		if (!seen.has(path)) {
 			seen.add(path);
@@ -99,7 +109,7 @@ export function editPathsFromInput(input: string): string[] {
 				? header.slice(0, tagStart)
 				: header;
 		addPath(path);
-		if (paths.length >= 8) return paths;
+		if (paths.length >= maxPaths) return paths;
 	}
 	// Header scans stay on one line and stay linear: `[^\S\r\n]` is
 	// whitespace that is not a line break, and a path ends on a non-space
@@ -111,7 +121,7 @@ export function editPathsFromInput(input: string): string[] {
 		const path = match[1];
 		if (!path) continue;
 		addPath(path);
-		if (paths.length >= 8) break;
+		if (paths.length >= maxPaths) break;
 	}
 	// Sloppy-edit payloads: 18.3.0 opens a file with `*** Edit File: <path>`,
 	// hosts up to 18.2.11 spelled the same opener `*** SM:EDIT <path>`. A bare
@@ -125,7 +135,7 @@ export function editPathsFromInput(input: string): string[] {
 		const path = unquoteHeaderPath(stripMatchAllModifier(raw));
 		if (!path) continue;
 		addPath(path);
-		if (paths.length >= 8) break;
+		if (paths.length >= maxPaths) break;
 	}
 	return paths;
 }

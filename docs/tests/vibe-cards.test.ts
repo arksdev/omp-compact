@@ -1839,3 +1839,54 @@ describe("vibe-cards settlement evidence integrity", () => {
 		);
 	});
 });
+
+describe("vibe-cards bounded payload limits", () => {
+	test("spawn/send rows without width cap oversized prompts and turn messages", () => {
+		const huge = "x".repeat(5_000);
+		const spawnRows = vibeCardsModule.renderCompactVibeRows(
+			{
+				op: "spawn",
+				isPartial: true,
+				tick: 0,
+				now: 1_000,
+				args: { name: "worker-1", prompt: huge },
+			},
+			fakeTheme(),
+		);
+		const plainSpawn = stripAnsi(spawnRows.join("\n"));
+		expect(plainSpawn.length).toBeLessThan(1_000);
+
+		const sendRows = vibeCardsModule.renderCompactVibeRows(
+			{
+				op: "send",
+				isPartial: true,
+				tick: 0,
+				now: 1_000,
+				args: { session: "worker-1", message: huge },
+			},
+			fakeTheme(),
+		);
+		expect(stripAnsi(sendRows.join("\n")).length).toBeLessThan(1_000);
+	});
+
+	test("unpackVibeToolDetails bounds oversized screens list and screen text fields", () => {
+		const huge = "y".repeat(5_000);
+		const screens = Array.from({ length: 200 }, (_, i) => ({
+			id: `w-${i}`,
+			state: "running",
+			turnMessage: huge,
+			lastActivity: huge,
+		}));
+		const unpacked = vibeCardsModule.unpackVibeToolDetails({
+			op: "list",
+			screens,
+		});
+		expect(unpacked?.screens.length).toBeLessThanOrEqual(64);
+		expect((unpacked?.screens[0]?.turnMessage ?? "").length).toBeLessThan(
+			1_000,
+		);
+		expect((unpacked?.screens[0]?.lastActivity ?? "").length).toBeLessThan(
+			1_000,
+		);
+	});
+});

@@ -910,4 +910,14 @@ describe("commit messages and commands with newlines", () => {
 			{ subcommand: "commit", gated: false },
 		]);
 	});
+
+	test("strips OSC hyperlinks and sequences from git result text", () => {
+		const formatted = formatGitRecords({
+			command: "git status",
+			resultText:
+				"\x1b]8;;https://example.com\x07On branch main\x1b]8;;\x07\x1b]0;title\x1b\\",
+			isError: false,
+		});
+		expect(formatted?.[0]?.text).toBe("git status On branch main");
+	});
 });

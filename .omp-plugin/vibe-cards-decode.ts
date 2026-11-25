@@ -4,6 +4,17 @@
  * throws, no host calls. The renderer (vibe-cards-render.ts) consumes
  * these shapes as its typed input.
  */
+import { truncateCodePoints } from "./compact";
+
+const MAX_VIBE_SCREENS = 64;
+const MAX_VIBE_LIST = 64;
+const MAX_VIBE_TEXT = 512;
+
+function boundedText(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	return trimmed ? truncateCodePoints(trimmed, MAX_VIBE_TEXT) : undefined;
+}
 
 /** CLI execution mode of a worker session. */
 export type VibeCli = "fast" | "good";
@@ -89,7 +100,7 @@ function sanitizeScreenSnapshot(
 		return undefined;
 	}
 	const rec = candidate as Record<string, unknown>;
-	const id = typeof rec.id === "string" ? rec.id.trim() : "";
+	const id = boundedText(rec.id);
 	if (!id) return undefined;
 
 	const cli: VibeCli = rec.cli === "good" ? "good" : "fast";
@@ -121,42 +132,30 @@ function sanitizeScreenSnapshot(
 			? rec.lastActivityAt
 			: 0;
 
-	const model =
-		typeof rec.model === "string" && rec.model.trim()
-			? rec.model.trim()
-			: undefined;
+	const model = boundedText(rec.model);
 	const turnStartedAt =
 		typeof rec.turnStartedAt === "number" &&
 		Number.isFinite(rec.turnStartedAt) &&
 		rec.turnStartedAt > 0
 			? rec.turnStartedAt
 			: undefined;
-	const turnMessage =
-		typeof rec.turnMessage === "string" && rec.turnMessage.trim()
-			? rec.turnMessage.trim()
-			: undefined;
-	const currentTool =
-		typeof rec.currentTool === "string" && rec.currentTool.trim()
-			? rec.currentTool.trim()
-			: undefined;
-	const currentToolArgs =
-		typeof rec.currentToolArgs === "string" && rec.currentToolArgs.trim()
-			? rec.currentToolArgs.trim()
-			: undefined;
-	const lastIntent =
-		typeof rec.lastIntent === "string" && rec.lastIntent.trim()
-			? rec.lastIntent.trim()
-			: undefined;
-	const lastActivity =
-		typeof rec.lastActivity === "string" && rec.lastActivity.trim()
-			? rec.lastActivity.trim()
-			: undefined;
+	const turnMessage = boundedText(rec.turnMessage);
+	const currentTool = boundedText(rec.currentTool);
+	const currentToolArgs = boundedText(rec.currentToolArgs);
+	const lastIntent = boundedText(rec.lastIntent);
+	const lastActivity = boundedText(rec.lastActivity);
 
 	const trace = Array.isArray(rec.trace)
-		? rec.trace.filter((s): s is string => typeof s === "string")
+		? rec.trace
+				.filter((s): s is string => typeof s === "string")
+				.slice(0, MAX_VIBE_LIST)
+				.map((s) => truncateCodePoints(s, MAX_VIBE_TEXT))
 		: [];
 	const outputTail = Array.isArray(rec.outputTail)
-		? rec.outputTail.filter((s): s is string => typeof s === "string")
+		? rec.outputTail
+				.filter((s): s is string => typeof s === "string")
+				.slice(0, MAX_VIBE_LIST)
+				.map((s) => truncateCodePoints(s, MAX_VIBE_TEXT))
 		: [];
 
 	return {
@@ -215,6 +214,7 @@ export function unpackVibeToolDetails(
 
 		const screens: VibeScreenSnapshot[] = [];
 		for (const item of candidate.screens) {
+			if (screens.length >= MAX_VIBE_SCREENS) break;
 			const sanitized = sanitizeScreenSnapshot(item);
 			if (sanitized) screens.push(sanitized);
 		}
@@ -268,6 +268,7 @@ export function unpackVibeToolDetails(
 			const settled: VibeWaitSettled[] = [];
 			if (Array.isArray(w.settled)) {
 				for (const item of w.settled) {
+					if (settled.length >= MAX_VIBE_LIST) break;
 					if (item && typeof item === "object" && !Array.isArray(item)) {
 						const entry = item as Record<string, unknown>;
 						if (
@@ -288,7 +289,9 @@ export function unpackVibeToolDetails(
 			}
 
 			const stillRunning = Array.isArray(w.stillRunning)
-				? w.stillRunning.filter((s): s is string => typeof s === "string")
+				? w.stillRunning
+						.filter((s): s is string => typeof s === "string")
+						.slice(0, MAX_VIBE_LIST)
 				: [];
 
 			wait = {
@@ -314,7 +317,9 @@ export function unpackVibeToolDetails(
 			}
 		}
 		const hiddenKilled = Array.isArray(candidate.hiddenKilled)
-			? candidate.hiddenKilled.filter((s): s is string => typeof s === "string")
+			? candidate.hiddenKilled
+					.filter((s): s is string => typeof s === "string")
+					.slice(0, MAX_VIBE_LIST)
 			: undefined;
 
 		return {

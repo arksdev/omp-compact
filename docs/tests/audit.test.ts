@@ -37,12 +37,21 @@ interface WriteCandidate {
 }
 
 interface AuditModule {
-	captureWriteCandidate(input: {
+	captureWriteCandidate(
+		input: {
+			toolCallId: string;
+			args: unknown;
+			cwd: string;
+			root?: string;
+		},
+		acceptTarget?: (target: string) => boolean,
+	): Promise<WriteCandidate | undefined>;
+	captureEditCandidates(input: {
 		toolCallId: string;
 		args: unknown;
 		cwd: string;
 		root?: string;
-	}): Promise<WriteCandidate | undefined>;
+	}): { candidates: Map<string, WriteCandidate> };
 	completeWriteCandidate(
 		candidate: WriteCandidate | undefined,
 		result: unknown,
@@ -2690,6 +2699,50 @@ const { spawnSync } = require("node:child_process");
 			expect(JSON.parse(stdout)).toEqual([]);
 		} finally {
 			await cleanup();
+		}
+	});
+
+	test("captureEditCandidates captures more than 8 Add File targets and past 16 KiB", async () => {
+		const { cwd, cleanup } = await stage();
+		try {
+			const sections = Array.from({ length: 12 }, (_, i) => {
+				const pad = i === 0 ? "x".repeat(17_000) : "y";
+				return `*** Add File: file-${i}.txt\n+${pad}\n`;
+			}).join("");
+			const capture = auditModule.captureEditCandidates({
+				toolCallId: "edit-many-creates",
+				args: { input: sections },
+				cwd,
+			});
+			expect(capture.candidates.size).toBe(12);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("captureWriteCandidate does not call acceptTarget for an existing file outside root", async () => {
+		const { cwd, cleanup } = await stage();
+		const { cwd: outsideDir, cleanup: cleanupOutside } = await stage();
+		try {
+			const outsideFile = join(outsideDir, "outside.txt");
+			await writeFile(outsideFile, "secret\n");
+			const seen: string[] = [];
+			const candidate = await auditModule.captureWriteCandidate(
+				{
+					toolCallId: "outside-accept",
+					args: { path: outsideFile, content: "x" },
+					cwd,
+				},
+				(target) => {
+					seen.push(target);
+					return true;
+				},
+			);
+			expect(candidate).toBeUndefined();
+			expect(seen).toEqual([]);
+		} finally {
+			await cleanup();
+			await cleanupOutside();
 		}
 	});
 });

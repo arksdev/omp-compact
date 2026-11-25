@@ -7,7 +7,9 @@ import { afterAll, describe, expect, spyOn, test } from "bun:test";
 
 import { AuditLifecycle } from "../../.omp-plugin/audit-lifecycle";
 import { parseXdUrl } from "../../.omp-plugin/host-modules";
+import { ModePolicy } from "../../.omp-plugin/mode-policy";
 import {
+	assistant,
 	addBlock,
 	beginRun,
 	boot,
@@ -564,5 +566,54 @@ stockDescribe("a logical run", () => {
 			barrier.mockRestore();
 		}
 		expect(rows(booted)).toBe("");
+	});
+	test("stale session_switch resolving after session_shutdown does not reload or refresh", async () => {
+		const booted = await boot("live", {
+			branch: [
+				{ type: "message", message: { role: "user", content: "go" } },
+				{
+					type: "message",
+					message: {
+						role: "assistant",
+						stopReason: "toolUse",
+						content: [
+							{
+								type: "toolCall",
+								id: "stale-call",
+								name: "grep",
+								arguments: { pattern: "x" },
+							},
+						],
+					},
+				},
+				{
+					type: "message",
+					message: { role: "toolResult", toolCallId: "stale-call" },
+				},
+				{ type: "message", message: assistant("done") },
+			],
+		});
+		const deferred = Promise.withResolvers<void>();
+		const ready = spyOn(ModePolicy.prototype, "ready").mockImplementationOnce(
+			() => deferred.promise,
+		);
+		const refreshCalls: string[][] = [];
+		const originalRefresh = booted.context.ui.refreshTranscript;
+		booted.context.ui.refreshTranscript = (ids) => {
+			refreshCalls.push([...ids]);
+			originalRefresh(ids);
+		};
+		try {
+			const pendingSwitch = dispatch(booted, {
+				type: "session_switch",
+				reason: "new",
+			});
+			await dispatch(booted, { type: "session_shutdown" });
+			deferred.resolve();
+			await pendingSwitch;
+			expect(refreshCalls).toEqual([]);
+		} finally {
+			ready.mockRestore();
+		}
 	});
 });

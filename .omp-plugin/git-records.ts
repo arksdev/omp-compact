@@ -1,5 +1,5 @@
 import { codePointLength, truncateCodePoints } from "./compact";
-import { isRejectedControlCode } from "./display-control";
+import { isRejectedControlCode, stripAnsi } from "./display-control";
 import { MAX_GIT_SUBCOMMAND_LENGTH } from "./messages";
 
 export interface GitEvidence {
@@ -549,13 +549,9 @@ export function recognizeGitCommands(
 	}));
 }
 
-function skipEscapeSequence(value: string, index: number): number {
-	if (value.charCodeAt(index + 1) !== 0x5b) return index;
-	for (let cursor = index + 2; cursor < value.length; cursor++) {
-		const code = value.charCodeAt(cursor);
-		if (code >= 0x40 && code <= 0x7e) return cursor;
-	}
-	return value.length;
+/** Fast predicate for whether a command is a recognized chained Git invocation. */
+export function hasGitCommands(command: string): boolean {
+	return parseGitChain(command) !== undefined;
 }
 
 /**
@@ -567,18 +563,15 @@ function skipEscapeSequence(value: string, index: number): number {
  * render's multi-line path, which keeps those structural breaks.
  */
 function oneLine(value: string, limit = MAX_RECORD_LENGTH): string {
+	const clean = value.includes("\x1b") ? stripAnsi(value) : value;
 	const parts: string[] = [];
 	let length = 0;
 	let pendingSpace = false;
-	for (let index = 0; index < value.length && length < limit; ) {
-		const unit = value.charCodeAt(index);
-		if (unit === 0x1b) {
-			index = skipEscapeSequence(value, index) + 1;
-			continue;
-		}
+	for (let index = 0; index < clean.length && length < limit; ) {
+		const unit = clean.charCodeAt(index);
 		// Advance by code point so astral pairs stay intact and the class
 		// check never sees a lone high surrogate as a separate character.
-		const code = value.codePointAt(index) ?? unit;
+		const code = clean.codePointAt(index) ?? unit;
 		const width = code > 0xffff ? 2 : 1;
 		// Shared rejected class, plus TAB/LF/CR/space which oneLine collapses
 		// (row shaping — render keeps those structural breaks instead).
@@ -595,7 +588,7 @@ function oneLine(value: string, limit = MAX_RECORD_LENGTH): string {
 			length++;
 			pendingSpace = false;
 		}
-		parts.push(value.slice(index, index + width));
+		parts.push(clean.slice(index, index + width));
 		length++;
 		index += width;
 	}

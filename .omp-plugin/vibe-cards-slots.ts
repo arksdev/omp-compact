@@ -14,10 +14,11 @@ import { formatDuration } from "./format-duration";
 
 const MAX_ID_CODE_POINTS = 24;
 const MAX_MODEL_CODE_POINTS = 16;
+const MAX_VIBE_TEXT = 512;
 
-/** Sanitize arbitrary input to a single clean line, without a length budget. */
+/** Sanitize arbitrary input to a single clean, bounded line. */
 export function sanitizeText(value: unknown): string {
-	return sanitizeOneLine(value, Number.POSITIVE_INFINITY);
+	return sanitizeOneLine(value, MAX_VIBE_TEXT);
 }
 
 export function renderBadge(

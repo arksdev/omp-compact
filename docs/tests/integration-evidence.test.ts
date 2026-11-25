@@ -245,4 +245,30 @@ stockDescribe("evidence after the answer", () => {
 		await endTool(booted, block, "b1", "bash", commit("abc1234", "late"));
 		expect(rows(booted)).not.toContain("abc1234");
 	});
+	test("write completing after switching away from the issuing branch appends no off-branch entry", async () => {
+		const cwd = workspace();
+		const path = join(cwd, "branched.txt");
+		const booted = await boot("live", { cwd });
+		const originalGetEntry = booted.context.sessionManager.getEntry;
+		const offBranch = new Map<string, unknown>();
+		booted.context.sessionManager.getEntry = (id) =>
+			originalGetEntry(id) ?? offBranch.get(id);
+
+		await beginRun(booted);
+		const args = { path, content: "a\n" };
+		issueWrite(booted, "w1", args);
+		const block = await startTool(booted, "w1", "write", args);
+		// Simulate switching to another branch where entry-w1 is off-branch
+		// (still reachable via getEntry, absent from getBranch).
+		const issued = booted.branch.pop();
+		offBranch.set("entry-w1", issued);
+		writeFileSync(path, args.content);
+		await endTool(booted, block, "w1", "write", wrote(path));
+		await endRun(booted);
+		expect(
+			booted.appendedEntries.filter(
+				(e) => e.customType === MUTATION_MESSAGE_TYPE,
+			),
+		).toEqual([]);
+	});
 });

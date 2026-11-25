@@ -125,4 +125,14 @@ describe("display cycle: canonical spelling is the host's press identity", () =>
 		expect(canonicalize("alt+return")).toBe("alt+enter");
 		expect(validateDisplayCycleKey("alt+esc")).toBeUndefined();
 	});
+
+	test("plus (+) as base key agrees with the host and passes validation", () => {
+		expect(canonicalize("ctrl++")).toBe(canonicalKeyId("ctrl++"));
+		expect(validateDisplayCycleKey("ctrl++")).toBeUndefined();
+		expect(validateDisplayCycleKey("alt++")).toBeUndefined();
+		expect(validateDisplayCycleKey("ctrl+alt++")).toBeUndefined();
+		expect(isDisplayCycleKey("ctrl++")).toBe(true);
+		expect(validateDisplayCycleKey("++")).toBeDefined();
+		expect(validateDisplayCycleKey("ctrl+++")).toBeDefined();
+	});
 });
