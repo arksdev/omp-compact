@@ -9,10 +9,11 @@ import type { Component } from "@oh-my-pi/pi-tui";
 import { genericToolDescription } from "./compact";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
 import { fitTransparentLine } from "./fit-transparent-line";
-import type {
-	GitMessageDetails,
-	LegacyMutationMessageDetails,
-	MutationMessageDetails,
+import {
+	type GitMessageDetails,
+	isGitMessageDetails,
+	type LegacyMutationMessageDetails,
+	type MutationMessageDetails,
 } from "./messages";
 import { objectRecord as record } from "./object-record";
 import { MAX_DESCRIPTION, sanitizeOneLine } from "./display-control";
@@ -21,13 +22,13 @@ import {
 	resolveToolRule,
 	type ToolPresentationRule,
 } from "./tool-presentation-rules";
+import type { VibeOp } from "./vibe-cards-decode";
+import { unpackVibeToolDetails } from "./vibe-cards-decode";
 import {
 	type CompactVibeView,
-	renderCompactVibeRows,
-	unpackVibeToolDetails,
-	type VibeOp,
 	pendingFrame,
-} from "./vibe-cards";
+	renderCompactVibeRows,
+} from "./vibe-cards-render";
 
 export { sanitizeOneLine } from "./display-control";
 
@@ -750,21 +751,27 @@ export function mutationMessageComponent(
 	details: MutationMessageDetails | LegacyMutationMessageDetails | undefined,
 	theme: Theme,
 ): Component | undefined {
-	return details
-		? { render: (width) => mutationRows(details, theme, undefined, width) }
-		: undefined;
+	if (
+		!details ||
+		typeof details !== "object" ||
+		typeof details.toolName !== "string" ||
+		details.toolName.length === 0 ||
+		typeof details.path !== "string" ||
+		details.path.length === 0
+	)
+		return undefined;
+	return { render: (width) => mutationRows(details, theme, undefined, width) };
 }
 
 export function gitMessageComponent(
 	details: GitMessageDetails | undefined,
 	theme: Theme,
 ): Component | undefined {
-	if (!details) return undefined;
+	if (!isGitMessageDetails(details)) return undefined;
 	const lines = gitRecordRows(details, theme);
 	return {
 		render(width) {
-			const safeWidth = Math.max(1, width);
-			return lines.map((line) => truncateToWidth(line, safeWidth));
+			return lines.map((line) => fitTransparentLine(line, width));
 		},
 	};
 }

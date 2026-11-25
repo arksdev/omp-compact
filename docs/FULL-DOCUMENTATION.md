@@ -440,9 +440,9 @@ Renderer отвечает за строки. `AuditLifecycle` отвечает �
 | `turn-ledger.ts` | Классификация `agent_end` и terminal phases. |
 | `audit.ts`, `audit-diff.ts`, `audit-lifecycle.ts` | Bounded file-mutation evidence и async lifecycle. |
 | `git-records.ts` | Conservative Git command/result classification. |
-| `vibe-cards.ts`, `vibe-cards-decode.ts`, `vibe-cards-render.ts`, `vibe-cards-slots.ts` | Compact rows для параллельных worker sessions. |
+| `vibe-cards-decode.ts`, `vibe-cards-render.ts`, `vibe-cards-slots.ts` | Compact rows для параллельных worker sessions. |
 | `config.ts`, `mode-policy.ts` | Persistent config и immutable run snapshot. |
-| `settings-ui.ts`, `settings-dialog.ts`, `save-flow.ts`, `cycle-handler.ts` | Settings dialog на `SettingsList` OMP, display cycle и сохранение. |
+| `settings-dialog.ts`, `save-flow.ts`, `cycle-handler.ts` | Settings dialog на `SettingsList` OMP, display cycle и сохранение. |
 | `host-api.ts` | Структурные host API типы и регистрация command/shortcut. |
 | `host-modules.ts` | Необязательная загрузка helpers OMP из корневого экспорта `@oh-my-pi/pi-coding-agent` и реестр отключённых компонентов. |
 | `run-stats.ts` | Usage aggregation, persisted evidence и stats row. |

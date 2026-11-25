@@ -1,12 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { Theme } from "../../.omp-plugin/theme-types";
 import { formatDuration } from "@oh-my-pi/pi-utils";
-import { pendingFrame } from "../../.omp-plugin/vibe-cards";
 import type {
-	CompactVibeView,
 	VibeScreenSnapshot,
 	VibeToolDetails,
-} from "../../.omp-plugin/vibe-cards";
+} from "../../.omp-plugin/vibe-cards-decode";
+import {
+	type CompactVibeView,
+	pendingFrame,
+} from "../../.omp-plugin/vibe-cards-render";
 import { loadStockPlugin } from "./test-stock-host";
 
 interface VibeCardsModule {
@@ -21,10 +23,20 @@ interface VibeCardsModule {
 let vibeCardsModule: VibeCardsModule;
 
 beforeAll(async () => {
-	vibeCardsModule = await loadStockPlugin<VibeCardsModule>(
-		"vibe-cards.ts",
-		"vibe-cards-test",
-	);
+	const [render, decode] = await Promise.all([
+		loadStockPlugin<Pick<VibeCardsModule, "renderCompactVibeRows">>(
+			"vibe-cards-render.ts",
+			"vibe-cards-render-test",
+		),
+		loadStockPlugin<Pick<VibeCardsModule, "unpackVibeToolDetails">>(
+			"vibe-cards-decode.ts",
+			"vibe-cards-decode-test",
+		),
+	]);
+	vibeCardsModule = {
+		renderCompactVibeRows: render.renderCompactVibeRows,
+		unpackVibeToolDetails: decode.unpackVibeToolDetails,
+	};
 });
 
 function fakeTheme(): Theme {

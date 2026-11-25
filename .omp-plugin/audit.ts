@@ -32,13 +32,6 @@ import {
 	MAX_PER_FILE_RESULTS,
 	MAX_TOTAL_SCAN_BYTES,
 } from "./audit-diff";
-export {
-	completeEditMutations,
-	DIFF_MAX_REMAINING_LINES,
-	lineCount,
-	trimmedMiddleLines,
-} from "./audit-diff";
-export { isPathInsideRoot } from "./path-inside-root";
 
 const URI_SCHEME = /^[a-z][a-z0-9+.-]*:\/\//i;
 const COMPOUND_FILE_TARGET =
@@ -71,9 +64,6 @@ export interface MutationCandidate {
 
 /** Synchronous lifecycle admission, before any pre-image bytes are read. */
 export type WriteTargetObserver = (canonicalPath: string) => boolean;
-
-// isPathInsideRoot lives in path-inside-root.ts (shared with config path
-// acceptance). Re-exported above for existing audit callers/tests.
 
 /**
  * Canonical form of a target path that stays stable across the write:
@@ -235,7 +225,6 @@ async function boundedText(path: string): Promise<string | undefined> {
 		const stats = await handle.stat();
 		if (!stats.isFile()) return undefined;
 		const size = stats.size;
-		if (size > SNAPSHOT_MAX_BYTES) return undefined;
 		const buffer = await readExactAsync(handle, size);
 		if (buffer === undefined) return undefined;
 		const text = buffer.toString("utf8", 0, size);

@@ -41,6 +41,18 @@ function pathList(
 	return selected.map((path) => displayPathValue(path, displayPaths));
 }
 
+function parseTransport(
+	rawPath: string,
+): { kind: "proc" | "agent"; description: string } | undefined {
+	if (!rawPath) return undefined;
+	const lower = rawPath.toLowerCase();
+	if (lower.startsWith("proc://"))
+		return { kind: "proc", description: rawPath.slice(7) || "/" };
+	if (lower.startsWith("agent://"))
+		return { kind: "agent", description: rawPath.slice(8) || "/" };
+	return undefined;
+}
+
 export function describeRead(
 	args: unknown,
 	displayPaths?: DisplayPathOptions,
@@ -54,17 +66,11 @@ export function describeRead(
 		const end = limit === undefined ? undefined : start + limit - 1;
 		description += `:${start}${end === undefined ? "" : `-${end}`}`;
 	}
-	if (description.toLowerCase().startsWith("proc://")) {
+	const transport = parseTransport(description);
+	if (transport) {
 		return {
-			title: "proc",
-			description: description.slice(7) || "/",
-			meta: [],
-		};
-	}
-	if (description.toLowerCase().startsWith("agent://")) {
-		return {
-			title: "agent",
-			description: description.slice(8) || "/",
+			title: transport.kind,
+			description: transport.description,
 			meta: [],
 		};
 	}
@@ -156,12 +162,9 @@ export function writeDeviceName(
 export function transportTargetOf(
 	value: Record<string, unknown>,
 ): "proc" | "agent" | undefined {
-	const path = stringValue(value, "path") || stringValue(value, "file_path");
-	if (!path) return undefined;
-	const scheme = path.toLowerCase();
-	if (scheme.startsWith("proc://")) return "proc";
-	if (scheme.startsWith("agent://")) return "agent";
-	return undefined;
+	return parseTransport(
+		stringValue(value, "path") || stringValue(value, "file_path"),
+	)?.kind;
 }
 
 /**
@@ -234,23 +237,15 @@ export function describeWrite(
 			meta: [],
 		};
 	}
-	const rawPath = stringValue(value, "path") || stringValue(value, "file_path");
-	if (rawPath) {
-		const lower = rawPath.toLowerCase();
-		if (lower.startsWith("proc://")) {
-			return {
-				title: "proc",
-				description: rawPath.slice(7) || "/",
-				meta: [],
-			};
-		}
-		if (lower.startsWith("agent://")) {
-			return {
-				title: "agent",
-				description: rawPath.slice(8) || "/",
-				meta: [],
-			};
-		}
+	const transport = parseTransport(
+		stringValue(value, "path") || stringValue(value, "file_path"),
+	);
+	if (transport) {
+		return {
+			title: transport.kind,
+			description: transport.description,
+			meta: [],
+		};
 	}
 	return {
 		title: "write",

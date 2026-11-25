@@ -349,6 +349,15 @@ describe("resolveConfigPath", () => {
 		);
 	});
 
+	test("empty string HOME falls back to USERPROFILE or homedir", () => {
+		expect(resolveConfigPath({ HOME: "", USERPROFILE: "/home/winuser" })).toBe(
+			"/home/winuser/.omp/agent/omp-compact/config.json",
+		);
+		expect(resolveConfigPath({ HOME: "" })).toBe(
+			`${process.env.HOME}/.omp/agent/omp-compact/config.json`,
+		);
+	});
+
 	test("rejects a profile token with a path separator and falls back", () => {
 		expect(
 			resolveConfigPath({

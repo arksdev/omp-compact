@@ -5,10 +5,12 @@ import { join } from "node:path";
 
 import {
 	type CompactSettings,
+	type CompactSettingsStore,
 	createSettingsStore,
 	DEFAULT_SETTINGS,
 	type EnvOverrides,
 } from "../../.omp-plugin/config";
+import { cycleDisplayState } from "../../.omp-plugin/cycle-handler";
 import {
 	type CycleTheme,
 	DEFAULT_DISPLAY_CYCLE_KEY,
@@ -18,15 +20,15 @@ import {
 	validateDisplayCycleKey,
 } from "../../.omp-plugin/display-cycle";
 import {
-	type CompactSettingsStore,
-	cycleDisplayState,
 	chooseSettingsCommandName,
-	notifySaveOutcome,
 	registerDisplayCycleShortcut,
 	registerSettingsCommand,
+} from "../../.omp-plugin/host-api";
+import {
+	notifySaveOutcome,
 	type SaveOutcome,
 	saveSettingsFlow,
-} from "../../.omp-plugin/settings-ui";
+} from "../../.omp-plugin/save-flow";
 
 function stripAnsi(value: string): string {
 	return Bun.stripANSI(value);

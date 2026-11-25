@@ -259,7 +259,7 @@ export function resolveConfigPath(
 	env: EnvLike,
 	options: ResolveConfigPathOptions = {},
 ): string {
-	const home = env.HOME ?? env.USERPROFILE ?? homedir();
+	const home = env.HOME || env.USERPROFILE || homedir();
 	const cwd = options.cwd ?? process.cwd();
 	const explicit = env.OMP_COMPACT_CONFIG;
 	if (explicit) {

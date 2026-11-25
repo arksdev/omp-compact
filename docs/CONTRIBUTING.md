@@ -152,7 +152,6 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/render.ts` — row construction only
 - `.omp-plugin/tool-presentation-rules.ts` — rules registry (routes, aliases, shapes, lookups) only
 - `.omp-plugin/tool-rule-describers.ts` — rule description behavior (describe/resultMeta, devices, hub mirror) only
-- `.omp-plugin/vibe-cards.ts` — re-export entry point only (decode/render split)
 - `.omp-plugin/vibe-cards-decode.ts` — defensive decoding of untrusted vibe payloads only
 - `.omp-plugin/vibe-cards-render.ts` — worker-session row rendering only
 - `.omp-plugin/vibe-cards-slots.ts` — slot formatters only
@@ -160,7 +159,6 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/save-flow.ts` — settings save flow only
 - `.omp-plugin/cycle-handler.ts` — display-cycle keypress handling only
 - `.omp-plugin/settings-dialog.ts` — settings dialog on OMP's `SettingsList` only
-- `.omp-plugin/settings-ui.ts` — re-export entry point only (logic lives in the settings modules)
 
 **Avoid circular dependencies.** Import tree flows downward:
 ```
@@ -181,9 +179,7 @@ index.ts
       → native-text.ts
   → audit-lifecycle.ts / audit.ts / git-records.ts
   → run-stats.ts / idle-queue.ts
-  → settings-ui.ts             # re-export entry point
-      → host-api.ts
-      → save-flow.ts / cycle-handler.ts / settings-dialog.ts
+  → host-api.ts / save-flow.ts / cycle-handler.ts / settings-dialog.ts
 ```
 
 `host-modules.ts` sits below every module that needs an omp host helper: `native-text.ts`, `tool-rule-describers.ts`, `audit.ts`, `settings-dialog.ts` and `index.ts`. It imports no plugin module.
@@ -378,7 +374,7 @@ describe("my_new_tool", () => {
 
 3. Add the name to `CANONICAL_NAMES` in `docs/tests/tool-presentation-rules.test.ts`. That list is the registry inventory, and the suite asserts the registry holds exactly it — a new rule fails the gate until the inventory grows with it. Widen the bounded coverage lists in the same file (for example the closed name list in "no other rule carries result metadata") when the new rule belongs in them.
 
-4. No other changes are needed for an ordinary compact row: decision tables use registry lookup. A tool that needs its own row grammar rather than a `title: description` summary also gets a branch in `render.ts` ahead of the generic rule lookup, the way the `vibe_*` worker-session tools resolve through `vibe-cards.ts`. Without any rule a tool still gets omp's own one-row summary.
+4. No other changes are needed for an ordinary compact row: decision tables use registry lookup. A tool that needs its own row grammar rather than a `title: description` summary also gets a branch in `render.ts` ahead of the generic rule lookup, the way the `vibe_*` worker-session tools resolve through `vibe-cards-render.ts`. Without any rule a tool still gets omp's own one-row summary.
 
 ### Adding a New Display Mode
 

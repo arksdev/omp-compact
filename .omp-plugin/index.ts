@@ -11,10 +11,10 @@ import {
 	captureEditCandidates,
 	captureWriteCandidate,
 	completeEditCreateCandidate,
-	completeEditMutations,
 	completeWriteCandidate,
 	releaseEditCandidates,
 } from "./audit";
+import { completeEditMutations } from "./audit-diff";
 import { AuditLifecycle } from "./audit-lifecycle";
 import { createSettingsStore, readDisplayCycleKeySync } from "./config";
 import {
@@ -56,12 +56,12 @@ import {
 	statsNode,
 } from "./run-stats";
 import { SessionLedger } from "./session-ledger";
+import { cycleDisplayState } from "./cycle-handler";
 import {
-	cycleDisplayState,
 	registerDisplayCycleShortcut,
 	registerSettingsCommand,
-	runSettingsSession,
-} from "./settings-ui";
+} from "./host-api";
+import { runSettingsSession } from "./settings-dialog";
 import { resolveToolAudit } from "./tool-presentation-rules";
 import { classifyAgentEnd } from "./turn-ledger";
 import { defaultWarn } from "./warn-sink";
@@ -314,7 +314,6 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	// One settings snapshot per logical run, captured at agent_start; settings
 	// changes (incl. global disable) apply at the next run boundary.
 	const modePolicy = new ModePolicy(settingsStore);
-	modePolicy.prime();
 
 	const ledger = new SessionLedger({
 		restoredMode: () => modePolicy.historical(),

@@ -792,6 +792,60 @@ describe("mutation and Git rows stay transparent", () => {
 		expect(stripAnsi(lines[0] ?? "").length).toBeLessThanOrEqual(20);
 		expect(lines[0]).not.toContain("\x1b[48;");
 	});
+
+	test("legacy git message component rejects malformed details and resets fg on truncation", () => {
+		for (const malformed of [
+			undefined,
+			null,
+			{},
+			{
+				version: 1,
+				toolCallId: "g1",
+				subcommand: "commit",
+				text: "git commit abc1234",
+				isError: false,
+				records: [null],
+			},
+		]) {
+			expect(
+				gitMessageComponent(
+					malformed as unknown as GitMessageDetails | undefined,
+					fakeTheme(),
+				),
+			).toBeUndefined();
+		}
+		const component = gitMessageComponent(
+			{
+				version: 1,
+				toolCallId: "g1",
+				subcommand: "commit",
+				text: "git commit abc1234 very-long-subject-line",
+				isError: false,
+			},
+			fakeTheme(),
+		);
+		const lines = component?.render(15) ?? [];
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toEndWith("\x1b[39m");
+	});
+
+	test("legacy mutation message component rejects malformed details", () => {
+		for (const malformed of [
+			undefined,
+			null,
+			{},
+			{ toolName: "write" },
+			{ path: "a.ts" },
+			{ toolName: "", path: "a.ts" },
+		]) {
+			expect(
+				renderModule.mutationMessageComponent(
+					malformed as unknown as MutationMessageDetails | undefined,
+					fakeTheme(),
+				),
+			).toBeUndefined();
+		}
+	});
 });
 
 describe("delete mutation rows", () => {
