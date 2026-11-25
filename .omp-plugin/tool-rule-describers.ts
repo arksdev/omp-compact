@@ -551,12 +551,33 @@ export function describeTodo(args: unknown): ToolDescription {
 			: [];
 	const parts = ops.slice(0, TODO_OPS_SHOWN).map((op) => {
 		const words = [stringValue(op, "op") || "update"];
-		for (const key of ["task", "phase"]) {
-			const value = stringValue(op, key);
-			if (value) words.push(value);
+		const task = stringValue(op, "task");
+		if (task) {
+			words.push(task);
+		} else if (Array.isArray(op.task)) {
+			const tasks = op.task.filter(
+				(item): item is string => typeof item === "string" && item.length > 0,
+			);
+			if (tasks.length > 0) {
+				words.push(
+					tasks.length <= 2
+						? tasks.join(", ")
+						: `${tasks[0]} +${tasks.length - 1}`,
+				);
+			}
 		}
-		if (Array.isArray(op.items) && op.items.length > 0)
-			words.push(`${op.items.length} item${op.items.length === 1 ? "" : "s"}`);
+		const phase = stringValue(op, "phase");
+		if (phase) words.push(phase);
+		const itemCount = Array.isArray(op.items)
+			? op.items.length
+			: Array.isArray(op.list)
+				? op.list.reduce((sum, group) => {
+						const items = record(group).items;
+						return sum + (Array.isArray(items) ? items.length : 0);
+					}, 0)
+				: 0;
+		if (itemCount > 0)
+			words.push(`${itemCount} item${itemCount === 1 ? "" : "s"}`);
 		return words.join(" ");
 	});
 	const rest = ops.length - TODO_OPS_SHOWN;

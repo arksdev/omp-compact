@@ -33,10 +33,10 @@ export const MAX_GIT_SUBCOMMAND_LENGTH = 128;
  * Per-carrier Git record rows; mirrors the git-records command-chain budget
  * (MAX_COMMANDS = 8).
  */
-export const MAX_GIT_RECORDS = 8;
+const MAX_GIT_RECORDS = 8;
 
 /** Mutation added/removed counts (real diff line counts). */
-export const MAX_MUTATION_COUNT = 10_000_000;
+const MAX_MUTATION_COUNT = 10_000_000;
 
 /**
  * Mutation evidence carriers retained per call. Each persisted carrier is

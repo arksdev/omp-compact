@@ -39,14 +39,14 @@ export function toolDisplayKey(toolName: string, device?: string): string {
  * (`ask`) need their card to answer, and the vibe tools have their own
  * `compactVibeRows` switch.
  */
-export function isConfigurableTool(key: string): boolean {
+function isConfigurableTool(key: string): boolean {
 	return (
 		resolveToolRule(key)?.route !== "native-live" &&
 		!normalizeToolName(key).startsWith("vibe_")
 	);
 }
 
-export function defaultToolDisplay(key: string): ToolDisplay {
+function defaultToolDisplay(key: string): ToolDisplay {
 	const route = resolveToolRule(key)?.route;
 	if (route === "native-live") return "open";
 	if (route === "live-card") return "newest";

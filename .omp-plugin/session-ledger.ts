@@ -261,6 +261,18 @@ export class SessionLedger {
 		);
 	}
 
+	/**
+	 * Whether `block` matches `call` in tool name and arguments (when known).
+	 * Used so an aborted un-resulted block from a finished run is not
+	 * mistaken for a new streaming call reusing the same id.
+	 */
+	matchesCall(call: CallRecord, toolName: string, args: unknown): boolean {
+		if (call.toolName !== toolName) return false;
+		if (!call.args) return false;
+		const hashes = argsHashes(args);
+		return hashes !== undefined && sameArgs(call.args, hashes);
+	}
+
 	/** The run its stats evidence names. */
 	run(id: string): RunRecord | undefined {
 		return this.#runs.get(id);

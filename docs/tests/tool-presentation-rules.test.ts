@@ -1252,6 +1252,21 @@ describe("live-card and task rows", () => {
 		expect(description("todo", { i: "Updating progress" })).toBe(
 			"Updating progress",
 		);
+		expect(
+			description("todo", {
+				op: "init",
+				list: [
+					{ phase: "P1", items: ["a", "b"] },
+					{ phase: "P2", items: ["c"] },
+				],
+			}),
+		).toBe("init 3 items");
+		expect(description("todo", { op: "done", task: ["t1", "t2"] })).toBe(
+			"done t1, t2",
+		);
+		expect(description("todo", { op: "done", task: ["t1", "t2", "t3"] })).toBe(
+			"done t1 +2",
+		);
 		const phases = [
 			{
 				tasks: [

@@ -22,6 +22,7 @@ import {
 	renameBlock,
 	rows,
 	runTool,
+	startTool,
 	stockDescribe,
 	textResult,
 } from "./integration-kit";
@@ -354,6 +355,24 @@ stockDescribe("a logical run", () => {
 		expect(rows(booted)).toContain("grep: second");
 		await endRun(booted);
 		expect(rows(booted)).toBe("");
+	});
+
+	test("an aborted un-resulted call stays in its own run when redrawn during a new run", async () => {
+		const booted = await boot("live");
+		await beginRun(booted);
+		const aborted = await startTool(booted, "call_aborted", "grep", {
+			pattern: "needle",
+		});
+		await endRun(booted, "aborted");
+		expect(rows(booted)).toContain("grep: needle");
+
+		// Re-query the un-resulted block (`isPartial: true, result: undefined`)
+		// while a new run is open, then settle the new run.
+		await beginRun(booted);
+		aborted.setExpanded(true);
+		aborted.setExpanded(false);
+		await endRun(booted);
+		expect(rows(booted)).toContain("grep: needle");
 	});
 
 	test("an unknown tool gets omp's one-row summary in every mode and phase", async () => {

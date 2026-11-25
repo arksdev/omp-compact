@@ -27,11 +27,11 @@ export type ToolDisplay = "rows" | "newest" | "open";
 export const TOOL_DISPLAYS: readonly ToolDisplay[] = ["rows", "newest", "open"];
 
 /** Longest tool name a display choice is stored for. */
-export const MAX_TOOL_DISPLAY_NAME = 128;
+const MAX_TOOL_DISPLAY_NAME = 128;
 /** Most per-tool display choices one config keeps. */
-export const MAX_TOOL_DISPLAY_ENTRIES = 256;
+const MAX_TOOL_DISPLAY_ENTRIES = 256;
 
-export function isToolDisplay(value: unknown): value is ToolDisplay {
+function isToolDisplay(value: unknown): value is ToolDisplay {
 	return value === "rows" || value === "newest" || value === "open";
 }
 
@@ -45,7 +45,7 @@ export function isToolDisplay(value: unknown): value is ToolDisplay {
 export const STATS_STYLES = ["rows", "text", "chips", "rule", "icons"] as const;
 export type StatsStyle = (typeof STATS_STYLES)[number];
 
-export function isStatsStyle(value: unknown): value is StatsStyle {
+function isStatsStyle(value: unknown): value is StatsStyle {
 	return STATS_STYLES.some((style) => style === value);
 }
 
@@ -62,7 +62,7 @@ export interface CompactStatsSettings {
 
 /** Current persisted schema version. Every writer stamps it (update guard);
  * read accepts only this value (normalize guard). */
-export const SCHEMA_VERSION = 1 as const;
+const SCHEMA_VERSION = 1 as const;
 
 export interface CompactSettings {
 	version: 1;
@@ -136,7 +136,7 @@ function readConfigSync(path: string): string {
 }
 
 /** Bounded UTF-8 config text: the default reader of the settings store. */
-export async function readSettingsText(
+async function readSettingsText(
 	path: string,
 	encoding: "utf8",
 ): Promise<string> {
@@ -888,7 +888,7 @@ interface WarnOnce {
  * dedup state for callers whose sink lifetime is shorter than the module's
  * (e.g. a sink disposed between warning opportunities).
  */
-export function createWarnOnce(warn: (message: string) => void): WarnOnce {
+function createWarnOnce(warn: (message: string) => void): WarnOnce {
 	const warned = new Set<string>();
 	const warnOnce = (key: string, message: string): void => {
 		if (warned.has(key)) return;

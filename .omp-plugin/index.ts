@@ -364,6 +364,7 @@ export default function ompCompact(pi: ExtensionAPI): void {
 	 * restored calls, in case it drew them before the plugin knew them.
 	 */
 	function reloadHistory(): void {
+		dropPendingStats();
 		auditLifecycle.dispose();
 		presenter.reset();
 		ledger.invalidateHistory();

@@ -497,7 +497,8 @@ export class TranscriptPresenterState {
 				known.run !== ledger.active &&
 				block.isPartial &&
 				block.result === undefined &&
-				(known.run.phase !== "working" || known.settledAt !== undefined)
+				(known.run.phase !== "working" || known.settledAt !== undefined) &&
+				!ledger.matchesCall(known, block.toolName, block.args)
 			)
 		)
 			return known;

@@ -127,6 +127,7 @@ stockDescribe("the stats row", () => {
 		"session_before_switch",
 		"session_before_tree",
 		"session_before_branch",
+		"session_compact",
 	]) {
 		test(`${type} drops a row still waiting for idle`, async () => {
 			const booted = await boot("live", { stats: true });
@@ -143,18 +144,20 @@ stockDescribe("the stats row", () => {
 		});
 	}
 
-	test("a drain that resolves after the session ended queues no row", async () => {
-		const booted = await boot("live", { stats: true });
-		booted.context.isIdle = () => true;
-		await beginRun(booted);
-		await runTool(booted, "g1", "grep", { pattern: "first" });
-		await usage(booted, 100);
-		const ended = endRun(booted);
-		await dispatch(booted, { type: "session_shutdown" });
-		await ended;
-		waitForIdlePoll();
-		expect(statsSent(booted)).toEqual([]);
-	});
+	for (const type of ["session_shutdown", "session_compact"] as const) {
+		test(`a drain that resolves after ${type} queues no row`, async () => {
+			const booted = await boot("live", { stats: true });
+			booted.context.isIdle = () => true;
+			await beginRun(booted);
+			await runTool(booted, "g1", "grep", { pattern: "first" });
+			await usage(booted, 100);
+			const ended = endRun(booted);
+			await dispatch(booted, { type });
+			await ended;
+			waitForIdlePoll();
+			expect(statsSent(booted)).toEqual([]);
+		});
+	}
 
 	test("the evidence names one of its run's calls", async () => {
 		const booted = await boot("live", { stats: true });

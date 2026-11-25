@@ -20,7 +20,7 @@ export const STATS_MESSAGE_TYPE = "omp-compact-stats";
  * anything reading session messages directly sees no stats to quote.
  */
 export const STATS_MESSAGE_CONTENT = "[omp-compact turn stats]";
-export const STATS_EVIDENCE_VERSION = 1;
+const STATS_EVIDENCE_VERSION = 1;
 
 /**
  * Bounds for persisted evidence and aggregation sanity. The row is a summary
@@ -30,7 +30,7 @@ export const STATS_EVIDENCE_VERSION = 1;
 export const MAX_STATS_ACTIONS = 1_000_000;
 export const MAX_STATS_TOKENS = 1e12;
 export const MAX_STATS_DURATION_MS = 2 ** 53 - 1;
-export const MAX_STATS_RUN_ID_LENGTH = 128;
+const MAX_STATS_RUN_ID_LENGTH = 128;
 
 export interface RunStatsResult {
 	/**

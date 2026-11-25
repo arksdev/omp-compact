@@ -16,6 +16,8 @@
  * emoji and CJK extension B stay intact.
  */
 
+import { codePointLength, truncateCodePoints } from "./compact";
+
 /**
  * True when `code` is a terminal-effect control the compact UI must drop.
  * Accepts either a full code point or a UTF-16 code unit (high surrogates
@@ -116,7 +118,6 @@ export function sanitizeOneLine(
 	// The budget counts code points, not UTF-16 units: slicing by UTF-16
 	// index would split surrogate pairs (astral emoji) at the boundary.
 	if (clean.length <= limit) return clean;
-	const chars = Array.from(clean);
-	if (chars.length <= limit) return clean;
-	return `${chars.slice(0, Math.max(0, limit - 1)).join("")}…`;
+	if (codePointLength(clean) <= limit) return clean;
+	return limit <= 0 ? "…" : `${truncateCodePoints(clean, limit - 1)}…`;
 }
