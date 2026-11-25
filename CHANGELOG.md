@@ -3,6 +3,35 @@
 Простыми словами — что менялось для человека, который работает в OMP с этим плагином.
 
 ---
+## 3.0.0 — 25 ноября 2026
+
+### Ломающие изменения
+
+- Требуется OMP 19.2.0 или новее (`engines.omp >= 19.2.0`).
+- Плагин переведён на реактивный `@oh-my-pi/pi-tui` из OMP 19.2.0: диалог `/compact-settings` построен на встроенном виджете `<prefs>`, строка статистики в Tern рендерится через `UiNode` (`canvas`/`col`), ширина и обрезка строк перенесены на `@oh-my-pi/pi-tui/text/width`, а конвертация ANSI в spans использует `ansiSpans`.
+- Канонический порядок модификаторов горячих клавиш приведён к формату OMP 19.2.0 (`ctrl > alt > shift > super`, например `alt+shift+q`).
+
+### Исправлено
+
+- Зависание audit barrier при завершении хода больше не оставляет прогон в активном состоянии: `ledger.finalizeRun` вызывается по таймауту, а конкурентные обновления настроек вычисляют diff внутри очереди записи.
+- Исправлена обработка `session_start` и `session_switch` при асинхронном ожидании `modePolicy.ready` (счётчик поколений сессии), очистка и перезагрузка истории при `session_compact` и `session_switch`, а также изоляция вызовов между прогонами при повторном использовании `toolCallId`.
+- Поддержаны сообщения `async-notify` и встроенные инструменты `debug` и `security_scan`; валидированы устаревшие/некорректные записи `git` и мутаций, улучшено усечение длинных строк и форматирование `todo`.
+
+---
+
+### Breaking
+
+- Requires OMP 19.2.0 or later (`engines.omp >= 19.2.0`).
+- Migrated the plugin to OMP 19.2.0's reactive `@oh-my-pi/pi-tui`: `/compact-settings` uses the built-in `<prefs>` widget, Tern stats rows render via `UiNode` (`canvas`/`col`), width/wrapping helpers use `@oh-my-pi/pi-tui/text/width`, and ANSI-to-spans conversion uses `ansiSpans`.
+- Updated shortcut modifier canonicalization order to match OMP 19.2.0 (`ctrl > alt > shift > super`, e.g. `alt+shift+q`).
+
+### Fixed
+
+- Audit barrier timeouts no longer leave runs stuck in the working state: `ledger.finalizeRun` runs on timeout, and concurrent settings updates compute diffs inside the write queue.
+- Guarded `session_start` and `session_switch` across async `modePolicy.ready` awaits with a session generation counter, cleared pending stats on compaction/history reloads, and isolated repeated `toolCallId` calls across runs.
+- Added presentation support for `async-notify` messages and the built-in `debug` and `security_scan` tools; hardened legacy `git` and mutation message renderers, line truncation, and `todo` description formatting.
+
+---
 ## 2.5.5 — 24 ноября 2026
 
 ### Изменено

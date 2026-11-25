@@ -642,7 +642,7 @@ stockDescribe("a logical run", () => {
 		const refreshCalls: string[][] = [];
 		const originalRefresh = booted.context.ui.refreshTranscript;
 		booted.context.ui.refreshTranscript = (ids) => {
-			refreshCalls.push([...ids]);
+			if (ids) refreshCalls.push([...ids]);
 			originalRefresh(ids);
 		};
 		try {

@@ -4,7 +4,7 @@
  * that brings back the calls its own run hid.
  */
 import { afterAll, afterEach, beforeEach, expect, jest, test } from "bun:test";
-
+import { isUiNode } from "@oh-my-pi/pi-tui";
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
 import {
 	HIDDEN_CALLS_ACTION,
@@ -232,20 +232,27 @@ stockDescribe("the stats row", () => {
 		await endRun(booted);
 		waitForIdlePoll();
 		const [sent] = statsSent(booted);
-		const row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
-			{ details: sent?.message.details },
-			{ expanded: false },
-			booted.context.ui.theme,
-		) as { describe(): unknown } | undefined;
-		expect(row?.describe()).toMatchObject({
-			k: "text",
-			p: {
-				spans: expect.arrayContaining([{ t: "1 actions", s: "muted" }]),
-				actions: { click: HIDDEN_CALLS_ACTION },
-			},
-		});
 		// The terminal still draws its bracketed line.
 		expect(statsRows(booted)[0]).toContain("[ 1 actions");
+		const savedTerm = Bun.env.TERM_PROGRAM;
+		Bun.env.TERM_PROGRAM = "tern";
+		let row: unknown;
+		try {
+			row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
+				{ details: sent?.message.details },
+				{ expanded: false },
+				booted.context.ui.theme,
+			);
+		} finally {
+			if (savedTerm === undefined) delete Bun.env.TERM_PROGRAM;
+			else Bun.env.TERM_PROGRAM = savedTerm;
+		}
+		if (!isUiNode(row)) throw new Error("expected UiNode stats row");
+		expect(row.kind).toBe("text");
+		expect(row.props()).toMatchObject({
+			spans: expect.arrayContaining([{ t: "1 actions", s: "muted" }]),
+			actions: { click: HIDDEN_CALLS_ACTION },
+		});
 		expect(clickStatsRow(booted, sent?.message.details)).toBe(true);
 		expect(rows(booted)).toContain("grep: first");
 	});

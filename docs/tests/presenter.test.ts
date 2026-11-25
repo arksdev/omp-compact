@@ -5,6 +5,8 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 
+import { isUiNode } from "@oh-my-pi/pi-tui";
+
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
 import { STATS_MESSAGE_TYPE } from "../../.omp-plugin/run-stats";
 import {
@@ -12,8 +14,6 @@ import {
 	type BootedPlugin,
 	bootReplay,
 	dispatch,
-	fakeTool,
-	toolUi,
 	visibleRows,
 } from "./replay/harness";
 import { cleanupStockSettings } from "./test-stock-host";
@@ -40,17 +40,12 @@ function boot(
 }
 
 function block(booted: BootedPlugin, id: string, name: string, args: unknown) {
-	const component = new booted.host.ToolExecutionComponent(
+	return booted.transcript.presentToolCall({
+		id,
 		name,
 		args,
-		{ showImages: false, useBuiltInRenderer: true },
-		fakeTool(name),
-		toolUi(),
-		booted.context.cwd,
-		id,
-	);
-	booted.transcript.addChild(component);
-	return component;
+		cwd: booted.context.cwd,
+	});
 }
 
 async function runTool(
@@ -209,20 +204,37 @@ stockDescribe("presenter", () => {
 		expect(sent?.options).toEqual({ deliverAs: "nextTurn" });
 		expect(rows(booted)).not.toContain("needle");
 
-		const row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
-			{ details: sent?.message.details },
-			{ expanded: false },
-			booted.context.ui.theme,
-		) as unknown as {
-			describe(): { p?: { actions?: { click?: string } } };
-			handleNativeEvent(event: unknown): void;
-		};
-		const act = row.describe().p?.actions?.click;
-		row.handleNativeEvent({ type: "action", act });
+		const savedTerm = Bun.env.TERM_PROGRAM;
+		Bun.env.TERM_PROGRAM = "tern";
+		let row: unknown;
+		try {
+			row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
+				{ details: sent?.message.details },
+				{ expanded: false },
+				booted.context.ui.theme,
+			);
+		} finally {
+			if (savedTerm === undefined) delete Bun.env.TERM_PROGRAM;
+			else Bun.env.TERM_PROGRAM = savedTerm;
+		}
+		if (!isUiNode(row)) throw new Error("expected UiNode stats row");
+		const act = (row.props() as { actions?: { click?: string } }).actions
+			?.click;
+		if (!act) throw new Error("expected click action");
+		row.handlers.onAction?.(act, {
+			type: "action",
+			key: "",
+			act,
+			mods: [],
+		});
 		expect(rows(booted)).toContain("needle");
-		row.handleNativeEvent({ type: "action", act });
+		row.handlers.onAction?.(act, {
+			type: "action",
+			key: "",
+			act,
+			mods: [],
+		});
 		expect(rows(booted)).not.toContain("needle");
-
 		const [context] = booted.handlers.get("context") ?? [];
 		const filtered = (await context?.(
 			{

@@ -11,7 +11,7 @@ Thank you for considering contributing to omp-compact! This guide covers develop
 - **Bun 1.3+**
 - macOS, Linux, or Windows capable of installing the pinned OMP package
 
-The plugin needs OMP 18.18.9 or later (`engines.omp`); the repository pins the omp it tests against in `devDependencies`. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
+The plugin needs OMP 19.2.0 or later (`engines.omp`); the repository pins the omp it tests against in `devDependencies`. TypeScript, Bun types, and Biome are pinned in `package.json`/`bun.lock`.
 
 ### Clone and Install
 
@@ -45,7 +45,7 @@ Config JSON persistence uses an in-process writer queue and atomic rename only �
 
 ### Host drift
 
-The plugin needs a few omp helpers beyond the extension API. Since omp 18.18.9 all of them are exports of the package root, `@oh-my-pi/pi-coding-agent`, but a later omp can still rename or drop one. `.omp-plugin/host-modules.ts` loads the root once with a dynamic `import()` and checks each feature's exports against it: a missing helper turns off one feature (a disabled component) instead of the whole plugin, and the plugin warns once at session start with the list. The components and what each loses are in [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). Take any new host helper from `host-modules.ts` the same way; a static value import of one makes its next rename fatal again.
+The plugin needs a few omp helpers beyond the extension API. Since omp 19.2.0 the remaining root helpers are exports of the package root, `@oh-my-pi/pi-coding-agent`, while TUI width helpers come from `@oh-my-pi/pi-tui/text/width` and settings controls use `@oh-my-pi/pi-tui`'s `<prefs>` widget. A later omp can still rename or drop a root export. `.omp-plugin/host-modules.ts` loads the root once with a dynamic `import()` and checks each feature's exports against it: a missing helper turns off one feature (a disabled component) instead of the whole plugin, and the plugin warns once at session start with the list. The components and what each loses are in [ARCHITECTURE.md](ARCHITECTURE.md#host-helpers-host-modulests). Take any new host helper from `host-modules.ts` the same way; a static value import of one makes its next rename fatal again.
 
 `.github/workflows/host-drift.yml` runs every day at 05:17 UTC, and from the Actions tab on demand. It installs the newest published omp over the pinned one without committing the change, then runs `bun run typecheck` and `bun run test`. The suite runs even when the typecheck fails, because a moved helper breaks its type import first and only `docs/tests/host-health.test.ts` names it. That suite fails when any component is disabled, both in-process and inside the real omp started in RPC mode. A failing run opens one issue labelled `host-drift` and titled `Host drift: omp <version>`, or updates the open one. The next green run closes it. A run that fails before the new omp is installed (checkout, `bun install`, the registry) leaves the issue alone and shows up only as a failed run. GitHub pauses scheduled workflows after 60 days without commits to the repository; re-enable the job from the Actions tab when that happens.
 
@@ -158,7 +158,7 @@ Production TypeScript lives in `.omp-plugin/`; tests, replay helpers, fixtures, 
 - `.omp-plugin/host-api.ts` — structural host API types and command/shortcut registration only
 - `.omp-plugin/save-flow.ts` — settings save flow only
 - `.omp-plugin/cycle-handler.ts` — display-cycle keypress handling only
-- `.omp-plugin/settings-dialog.ts` — settings dialog on OMP's `SettingsList` only
+- `.omp-plugin/settings-dialog.ts` — settings dialog on `@oh-my-pi/pi-tui`'s `<prefs>` widget only
 
 **Avoid circular dependencies.** Import tree flows downward:
 ```

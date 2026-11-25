@@ -1,7 +1,10 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { Theme } from "../../.omp-plugin/theme-types";
-import type { Component } from "@oh-my-pi/pi-tui";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import type { ExtensionRows } from "@oh-my-pi/pi-coding-agent";
+import {
+	truncate as truncateToWidth,
+	visibleWidth,
+} from "@oh-my-pi/pi-tui/text/width";
 import {
 	isRejectedControlCode,
 	stripRejectedControls,
@@ -144,7 +147,7 @@ interface RenderModule {
 	gitMessageComponent(
 		details: GitMessageDetails | undefined,
 		theme: Theme,
-	): Component | undefined;
+	): ExtensionRows | undefined;
 	gitCommitHashes(details: GitMessageDetails): string[];
 	terminalGitSummaryLine(
 		hashes: readonly string[],
@@ -159,7 +162,7 @@ interface RenderModule {
 	mutationMessageComponent(
 		details: MutationMessageDetails | LegacyMutationMessageDetails | undefined,
 		theme: Theme,
-	): Component | undefined;
+	): ExtensionRows | undefined;
 	sanitizeOneLine(value: unknown, limit?: number): string;
 }
 
@@ -191,7 +194,7 @@ function gitLine(entry: GitMessageDetails, theme: Theme): string {
 function gitMessageComponent(
 	details: GitMessageDetails | undefined,
 	theme: Theme,
-): Component | undefined {
+): ExtensionRows | undefined {
 	return renderModule.gitMessageComponent(details, theme);
 }
 

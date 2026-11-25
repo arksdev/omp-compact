@@ -225,16 +225,16 @@ describe("defaults", () => {
 
 	test("a free chord in the file normalizes to the host's modifier order", () => {
 		// The stored spelling follows the host's canonical modifier order
-		// (ctrl > shift > alt > super): `alt+shift+d` and `shift+alt+d` are
-		// the same chord to the host — both canonicalize to `shift+alt+d` —
+		// (ctrl > alt > shift > super): `alt+shift+d` and `shift+alt+d` are
+		// the same chord to the host — both canonicalize to `alt+shift+d` —
 		// and one spelling keeps config, dialog, occupancy and registration
 		// identical. Do not "fix" this back to input order.
 		const warnings: string[] = [];
 		const normalized = normalizeSettings(
-			{ version: 1, displayCycleKey: "alt+shift+d" },
+			{ version: 1, displayCycleKey: "shift+alt+d" },
 			(m) => warnings.push(m),
 		);
-		expect(normalized.displayCycleKey).toBe("shift+alt+d");
+		expect(normalized.displayCycleKey).toBe("alt+shift+d");
 		expect(warnings).toEqual([]);
 	});
 
@@ -248,7 +248,7 @@ describe("defaults", () => {
 			{ version: 1, displayCycleKey: "alt+Q" },
 			(m) => warnings.push(m),
 		);
-		expect(normalized.displayCycleKey).toBe("shift+alt+q");
+		expect(normalized.displayCycleKey).toBe("alt+shift+q");
 		expect(warnings).toEqual([]);
 	});
 
@@ -263,15 +263,15 @@ describe("defaults", () => {
 		// Registration reads the chord synchronously; the canonical spelling
 		// is what reaches the host, so the chord the user meant fires.
 		const chord = readDisplayCycleKeySync({ path });
-		expect(chord).toBe("shift+alt+q");
+		expect(chord).toBe("alt+shift+q");
 		const registered: string[] = [];
 		const used = registerDisplayCycleShortcut(
 			{ registerShortcut: (key: string) => registered.push(key) },
 			chord,
 			{ description: "cycle", handler: async () => {} },
 		);
-		expect(used).toBe("shift+alt+q");
-		expect(registered).toEqual(["shift+alt+q"]);
+		expect(used).toBe("alt+shift+q");
+		expect(registered).toEqual(["alt+shift+q"]);
 		// Reads never write: the file is rewritten to the canonical spelling
 		// only when the next chord-changing save persists it.
 		expect(JSON.parse(await readFile(path, "utf8")).displayCycleKey).toBe(
@@ -299,9 +299,9 @@ describe("defaults", () => {
 		const store = createSettingsStore({ path });
 		await store.load();
 		const saved = await store.update({ displayCycleKey: "alt+Q" });
-		expect(saved.displayCycleKey).toBe("shift+alt+q");
+		expect(saved.displayCycleKey).toBe("alt+shift+q");
 		const onDisk = JSON.parse(await readFile(path, "utf8"));
-		expect(onDisk.displayCycleKey).toBe("shift+alt+q");
+		expect(onDisk.displayCycleKey).toBe("alt+shift+q");
 		await rm(dir, { recursive: true, force: true });
 	});
 });

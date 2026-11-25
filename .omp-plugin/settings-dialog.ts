@@ -1,21 +1,15 @@
 import {
-	type Component,
-	col,
-	type DescribeContext,
-	type NativeChild,
-	type NativeNode,
-	type NativeUiEvent,
-	node,
-	type OverlayOptions,
-	type SettingItem,
-	SettingsList,
-	span,
-	TextFormField,
-	text,
-	truncateToWidth,
+	batch,
+	computed,
+	jsx,
+	type KeyEvent,
+	type PasteEvent,
+	signal,
+	type UiEvent,
+	type UiNode,
+	untrack,
 } from "@oh-my-pi/pi-tui";
 import type {
-	TspPrefsControl,
 	TspPrefsProps,
 	TspPrefsRow,
 	TspPrefsSection,
@@ -33,7 +27,6 @@ import {
 } from "./config";
 import { canonicalize, validateDisplayCycleKey } from "./display-cycle";
 import type { SettingsUiLike } from "./host-api";
-import { type SettingsDialogHost, settingsDialogHost } from "./host-modules";
 import {
 	notifySaveOutcome,
 	type SaveOutcome,
@@ -78,32 +71,9 @@ export interface SettingsDialogDeps {
 	 * style` row is listed only there, where the style shows. Absent: not Tern.
 	 */
 	ternView?: boolean;
-	/**
-	 * The terminal height in rows, read at every render, so the dialog never
-	 * outgrows a short terminal. Absent or unusable: a fixed list height.
-	 */
-	getTerminalRows?(): number | undefined;
-	/** Ask the host for a frame after a save settled outside an input event. */
-	requestRender?(): void;
 }
 
 const TITLE = "OMP Compact — Settings";
-/** Rows above the list: the title and one blank line. */
-const TITLE_ROWS = 2;
-/**
- * Rows the list draws besides its viewport: a blank and three description
- * rows, the search line, a blank and the hint (`SettingsList` stable height).
- */
-const LIST_CHROME_ROWS = 7;
-/** List viewport when the terminal height is unknown. */
-const DEFAULT_VISIBLE_ROWS = 12;
-/**
- * Smallest viewport: the section sidebar draws one row per section and never
- * fewer, so a shorter viewport would let the frame grow with the sidebar.
- */
-const MIN_VISIBLE_ROWS = 4;
-
-const BOOLEAN_VALUES = ["true", "false"];
 const MODES: readonly CompactMode[] = ["compact", "live", "clear"];
 
 /** One help line per setting, shown under the list for the selected row. */
@@ -163,15 +133,11 @@ const STATS_CHILDREN: readonly { key: StatsChild; label: string }[] = [
 const STATS_PREFIX = "stats.";
 const TOOL_PREFIX = "tools.";
 
-/** omp's role for an editor drawn over a native settings page. */
-const PREFS_EDITOR_ROLE = "omp.prefs.editor";
-
 type SectionId = "general" | "display" | "statistics" | "tools";
 
 /**
- * The dialog's sections; on Tern's native settings page each one is a page,
- * drawn with the icon of an omp settings tab (Tern knows only those names).
- * Tool rows share one explanation, so it is the page's lead, not 40 copies.
+ * The dialog's sections; each one is a page drawn with the icon of an omp
+ * settings tab. Tool rows share one explanation, so it is the page's lead.
  */
 const SECTIONS: readonly {
 	id: SectionId;
@@ -185,36 +151,83 @@ const SECTIONS: readonly {
 	{ id: "tools", title: "Tool cards", icon: "tools", lead: TOOL_ROW_HELP },
 ];
 
-const HEADING_PREFIX = "section.";
-
-function sectionTitle(section: SectionId): string {
-	return SECTIONS.find(({ id }) => id === section)?.title ?? section;
+interface DialogRow {
+	readonly section: SectionId;
+	readonly row: TspPrefsRow;
+	readonly searchText: string;
+	readonly omitTerminalHint?: boolean;
 }
 
-function heading(section: SectionId): SettingItem {
-	return {
-		id: `${HEADING_PREFIX}${section}`,
-		label: sectionTitle(section),
-		currentValue: "",
-		heading: true,
-	};
+interface LineState {
+	readonly text: string;
+	readonly cursor: number;
 }
 
-function booleanItem(
+const PREFS_NAV_KEYS: Readonly<Record<string, true>> = {
+	up: true,
+	down: true,
+	left: true,
+	right: true,
+	pageUp: true,
+	pageDown: true,
+	home: true,
+	end: true,
+	enter: true,
+	return: true,
+	space: true,
+	escape: true,
+};
+
+function booleanRow(
+	section: SectionId,
 	id: keyof typeof ROW_HELP,
 	label: string,
 	value: boolean,
 	defaultValue: boolean,
-): SettingItem {
+): DialogRow {
+	const hint = ROW_HELP[id];
 	return {
-		id,
-		label,
-		description: ROW_HELP[id],
-		currentValue: String(value),
-		values: BOOLEAN_VALUES,
-		changed: value !== defaultValue,
-		// omp names a boolean default On/Off, as its own settings do.
-		defaultLabel: defaultValue ? "On" : "Off",
+		section,
+		searchText: `${label} ${hint}`.toLowerCase(),
+		row: {
+			id,
+			label,
+			hint,
+			changed: value !== defaultValue || undefined,
+			defaultLabel: defaultValue ? "On" : "Off",
+			control: { k: "switch", on: value },
+		},
+	};
+}
+
+function choiceRow(
+	section: SectionId,
+	id: string,
+	label: string,
+	value: string,
+	options: readonly string[],
+	defaultValue: string,
+	hint: string | undefined,
+	changed: boolean,
+	omitTerminalHint?: boolean,
+): DialogRow {
+	return {
+		section,
+		omitTerminalHint,
+		searchText: `${label} ${hint ?? ""}`.toLowerCase(),
+		row: {
+			id,
+			label,
+			...(hint ? { hint } : {}),
+			changed: changed || undefined,
+			defaultLabel: defaultValue,
+			control: {
+				k: "choice",
+				value,
+				options: options.map((option) => ({ value: option, label: option })),
+				mono: true,
+			},
+		},
 	};
 }
 
@@ -227,177 +240,236 @@ function withoutTool(
 	return rest;
 }
 
-/**
- * The settings dialog: omp's own settings list (sections, type-to-search,
- * changed markers) under a title. Each change is saved at once, like omp's
- * `/settings`; Esc closes once every change has settled.
- */
-export class SettingsDialog implements Component {
-	readonly #deps: SettingsDialogDeps;
-	readonly #host: SettingsDialogHost;
-	readonly #done: (result: CompactSettings | undefined) => void;
-	readonly #list: SettingsList;
-	/** The settings the last successful save returned. */
-	#saved: CompactSettings;
-	/** Changes handed to `onChange` that have not settled yet, in order. */
-	readonly #pending: SettingsUpdate[] = [];
-	#queue: Promise<void> = Promise.resolve();
-	#anySaved = false;
-	#closing = false;
-	#native?: NativeNode;
-
-	/** `host`: omp's settings-list chrome (`settingsDialogHost`). */
-	constructor(
-		deps: SettingsDialogDeps,
-		done: (result: CompactSettings | undefined) => void,
-		host: SettingsDialogHost,
+/** Apply single-line editing keys (`backspace`, `delete`, arrows, `home`/`end`, text). */
+function editLine(line: LineState, key: KeyEvent): LineState | undefined {
+	const { text, cursor } = line;
+	if (key.id === "backspace") {
+		if (cursor === 0) return line;
+		return {
+			text: text.slice(0, cursor - 1) + text.slice(cursor),
+			cursor: cursor - 1,
+		};
+	}
+	if (key.id === "delete") {
+		if (cursor >= text.length) return line;
+		return {
+			text: text.slice(0, cursor) + text.slice(cursor + 1),
+			cursor,
+		};
+	}
+	if (key.id === "left") return { text, cursor: Math.max(0, cursor - 1) };
+	if (key.id === "right")
+		return { text, cursor: Math.min(text.length, cursor + 1) };
+	if (key.id === "home") return { text, cursor: 0 };
+	if (key.id === "end") return { text, cursor: text.length };
+	if (
+		key.text !== undefined &&
+		key.text.length > 0 &&
+		!key.id.includes("ctrl+") &&
+		!key.id.includes("alt+") &&
+		!key.id.includes("cmd+")
 	) {
-		this.#host = host;
-		this.#deps = deps;
-		this.#done = done;
-		this.#saved = deps.settings;
-		this.#list = new SettingsList(
-			this.#items(),
-			DEFAULT_VISIBLE_ROWS,
-			host.getSettingsListTheme(),
-			(id, value) => this.#change(id, value),
-			() => this.#close(),
-			{
-				layout: "auto",
-				hint: `${host.editorKey("tui.select.confirm")}/${host.formatKeyHint("space")} to change · ${host.editorKeys("tui.select.pageUp", "tui.select.pageDown")} to jump sections · Type to search · ${host.editorKey("tui.select.cancel")} to close`,
-			},
-		);
+		return {
+			text: text.slice(0, cursor) + key.text + text.slice(cursor),
+			cursor: cursor + key.text.length,
+		};
 	}
+	return undefined;
+}
 
-	/** The saved settings with every pending change applied on top. */
-	#shown(): CompactSettings {
-		return this.#pending.reduce(
-			(settings, update) => update(settings),
-			this.#saved,
-		);
-	}
-
-	/** The rows for `shown`: by default the saved settings plus pending changes. */
-	#items(shown: CompactSettings = this.#shown()): SettingItem[] {
-		const items: SettingItem[] = [
-			heading("general"),
-			booleanItem(
-				"enabled",
-				"Global compact",
-				shown.enabled,
-				DEFAULT_SETTINGS.enabled,
-			),
-			{
-				id: "mode",
-				label: "Mode",
-				description: ROW_HELP.mode,
-				currentValue: shown.mode,
-				values: [...MODES],
-				changed: shown.mode !== DEFAULT_SETTINGS.mode,
-				defaultLabel: DEFAULT_SETTINGS.mode,
-			},
-			heading("display"),
-			...DISPLAY_TOGGLES.map(({ id, label }) =>
-				booleanItem(id, label, shown[id], DEFAULT_SETTINGS[id]),
-			),
-			{
+function buildRows(
+	shown: CompactSettings,
+	deps: Pick<SettingsDialogDeps, "tools" | "ternView">,
+): DialogRow[] {
+	const rows: DialogRow[] = [
+		booleanRow(
+			"general",
+			"enabled",
+			"Global compact",
+			shown.enabled,
+			DEFAULT_SETTINGS.enabled,
+		),
+		choiceRow(
+			"general",
+			"mode",
+			"Mode",
+			shown.mode,
+			MODES,
+			DEFAULT_SETTINGS.mode,
+			ROW_HELP.mode,
+			shown.mode !== DEFAULT_SETTINGS.mode,
+		),
+		...DISPLAY_TOGGLES.map(({ id, label }) =>
+			booleanRow("display", id, label, shown[id], DEFAULT_SETTINGS[id]),
+		),
+		{
+			section: "display",
+			searchText: `cycle shortcut ${ROW_HELP.displayCycleKey}`.toLowerCase(),
+			row: {
 				id: "displayCycleKey",
 				label: "Cycle shortcut",
-				description: ROW_HELP.displayCycleKey,
-				currentValue: shown.displayCycleKey,
-				changed: shown.displayCycleKey !== DEFAULT_SETTINGS.displayCycleKey,
+				hint: ROW_HELP.displayCycleKey,
+				changed:
+					shown.displayCycleKey !== DEFAULT_SETTINGS.displayCycleKey ||
+					undefined,
 				defaultLabel: DEFAULT_SETTINGS.displayCycleKey,
-				submenu: (current, done) => this.#chordEditor(current, done),
+				control: { k: "text", value: shown.displayCycleKey, mono: true },
 			},
-			heading("statistics"),
-			booleanItem(
-				"stats.enabled",
-				"Run statistics",
-				shown.stats.enabled,
-				DEFAULT_SETTINGS.stats.enabled,
+		},
+		booleanRow(
+			"statistics",
+			"stats.enabled",
+			"Run statistics",
+			shown.stats.enabled,
+			DEFAULT_SETTINGS.stats.enabled,
+		),
+	];
+
+	if (shown.stats.enabled) {
+		for (const { key, label } of STATS_CHILDREN) {
+			rows.push(
+				booleanRow(
+					"statistics",
+					`stats.${key}`,
+					label,
+					shown.stats[key],
+					DEFAULT_SETTINGS.stats[key],
+				),
+			);
+		}
+		if (deps.ternView) {
+			rows.push(
+				choiceRow(
+					"statistics",
+					"stats.style",
+					"Tern style",
+					shown.stats.style,
+					STATS_STYLES,
+					DEFAULT_SETTINGS.stats.style,
+					ROW_HELP["stats.style"],
+					shown.stats.style !== DEFAULT_SETTINGS.stats.style,
+				),
+			);
+		}
+	}
+
+	for (const { name, defaultDisplay } of deps.tools ?? []) {
+		const chosen = Object.hasOwn(shown.tools, name)
+			? shown.tools[name]
+			: undefined;
+		rows.push(
+			choiceRow(
+				"tools",
+				`${TOOL_PREFIX}${name}`,
+				name,
+				chosen ?? defaultDisplay,
+				TOOL_DISPLAYS,
+				defaultDisplay,
+				TOOL_ROW_HELP,
+				chosen !== undefined,
+				true,
 			),
-		];
-		// Like omp's conditional settings: the parts of the usage row are
-		// hidden while the row itself is off.
-		if (shown.stats.enabled) {
-			for (const { key, label } of STATS_CHILDREN) {
-				items.push(
-					booleanItem(
-						`stats.${key}`,
-						label,
-						shown.stats[key],
-						DEFAULT_SETTINGS.stats[key],
-					),
-				);
-			}
-			// The style shows only in Tern's native view.
-			if (this.#deps.ternView) {
-				items.push({
-					id: "stats.style",
-					label: "Tern style",
-					description: ROW_HELP["stats.style"],
-					currentValue: shown.stats.style,
-					values: [...STATS_STYLES],
-					changed: shown.stats.style !== DEFAULT_SETTINGS.stats.style,
-					defaultLabel: DEFAULT_SETTINGS.stats.style,
-				});
-			}
-		}
-		const tools = this.#deps.tools ?? [];
-		if (tools.length > 0) {
-			items.push(heading("tools"));
-			for (const { name, defaultDisplay } of tools) {
-				const chosen = Object.hasOwn(shown.tools, name)
-					? shown.tools[name]
-					: undefined;
-				items.push({
-					id: `${TOOL_PREFIX}${name}`,
-					label: name,
-					description: TOOL_ROW_HELP,
-					currentValue: chosen ?? defaultDisplay,
-					values: [...TOOL_DISPLAYS],
-					changed: chosen !== undefined,
-					defaultLabel: defaultDisplay,
-				});
-			}
-		}
-		return items;
+		);
 	}
+	return rows;
+}
 
-	/**
-	 * The cycle-shortcut editor. A chord OMP or another extension already
-	 * holds is refused rather than saved: a reserved chord is never bound and
-	 * an app keybinding takes the key first. An accepted chord is saved in
-	 * canonical form (host modifier order and the shift an uppercase base
-	 * implies), the spelling the store persists and the host registers.
-	 */
-	#chordEditor(current: string, done: (value?: string) => void): TextFormField {
-		const host = this.#host;
-		return new TextFormField({
-			theme: host.formTheme,
-			label: "Cycle shortcut",
-			description: ROW_HELP.displayCycleKey,
-			// Empty, not prefilled: a chord is typed whole, and an empty
-			// submit leaves the shortcut as it is.
-			empty: "cancel",
-			validate: (value) => {
-				const chord = value.trim();
-				return (
-					validateDisplayCycleKey(chord) ??
-					this.#deps.checkShortcut?.(canonicalize(chord))
-				);
-			},
-			onSubmit: (value) => {
-				const chord = canonicalize(value.trim());
-				done(chord === current ? undefined : chord);
-			},
-			onCancel: () => done(),
-			hint: `  ${host.editorKey("tui.input.submit")} to save · ${host.editorKey("tui.select.cancel")} to go back`,
+/**
+ * Create the `/compact-settings` `<prefs>` node tree: sectioned settings with
+ * type-to-search, changed markers, chord validation, and sequential saves.
+ */
+export function createSettingsDialog(
+	deps: SettingsDialogDeps,
+	done: (result: CompactSettings | undefined) => void,
+): UiNode {
+	let saved = deps.settings;
+	let anySaved = false;
+	let closing = false;
+	let queue: Promise<void> = Promise.resolve();
+	const pending: SettingsUpdate[] = [];
+	const revision = signal(0);
+
+	const page = signal<SectionId>("general");
+	const searchPage = signal<SectionId>("general");
+	const preSearchPage = signal<SectionId>("general");
+	const selected = signal<string | undefined>("enabled");
+	const query = signal<LineState>({ text: "", cursor: 0 });
+	const editing = signal<{
+		readonly row: string;
+		readonly line: LineState;
+		readonly error?: string;
+	} | null>(null);
+
+	const shown = computed((): CompactSettings => {
+		revision();
+		return pending.reduce((acc, update) => update(acc), saved);
+	});
+
+	const allRows = computed(() => buildRows(shown(), deps));
+	const searching = computed(() => query().text.length > 0);
+
+	const visibleRows = computed(() => {
+		const rows = allRows();
+		const q = query().text.trim().toLowerCase();
+		if (!q) return rows;
+		return rows.filter((entry) => entry.searchText.includes(q));
+	});
+
+	const pages = computed((): TspPrefsProps["pages"] => {
+		const rows = allRows();
+		const active = new Set<SectionId>();
+		const changed = new Map<SectionId, number>();
+		for (const entry of rows) {
+			active.add(entry.section);
+			if (entry.row.changed)
+				changed.set(entry.section, (changed.get(entry.section) ?? 0) + 1);
+		}
+		return SECTIONS.filter((section) => active.has(section.id)).map(
+			({ id, title, icon }) => ({
+				id,
+				label: title,
+				icon,
+				changed: changed.get(id),
+			}),
+		);
+	});
+
+	const sections = computed((): TspPrefsSection[] => {
+		const isSearch = searching();
+		const rows = isSearch
+			? visibleRows()
+			: allRows().filter((entry) => entry.section === page());
+		const grouped = new Map<SectionId, TspPrefsRow[]>();
+		for (const entry of rows) {
+			const bucket = grouped.get(entry.section) ?? [];
+			const row = entry.omitTerminalHint
+				? (({ hint: _, ...rest }) => rest)(entry.row)
+				: entry.row;
+			bucket.push(row);
+			grouped.set(entry.section, bucket);
+		}
+		return SECTIONS.flatMap(({ id, title }) => {
+			const groupRows = grouped.get(id);
+			if (!groupRows || groupRows.length === 0) return [];
+			return [
+				isSearch
+					? { id, title, page: id, rows: groupRows }
+					: { id, title, rows: groupRows },
+			];
 		});
-	}
+	});
 
-	/** The change a row's new value stands for; `undefined` for no change. */
-	#updateFor(id: string, value: string): SettingsUpdate | undefined {
+	const selectedId = computed((): string | undefined => {
+		const rows = searching()
+			? visibleRows()
+			: allRows().filter((entry) => entry.section === page());
+		const current = selected();
+		if (current && rows.some((entry) => entry.row.id === current))
+			return current;
+		return rows[0]?.row.id;
+	});
+
+	function updateFor(id: string, value: string): SettingsUpdate | undefined {
 		const on = value === "true";
 		switch (id) {
 			case "enabled":
@@ -426,12 +498,9 @@ export class SettingsDialog implements Component {
 		}
 		if (id.startsWith(TOOL_PREFIX)) {
 			const name = id.slice(TOOL_PREFIX.length);
-			const tool = this.#deps.tools?.find((option) => option.name === name);
+			const tool = deps.tools?.find((option) => option.name === name);
 			const display = TOOL_DISPLAYS.find((candidate) => candidate === value);
 			if (!tool || !display) return undefined;
-			// A choice equal to the tool's default is stored as no entry, so
-			// the config keeps only real overrides and a changed default still
-			// reaches the tool.
 			return (current) => {
 				const rest = withoutTool(current.tools, name);
 				return {
@@ -446,307 +515,336 @@ export class SettingsDialog implements Component {
 		return undefined;
 	}
 
-	/**
-	 * Show the change at once and save it after the changes before it. A
-	 * failed save drops the change, so its row shows the saved value again.
-	 */
-	#change(id: string, value: string): void {
-		// Tern's native events reach the list directly, past `handleInput`,
-		// so a change can still arrive while the dialog is closing.
-		const update = this.#closing ? undefined : this.#updateFor(id, value);
-		if (!update) {
-			this.#list.setItems(this.#items());
+	function applyChange(id: string, value: string): void {
+		const update = closing ? undefined : updateFor(id, value);
+		if (!update) return;
+		pending.push(update);
+		revision.set(untrack(revision) + 1);
+		queue = queue.then(async () => {
+			try {
+				saved = await deps.onChange(update);
+				anySaved = true;
+			} catch (error) {
+				deps.warn(error instanceof Error ? error.message : String(error));
+			}
+			const index = pending.indexOf(update);
+			if (index !== -1) pending.splice(index, 1);
+			revision.set(untrack(revision) + 1);
+		});
+	}
+
+	function defaultValue(id: string): string | undefined {
+		const entry = buildRows(DEFAULT_SETTINGS, deps).find(
+			(candidate) => candidate.row.id === id,
+		);
+		if (!entry) return undefined;
+		const control = entry.row.control;
+		if (control.k === "switch") return String(control.on);
+		if (control.k === "choice" || control.k === "text") return control.value;
+		return undefined;
+	}
+
+	function validateChord(raw: string): {
+		chord?: string;
+		error?: string;
+	} {
+		const trimmed = raw.trim();
+		const syntaxError = validateDisplayCycleKey(trimmed);
+		if (syntaxError) return { error: syntaxError };
+		const canonical = canonicalize(trimmed);
+		const conflict = deps.checkShortcut?.(canonical);
+		if (conflict) return { error: conflict };
+		return { chord: canonical };
+	}
+
+	function submitChord(raw: string, openOnError: boolean): void {
+		const trimmed = raw.trim();
+		if (trimmed === "") {
+			editing.set(null);
 			return;
 		}
-		this.#pending.push(update);
-		this.#list.setItems(this.#items());
-		this.#queue = this.#queue.then(async () => {
-			try {
-				this.#saved = await this.#deps.onChange(update);
-				this.#anySaved = true;
-			} catch (error) {
-				this.#deps.warn(error instanceof Error ? error.message : String(error));
+		const check = validateChord(trimmed);
+		if (check.error || !check.chord) {
+			if (openOnError) {
+				batch(() => {
+					if (!untrack(searching)) {
+						page.set("display");
+						selected.set("displayCycleKey");
+					}
+					editing.set({
+						row: "displayCycleKey",
+						line: { text: raw, cursor: raw.length },
+						error: check.error,
+					});
+				});
 			}
-			this.#pending.splice(this.#pending.indexOf(update), 1);
-			this.#list.setItems(this.#items());
-			this.#deps.requestRender?.();
+			return;
+		}
+		editing.set(null);
+		if (check.chord !== untrack(shown).displayCycleKey) {
+			applyChange("displayCycleKey", check.chord);
+		}
+	}
+
+	function showPage(id: string): void {
+		const rows = untrack(allRows);
+		const first = rows.find((entry) => entry.section === id);
+		if (!first) return;
+		batch(() => {
+			editing.set(null);
+			query.set({ text: "", cursor: 0 });
+			page.set(first.section);
+			selected.set(first.row.id);
 		});
 	}
 
-	/** Close once every change has settled; resolve with what was saved. */
-	#close(): void {
-		if (this.#closing) return;
-		this.#closing = true;
-		void this.#queue.then(() =>
-			this.#done(this.#anySaved ? this.#saved : undefined),
+	function stepPage(delta: -1 | 1): void {
+		const list = untrack(pages);
+		if (list.length === 0) return;
+		const at = Math.max(
+			0,
+			list.findIndex((p) => p.id === untrack(page)),
 		);
+		const next = list[(at + delta + list.length) % list.length];
+		if (next) showPage(next.id);
 	}
 
-	handleInput(data: string): void {
-		if (this.#closing) return;
-		this.#list.handleInput(data);
-	}
-
-	render(width: number): readonly string[] {
-		const rows = this.#deps.getTerminalRows?.();
-		// Rows the fullscreen frame may fill; unknown: a fixed list height.
-		// Below the list's own minimum the title goes, so the selected row
-		// stays on screen.
-		const room =
-			rows !== undefined && Number.isFinite(rows) && rows > 0
-				? Math.floor(rows) - LIST_CHROME_ROWS
-				: undefined;
-		const titled = room === undefined || room - TITLE_ROWS >= MIN_VISIBLE_ROWS;
-		this.#list.setMaxVisible(
-			room === undefined
-				? DEFAULT_VISIBLE_ROWS
-				: Math.max(MIN_VISIBLE_ROWS, titled ? room - TITLE_ROWS : room),
-		);
-		const list = this.#list.render(width);
-		const frame = titled
-			? [truncateToWidth(this.#host.theme().bold(TITLE), width), "", ...list]
-			: list;
-		// The list never draws fewer than its minimum viewport plus its
-		// chrome. On a terminal shorter than that the rows below the viewport
-		// (help, search, hint) go, so the selected row stays on screen rather
-		// than scrolling off the top.
-		return rows !== undefined && room !== undefined && frame.length > rows
-			? frame.slice(0, Math.floor(rows))
-			: frame;
-	}
-
-	/**
-	 * Tern's native view. A terminal that draws native settings pages gets
-	 * one (`prefs`: switches, segmented choices, a text field for the chord,
-	 * one page per section); any other gets the title over the list.
-	 */
-	describe(cx: DescribeContext): NativeNode {
-		if (cx.supports("prefs")) return this.#describePrefs();
-		this.#native ??= col([text([span(TITLE, "strong")]), this.#list], {
-			gap: "sm",
-		});
-		return this.#native;
-	}
-
-	/** Over a live session the native page is its own sheet, as omp's `/settings` is. */
-	nativeSheet(cx: DescribeContext): boolean {
-		return cx.supports("prefs") && cx.feature("aside");
-	}
-
-	/** The page the native view shows: the section of the focused row. */
-	#page: SectionId = "general";
-	#prefs?: { signature: string; children: NativeChild[]; node: NativeNode };
-
-	#describePrefs(): NativeNode {
-		const items = this.#items();
-		const sectionOf = sectionsOf(items);
-		const query = this.#list.getSearchQuery();
-		const searching = query.length > 0;
-		const focusRow = this.#list.prefsFocus().row;
-		const focusSection = focusRow ? sectionOf.get(focusRow) : undefined;
-		// A search lists every section; the page stays the one it started on.
-		if (focusSection && !searching) this.#page = focusSection;
-
-		// The section comes from the full item list: a filtered list carries
-		// no headings, so the heading above a search result is not its own.
-		const all = this.#list.prefsSections(
-			(item) => {
-				const id = sectionOf.get(item.id) ?? "general";
-				const title = sectionTitle(id);
-				return searching ? { id, title, page: id } : { id, title };
-			},
-			(item) => this.#prefsControl(item),
-		);
-		const sections: TspPrefsSection[] = (
-			searching ? all : all.filter((section) => section.id === this.#page)
-		).map((section) =>
-			section.id === "tools"
-				? { ...section, rows: section.rows.map(withoutHint) }
-				: section,
-		);
-
-		const editing = this.#list.prefsEditing(() => true);
-		const children: NativeChild[] = [];
-		const open = this.#list.openSubmenu;
-		// A chord the field refused shows its error in the field itself.
-		if (open && !editing) {
-			children.push(col([open.component], { role: PREFS_EDITOR_ROLE }));
-		}
-
-		const listed = new Set(sectionOf.values());
-		const changed = new Map<SectionId, number>();
-		for (const item of items) {
-			const section = sectionOf.get(item.id);
-			if (item.changed && section) {
-				changed.set(section, (changed.get(section) ?? 0) + 1);
+	function endSearch(jumpToSelected: boolean): void {
+		const id = jumpToSelected ? untrack(selectedId) : undefined;
+		const entry = id
+			? untrack(allRows).find((candidate) => candidate.row.id === id)
+			: undefined;
+		batch(() => {
+			query.set({ text: "", cursor: 0 });
+			if (entry) {
+				page.set(entry.section);
+				selected.set(entry.row.id);
+			} else {
+				page.set(untrack(preSearchPage));
 			}
+		});
+	}
+
+	function jumpSearchPage(delta: -1 | 1): void {
+		const rows = untrack(visibleRows);
+		const ids = [...new Set(rows.map((entry) => entry.section))];
+		if (ids.length === 0) return;
+		const current = rows.find(
+			(entry) => entry.row.id === untrack(selectedId),
+		)?.section;
+		const at = Math.max(0, current ? ids.indexOf(current) : 0);
+		const next = ids[(at + delta + ids.length) % ids.length];
+		const first = rows.find((entry) => entry.section === next);
+		if (first) {
+			batch(() => {
+				selected.set(first.row.id);
+				searchPage.set(first.section);
+			});
 		}
-		const props: TspPrefsProps = {
-			title: "OMP Compact",
-			pages: SECTIONS.filter(({ id }) => listed.has(id)).map(
-				({ id, title, icon }) => ({
-					id,
-					label: title,
-					icon,
-					changed: changed.get(id),
-				}),
-			),
-			page: this.#page,
-			lead: searching
-				? undefined
-				: SECTIONS.find((section) => section.id === this.#page)?.lead,
-			query: searching ? query : undefined,
-			cursor: searching ? query.length : undefined,
-			sections,
-			focus: focusRow ?? null,
-			editing,
-		};
-		const signature = JSON.stringify(props);
-		const cached = this.#prefs;
+	}
+
+	function closeDialog(): void {
+		if (closing) return;
+		closing = true;
+		void queue.then(() => done(anySaved ? saved : undefined));
+	}
+
+	function onKey(key: KeyEvent): boolean {
+		if (closing) return true;
+		if (key.kind === "release") return false;
+		const open = untrack(editing);
+		if (open) {
+			if (key.id === "escape") {
+				editing.set(null);
+				return true;
+			}
+			if (key.id === "enter" || key.id === "return") {
+				submitChord(open.line.text, true);
+				return true;
+			}
+			const next = editLine(open.line, key);
+			if (next) editing.set({ row: open.row, line: next });
+			return true;
+		}
+
+		if (untrack(searching)) {
+			if (key.id === "escape") {
+				endSearch(true);
+				return true;
+			}
+			if (key.id === "tab") {
+				jumpSearchPage(1);
+				return true;
+			}
+			if (key.id === "shift+tab") {
+				jumpSearchPage(-1);
+				return true;
+			}
+			if (key.id !== "space" && PREFS_NAV_KEYS[key.id]) return false;
+			const next = editLine(untrack(query), key);
+			if (next) {
+				batch(() => {
+					query.set(next);
+					if (next.text === "") page.set(untrack(preSearchPage));
+					const first = untrack(visibleRows)[0];
+					if (first) {
+						searchPage.set(first.section);
+						selected.set(first.row.id);
+					}
+				});
+			}
+			return true;
+		}
+
+		if (key.id === "tab" || key.id === "shift+tab") {
+			stepPage(key.id === "tab" ? 1 : -1);
+			return true;
+		}
+		const text = key.text;
 		if (
-			cached?.signature === signature &&
-			cached.children.length === children.length &&
-			cached.children.every((child, index) => child === children[index])
+			text !== undefined &&
+			text.trim().length > 0 &&
+			key.id !== "space" &&
+			!PREFS_NAV_KEYS[key.id] &&
+			!key.id.includes("ctrl+") &&
+			!key.id.includes("alt+") &&
+			!key.id.includes("cmd+")
 		) {
-			return cached.node;
+			batch(() => {
+				preSearchPage.set(untrack(page));
+				query.set({ text, cursor: text.length });
+				const first = untrack(visibleRows)[0];
+				if (first) {
+					searchPage.set(first.section);
+					selected.set(first.row.id);
+				}
+			});
+			return true;
 		}
-		const root = node("prefs", props, children);
-		this.#prefs = { signature, children, node: root };
-		return root;
+		return false;
 	}
 
-	/** A row's native control: a switch, a segmented choice, or the chord's text field. */
-	#prefsControl(item: SettingItem): TspPrefsControl | undefined {
-		const value = String(item.currentValue ?? "");
-		if (item.id === "displayCycleKey") return { k: "text", value, mono: true };
-		if (item.values === BOOLEAN_VALUES)
-			return { k: "switch", on: value === "true" };
-		if (item.values === undefined) return undefined;
-		return {
-			k: "choice",
-			value,
-			options: item.values.map((option) => ({ value: option, label: option })),
-			style: "segmented",
-			mono: true,
-		};
+	function onPaste(paste: PasteEvent): boolean {
+		if (closing) return true;
+		const text = paste.text.replace(/[\r\n]+/g, "");
+		if (!text) return false;
+		const insert = (line: LineState): LineState => ({
+			text:
+				line.text.slice(0, line.cursor) + text + line.text.slice(line.cursor),
+			cursor: line.cursor + text.length,
+		});
+		const open = untrack(editing);
+		if (open) {
+			editing.set({ row: open.row, line: insert(open.line) });
+			return true;
+		}
+		batch(() => {
+			if (!untrack(searching)) preSearchPage.set(untrack(page));
+			query.set(insert(untrack(query)));
+		});
+		return true;
 	}
 
-	/**
-	 * The value a row resets to: its value in the rows the defaults draw, so
-	 * a row added to `#items` needs no second table here.
-	 */
-	#defaultValue(id: string): string | undefined {
-		const item = this.#items(DEFAULT_SETTINGS).find(
-			(candidate) => candidate.id === id && !candidate.heading,
-		);
-		return item === undefined ? undefined : String(item.currentValue);
-	}
-
-	/**
-	 * Pointer actions on the native page, each through the path the keys
-	 * take: a page click shows that section (leaving a search), a row click
-	 * selects it, a switch or choice applies its value, a typed chord goes
-	 * through the chord field's checks, and a reset applies the default.
-	 */
-	handleNativeEvent(event: NativeUiEvent): void {
-		if (this.#closing || event.key !== "") return;
-		const list = this.#list;
+	function onEvent(event: UiEvent): void {
+		if (closing) return;
 		switch (event.type) {
 			case "action":
-				if (event.act === "page" && event.value) {
-					this.#showPage(event.value);
-				} else if (event.act === "close") {
-					if (event.value === undefined) this.#close();
-					else if (list.openSubmenu?.id === event.value)
-						list.handleInput(ESCAPE);
-				} else if (event.act === "edit" && event.value) {
-					list.openSubmenuFor(event.value);
+				if (event.act === "page" && event.value) showPage(event.value);
+				else if (event.act === "close") {
+					if (
+						event.value !== undefined &&
+						untrack(editing)?.row === event.value
+					)
+						editing.set(null);
+					else closeDialog();
+				} else if (event.act === "edit" && event.value === "displayCycleKey") {
+					editing.set({
+						row: "displayCycleKey",
+						line: { text: "", cursor: 0 },
+					});
 				}
 				return;
-			case "select":
-				if (list.openSubmenu) list.handleInput(ESCAPE);
-				list.selectItem(event.item);
+			case "select": {
+				const [rowId] = event.item.split("=");
+				if (rowId) {
+					selected.set(rowId);
+					const entry = untrack(allRows).find(
+						(candidate) => candidate.row.id === rowId,
+					);
+					if (entry && untrack(searching)) searchPage.set(entry.section);
+				}
 				return;
+			}
 			case "activate":
-				list.openSubmenuFor(event.item);
+				if (event.item === "displayCycleKey") {
+					editing.set({
+						row: "displayCycleKey",
+						line: { text: "", cursor: 0 },
+					});
+				}
 				return;
 			case "change":
-				this.#applyNativeChange(event.item, event.value);
+				if (event.value === null) {
+					const reset = defaultValue(event.item);
+					if (reset === undefined) return;
+					if (event.item === "displayCycleKey") submitChord(reset, true);
+					else applyChange(event.item, reset);
+					return;
+				}
+				if (event.item === "displayCycleKey") {
+					if (typeof event.value === "string") submitChord(event.value, true);
+					return;
+				}
+				if (
+					typeof event.value === "boolean" ||
+					typeof event.value === "string"
+				) {
+					applyChange(event.item, String(event.value));
+				}
 				return;
 		}
 	}
 
-	#showPage(id: string): void {
-		const items = this.#items();
-		const sectionOf = sectionsOf(items);
-		const first = items.find((item) => sectionOf.get(item.id) === id);
-		// A page without rows (no tools listed) is not one the view offers.
-		if (!first) return;
-		this.#list.clearSearch();
-		this.#page = sectionOf.get(first.id) ?? this.#page;
-		this.#list.selectItem(first.id);
-	}
-
-	#applyNativeChange(
-		id: string,
-		value: boolean | number | string | readonly string[] | null,
-	): void {
-		const list = this.#list;
-		if (value === null) {
-			if (list.openSubmenu) list.handleInput(ESCAPE);
-			const reset = this.#defaultValue(id);
-			if (reset === undefined || !list.selectItem(id)) return;
-			// The default chord passes the same checks a typed one does: it
-			// may be held by another extension.
-			if (id === "displayCycleKey") this.#submitChord(reset);
-			else this.#change(id, reset);
-			return;
-		}
-		if (id === "displayCycleKey") {
-			if (typeof value === "string") this.#submitChord(value);
-			return;
-		}
-		if (typeof value === "boolean" || typeof value === "string") {
-			list.applyValue(id, String(value));
-		}
-	}
-
-	/** Enter a chord through the chord field, so its checks decide. */
-	#submitChord(chord: string): void {
-		const field = this.#list.openSubmenuFor("displayCycleKey");
-		if (field instanceof TextFormField) {
-			field.setValue(chord);
-			field.submit();
-		}
-	}
-
-	invalidate(): void {
-		this.#list.invalidate();
-	}
-}
-
-const ESCAPE = "\x1b";
-
-/** The section a heading item opens; `general` when there is none. */
-function sectionIdOf(head: SettingItem | undefined): SectionId {
-	const id = head?.id.slice(HEADING_PREFIX.length);
-	return SECTIONS.find((section) => section.id === id)?.id ?? "general";
-}
-
-/** The section of every row: the heading above it. One pass over the rows. */
-function sectionsOf(items: readonly SettingItem[]): Map<string, SectionId> {
-	const sections = new Map<string, SectionId>();
-	let section: SectionId | undefined;
-	for (const item of items) {
-		if (item.heading) section = sectionIdOf(item);
-		else if (section !== undefined) sections.set(item.id, section);
-	}
-	return sections;
-}
-
-function withoutHint(row: TspPrefsRow): TspPrefsRow {
-	const { hint: _, ...rest } = row;
-	return rest;
+	return jsx("prefs", {
+		title: "OMP Compact",
+		pages,
+		page: () => (searching() ? searchPage() : page()),
+		lead: () =>
+			searching()
+				? undefined
+				: SECTIONS.find((section) => section.id === page())?.lead,
+		query: () => (searching() ? query().text : undefined),
+		cursor: () => (searching() ? query().cursor : undefined),
+		sections,
+		focus: () => selectedId() ?? null,
+		editing: () => {
+			const open = editing();
+			return open
+				? {
+						row: open.row,
+						draft: open.line.text,
+						cursor: open.line.cursor,
+					}
+				: null;
+		},
+		term: () => ({
+			title: TITLE,
+			page: searching() ? searchPage() : undefined,
+			selected: selectedId(),
+			error: editing()?.error,
+		}),
+		onKey,
+		onPaste,
+		onAction: (_act: string, event: Extract<UiEvent, { type: "action" }>) =>
+			onEvent(event),
+		onChange: (event: Extract<UiEvent, { type: "change" }>) => onEvent(event),
+		onSelect: (_item: string, event: Extract<UiEvent, { type: "select" }>) =>
+			onEvent(event),
+		onActivate: (
+			_item: string,
+			event: Extract<UiEvent, { type: "activate" }>,
+		) => onEvent(event),
+	}) as UiNode;
 }
 
 /**
@@ -755,7 +853,7 @@ function withoutHint(row: TspPrefsRow): TspPrefsRow {
  */
 export function openSettingsDialog(
 	ui: SettingsUiLike,
-	deps: Omit<SettingsDialogDeps, "getTerminalRows" | "requestRender">,
+	deps: SettingsDialogDeps,
 ): Promise<CompactSettings | undefined> {
 	if (typeof ui?.custom !== "function") {
 		deps.warn(
@@ -763,40 +861,11 @@ export function openSettingsDialog(
 		);
 		return Promise.resolve(undefined);
 	}
-	const host = settingsDialogHost;
-	if (!host) {
-		deps.warn(
-			"omp-compact: /compact-settings is off because this omp lacks the settings-list helpers it draws with; edit the config file instead",
-		);
-		return Promise.resolve(undefined);
-	}
 	return ui.custom<CompactSettings | undefined>(
-		(tui, _theme, _keybindings, done) =>
-			new SettingsDialog(
-				{
-					...deps,
-					// TUI.terminal.rows is a live getter: the dialog learns the
-					// current height at each render, no resize hooks needed.
-					getTerminalRows: () => tui?.terminal?.rows,
-					requestRender: () => tui?.requestRender?.(),
-				},
-				done,
-				host,
-			),
-		// The path omp's own `/settings` takes: a fullscreen overlay. In Tern
-		// that makes the page a sheet of fixed size; in the editor's place it
-		// was sized to the open page and changed height with every page.
-		{ overlay: true, overlayOptions: FULLSCREEN },
+		(_ui, _theme, _keybindings, done) => createSettingsDialog(deps, done),
+		{ overlay: true, fullscreen: true },
 	);
 }
-
-const FULLSCREEN: OverlayOptions = {
-	anchor: "bottom-center",
-	width: "100%",
-	maxHeight: "100%",
-	margin: 0,
-	fullscreen: true,
-};
 
 export interface SettingsSessionDeps {
 	store: CompactSettingsStore;

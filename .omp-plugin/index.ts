@@ -2,9 +2,9 @@ import {
 	type ExtensionAPI,
 	type ExtensionCommandContext,
 	type ExtensionContext,
+	type KeyId,
 	settings,
 } from "@oh-my-pi/pi-coding-agent";
-import type { KeyId } from "@oh-my-pi/pi-tui";
 import type { EditCapture } from "./audit";
 
 import {
@@ -53,6 +53,7 @@ import {
 	STATS_MESSAGE_TYPE,
 	StatsRow,
 	statsLine,
+	statsMessageNode,
 	statsNode,
 } from "./run-stats";
 import { SessionLedger } from "./session-ledger";
@@ -446,32 +447,34 @@ export default function ompCompact(pi: ExtensionAPI): void {
 		(message, _context, theme) => {
 			const evidence = message.details;
 			if (!isRunStatsEvidence(evidence)) return undefined;
-			return new StatsRow(
-				() => {
-					const stats = settingsStore.snapshot().stats;
-					return stats.enabled
-						? statsLine(resultFromEvidence(evidence), stats, theme)
-						: "";
+			const line = () => {
+				const stats = settingsStore.snapshot().stats;
+				return stats.enabled
+					? statsLine(resultFromEvidence(evidence), stats, theme)
+					: "";
+			};
+			const reveal = {
+				available: () => {
+					const run = ledger.run(evidence.runId);
+					return run !== undefined && presenter.hidesCalls(run);
 				},
-				{
-					available: () => {
-						const run = ledger.run(evidence.runId);
-						return run !== undefined && presenter.hidesCalls(run);
-					},
-					shown: () => ledger.run(evidence.runId)?.revealed === true,
-					toggle: () => {
-						const run = ledger.run(evidence.runId);
-						if (!run) return;
-						run.revealed = !run.revealed;
-						refresh([...presenter.hiddenCallIds(run), ...run.leaves]);
-					},
+				shown: () => ledger.run(evidence.runId)?.revealed === true,
+				toggle: () => {
+					const run = ledger.run(evidence.runId);
+					if (!run) return;
+					run.revealed = !run.revealed;
+					refresh([...presenter.hiddenCallIds(run), ...run.leaves]);
 				},
-				() =>
+			};
+			if (ternNativeView(Bun.env)) {
+				return statsMessageNode(line, reveal, () =>
 					statsNode(
 						resultFromEvidence(evidence),
 						settingsStore.snapshot().stats,
 					),
-			);
+				);
+			}
+			return new StatsRow(line);
 		},
 	);
 

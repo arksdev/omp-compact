@@ -3,20 +3,10 @@
  *
  * Single boundary for everything a test suite needs from the pinned stock
  * host: the `OMP_STOCK_BIN` presence check (explicit missing-binary error),
- * the pi-coding-agent package-root derivation, the stock
- * component/theme/transcript module imports, direct production plugin
- * module loading (no staged source copies — the repository pins
- * `@oh-my-pi/*` in its root `node_modules`), and isolated generated
- * settings/config state under `.omp-compact-test`.
- *
- * The component instance interfaces mirror the pinned OMP 17.4.2 declarations
- * (`node_modules/@oh-my-pi/pi-coding-agent/dist/types/modes/components/*`)
- * so the test boundary is the same API the plugin adapts, not a hand-copied
- * subset: `ToolExecutionComponent`'s ctor takes an optional `toolCallId`,
- * `ReadToolGroupComponent` exposes `setExpanded`/`setArgsComplete`, and
- * `TranscriptContainer` exposes `clear`, the viewport render, live row
- * count, history batches and block lifecycle states plus container-owned
- * tool-activity forwarding.
+ * the pi-coding-agent package-root derivation, a real `Transcript` +
+ * `TranscriptPresenter` from `@oh-my-pi/pi-coding-agent`, direct production
+ * plugin module loading, and isolated generated settings/config state under
+ * `.omp-compact-test`.
  *
  * Test scaffolding only — no production code is imported at module load.
  */
@@ -29,6 +19,12 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import type {
+	ExtensionRender,
+	ExtensionTheme,
+} from "@oh-my-pi/pi-coding-agent";
+import type { JSXNode, Signal, UiNode } from "@oh-my-pi/pi-tui";
+import type { Theme } from "@oh-my-pi/pi-tui/theme/contract";
 
 const binary = process.env.OMP_STOCK_BIN;
 const sourceDir = resolve(
@@ -37,165 +33,84 @@ const sourceDir = resolve(
 	".omp-plugin",
 );
 
+export type { ExtensionTheme };
+
 export interface Renderable {
 	render(width: number): readonly string[];
 }
 
-export interface ToolExecutionInstance extends Renderable {
+export interface PendingToolHandle extends Renderable {
 	updateArgs(args: unknown, toolCallId?: string): void;
-	updateResult(result: unknown, isPartial: boolean, toolCallId?: string): void;
-	setArgsComplete(toolCallId?: string): void;
-	setExpanded(expanded: boolean): void;
-	setToolActivityVisible(visible: boolean): void;
-	seal(): void;
-	isTranscriptBlockFinalized(): boolean;
-}
-
-export interface ReadGroupInstance extends Renderable {
-	updateArgs(
-		args: { path?: string; file_path?: string },
-		toolCallId?: string,
-	): void;
 	updateResult(result: unknown, isPartial?: boolean, toolCallId?: string): void;
-	renameEntry(oldId: string, newId: string): void;
-	removeEntry(id: string): boolean;
 	setArgsComplete(toolCallId?: string): void;
 	setExpanded(expanded: boolean): void;
+	seal(): void;
+	rename(newId: string): void;
+	removeEntry?(id: string): boolean;
 }
 
-export interface TranscriptInstance extends Renderable {
-	addChild(child: unknown): void;
-	children: unknown[];
+export interface ExecRunHandle {
+	record(recorded: unknown): void;
+}
+
+export interface StockTranscript extends Renderable {
+	readonly length: number;
+	setPresenters(presenters: readonly never[]): void;
+	refresh(ids?: readonly string[]): void;
 	clear(): void;
-	/**
-	 * Optional capability: hosts check presence before patching (see
-	 * host-adapter's capability guard), and seam transcripts may lack it.
-	 */
-	disposeChildren?(): void;
+	setExpanded(expanded: boolean): void;
 	setToolActivityVisible(visible: boolean): void;
-	/**
-	 * Optional capability: hosts check presence before patching (see
-	 * host-adapter's capability guard), and seam transcripts may lack it.
-	 */
-	canRemoveBlock?(component: unknown): boolean;
-	renderViewport(
-		width: number,
-		rows: number,
-		frame: { tick: number; now: number },
-	): readonly string[];
-	liveRowCount(width: number): number;
-	peekFinalizedBatch(
-		width: number,
-		capacity: number,
-	): { id: number; rows: readonly string[] } | undefined;
-	acknowledgeFinalizedBatch(id: number): void;
-	blockStates(): readonly ("active" | "settled" | "committed")[];
-}
-
-export interface ToolExecutionComponentOptions {
-	showImages: boolean;
-	useBuiltInRenderer: boolean;
-	showCompletedActivity?: () => boolean;
-}
-
-/**
- * Stock theme surface used by the host components the suites construct
- * directly (`getTheme()` below and the advisor card factory).
- */
-export interface HostTheme {
-	fg(color: string, text: string): string;
-	getFgAnsi(color: string): string;
-}
-
-/** Opaque stock advisor card: `createAdvisorMessageCard` returns one. */
-export interface AdvisorCardInstance extends Renderable {
-	invalidate(): void;
-	handleNativeEvent?(event: {
-		type: "toggle";
-		key: string;
-		collapsed: boolean;
-	}): unknown;
-}
-
-/** omp's `PresentedBlock`: a non-tool block drawn through the presenters. */
-export interface PresentedBlockInstance extends Renderable {
-	setBlock(block: unknown): void;
+	presentToolCall(spec: {
+		id: string;
+		name: string;
+		args: unknown;
+		cwd?: string;
+	}): PendingToolHandle;
+	presentReadGroup(): PendingToolHandle;
+	presentMessage(message: unknown): void;
+	presentExecRun(
+		run: unknown,
+		options?: { deferred?: boolean; recorded?: unknown },
+	): ExecRunHandle;
+	presentTtsr(rules: readonly unknown[]): void;
+	presentTodoReminder(
+		todos: readonly unknown[],
+		attempt: number,
+		maxAttempts: number,
+	): void;
+	presentAssistantText(text: string): void;
+	dispose(): void;
 }
 
 export interface HostModules {
 	plugin: (pi: unknown) => void;
-	ToolExecutionComponent: new (
-		toolName: string,
-		args: unknown,
-		options: ToolExecutionComponentOptions | undefined,
-		tool: unknown,
-		ui: unknown,
-		cwd?: string,
-		toolCallId?: string,
-	) => ToolExecutionInstance;
-	ReadToolGroupComponent: new (options?: {
-		showContentPreview?: boolean;
-	}) => ReadGroupInstance;
-	TranscriptContainer: new () => TranscriptInstance;
-	ContainerBase: new () => {
-		addChild(child: unknown): void;
-		render(width: number): readonly string[];
+	createTranscript: (options?: {
+		cwd?: string;
+		renderer?: (
+			customType: string,
+		) => ((...args: never[]) => ExtensionRender | undefined) | undefined;
+	}) => StockTranscript;
+	ExecRun: new (options: {
+		kind: "bash" | "eval";
+		source: string;
+		language?: "python" | "js";
+		excluded?: boolean;
+	}) => {
+		appendOutput(chunk: string): void;
+		setComplete(
+			exitCode: number | undefined,
+			cancelled: boolean,
+			completion?: { output?: string },
+		): void;
 	};
-	/** The public seam `pi.registerTranscriptPresenter` feeds in omp. */
-	setTranscriptPresenters: (presenters: readonly never[]) => boolean;
-	/**
-	 * omp's wrapper of a non-tool transcript block: draws `inner` as the
-	 * presenters answer for `block`.
-	 */
-	PresentedBlock: new (
-		inner: object,
-		block: unknown,
-	) => PresentedBlockInstance;
-	/** The `message` block omp builds for a session message. */
-	messageBlock: (message: unknown) => unknown;
-	/**
-	 * The stock components behind the non-tool blocks the presenter is asked
-	 * about. Constructor shapes are the live ones; a host that changes them
-	 * fails to compile here.
-	 */
-	TtsrNotificationComponent: new (
-		rules: readonly unknown[],
-	) => object;
-	TodoReminderComponent: new (
-		todos: readonly unknown[],
-		attempt: number,
-		maxAttempts: number,
-	) => object;
-	BashExecutionComponent: new (
-		command: string,
-		ui: unknown,
-		excludeFromContext?: boolean,
-	) => object;
-	EvalExecutionComponent: new (
-		code: string,
-		ui: unknown,
-		excludeFromContext?: boolean,
-		language?: string,
-	) => object;
-	SkillMessageComponent: new (message: unknown) => object;
-	LateDiagnosticsMessageComponent: new (files: readonly unknown[]) => object;
-	/**
-	 * Stock advisor card factory. OMP <= 18.2.0 lives at
-	 * `pi-coding-agent/src/modes/components/advisor-message.ts`; OMP >= 18.2.5
-	 * moved it into `pi-tui/src/chat/advisor-message.ts` — `loadStockHost`
-	 * resolves both layouts.
-	 */
-	createAdvisorMessageCard: (
-		details: unknown,
-		getExpanded: () => boolean,
-		theme: HostTheme,
-	) => AdvisorCardInstance;
-	getTheme: () => HostTheme;
 	initTheme: () => Promise<void>;
-	/** `/theme` swap on the same theme module instance `getTheme()` reads. */
+	/** `/theme` swap on the same theme module instance `currentTheme()` reads. */
 	setTheme: (name: string) => Promise<{ success: boolean; error?: string }>;
 	/** Name of the active theme, or undefined before the first init/swap. */
 	getCurrentThemeName: () => string | undefined;
+	messageBlock: (message: unknown) => unknown;
+	extensionTheme: () => ExtensionTheme;
+	renderUiNode: (node: UiNode, width: number) => readonly string[];
 }
 
 /** True when the pinned stock binary is on the environment. */
@@ -222,8 +137,7 @@ export function stockHostVersion(): string {
 /**
  * Transcript specs of the schemes the pinned host's `InternalUrlRouter`
  * registers itself. Stock `readArgsCollapseIntoGroup` decides a read's card
- * shape from exactly this registry. Dynamic import: the package root comes
- * from `OMP_STOCK_BIN` at run time, like every stock module here.
+ * shape from exactly this registry.
  */
 export async function stockInternalUrlSpecs(): Promise<
 	ReadonlyMap<string, { compactTranscript?: boolean }>
@@ -248,13 +162,6 @@ export function stockSettingsPath(fileName: string): string {
 	return join(stockTempDir(), fileName);
 }
 
-/**
- * Files this process generated under `stockTempDir()`, so a suite can drop
- * exactly its own output. The directory itself is shared: `bun test` runs
- * several files per process and several processes per machine, and fixed
- * names like `config-compact.json` are written by other suites — removing
- * the directory would delete a sibling's live config mid-run.
- */
 const generatedSettings = new Set<string>();
 
 /** Writes an isolated boot-settings JSON file (mkdir -p implied). */
@@ -270,10 +177,7 @@ export function writeStockSettings(
 }
 
 /**
- * Removes the settings files this process wrote through
- * `writeStockSettings`. Call from an `afterAll` in the test file itself:
- * a hook registered here would bind to whichever file imported this module
- * first and fire once for the whole process, leaving the rest behind.
+ * Removes the settings files this process wrote through `writeStockSettings`.
  */
 export function cleanupStockSettings(): void {
 	for (const path of generatedSettings) rmSync(path, { force: true });
@@ -281,9 +185,7 @@ export function cleanupStockSettings(): void {
 }
 
 /**
- * Directly loads one production plugin module from the source tree (no
- * staging copies). The per-call cache-bust label gives every suite a fresh
- * module instance, exactly like the previous temp-copy imports did.
+ * Directly loads one production plugin module from the source tree.
  */
 export async function loadStockPlugin<T = Record<string, unknown>>(
 	entry: string,
@@ -293,183 +195,363 @@ export async function loadStockPlugin<T = Record<string, unknown>>(
 	return (await import(`${href}?${label}-${Date.now()}`)) as T;
 }
 
-/** Loads the stock host modules (components/theme/transcript) only. */
+let renderTargetImpl: (target: unknown, width: number) => readonly string[] =
+	() => [];
+
+export function renderStockOutput(
+	target: unknown,
+	width = 120,
+): readonly string[] {
+	if (!target || typeof target !== "object") return [];
+	if ("render" in target && typeof target.render === "function") {
+		return (target as Renderable).render(width);
+	}
+	return renderTargetImpl(target, width);
+}
+/** Loads the stock host modules (transcript/components/theme) only. */
 export async function loadStockHost(): Promise<Omit<HostModules, "plugin">> {
 	const root = packageRoot();
-	const resolveHostModule = (agentPath: string, tuiPath: string): string => {
-		const agentFull = join(root, agentPath);
-		if (existsSync(agentFull)) return agentFull;
-		const tuiFull = resolve(root, "..", "pi-tui", tuiPath);
-		if (existsSync(tuiFull)) return tuiFull;
-		throw new Error(`Cannot find host module at ${agentFull} or ${tuiFull}`);
+	const resolveHostTui = (specifier: string): string =>
+		Bun.resolveSync(specifier, root);
+	const resolveHost = (relPath: string): string => {
+		const full = join(root, relPath);
+		if (existsSync(full)) return full;
+		throw new Error(`Cannot find host module at ${full}`);
 	};
 	const [
+		piTuiModule,
+		piTuiRenderModule,
+		piTuiThemeModule,
+		interactiveTranscript,
+		shellModule,
+		presentedModule,
+		noticesModule,
+		execRunModule,
 		presentationModule,
-		componentModule,
 		themeModule,
-		readGroupModule,
-		transcriptModule,
-		ttsrModule,
-		todoReminderModule,
-		bashExecutionModule,
-		evalExecutionModule,
-		skillMessageModule,
-		lateDiagnosticsModule,
-		advisorMessageModule,
+		renderOutputModule,
 	] = await Promise.all([
+		import(pathToFileURL(resolveHostTui("@oh-my-pi/pi-tui")).href),
+		import(pathToFileURL(resolveHostTui("@oh-my-pi/pi-tui/term/render")).href),
+		import(
+			pathToFileURL(resolveHostTui("@oh-my-pi/pi-tui/theme/runtime")).href
+		),
+		import(
+			pathToFileURL(resolveHost("src/modes/interactive/transcript.tsx")).href
+		),
+		import(pathToFileURL(resolveHost("src/ui/shell/index.ts")).href),
 		import(
 			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/transcript-presentation.ts",
-					"src/chat/transcript-presentation.ts",
-				),
+				resolveHost("src/ui/transcript/figures/presented-block.tsx"),
 			).href
 		),
 		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/tool-execution.ts",
-					"src/chat/tool-execution.ts",
-				),
-			).href
+			pathToFileURL(resolveHost("src/ui/transcript/messages/notices.tsx")).href
 		),
+		import(pathToFileURL(resolveHost("src/ui/transcript/exec-run.tsx")).href),
 		import(
 			pathToFileURL(
-				resolveHostModule("src/modes/theme/theme.ts", "src/theme/theme.ts"),
+				resolveHost("src/session/transcript/transcript-presentation.ts"),
 			).href
 		),
+		import(pathToFileURL(resolveHost("src/ui/theme/service.ts")).href),
 		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/read-tool-group.ts",
-					"src/chat/read-tool-group.ts",
-				),
-			).href
+			pathToFileURL(resolveHost("src/ui/extensions/render-output.tsx")).href
 		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/transcript-container.ts",
-					"src/chrome/transcript-container.ts",
-				),
-			).href
-		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/ttsr-notification.ts",
-					"src/chat/ttsr-notification.ts",
-				),
-			).href
-		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/todo-reminder.ts",
-					"src/chat/todo-reminder.ts",
-				),
-			).href
-		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/bash-execution.ts",
-					"src/chat/bash-execution.ts",
-				),
-			).href
-		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/eval-execution.ts",
-					"src/chat/eval-execution.ts",
-				),
-			).href
-		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/skill-message.ts",
-					"src/chat/skill-message.ts",
-				),
-			).href
-		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/late-diagnostics-message.ts",
-					"src/chat/late-diagnostics-message.ts",
-				),
-			).href
-		),
-		import(
-			pathToFileURL(
-				resolveHostModule(
-					"src/modes/components/advisor-message.ts",
-					"src/chat/advisor-message.ts",
-				),
-			).href
-		),
+		import(pathToFileURL(resolveHost("src/ui/styles/index.ts")).href),
 	]);
-	try {
-		const hlPath = resolveHostModule(
-			"src/tui/hyperlink.ts",
-			"src/render/hyperlink.ts",
-		);
-		const hlModule = (await import(pathToFileURL(hlPath).href)) as {
-			applyHyperlinkSetting?: (mode: string) => void;
+
+	const { isUiNode, jsx, signal } = piTuiModule as {
+		isUiNode: (value: unknown) => value is UiNode;
+		jsx: (type: unknown, props: Record<string, unknown>) => JSXNode;
+		signal: <T>(initial: T) => Signal<T>;
+	};
+	const { renderBlock } = piTuiRenderModule as {
+		renderBlock: (
+			node: UiNode,
+			width: number,
+			options: { theme: Theme },
+		) => { rows: readonly string[] };
+	};
+	const { currentTheme } = piTuiThemeModule as {
+		currentTheme: () => Theme;
+	};
+	const renderNode = (node: UiNode, width: number): readonly string[] =>
+		renderBlock(node, width, { theme: currentTheme() }).rows;
+	renderTargetImpl = (target, width) =>
+		isUiNode(target) ? renderNode(target, width) : [];
+	const { messageBlock } = presentationModule as {
+		messageBlock: (message: unknown) => unknown;
+	};
+	const { TranscriptPresenter } = interactiveTranscript as {
+		TranscriptPresenter: new (
+			host: unknown,
+		) => {
+			setPresenters(presenters: readonly never[]): void;
+			refreshPresentation(ids?: readonly string[]): void;
+			presentationOf(block: unknown): unknown;
+			presentToolCall(spec: {
+				id: string;
+				name: string;
+				args: unknown;
+				cwd?: string;
+			}): {
+				block: unknown;
+				call?: {
+					setExpanded(expanded: boolean): void;
+					setArgsComplete(): void;
+				};
+				updateArgs(args: unknown): void;
+				updateResult(result: unknown, partial: boolean): void;
+				seal(): void;
+				rename?(newId: string): void;
+			};
+			presentReadGroup(): {
+				block: unknown;
+				group?: {
+					setExpanded(expanded: boolean): void;
+					setArgsComplete(id?: string): void;
+					renameEntry(oldId: string, newId: string): void;
+					removeEntry(id: string): boolean;
+				};
+				updateArgs(args: unknown, id?: string): void;
+				updateResult(result: unknown, partial: boolean, id?: string): void;
+				seal(): void;
+			};
+			presentMessage(message: unknown): unknown;
+			presentExecRun(
+				run: unknown,
+				options?: { deferred?: boolean; recorded?: unknown },
+			): ExecRunHandle;
+			dispose(): void;
 		};
-		hlModule.applyHyperlinkSetting?.("always");
-	} catch {
-		// Ignore if hyperlink module is absent.
-	}
-	try {
-		// Runtime-resolved host path; 18.17.0 defaults bash cards to a pseudo view
-		const prefsPath = resolveHostModule(
-			"src/chat/display-preferences.ts",
-			"src/chat/display-preferences.ts",
-		);
-		const prefsModule = (await import(pathToFileURL(prefsPath).href)) as {
-			setChatTranscriptDisplayPreferences?: (next: {
-				shellVisualization: boolean;
-			}) => void;
+	};
+	const { Transcript, ViewList } = shellModule as {
+		Transcript: new () => {
+			readonly nodes: () => readonly UiNode[];
+			append(
+				factory: () => JSXNode,
+				options?: { compact?: () => boolean; spacedBelow?: boolean },
+			): unknown;
+			clear(): void;
+			dispose(): void;
 		};
-		prefsModule.setChatTranscriptDisplayPreferences?.({
-			shellVisualization: false,
+		ViewList: new () => { clear(): void; push(...entries: never[]): void };
+	};
+	const { PresentedBlock } = presentedModule as {
+		PresentedBlock: (props: {
+			block: unknown;
+			presentation: () => unknown;
+			expanded: () => boolean;
+			onToggle: (collapsed: boolean) => void;
+			activityVisible: () => boolean;
+			children: JSXNode;
+		}) => JSXNode;
+	};
+	const { TtsrNotice, TodoReminder } = noticesModule as {
+		TtsrNotice: (props: {
+			rules: readonly unknown[];
+			expanded: () => boolean;
+		}) => JSXNode;
+		TodoReminder: (props: {
+			todos: readonly unknown[];
+			attempt: number;
+			maxAttempts: number;
+		}) => JSXNode;
+	};
+	const { ExecRun } = execRunModule as HostModules["ExecRun"] extends infer T
+		? { ExecRun: T }
+		: never;
+	const { initTheme, setTheme, getCurrentThemeName } = themeModule as {
+		initTheme: () => Promise<void>;
+		setTheme: (name: string) => Promise<{ success: boolean; error?: string }>;
+		getCurrentThemeName: () => string | undefined;
+	};
+	const { extensionTheme } = renderOutputModule as {
+		extensionTheme: (theme: Theme) => ExtensionTheme;
+	};
+
+	const createTranscript: HostModules["createTranscript"] = (options = {}) => {
+		const transcript = new Transcript();
+		const expanded = signal(false);
+		const hideToolActivity = signal(false);
+		const pendingShellRuns = new ViewList();
+		const presenter = new TranscriptPresenter({
+			shell: {
+				transcript,
+				host: undefined,
+				size: () => ({ columns: 120, rows: 40 }),
+			},
+			viewSession: { hasBuiltInTool: () => true },
+			display: {
+				toolOutputExpanded: expanded,
+				hideToolActivity,
+				hideThinking: signal(false),
+				proseOnlyThinking: signal(false),
+				expandThinkingBlocks: signal(false),
+				showImages: signal(false),
+				tableCharts: signal(false),
+				shellVisualization: signal(false),
+				mcpMarkdown: signal(false),
+				readPreview: signal(false),
+			},
+			pendingShellRuns,
+			linkTargets: () => new Map(),
+			messages: {
+				expanded,
+				activityVisible: () => !hideToolActivity(),
+				advisorCollapsedLines: () => 0,
+				renderer: (customType: string) => options.renderer?.(customType),
+				onRenderError: () => {},
+				imageLinks: () => undefined,
+				skillPath: () => undefined,
+				actions: () => false,
+				hour12: () => undefined,
+				promptZones: () => false,
+				magicKeywords: () => [],
+				onUserAction: () => {},
+			},
 		});
-	} catch {
-		// Ignore if the preference module is absent.
-	}
+
+		const wrapPending = (
+			pending:
+				| ReturnType<typeof presenter.presentToolCall>
+				| ReturnType<typeof presenter.presentReadGroup>,
+		): PendingToolHandle => {
+			return {
+				updateArgs: (args, id) => pending.updateArgs(args, id),
+				updateResult: (result, isPartial = false, id) =>
+					pending.updateResult(result, isPartial, id),
+				setArgsComplete: (id) => {
+					if ("call" in pending && pending.call) pending.call.setArgsComplete();
+					else if ("group" in pending && pending.group)
+						pending.group.setArgsComplete(id);
+				},
+				setExpanded: (value) => {
+					if ("call" in pending && pending.call)
+						pending.call.setExpanded(value);
+					else if ("group" in pending && pending.group)
+						pending.group.setExpanded(value);
+				},
+				seal: () => pending.seal(),
+				rename: (newId) => {
+					if ("rename" in pending && typeof pending.rename === "function") {
+						pending.rename(newId);
+					}
+				},
+				removeEntry:
+					"group" in pending && pending.group
+						? (id) => pending.group?.removeEntry(id) ?? false
+						: undefined,
+				render: (width) =>
+					transcript.nodes().flatMap((node) => renderNode(node, width)),
+			};
+		};
+
+		let nextEventId = 1;
+		return {
+			get length() {
+				return transcript.nodes().length;
+			},
+			setPresenters: (presenters) => presenter.setPresenters(presenters),
+			refresh: (ids) => presenter.refreshPresentation(ids),
+			clear: () => transcript.clear(),
+			setExpanded: (value) => expanded.set(value),
+			setToolActivityVisible: (visible) => hideToolActivity.set(!visible),
+			presentToolCall: (spec) =>
+				wrapPending(
+					presenter.presentToolCall({
+						cwd: options.cwd,
+						...spec,
+					}),
+				),
+			presentReadGroup: () => wrapPending(presenter.presentReadGroup()),
+			presentMessage: (message) => {
+				presenter.presentMessage(message);
+			},
+			presentExecRun: (run, runOptions) =>
+				presenter.presentExecRun(run, runOptions),
+			presentTtsr: (rules) => {
+				const block = {
+					type: "event" as const,
+					id: `event-${nextEventId++}`,
+					event: { type: "ttsr_triggered" as const, rules },
+				};
+				transcript.append(() =>
+					jsx(PresentedBlock, {
+						block,
+						presentation: () => presenter.presentationOf(block),
+						expanded: () => expanded(),
+						onToggle: () => {},
+						activityVisible: () => !hideToolActivity(),
+						children: jsx(TtsrNotice, {
+							rules,
+							expanded: () => expanded(),
+						}),
+					}),
+				);
+			},
+			presentTodoReminder: (todos, attempt, maxAttempts) => {
+				const block = {
+					type: "event" as const,
+					id: `event-${nextEventId++}`,
+					event: {
+						type: "todo_reminder" as const,
+						todos,
+						attempt,
+						maxAttempts,
+					},
+				};
+				transcript.append(() =>
+					jsx(PresentedBlock, {
+						block,
+						presentation: () => presenter.presentationOf(block),
+						expanded: () => expanded(),
+						onToggle: () => {},
+						activityVisible: () => !hideToolActivity(),
+						children: jsx(TodoReminder, {
+							todos,
+							attempt,
+							maxAttempts,
+						}),
+					}),
+				);
+			},
+			presentAssistantText: (text) => {
+				transcript.append(() => jsx("text", { text }), { spacedBelow: true });
+			},
+			render: (width) =>
+				transcript.nodes().flatMap((node) => renderNode(node, width)),
+			dispose: () => {
+				presenter.dispose();
+				transcript.dispose();
+			},
+		};
+	};
+
 	return {
-		setTranscriptPresenters: presentationModule.setTranscriptPresenters,
-		PresentedBlock: presentationModule.PresentedBlock,
-		messageBlock: presentationModule.messageBlock,
-		ToolExecutionComponent: componentModule.ToolExecutionComponent,
-		ReadToolGroupComponent: readGroupModule.ReadToolGroupComponent,
-		TranscriptContainer: transcriptModule.TranscriptContainer,
-		TtsrNotificationComponent: ttsrModule.TtsrNotificationComponent,
-		TodoReminderComponent: todoReminderModule.TodoReminderComponent,
-		BashExecutionComponent: bashExecutionModule.BashExecutionComponent,
-		EvalExecutionComponent: evalExecutionModule.EvalExecutionComponent,
-		SkillMessageComponent: skillMessageModule.SkillMessageComponent,
-		LateDiagnosticsMessageComponent:
-			lateDiagnosticsModule.LateDiagnosticsMessageComponent,
-		createAdvisorMessageCard: advisorMessageModule.createAdvisorMessageCard,
-		ContainerBase: Object.getPrototypeOf(
-			readGroupModule.ReadToolGroupComponent.prototype,
-		).constructor,
-		getTheme: () => themeModule.theme,
-		initTheme: themeModule.initTheme,
-		setTheme: themeModule.setTheme,
-		getCurrentThemeName: themeModule.getCurrentThemeName,
+		createTranscript,
+		ExecRun,
+		initTheme,
+		setTheme,
+		getCurrentThemeName,
+		messageBlock,
+		extensionTheme: () => extensionTheme(currentTheme()),
+		renderUiNode: (node, width) =>
+			isUiNode(node) ? renderNode(node, width) : [],
 	};
 }
 
-/** Full host boundary: plugin entry (index.ts) plus the stock modules. */
-export async function loadHost(): Promise<HostModules> {
-	const [pluginModule, host] = await Promise.all([
-		loadStockPlugin<{ default: (pi: unknown) => void }>("index.ts"),
+/** Loads both the stock host modules and the production plugin factory. */
+export async function loadStockPluginAndHost(
+	label = "stock",
+): Promise<HostModules> {
+	const [host, pluginModule] = await Promise.all([
 		loadStockHost(),
+		loadStockPlugin<{ default?: (pi: unknown) => void }>("index.ts", label),
 	]);
-	return { plugin: pluginModule.default, ...host };
+	if (typeof pluginModule.default !== "function") {
+		throw new Error("plugin default export missing");
+	}
+	return { ...host, plugin: pluginModule.default };
 }

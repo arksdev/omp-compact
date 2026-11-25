@@ -705,7 +705,7 @@ describe("save report", () => {
 		// change, and moves back to the chord omp actually bound.
 		const notifies: Array<[string, string]> = [];
 		await saveAndReport(
-			{ ...DEFAULT_SETTINGS, displayCycleKey: "shift+alt+y" },
+			{ ...DEFAULT_SETTINGS, displayCycleKey: "alt+shift+y" },
 			{ store, notifies },
 			"alt+Y",
 		);

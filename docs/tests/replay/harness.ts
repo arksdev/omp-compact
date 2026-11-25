@@ -1,20 +1,20 @@
 /**
  * Shared replay harness for the omp-compact replay-fixture corpus.
  *
- * Mirrors the boot/delivery patterns of `index.integration.test.ts` (same
- * host-module loading, same `pi` stub, same native component/read-group
- * creation, same event dispatch) so replay fixtures exercise the plugin
- * through exactly the seams the stock integration suite relies on. This
- * file is test scaffolding only — no production code is touched.
+ * Mirrors the boot/delivery patterns of the stock integration suites (same
+ * host-module loading, same `pi` stub, same native `Transcript` and
+ * `TranscriptPresenter`, same event dispatch) so replay fixtures exercise the
+ * plugin through the exact seams omp 19.2.0 exposes.
  */
 import { DEFAULT_SETTINGS } from "../../../.omp-plugin/config";
 import {
+	type ExtensionTheme,
 	type HostModules,
-	loadHost,
-	type ReadGroupInstance,
+	loadStockPluginAndHost,
+	type PendingToolHandle,
 	type Renderable,
-	type ToolExecutionInstance,
-	type TranscriptInstance,
+	renderStockOutput,
+	type StockTranscript,
 	writeStockSettings,
 } from "../test-stock-host";
 
@@ -38,9 +38,10 @@ export interface BootedPlugin {
 		cwd: string;
 		hasUI: boolean;
 		ui: {
-			theme: ReturnType<HostModules["getTheme"]>;
-			notify(message: string, level: string): void;
-			refreshTranscript(ids: readonly string[]): void;
+			theme: ExtensionTheme;
+			notify(message: string, level?: string): void;
+			refreshTranscript(ids?: readonly string[]): void;
+			custom: () => Promise<undefined>;
 		};
 		mode: string;
 		isIdle(): boolean;
@@ -49,10 +50,6 @@ export interface BootedPlugin {
 			getEntries(): readonly unknown[];
 			getEntry(id: string): unknown;
 		};
-	};
-	ContainerBase: new () => {
-		addChild(child: unknown): void;
-		render(width: number): readonly string[];
 	};
 	registeredTools: string[];
 	commands: string[];
@@ -63,13 +60,13 @@ export interface BootedPlugin {
 		(
 			message: { details?: unknown },
 			options: { expanded: boolean },
-			theme: ReturnType<HostModules["getTheme"]>,
-		) => Renderable | undefined
+			theme: ExtensionTheme,
+		) => unknown
 	>;
 	notifications: string[];
 	/** Shortcut handlers by chord, as the plugin registered them. */
 	shortcuts: Map<string, (context: BootedPlugin["context"]) => unknown>;
-	transcript: TranscriptInstance;
+	transcript: StockTranscript;
 	/** Session entries the walk reads; tests assign them before a resume. */
 	branch: unknown[];
 }
@@ -81,15 +78,12 @@ export async function bootReplay(options: {
 	/** Entries of other branches, which only `getEntries` returns. */
 	offBranch?: unknown[];
 }): Promise<BootedPlugin> {
-	const host = await loadHost();
+	const host = await loadStockPluginAndHost("replay");
 	await host.initTheme();
 	const bootSettings = options.settings ?? {
 		...DEFAULT_SETTINGS,
 		stats: { ...DEFAULT_SETTINGS.stats, enabled: false },
 	};
-	// Per-boot unique settings file: replay fixtures differ per id, and the
-	// same suite runs concurrently in multiple processes — a shared filename
-	// would let process B's fixture settings leak into process A's boot.
 	const modeConfigPath = writeStockSettings(
 		bootSettings,
 		`replay-settings-${process.pid}-${Number(++bootSeq)}.json`,
@@ -106,24 +100,30 @@ export async function bootReplay(options: {
 		(
 			message: { details?: unknown },
 			options: { expanded: boolean },
-			theme: ReturnType<HostModules["getTheme"]>,
-		) => Renderable | undefined
+			theme: ExtensionTheme,
+		) => unknown
 	>();
 	const notifications: string[] = [];
 	const shortcuts: BootedPlugin["shortcuts"] = new Map();
 	const presenters: unknown[] = [];
+	const cwd = options.cwd ?? "/tmp";
+	const transcript = host.createTranscript({
+		cwd,
+		renderer: (customType) => renderers.get(customType) as never,
+	});
 	const pi = {
 		logger: { warn() {} },
 		setLabel() {},
 		registerShortcut(
 			key: string,
-			options: { handler: (context: BootedPlugin["context"]) => unknown },
+			spec: { handler: (context: BootedPlugin["context"]) => unknown },
 		) {
-			shortcuts.set(key, options.handler);
+			shortcuts.set(key, spec.handler);
 		},
 		getShortcutConflict: () => undefined,
 		registerTranscriptPresenter(presenter: unknown) {
 			presenters.push(presenter);
+			transcript.setPresenters(presenters as never);
 		},
 		getActiveTools() {
 			throw new Error("native active-tool registry must not be queried");
@@ -167,27 +167,19 @@ export async function bootReplay(options: {
 			Bun.env.OMP_COMPACT_CONFIG = previousModeConfig;
 		}
 	}
-	host.setTranscriptPresenters(presenters as never);
-	const ContainerBase = host.ContainerBase;
-	const transcript = new host.TranscriptContainer();
 	const branch = options.branch ?? [];
 	const context: BootedPlugin["context"] = {
-		cwd: options.cwd ?? "/tmp",
+		cwd,
 		hasUI: true,
 		ui: {
-			theme: host.getTheme(),
+			theme: host.extensionTheme(),
 			notify(message) {
 				notifications.push(message);
 			},
 			refreshTranscript(ids) {
-				const wanted = new Set(ids);
-				for (const block of transcript.children)
-					(
-						block as {
-							refreshTranscriptPresentation?(ids: ReadonlySet<string>): void;
-						}
-					).refreshTranscriptPresentation?.(wanted);
+				transcript.refresh(ids);
 			},
+			custom: async () => undefined,
 		},
 		mode: "tui",
 		isIdle: () => true,
@@ -201,16 +193,14 @@ export async function bootReplay(options: {
 	for (const handler of handlers.get("session_start") ?? []) {
 		await handler({ type: "session_start" }, context);
 	}
-	if (!transcript) throw new Error("transcript container missing");
 	return {
 		host,
 		handlers,
 		context,
-		ContainerBase,
 		registeredTools,
 		commands,
 		sentMessages,
-		renderers: renderers as BootedPlugin["renderers"],
+		renderers,
 		appendedEntries,
 		notifications,
 		shortcuts,
@@ -223,46 +213,19 @@ export async function dispatch(
 	booted: BootedPlugin,
 	event: Record<string, unknown>,
 ): Promise<void> {
-	// Stock invokes each event's listeners in order and awaits them
-	// (runner.ts emit); the plugin registers one listener per event.
 	for (const handler of booted.handlers.get(String(event.type)) ?? []) {
 		await handler(event, booted.context);
 	}
 }
 
-export function visibleRows(component: Renderable, width = 120): string[] {
-	return component
-		.render(width)
+export function visibleRows(target: unknown, width = 120): string[] {
+	return renderStockOutput(target, width)
 		.map((line) => Bun.stripANSI(line).trimEnd())
 		.filter((line) => line.trim().length > 0);
 }
 
 export function screenRows(component: Renderable, width = 120): string[] {
 	return component.render(width).map((line) => Bun.stripANSI(line).trimEnd());
-}
-
-export function toolUi(): Record<string, unknown> {
-	return {
-		requestRender() {},
-		requestComponentRender() {},
-		requestScrollbackRebuild() {},
-		clearInlineImages() {},
-		terminalWidth: 120,
-		setWorkingMessage() {},
-		setStatus() {},
-		getToolsExpanded: () => false,
-		setToolsExpanded() {},
-	};
-}
-
-export function fakeTool(name: string): Record<string, unknown> {
-	return {
-		name,
-		label: name,
-		description: name,
-		parameters: {},
-		execute: async () => ({ content: [], details: {} }),
-	};
 }
 
 export function assistant(
@@ -278,19 +241,8 @@ export function assistant(
 	};
 }
 
-// ---------------------------------------------------------------------------
-// Fixture types + replay engine.
-// ---------------------------------------------------------------------------
-
 export interface ReplayFixtureMeta {
 	id: string;
-	/**
-	 * Provenance marker: every fixture is derived from a raw OMP session
-	 * transcript whose location lives only in the external regeneration
-	 * manifest (`OMP_REPLAY_MANIFEST`). Tracked fixtures never reference
-	 * the raw file — `source` is the literal `"<session>"` and no capture
-	 * date or machine path is stored.
-	 */
 	source: string;
 	sourceKind: string;
 	cwd: string;
@@ -342,12 +294,6 @@ export function settingsForFixture(meta: ReplayFixtureMeta): {
 	return { mode: meta.mode, stats: meta.stats };
 }
 
-/**
- * Golden carriers must not assert unstable wall-clock values: absolute
- * timestamps (`completedAt`) and machine-speed durations (`durationMs`)
- * become deterministic placeholders. Everything else — ids, counts, sums,
- * subcommands, records — is structural and preserved.
- */
 function normalizeCarrierData(data: unknown, depth = 0): unknown {
 	if (data === null || typeof data !== "object" || depth > 6) return data;
 	if (Array.isArray(data)) {
@@ -356,11 +302,7 @@ function normalizeCarrierData(data: unknown, depth = 0): unknown {
 	const record = data as Record<string, unknown>;
 	const out: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(record)) {
-		if (key === "completedAt") {
-			out[key] = 0;
-			continue;
-		}
-		if (key === "durationMs") {
+		if (key === "completedAt" || key === "durationMs") {
 			out[key] = 0;
 			continue;
 		}
@@ -373,12 +315,6 @@ function normalizeCarrierData(data: unknown, depth = 0): unknown {
 	return out;
 }
 
-/**
- * Replay one normalized fixture through the harness. `events` end with an
- * optional `session_shutdown`; the snapshot is taken right before it (or at
- * the end of the stream) so the projection is the plugin's own terminal/live
- * state, not the post-dispose native rendering.
- */
 export async function replayFixture(
 	fixture: ReplayFixture,
 	onBoot?: (booted: BootedPlugin) => void,
@@ -389,9 +325,6 @@ export async function replayFixture(
 		settings: {
 			...DEFAULT_SETTINGS,
 			mode: settings.mode,
-			// The clock reports the wall time of the replayed run, so goldens
-			// leave it off: they pin the row's composition, not the hour the
-			// fixture happened to be captured or replayed in.
 			stats: {
 				...DEFAULT_SETTINGS.stats,
 				enabled: settings.stats,
@@ -403,16 +336,11 @@ export async function replayFixture(
 
 	const components = new Map<
 		string,
-		| { kind: "tool"; component: ToolExecutionInstance }
-		| { kind: "read"; group: ReadGroupInstance }
+		| { kind: "tool"; component: PendingToolHandle }
+		| { kind: "read"; group: PendingToolHandle }
 	>();
-	let readGroup: ReadGroupInstance | undefined;
+	let readGroup: PendingToolHandle | undefined;
 
-	// Stock delivers extension events through a serial queue and awaits each
-	// handler (runner.ts emit + agent-session.ts #queuedExtensionEvents), so
-	// replay dispatches one event at a time. Fixtures already order every
-	// `continue`/`answer` after the round-trip's ends, so the audit barrier
-	// at agent_end never waits on an undelivered end.
 	const events = fixture.events;
 	for (const event of events) {
 		if (event.t === "session_shutdown") break;
@@ -426,16 +354,11 @@ export async function replayFixture(
 				const name = String(event.name);
 				const args = event.args;
 				if (name === "read") {
-					if (!readGroup) {
-						readGroup = new booted.host.ReadToolGroupComponent();
-						booted.transcript.addChild(readGroup);
-					}
+					readGroup ??= booted.transcript.presentReadGroup();
 					const pathArgs = (args ?? {}) as {
 						path?: string;
 						file_path?: string;
 					};
-					// Stock delivery: the native group update lands before the
-					// extension start event, so observed ids are recorded first.
 					readGroup.updateArgs(pathArgs, id);
 					await dispatch(booted, {
 						type: "tool_execution_start",
@@ -452,16 +375,12 @@ export async function replayFixture(
 					toolName: name,
 					args,
 				});
-				const component = new booted.host.ToolExecutionComponent(
+				const component = booted.transcript.presentToolCall({
+					id,
 					name,
 					args,
-					{ showImages: false, useBuiltInRenderer: true },
-					fakeTool(name),
-					toolUi(),
-					booted.context.cwd,
-					id,
-				);
-				booted.transcript.addChild(component);
+					cwd: booted.context.cwd,
+				});
 				components.set(id, { kind: "tool", component });
 				break;
 			}
@@ -477,7 +396,23 @@ export async function replayFixture(
 					result,
 					isError,
 				});
-				const settled = { ...(result as object), isError };
+				const raw = result as { details?: { phases?: unknown[] } };
+				const phases = raw.details?.phases;
+				const cleaned = Array.isArray(phases)
+					? {
+							...raw,
+							details: {
+								...raw.details,
+								phases: phases.filter(
+									(phase) =>
+										typeof phase === "object" &&
+										phase !== null &&
+										Array.isArray((phase as { tasks?: unknown }).tasks),
+								),
+							},
+						}
+					: raw;
+				const settled = { ...cleaned, isError };
 				if (binding?.kind === "tool") {
 					binding.component.updateResult(settled, false, id);
 				} else if (binding?.kind === "read") {
@@ -506,9 +441,7 @@ export async function replayFixture(
 						message: assistant(event.text ?? "", "stop", event.usage),
 					});
 				}
-				const reply = new booted.ContainerBase();
-				reply.addChild({ render: () => [event.text ?? ""] });
-				booted.transcript.addChild(reply);
+				booted.transcript.presentAssistantText(event.text ?? "");
 				await dispatch(booted, {
 					type: "agent_end",
 					messages: [assistant(event.text ?? "", "stop")],
@@ -529,7 +462,6 @@ export async function replayFixture(
 		}
 	}
 
-	// The stats message waits for idle on the plugin's poll timer.
 	await Bun.sleep(80);
 	const statsRows = booted.sentMessages.flatMap(({ message }) =>
 		visibleRows(
@@ -537,7 +469,7 @@ export async function replayFixture(
 				{ details: message.details },
 				{ expanded: false },
 				booted.context.ui.theme,
-			) ?? { render: () => [] },
+			),
 		),
 	);
 	const outcome: ReplayOutcome = {

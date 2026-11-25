@@ -1,10 +1,10 @@
 import type { Theme } from "./theme-types";
 import {
-	truncateToWidth,
+	truncate as truncateToWidth,
 	visibleWidth,
-	wrapTextWithAnsi,
-} from "@oh-my-pi/pi-tui";
-import type { Component } from "@oh-my-pi/pi-tui";
+	wrap as wrapTextWithAnsi,
+} from "@oh-my-pi/pi-tui/text/width";
+import type { ExtensionRows } from "@oh-my-pi/pi-coding-agent";
 
 import { genericToolDescription } from "./compact";
 import { type DisplayPathOptions, displayPathValue } from "./display-path";
@@ -750,7 +750,7 @@ function paintCompactRow(
 export function mutationMessageComponent(
 	details: MutationMessageDetails | LegacyMutationMessageDetails | undefined,
 	theme: Theme,
-): Component | undefined {
+): ExtensionRows | undefined {
 	if (
 		!details ||
 		typeof details !== "object" ||
@@ -766,7 +766,7 @@ export function mutationMessageComponent(
 export function gitMessageComponent(
 	details: GitMessageDetails | undefined,
 	theme: Theme,
-): Component | undefined {
+): ExtensionRows | undefined {
 	if (!isGitMessageDetails(details)) return undefined;
 	const lines = gitRecordRows(details, theme);
 	return {

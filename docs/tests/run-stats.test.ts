@@ -8,6 +8,7 @@ import type {
 	RunStatsEvidence,
 	RunStatsResult,
 	StatsRow,
+	statsMessageNode,
 	statsNode,
 } from "../../.omp-plugin/run-stats";
 import type { Theme } from "../../.omp-plugin/theme-types";
@@ -61,6 +62,7 @@ interface RunStatsModule {
 	isRunStatsEvidence(value: unknown): value is RunStatsEvidence;
 	StatsRow: typeof StatsRow;
 	statsNode: typeof statsNode;
+	statsMessageNode: typeof statsMessageNode;
 	HIDDEN_CALLS_ACTION: string;
 }
 
@@ -1143,29 +1145,43 @@ describe("stats row", () => {
 	test("an empty line draws nothing", () => {
 		const row = new module.StatsRow(() => "");
 		expect(row.render(120)).toEqual([]);
-		expect(row.describe()).toMatchObject({ p: { hidden: true } });
+		const node = module.statsMessageNode(() => "");
+		expect(node.kind).toBe("col");
+		expect(node.props()).toMatchObject({ hidden: true });
 	});
 
 	test("a click toggles the run's hidden calls only when it hid some", () => {
 		let toggles = 0;
 		let available = false;
-		const row = new module.StatsRow(() => LINE, {
+		const reveal = {
 			available: () => available,
 			shown: () => false,
 			toggle: () => {
 				toggles++;
 			},
-		});
-		expect(row.describe()).not.toMatchObject({
-			p: { actions: expect.anything() },
+		};
+		const plain = module.statsMessageNode(() => LINE, reveal);
+		expect(plain.props()).not.toMatchObject({
+			actions: expect.anything(),
 		});
 		available = true;
-		const node = row.describe() as { p?: { actions?: { click?: string } } };
-		const act = node.p?.actions?.click;
-		expect(act).toBeDefined();
-		row.handleNativeEvent({ type: "action", act });
+		const clickable = module.statsMessageNode(() => LINE, reveal);
+		const act = (clickable.props() as { actions?: { click?: string } }).actions
+			?.click;
+		if (!act) throw new Error("expected click action");
+		clickable.handlers.onAction?.(act, {
+			type: "action",
+			key: "",
+			act,
+			mods: [],
+		});
 		expect(toggles).toBe(1);
-		row.handleNativeEvent({ type: "action", act: "other" });
+		clickable.handlers.onAction?.("other", {
+			type: "action",
+			key: "",
+			act: "other",
+			mods: [],
+		});
 		expect(toggles).toBe(1);
 	});
 
@@ -1175,22 +1191,30 @@ describe("stats row", () => {
 			k: "text",
 			p: { spans: [{ t: "27 actions", s: "muted" }], truncate: "end" },
 		} as const;
-		const row = new module.StatsRow(
+		const reveal = {
+			available: () => true,
+			shown: () => shown,
+			toggle: () => {},
+		};
+		const node = module.statsMessageNode(
 			() => LINE,
-			{ available: () => true, shown: () => shown, toggle: () => {} },
+			reveal,
 			() => native,
 		);
-		expect(row.describe()).toEqual({
-			k: "text",
-			p: {
-				...native.p,
-				actions: { click: module.HIDDEN_CALLS_ACTION },
-				title: "Show the calls this turn hid",
-			},
+		expect(node.kind).toBe("text");
+		expect(node.props()).toMatchObject({
+			...native.p,
+			actions: { click: module.HIDDEN_CALLS_ACTION },
+			title: "Show the calls this turn hid",
 		});
 		shown = true;
-		expect(row.describe()).toMatchObject({
-			p: { title: "Hide the calls this turn hid" },
+		const hiddenNode = module.statsMessageNode(
+			() => LINE,
+			reveal,
+			() => native,
+		);
+		expect(hiddenNode.props()).toMatchObject({
+			title: "Hide the calls this turn hid",
 		});
 	});
 
@@ -1199,12 +1223,13 @@ describe("stats row", () => {
 			k: "rule",
 			p: { label: [{ t: "x", s: "muted" }] },
 		} as const;
-		const row = new module.StatsRow(
+		const node = module.statsMessageNode(
 			() => LINE,
 			{ available: () => false, shown: () => false, toggle: () => {} },
 			() => native,
 		);
-		expect(row.describe()).toEqual(native);
+		expect(node.kind).toBe("rule");
+		expect(node.props()).toMatchObject(native.p);
 	});
 });
 

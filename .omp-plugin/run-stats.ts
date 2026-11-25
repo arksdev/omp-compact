@@ -1,4 +1,5 @@
-import type { NativeNode } from "@oh-my-pi/pi-tui";
+import type { ExtensionRows } from "@oh-my-pi/pi-coding-agent";
+import { jsx, type UiNode } from "@oh-my-pi/pi-tui";
 import type { TspPropNode, TspSpan } from "@oh-my-pi/pi-wire";
 
 import type { Theme } from "./theme-types";
@@ -10,10 +11,8 @@ import {
 	isBoundedString,
 	MAX_TOOL_CALL_ID_LENGTH,
 } from "./messages";
-import { rowsNode } from "./native-text";
 import { objectRecord } from "./object-record";
 import { fixedForeground } from "./render";
-
 export const STATS_MESSAGE_TYPE = "omp-compact-stats";
 /**
  * The stats message's `content`: a fixed marker, never the drawn line, so
@@ -488,7 +487,7 @@ function promptCard(result: RunStatsResult): TspPropNode {
 export function statsNode(
 	result: RunStatsResult,
 	stats: CompactStatsSettings,
-): NativeNode | null {
+): TspPropNode | null {
 	const style = stats.style;
 	if (style === "rows" || !stats.enabled) return null;
 	const figures: { icon: string; text: string }[] = [];
@@ -530,7 +529,7 @@ export function statsNode(
 			k: "row",
 			p: { gap: "md", align: "center", wrap: true, ...common },
 			c: items.map(
-				({ icon, text }): NativeNode => ({
+				({ icon, text }): TspPropNode => ({
 					k: "row",
 					p: { gap: "xs", align: "center" },
 					c: [
@@ -543,14 +542,14 @@ export function statsNode(
 	}
 	if (style === "chips") {
 		// Only the actions chip carries the warning: failures are actions.
-		const chips: NativeNode[] = figures.map(({ text }, index) => ({
+		const chips: TspPropNode[] = figures.map(({ text }, index) => ({
 			k: "badge",
 			p: {
 				text,
 				tone: warn && index === 0 && stats.actions ? "warning" : "muted",
 			},
 		}));
-		const tail: NativeNode[] = clock
+		const tail: TspPropNode[] = clock
 			? [{ k: "text", p: { spans: [{ t: clock, s: "muted" }] } }]
 			: [];
 		return {
@@ -577,23 +576,12 @@ export function statsNode(
  * native view, while the run hid calls, a click on the line shows them in
  * their own places and a second click hides them again.
  */
-export class StatsRow {
+export class StatsRow implements ExtensionRows {
 	readonly #line: () => string;
-	readonly #reveal: StatsReveal | undefined;
-	readonly #native: () => NativeNode | null;
 
-	/**
-	 * `line` and `native` are read per draw, so settings and theme changes
-	 * apply; `native` returns `null` where Tern draws the terminal line.
-	 */
-	constructor(
-		line: () => string,
-		reveal?: StatsReveal,
-		native: () => NativeNode | null = () => null,
-	) {
+	/** `line` is read per draw, so settings and theme changes apply. */
+	constructor(line: () => string) {
 		this.#line = line;
-		this.#reveal = reveal;
-		this.#native = native;
 	}
 
 	render(width: number): readonly string[] {
@@ -604,38 +592,51 @@ export class StatsRow {
 	isTranscriptBlockCompact(): boolean {
 		return true;
 	}
+}
 
-	describe(): NativeNode | null {
-		const line = this.#line();
-		// Mounted but never laid out, like omp's own empty node.
-		if (!line) return { k: "col", p: { hidden: true } };
-		const reveal = this.#reveal;
-		const click = reveal?.available()
-			? {
-					act: HIDDEN_CALLS_ACTION,
-					title: reveal.shown()
-						? "Hide the calls this turn hid"
-						: "Show the calls this turn hid",
-				}
-			: undefined;
-		const node = this.#native();
-		if (!node) return rowsNode([line], click);
-		if (!click) return node;
-		return {
-			...node,
-			p: { ...node.p, actions: { click: click.act }, title: click.title },
-		} as NativeNode;
-	}
+function tspNodeToUiNode(
+	spec: TspPropNode,
+	extra?: Record<string, unknown>,
+): UiNode {
+	const children = spec.c?.map((child) => tspNodeToUiNode(child));
+	return jsx(spec.k, {
+		...(spec.p ?? {}),
+		...extra,
+		...(children && children.length > 0 ? { children } : {}),
+	}) as UiNode;
+}
 
-	handleNativeEvent(event: unknown): void {
-		const record = objectRecord(event);
-		if (record.type === "action" && record.act === HIDDEN_CALLS_ACTION)
-			this.#reveal?.toggle();
-	}
-
-	invalidate(): void {
-		// Stateless: every draw reads the line again.
-	}
+/**
+ * Tern's stats row as a `UiNode`: uses `native()` when `stats.style` asks for
+ * a styled node, otherwise a `canvas` painting the terminal line, and attaches
+ * the hidden-calls click action whenever the run hid calls.
+ */
+export function statsMessageNode(
+	line: () => string,
+	reveal?: StatsReveal,
+	native: () => TspPropNode | null = () => null,
+): UiNode {
+	if (!line()) return jsx("col", { hidden: true }) as UiNode;
+	const clickProps = reveal?.available()
+		? {
+				actions: { click: HIDDEN_CALLS_ACTION },
+				title: reveal.shown()
+					? "Hide the calls this turn hid"
+					: "Show the calls this turn hid",
+				onAction: (act: string) => {
+					if (act === HIDDEN_CALLS_ACTION) reveal.toggle();
+				},
+			}
+		: undefined;
+	const spec = native();
+	if (spec) return tspNodeToUiNode(spec, clickProps);
+	return jsx("canvas", {
+		paint: (width: number) => {
+			const text = line();
+			return text ? [fitTransparentLine(text, Math.max(1, width))] : [];
+		},
+		...clickProps,
+	}) as UiNode;
 }
 
 /**

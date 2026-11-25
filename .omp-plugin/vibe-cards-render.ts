@@ -1,5 +1,8 @@
 import type { Theme, ThemeColor } from "./theme-types";
-import { truncateToWidth, visibleWidth } from "@oh-my-pi/pi-tui";
+import {
+	truncate as truncateToWidth,
+	visibleWidth,
+} from "@oh-my-pi/pi-tui/text/width";
 
 import { fitTransparentLine } from "./fit-transparent-line";
 import { objectRecord } from "./object-record";

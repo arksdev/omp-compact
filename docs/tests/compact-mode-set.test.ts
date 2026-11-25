@@ -1,19 +1,14 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { ensureThemeSync } from "@oh-my-pi/pi-coding-agent";
+import { ensureTheme } from "@oh-my-pi/pi-coding-agent";
+import { decodeKey } from "@oh-my-pi/pi-tui/driver/input/keys";
+import { widgetContext, widgetFor } from "@oh-my-pi/pi-tui/term/widgets";
 
 import {
 	type CompactMode,
 	type CompactSettings,
 	DEFAULT_SETTINGS,
 } from "../../.omp-plugin/config";
-import { settingsDialogHost } from "../../.omp-plugin/host-modules";
-import { SettingsDialog } from "../../.omp-plugin/settings-dialog";
-
-const host =
-	settingsDialogHost ??
-	((): never => {
-		throw new Error("omp's settings-list chrome did not load");
-	})();
+import { createSettingsDialog } from "../../.omp-plugin/settings-dialog";
 
 /**
  * CompactMode is a hand-maintained string union whose members are enumerated
@@ -64,13 +59,13 @@ const EXPECTED_MODES: Record<CompactMode, true> = {
 	clear: true,
 };
 
-beforeAll(() => ensureThemeSync());
+beforeAll(() => ensureTheme());
 
 describe("compact-mode set stays in step between the union and the dialog whitelist", () => {
 	test("the mode row cycles through every union member", async () => {
 		let stored: CompactSettings = DEFAULT_SETTINGS;
 		const visited = new Set<string>();
-		const dialog = new SettingsDialog(
+		const dialog = createSettingsDialog(
 			{
 				settings: stored,
 				onChange: async (update) => {
@@ -81,12 +76,19 @@ describe("compact-mode set stays in step between the union and the dialog whitel
 				warn: () => {},
 			},
 			() => {},
-			host,
 		);
+		const widget = widgetFor(dialog);
+		const cx = widgetContext([dialog], { focus: () => {}, pageRows: 24 });
+		const send = (seq: string): void => {
+			const key = decodeKey(seq, { kitty: false, backspaceIsCtrl: false });
+			if (!key) return;
+			if (dialog.handlers.onKey?.(key)) return;
+			widget?.key?.(dialog, key, cx);
+		};
 		// The list opens on "Global compact"; one down-arrow lands on Mode.
-		dialog.handleInput("\u001b[B");
+		send("\u001b[B");
 		for (let step = 0; step < Object.keys(EXPECTED_MODES).length; step++) {
-			dialog.handleInput("\r");
+			send("\r");
 			for (let i = 0; i < 20; i++) await Promise.resolve();
 		}
 		expect([...visited].sort()).toEqual(Object.keys(EXPECTED_MODES).sort());

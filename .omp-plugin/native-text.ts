@@ -2,7 +2,7 @@
  * The plugin's ANSI-styled rows as escape-free text for omp's transcript
  * presenter and Tern's native view.
  *
- * Rows are painted with theme colours (`theme.fg`), which omp's `styledSpans`
+ * Rows are painted with theme colours (`theme.fg`), which omp's `ansiSpans`
  * maps back to theme tokens, plus a few fixed colours (`fixedForeground` in
  * render.ts) that are no theme colour and would be dropped. Those are first
  * rewritten to the basic SGR colours that map to the semantic tokens keeping
@@ -14,7 +14,6 @@
  * draws the component from its rendered ANSI lines.
  */
 
-import type { NativeNode } from "@oh-my-pi/pi-tui";
 import type { TspText } from "@oh-my-pi/pi-wire";
 
 import { nativeSpans } from "./host-modules";
@@ -39,24 +38,7 @@ function themed(line: string): string {
 
 /** One ANSI row as presenter text: plain or styled, one line. */
 export function nativeText(line: string): TspText {
-	if (!nativeSpans) return Bun.stripANSI(line);
-	return nativeSpans.compactText(nativeSpans.styledSpans(themed(line)));
-}
-
-/**
- * Rows as one unwrapped native `text` node. With `click`, a click on the node
- * reaches the describing component as an `action` event carrying that act.
- * `null` without omp's span conversion: omp draws the rendered rows instead.
- */
-export function rowsNode(
-	lines: readonly string[],
-	click?: { readonly act: string; readonly title: string },
-): NativeNode | null {
-	if (!nativeSpans) return null;
-	const node = nativeSpans.rowsText(lines.map(themed));
-	if (!click) return node;
-	return {
-		...node,
-		p: { ...node.p, actions: { click: click.act }, title: click.title },
-	} as NativeNode;
+	const single = line.replace(/\r?\n/g, " ");
+	if (!nativeSpans) return Bun.stripANSI(single);
+	return nativeSpans.ansiSpans(themed(single));
 }

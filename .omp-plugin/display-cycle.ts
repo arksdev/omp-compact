@@ -42,12 +42,11 @@ export function nextDisplayCycleState(
 // =============================================================================
 
 /**
-
  * Modifier order used for canonical spelling — the host's own order
- * (`@oh-my-pi/pi-tui` `keybindings.ts` `MODIFIER_ORDER`), so `alt+ctrl+x` and
- * `ctrl+alt+x` collide here exactly as they do in the host key table.
+ * (`@oh-my-pi/pi-coding-agent` `key-id.ts` `MODIFIER_ORDER`), so `alt+ctrl+x`
+ * and `ctrl+alt+x` collide here exactly as they do in the host key table.
  */
-const MODIFIER_ORDER: readonly string[] = ["ctrl", "shift", "alt", "super"];
+const MODIFIER_ORDER: readonly string[] = ["ctrl", "alt", "shift", "super"];
 
 /** Non-single-character base keys (`@oh-my-pi/pi-tui` `keys.ts` `SpecialKey`). */
 const SPECIAL_KEYS: Record<string, true> = {
@@ -124,14 +123,14 @@ function startsWithModifier(
  * derives the id that fires from the *keypress* with that same function.
  * Rule by rule:
  *
- * - Modifiers are scanned case-insensitively and sorted into ctrl > shift >
- *   alt > super order on output (`alt+ctrl+x` and `ctrl+alt+x` are one chord).
+ * - Modifiers are scanned case-insensitively and sorted into ctrl > alt >
+ *   shift > super order on output (`alt+ctrl+x` and `ctrl+alt+x` are one chord).
  * - The base is lowercased, with `esc`/`return` aliased to `escape`/`enter`
  *   (`alt+esc` and `alt+escape` are the same chord to the host).
  * - An uppercase ASCII base without an explicit `shift` gets `shift` appended
- *   (`alt+Q` -> `shift+alt+q`): the host reads an uppercase letter as a
+ *   (`alt+Q` -> `alt+shift+q`): the host reads an uppercase letter as a
  *   shifted key and pushes shift before sorting.
- * - An explicit `shift` is never duplicated (`alt+shift+Q` -> `shift+alt+q`).
+ * - An explicit `shift` is never duplicated (`alt+shift+Q` -> `alt+shift+q`).
  * - A non-ASCII uppercase base gets no shift — the host only infers shift
  *   for ASCII A-Z.
  *
@@ -139,7 +138,7 @@ function startsWithModifier(
  * against, so registration, occupancy checks, stored config and the settings
  * dialog all agree on one spelling. When the plugin canonicalizes at the read
  * boundary and passes the result to `registerShortcut`, `alt+Q` is stored,
- * shown and registered as `shift+alt+q` and fires on alt+Q — instead of
+ * shown and registered as `alt+shift+q` and fires on alt+Q — instead of
  * registering `alt+q` (the host lowercases the registered chord first) and
  * silently firing on a different key.
  */
@@ -228,7 +227,7 @@ export function describeShortcutConflict(
  *
  * An uppercase ASCII base without an explicit `shift` (`alt+Q`) is accepted
  * and validated under its canonical spelling: the host reads an uppercase
- * letter as a shifted key, so `alt+Q` is one with `shift+alt+q` — the
+ * letter as a shifted key, so `alt+Q` is one with `alt+shift+q` — the
  * spelling the settings dialog then stores, shows and registers.
  */
 export function validateDisplayCycleKey(key: string): string | undefined {

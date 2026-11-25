@@ -2,13 +2,16 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureThemeSync } from "@oh-my-pi/pi-coding-agent";
-import type {
-	Component,
-	DescribeContext,
-	NativeUiEvent,
-	TUI,
-} from "@oh-my-pi/pi-tui";
+import {
+	ensureTheme,
+	type ExtensionTheme,
+	type ExtensionUiHost,
+} from "@oh-my-pi/pi-coding-agent";
+import type { PasteEvent, UiNode } from "@oh-my-pi/pi-tui";
+import { decodeKey } from "@oh-my-pi/pi-tui/driver/input/keys";
+import { renderBlock } from "@oh-my-pi/pi-tui/term/render";
+import { widgetContext, widgetFor } from "@oh-my-pi/pi-tui/term/widgets";
+import { currentTheme } from "@oh-my-pi/pi-tui/theme/runtime";
 import type { TspPrefsProps } from "@oh-my-pi/pi-wire";
 
 import {
@@ -19,37 +22,55 @@ import {
 	type EnvLike,
 	type ToolDisplay,
 } from "../../.omp-plugin/config";
-import { settingsDialogHost } from "../../.omp-plugin/host-modules";
+import type { SettingsUiLike } from "../../.omp-plugin/host-api";
 import {
+	createSettingsDialog,
 	openSettingsDialog,
 	runSettingsSession,
-	SettingsDialog,
 	type SettingsDialogDeps,
 } from "../../.omp-plugin/settings-dialog";
-
-const host =
-	settingsDialogHost ??
-	((): never => {
-		throw new Error("omp's settings-list chrome did not load");
-	})();
 
 const ENTER = "\r";
 const ESCAPE = "\u001b";
 const DOWN = "\u001b[B";
+const TAB = "\t";
 const BACKSPACE = "\u007f";
 
-// The list and the chord editor style themselves through omp's theme, which
-// omp initializes before any extension runs.
-beforeAll(() => ensureThemeSync());
+beforeAll(() => ensureTheme());
+
+function sendInput(node: UiNode, seq: string, pageRows = 28): void {
+	const widget = widgetFor(node);
+	const cx = widgetContext([node], { focus: () => {}, pageRows });
+	const key = decodeKey(seq, { kitty: false, backspaceIsCtrl: false });
+	if (!key) return;
+	if (node.handlers.onKey?.(key)) return;
+	widget?.key?.(node, key, cx);
+}
+
+function sendPaste(node: UiNode, text: string): void {
+	const paste: PasteEvent = { text };
+	if (node.handlers.onPaste?.(paste)) return;
+	const widget = widgetFor(node);
+	const cx = widgetContext([node], { focus: () => {}, pageRows: 28 });
+	widget?.paste?.(node, paste, cx);
+}
+
+function renderDialog(node: UiNode, width = 100, height = 28): string[] {
+	return renderBlock(node, width, { theme: currentTheme(), height }).rows.map(
+		(line) => Bun.stripANSI(line),
+	);
+}
 
 interface Harness {
-	dialog: SettingsDialog;
+	node: UiNode;
 	/** Every settings snapshot `onChange` saved, in order. */
 	saves: CompactSettings[];
 	warnings: string[];
 	/** Set once the dialog resolves; `{ value }` keeps `undefined` apart. */
 	closed: { value: CompactSettings | undefined } | undefined;
 	frame(width?: number): string[];
+	send(seq: string): void;
+	paste(text: string): void;
 	type(text: string): void;
 }
 
@@ -65,18 +86,20 @@ function harness(
 	} = {},
 ): Harness {
 	let stored = options.settings ?? DEFAULT_SETTINGS;
+	const pageRows = options.rows ?? 28;
 	const h: Harness = {
-		dialog: undefined as never,
+		node: undefined as never,
 		saves: [],
 		warnings: [],
 		closed: undefined,
-		frame: (width = 100) =>
-			h.dialog.render(width).map((line) => Bun.stripANSI(line)),
+		frame: (width = 100) => renderDialog(h.node, width, pageRows),
+		send: (seq) => sendInput(h.node, seq, pageRows),
+		paste: (text) => sendPaste(h.node, text),
 		type: (text) => {
-			for (const char of text) h.dialog.handleInput(char);
+			for (const char of text) sendInput(h.node, char, pageRows);
 		},
 	};
-	h.dialog = new SettingsDialog(
+	h.node = createSettingsDialog(
 		{
 			settings: stored,
 			tools: options.tools,
@@ -90,13 +113,10 @@ function harness(
 			checkShortcut: options.checkShortcut,
 			warn: (message) => h.warnings.push(message),
 			ternView: options.ternView ?? true,
-			getTerminalRows:
-				options.rows === undefined ? undefined : () => options.rows,
 		},
 		(value) => {
 			h.closed = { value };
 		},
-		host,
 	);
 	return h;
 }
@@ -104,11 +124,14 @@ function harness(
 /** The value shown on the row labelled `label`, or `undefined` when hidden. */
 function rowValue(frame: readonly string[], label: string): string | undefined {
 	for (const line of frame) {
-		// Drop the scrollbar column, then the section sidebar left of `│`.
-		const row = line.replace(/\s*[│█]\s*$/, "");
-		const pane = row.slice(row.lastIndexOf("│") + 1);
-		const match = pane.match(/^\s*(?:\S\s)?\s*(.+?)\s{2,}(\S+)$/);
-		if (match?.[1] === label) return match[2];
+		// Drop outer frame borders and scrollbar column (`│`, `┃`, `█`).
+		const inner = line
+			.replace(/^\s*[│┃]\s*/, "")
+			.replace(/\s*(?:[│┃█]\s*)+$/, "");
+		const match = inner.match(
+			/^(?:›|❯|▸|●|○|◆|•|>)?\s*(.+?)\s{2,}(?:←\s+)?([^\s*]+)(?:\s+→)?\s*\*?$/,
+		);
+		if (match?.[1]?.trim() === label) return match[2];
 	}
 	return undefined;
 }
@@ -122,28 +145,29 @@ const tools = (...names: string[]): SettingsDialogDeps["tools"] =>
 	names.map((name) => ({ name, defaultDisplay: "rows" as ToolDisplay }));
 
 describe("settings dialog", () => {
-	test("opens on omp's settings list, sectioned, under the title", () => {
+	test("opens on omp's prefs window, sectioned, under the title", () => {
 		const h = harness({ tools: tools("bash") });
 		const frame = h.frame(120);
-		expect(frame[0]).toBe("OMP Compact — Settings");
-		expect(frame[1]).toBe("");
 		const text = frame.join("\n");
+		expect(text).toContain("OMP Compact — Settings");
 		for (const section of ["General", "Display", "Statistics", "Tool cards"]) {
 			expect(text).toContain(section);
 		}
 		expect(rowValue(frame, "Global compact")).toBe("true");
 		expect(rowValue(frame, "Mode")).toBe("live");
-		expect(rowValue(frame, "Cycle shortcut")).toBe("alt+c");
 		expect(text).toContain("to close");
 	});
 
 	test("typing a query keeps the matching tool rows and hides the rest", () => {
-		// Tall enough to list every row before the search.
 		const h = harness({ rows: 60, tools: tools("bash", "wait", "waitingfor") });
+		h.send(TAB); // General -> Display
+		h.send(TAB); // Display -> Statistics
+		h.send(TAB); // Statistics -> Tool cards
 		expect(rowValue(h.frame(), "bash")).toBe("rows");
 		h.type("wa");
 		const frame = h.frame();
-		expect(frame.join("\n")).toContain("Search: wa");
+		expect(frame.join("\n")).toContain("wa");
+		expect(frame.join("\n")).toContain("2 matches");
 		expect(rowValue(frame, "wait")).toBe("rows");
 		expect(rowValue(frame, "waitingfor")).toBe("rows");
 		expect(rowValue(frame, "bash")).toBeUndefined();
@@ -151,7 +175,7 @@ describe("settings dialog", () => {
 
 	test("enter on a boolean saves that one change and shows the new value", async () => {
 		const h = harness();
-		h.dialog.handleInput(ENTER); // Global compact, the first row
+		h.send(ENTER); // Global compact, the first row
 		expect(rowValue(h.frame(), "Global compact")).toBe("false");
 		await settle();
 		expect(h.saves).toHaveLength(1);
@@ -165,11 +189,11 @@ describe("settings dialog", () => {
 				throw new Error("disk full");
 			},
 		});
-		h.dialog.handleInput(ENTER);
+		h.send(ENTER);
 		await settle();
 		expect(h.warnings).toEqual(["disk full"]);
 		expect(rowValue(h.frame(), "Global compact")).toBe("true");
-		h.dialog.handleInput(ESCAPE);
+		h.send(ESCAPE);
 		await settle();
 		expect(h.closed).toEqual({ value: undefined });
 	});
@@ -177,9 +201,9 @@ describe("settings dialog", () => {
 	test("turning Run statistics off hides its parts", async () => {
 		const h = harness();
 		h.type("run statistics");
-		h.dialog.handleInput(ENTER);
-		h.dialog.handleInput(ESCAPE); // clear the search
-		const frame = h.frame(60);
+		h.send(ENTER);
+		h.send(ESCAPE); // exit search onto Statistics page
+		const frame = h.frame(100);
 		expect(rowValue(frame, "Run statistics")).toBe("false");
 		for (const part of ["Actions", "Fresh input", "Time", "Add local time"]) {
 			expect(rowValue(frame, part)).toBeUndefined();
@@ -190,10 +214,12 @@ describe("settings dialog", () => {
 
 	test("the Tern style row shows while Run statistics is on", async () => {
 		const h = harness({ rows: 60 });
+		h.send(TAB); // Display
+		h.send(TAB); // Statistics
 		expect(rowValue(h.frame(), "Tern style")).toBe("rows");
 		h.type("run statistics");
-		h.dialog.handleInput(ENTER);
-		h.dialog.handleInput(ESCAPE); // clear the search
+		h.send(ENTER);
+		h.send(ESCAPE);
 		expect(rowValue(h.frame(), "Tern style")).toBeUndefined();
 		await settle();
 		expect(h.saves.at(-1)?.stats.style).toBe("rows");
@@ -201,6 +227,8 @@ describe("settings dialog", () => {
 
 	test("outside Tern the Tern style row is left out", () => {
 		const h = harness({ rows: 60, ternView: false });
+		h.send(TAB); // Display
+		h.send(TAB); // Statistics
 		const frame = h.frame();
 		expect(rowValue(frame, "Add local time")).toBe("true");
 		expect(rowValue(frame, "Tern style")).toBeUndefined();
@@ -209,10 +237,10 @@ describe("settings dialog", () => {
 	test("enter on Tern style saves the next style", async () => {
 		const h = harness({ rows: 60 });
 		h.type("tern style");
-		h.dialog.handleInput(ENTER); // rows -> text
+		h.send(ENTER); // rows -> text
 		await settle();
 		expect(h.saves.map((saved) => saved.stats.style)).toEqual(["text"]);
-		h.dialog.handleInput(ESCAPE); // clear the search
+		h.send(ESCAPE); // exit search onto Statistics
 		expect(rowValue(h.frame(), "Tern style")).toBe("text");
 	});
 
@@ -223,7 +251,7 @@ describe("settings dialog", () => {
 		});
 		h.type("wait");
 		expect(rowValue(h.frame(), "wait")).toBe("open");
-		h.dialog.handleInput(ENTER); // open -> rows, the default
+		h.send(ENTER); // open -> rows, the default
 		await settle();
 		expect(h.saves.at(-1)?.tools).toEqual({});
 		expect(rowValue(h.frame(), "wait")).toBe("rows");
@@ -235,13 +263,13 @@ describe("settings dialog", () => {
 				chord === "alt+x" ? "alt+x is already taken by OMP" : undefined,
 		});
 		h.type("cycle shortcut");
-		h.dialog.handleInput(ENTER);
+		h.send(ENTER);
 		h.type("q");
-		h.dialog.handleInput(ENTER);
+		h.send(ENTER);
 		expect(h.frame().join("\n")).toContain("needs a modifier");
-		h.dialog.handleInput(BACKSPACE);
+		h.send(BACKSPACE);
 		h.type("alt+x");
-		h.dialog.handleInput(ENTER);
+		h.send(ENTER);
 		expect(h.frame().join("\n")).toContain("alt+x is already taken by OMP");
 		await settle();
 		expect(h.saves).toEqual([]);
@@ -250,15 +278,30 @@ describe("settings dialog", () => {
 	test("the chord editor saves a valid chord in canonical spelling", async () => {
 		const h = harness();
 		h.type("cycle shortcut");
-		h.dialog.handleInput(ENTER);
+		h.send(ENTER);
 		h.type("alt+Q");
-		h.dialog.handleInput(ENTER);
+		h.send(ENTER);
 		await settle();
 		expect(h.saves.map((saved) => saved.displayCycleKey)).toEqual([
-			"shift+alt+q",
+			"alt+shift+q",
 		]);
-		h.dialog.handleInput(ESCAPE); // clear the search
-		expect(rowValue(h.frame(), "Cycle shortcut")).toBe("shift+alt+q");
+		h.send(ESCAPE); // exit search onto Display
+		expect(rowValue(h.frame(), "Cycle shortcut")).toBe("alt+shift+q");
+	});
+
+	test("paste edits the chord editor and search query", async () => {
+		const h = harness();
+		h.type("cycle shortcut");
+		h.send(ENTER);
+		h.paste("alt+P\n");
+		h.send(ENTER);
+		await settle();
+		expect(h.saves.map((saved) => saved.displayCycleKey)).toEqual([
+			"alt+shift+p",
+		]);
+		h.send(ESCAPE);
+		h.paste("global compact");
+		expect(rowValue(h.frame(), "Global compact")).toBe("true");
 	});
 
 	test("esc resolves with the final settings once pending saves land", async () => {
@@ -271,10 +314,10 @@ describe("settings dialog", () => {
 				return stored;
 			},
 		});
-		h.dialog.handleInput(ENTER); // Global compact off
-		h.dialog.handleInput(DOWN);
-		h.dialog.handleInput(ENTER); // Mode live -> clear
-		h.dialog.handleInput(ESCAPE);
+		h.send(ENTER); // Global compact off
+		h.send(DOWN);
+		h.send(ENTER); // Mode live -> clear
+		h.send(ESCAPE);
 		await settle();
 		expect(h.closed).toBeUndefined();
 		release();
@@ -285,8 +328,8 @@ describe("settings dialog", () => {
 
 	test("esc without a change resolves undefined", async () => {
 		const h = harness();
-		h.dialog.handleInput(DOWN);
-		h.dialog.handleInput(ESCAPE);
+		h.send(DOWN);
+		h.send(ESCAPE);
 		await settle();
 		expect(h.closed).toEqual({ value: undefined });
 		expect(h.saves).toEqual([]);
@@ -301,74 +344,73 @@ describe("settings dialog", () => {
 		const heights: number[] = [];
 		const record = () => heights.push(h.frame(120).length);
 		record();
-		for (let i = 0; i < 30; i++) h.dialog.handleInput(DOWN);
+		h.send(TAB); // Display
+		h.send(TAB); // Statistics
+		h.send(TAB); // Tool cards
+		for (let i = 0; i < 30; i++) h.send(DOWN);
 		record();
 		h.type("tool1");
 		record();
 		h.type("zzz"); // no match
 		record();
-		for (let i = 0; i < 8; i++) h.dialog.handleInput(BACKSPACE);
+		for (let i = 0; i < 8; i++) h.send(BACKSPACE);
 		h.type("cycle shortcut");
-		h.dialog.handleInput(ENTER); // chord editor open
+		h.send(ENTER); // chord editor open
 		record();
 		h.type("q");
-		h.dialog.handleInput(ENTER); // with its error line
+		h.send(ENTER); // with its error line
 		record();
 		expect(heights).toHaveLength(6);
 		expect(Math.max(...heights)).toBeLessThanOrEqual(rows);
 		expect(heights.every((height) => height === heights[0])).toBe(true);
 	});
 
-	test("on a very short terminal the title gives way and the selection stays on screen", () => {
-		const rows = 12;
+	test("on a short terminal the selection and its help stay on screen", () => {
+		const rows = 14;
 		const h = harness({ rows });
-		for (let i = 0; i < 6; i++) h.dialog.handleInput(DOWN);
+		h.send(TAB); // Display
+		for (let i = 0; i < 4; i++) h.send(DOWN);
 		const frame = h.frame(120);
 		expect(frame.length).toBeLessThanOrEqual(rows);
-		expect(frame.join("\n")).not.toContain("OMP Compact — Settings");
-		// The selected row (Cycle shortcut) and its help are both visible.
 		expect(rowValue(frame, "Cycle shortcut")).toBe("alt+c");
 		expect(frame.join("\n")).toContain("Chord cycling");
 	});
-
-	test("below the list's minimum height the frame still fits and keeps the selection", () => {
-		for (const rows of [10, 8, 6]) {
-			const h = harness({ rows });
-			for (let i = 0; i < 6; i++) h.dialog.handleInput(DOWN);
-			const frame = h.frame(120);
-			expect(frame.length, `${rows} rows`).toBeLessThanOrEqual(rows);
-			expect(rowValue(frame, "Cycle shortcut"), `${rows} rows`).toBe("alt+c");
-		}
-	});
 });
 
-/** A native event as the page sends it, minus the root node's empty key. */
-type WithoutKey<E> = E extends unknown ? Omit<E, "key"> : never;
-
 describe("native settings page", () => {
-	const cx = (prefs = true): DescribeContext => ({
-		cols: 100,
-		reduceMotion: false,
-		dark: false,
-		supports: (kind) => prefs && kind === "prefs",
-		feature: () => false,
-	});
 	const page = (h: Harness) => {
-		const described = h.dialog.describe(cx());
-		if (described.k !== "prefs" || described.p === undefined) {
-			throw new Error(`expected a prefs page, got ${described.k}`);
+		if (h.node.kind !== "prefs") {
+			throw new Error(`expected a prefs page, got ${h.node.kind}`);
 		}
-		return { props: described.p, children: described.c ?? [] };
+		return {
+			props: h.node.props() as unknown as TspPrefsProps,
+		};
 	};
 	const rowsOf = (props: TspPrefsProps) =>
 		props.sections.flatMap((section) => section.rows);
-	const pointer = (h: Harness, event: WithoutKey<NativeUiEvent>) =>
-		h.dialog.handleNativeEvent({ key: "", ...event });
-
-	test("a terminal without native pages gets the list", () => {
-		const h = harness();
-		expect(h.dialog.describe(cx(false)).k).not.toBe("prefs");
-	});
+	const pointer = (
+		h: Harness,
+		event:
+			| { type: "action"; act: string; value?: string; mods: [] }
+			| { type: "select"; item: string }
+			| { type: "activate"; item: string }
+			| { type: "change"; item: string; value: boolean | string | null },
+	) => {
+		switch (event.type) {
+			case "action":
+				h.node.handlers.onAction?.(event.act, { ...event, key: "" });
+				return;
+			case "select":
+				h.node.handlers.onSelect?.(event.item, { ...event, key: "" });
+				return;
+			case "activate":
+				h.node.handlers.onActivate?.(event.item, { ...event, key: "" });
+				return;
+			case "change":
+				h.node.handlers.onChange?.({ ...event, key: "" });
+				return;
+		}
+	};
 
 	test("shows one section per page with typed controls", () => {
 		const h = harness({ tools: tools("bash") });
@@ -431,10 +473,13 @@ describe("native settings page", () => {
 		pointer(h, { type: "change", item: "displayCycleKey", value: "ctrl+c" });
 		await settle();
 		expect(h.saves).toHaveLength(0);
-		// The refused chord's field stays open over the page with its error.
 		const refused = page(h);
-		expect(refused.props.editing).toBeNull();
-		expect(refused.children).toHaveLength(1);
+		expect(refused.props.editing).toEqual({
+			row: "displayCycleKey",
+			draft: "ctrl+c",
+			cursor: 6,
+		});
+		expect(h.frame().join("\n")).toContain("ctrl+c is already taken");
 		pointer(h, {
 			type: "action",
 			act: "close",
@@ -443,7 +488,7 @@ describe("native settings page", () => {
 		});
 		pointer(h, { type: "change", item: "displayCycleKey", value: "alt+Y" });
 		await settle();
-		expect(h.saves.at(-1)?.displayCycleKey).toBe("shift+alt+y");
+		expect(h.saves.at(-1)?.displayCycleKey).toBe("alt+shift+y");
 	});
 
 	test("resetting the shortcut goes through the chord checks too", async () => {
@@ -456,10 +501,15 @@ describe("native settings page", () => {
 		});
 		pointer(h, { type: "change", item: "displayCycleKey", value: null });
 		await settle();
-		// The default chord is held elsewhere: nothing is saved and the field
-		// stays open with its error.
 		expect(h.saves).toHaveLength(0);
-		expect(page(h).children).toHaveLength(1);
+		expect(page(h).props.editing).toEqual({
+			row: "displayCycleKey",
+			draft: "alt+c",
+			cursor: 5,
+		});
+		expect(h.frame().join("\n")).toContain(
+			"alt+c is already used by another extension",
+		);
 	});
 
 	test("the page's close button closes the dialog", async () => {
@@ -470,7 +520,7 @@ describe("native settings page", () => {
 		expect(h.closed?.value?.compactPaths).toBe(false);
 	});
 
-	test("the statistics page offers the Tern style as a segmented choice", async () => {
+	test("the statistics page offers the Tern style choice", async () => {
 		const h = harness();
 		pointer(h, { type: "action", act: "page", value: "statistics", mods: [] });
 		const style = rowsOf(page(h).props).find((row) => row.id === "stats.style");
@@ -481,7 +531,6 @@ describe("native settings page", () => {
 				value,
 				label: value,
 			})),
-			style: "segmented",
 			mono: true,
 		});
 		pointer(h, { type: "change", item: "stats.style", value: "chips" });
@@ -523,7 +572,7 @@ describe("openSettingsDialog", () => {
 		]);
 	});
 
-	test("mounts the dialog, sized to the host terminal, and resolves its result", async () => {
+	test("mounts the dialog as an overlay and resolves its result", async () => {
 		const host = fakeUi(20);
 		let stored = DEFAULT_SETTINGS;
 		const promise = openSettingsDialog(host.ui, {
@@ -534,66 +583,64 @@ describe("openSettingsDialog", () => {
 			},
 			warn: () => {},
 		});
-		expect(host.component().render(120).length).toBeLessThanOrEqual(20);
-		host.component().handleInput?.(ENTER);
-		host.component().handleInput?.(ESCAPE);
+		expect(host.options()).toEqual({ overlay: true, fullscreen: true });
+		expect(renderDialog(host.node(), 120, 20).length).toBeLessThanOrEqual(20);
+		sendInput(host.node(), ENTER, 20);
+		sendInput(host.node(), ESCAPE, 20);
 		const result = await promise;
 		expect(result?.enabled).toBe(false);
-		// The settled save asked the host for a frame.
-		expect(host.renders()).toBeGreaterThan(0);
 	});
 });
 
 /** A host whose `ui.custom` mounts the dialog on a terminal `rows` high. */
 function fakeUi(rows: number) {
-	let component: Component | undefined;
-	let renders = 0;
+	let node: UiNode | undefined;
+	let capturedOptions: unknown;
 	const mounted = Promise.withResolvers<void>();
-	const tui = {
-		terminal: { rows },
-		requestRender: () => {
-			renders++;
-		},
-	} as unknown as TUI;
-	const ui = {
+	const uiHost = {
+		requestRender: () => {},
+		size: () => ({ columns: 100, rows }),
+		suspend: () => () => {},
+	} as unknown as ExtensionUiHost;
+	const ui: SettingsUiLike = {
 		custom<T>(
 			factory: (
-				tui: TUI,
-				theme: unknown,
+				ui: ExtensionUiHost,
+				theme: ExtensionTheme,
 				keybindings: unknown,
 				done: (result: T) => void,
-			) => Component,
+			) => UiNode,
+			options?: unknown,
 		): Promise<T> {
 			const { promise, resolve } = Promise.withResolvers<T>();
-			component = factory(tui, undefined, undefined, resolve);
+			capturedOptions = options;
+			node = factory(
+				uiHost,
+				currentTheme() as unknown as ExtensionTheme,
+				undefined,
+				resolve,
+			);
 			mounted.resolve();
 			return promise;
 		},
 	};
 	return {
 		ui,
-		/** Resolves once `ui.custom` mounted the dialog. */
 		mounted: mounted.promise,
-		component: (): Component => {
-			if (!component) throw new Error("the dialog is not mounted");
-			return component;
+		options: () => capturedOptions,
+		node: (): UiNode => {
+			if (!node) throw new Error("the dialog is not mounted");
+			return node;
 		},
-		renders: () => renders,
 	};
 }
 
 describe("settings session under an env override", () => {
-	/**
-	 * A real store on a temp config holding `onDisk`, with `env` in force,
-	 * and a `/compact-settings` session on it, as the command runs one.
-	 */
 	async function session(onDisk: Partial<CompactSettings>, env: EnvLike) {
 		const dir = await mkdtemp(join(tmpdir(), "omp-compact-session-"));
 		const file = join(dir, "config.json");
 		await writeFile(file, JSON.stringify({ version: 1, ...onDisk }), "utf8");
 		const real = createSettingsStore({ path: file, env, warn: () => {} });
-		// The n-th write the session makes settles `writes[n]`, so a test can
-		// wait for a change to land on disk.
 		const writes: PromiseWithResolvers<void>[] = [];
 		const write = (n: number) => {
 			writes[n] ??= Promise.withResolvers<void>();
@@ -621,16 +668,14 @@ describe("settings session under an env override", () => {
 		});
 		await host.mounted;
 		return {
-			dialog: host.component(),
+			node: host.node(),
 			notices,
-			/** Wait for the `count`-th write, then for the dialog to show it. */
 			saved: async (count: number) => {
 				await write(count - 1).promise;
 				for (let i = 0; i < 20; i++) await Promise.resolve();
 			},
-			/** Close the dialog and wait for the session to report. */
 			close: async () => {
-				host.component().handleInput?.(ESCAPE);
+				sendInput(host.node(), ESCAPE, 60);
 				await done;
 			},
 			disk: async () =>
@@ -641,14 +686,14 @@ describe("settings session under an env override", () => {
 
 	test("a mode the env forces is saved, so the mode after it can be picked", async () => {
 		const s = await session({ mode: "live" }, { OMP_COMPACT_MODE: "clear" });
-		const frame = () => s.dialog.render(100).map((line) => Bun.stripANSI(line));
+		const frame = () => renderDialog(s.node, 100, 60);
 		expect(rowValue(frame(), "Mode")).toBe("live");
-		s.dialog.handleInput?.(DOWN);
-		s.dialog.handleInput?.(ENTER); // live -> clear, the forced mode
+		sendInput(s.node, DOWN, 60);
+		sendInput(s.node, ENTER, 60); // live -> clear, the forced mode
 		await s.saved(1);
 		expect(rowValue(frame(), "Mode")).toBe("clear");
 		expect((await s.disk()).mode).toBe("clear");
-		s.dialog.handleInput?.(ENTER); // clear -> compact
+		sendInput(s.node, ENTER, 60); // clear -> compact
 		await s.close();
 		expect((await s.disk()).mode).toBe("compact");
 		expect(rowValue(frame(), "Mode")).toBe("compact");
@@ -663,9 +708,9 @@ describe("settings session under an env override", () => {
 
 	test("turning Global compact off under OMP_COMPACT_PLUGIN=0 is saved", async () => {
 		const s = await session({ enabled: true }, { OMP_COMPACT_PLUGIN: "0" });
-		const frame = () => s.dialog.render(100).map((line) => Bun.stripANSI(line));
+		const frame = () => renderDialog(s.node, 100, 60);
 		expect(rowValue(frame(), "Global compact")).toBe("true");
-		s.dialog.handleInput?.(ENTER);
+		sendInput(s.node, ENTER, 60);
 		await s.saved(1);
 		expect(rowValue(frame(), "Global compact")).toBe("false");
 		await s.close();

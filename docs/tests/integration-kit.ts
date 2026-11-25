@@ -1,27 +1,24 @@
 /**
  * Shared steps for the integration suites: the real plugin factory booted
- * against omp's real `TranscriptContainer` and `ToolExecutionComponent`,
- * its presenter registered through omp's public `setTranscriptPresenters`,
- * driven by the events omp emits in the order omp emits them.
+ * against omp's real `Transcript` and `TranscriptPresenter`, its presenter
+ * registered through omp's public `registerTranscriptPresenter`, driven by
+ * the events omp emits in the order omp emits them.
  */
 import { describe } from "bun:test";
+import { isUiNode } from "@oh-my-pi/pi-tui";
 
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
-import { objectRecord } from "../../.omp-plugin/object-record";
 import { STATS_MESSAGE_TYPE } from "../../.omp-plugin/run-stats";
 import {
 	assistant,
 	type BootedPlugin,
 	bootReplay,
 	dispatch,
-	fakeTool,
-	toolUi,
 	visibleRows,
 } from "./replay/harness";
-import type { ToolExecutionInstance } from "./test-stock-host";
+import type { PendingToolHandle } from "./test-stock-host";
 
 export { assistant, type BootedPlugin, dispatch };
-
 /** Suites that need the pinned omp package skip without `OMP_STOCK_BIN`. */
 export const stockDescribe = process.env.OMP_STOCK_BIN
 	? describe
@@ -64,28 +61,18 @@ export function addBlock(
 	id: string,
 	name: string,
 	args: unknown,
-): ToolExecutionInstance {
-	const component = new booted.host.ToolExecutionComponent(
+): PendingToolHandle {
+	return booted.transcript.presentToolCall({
+		id,
 		name,
 		args,
-		{ showImages: false, useBuiltInRenderer: true },
-		fakeTool(name),
-		toolUi(),
-		booted.context.cwd,
-		id,
-	);
-	booted.transcript.addChild(component);
-	return component;
+		cwd: booted.context.cwd,
+	});
 }
 
 /** omp filled in the id of a call whose arguments streamed without one. */
-export function renameBlock(block: object, id: string): void {
-	if (
-		!("renameToolCallId" in block) ||
-		typeof block.renameToolCallId !== "function"
-	)
-		throw new Error("omp's tool block has no renameToolCallId");
-	block.renameToolCallId(id);
+export function renameBlock(block: PendingToolHandle, id: string): void {
+	block.rename(id);
 }
 
 export async function startTool(
@@ -93,7 +80,7 @@ export async function startTool(
 	id: string,
 	name: string,
 	args: unknown,
-): Promise<ToolExecutionInstance> {
+): Promise<PendingToolHandle> {
 	await dispatch(booted, {
 		type: "tool_execution_start",
 		toolCallId: id,
@@ -109,7 +96,7 @@ export function textResult(text: string): { content: unknown[] } {
 
 export async function endTool(
 	booted: BootedPlugin,
-	component: ToolExecutionInstance,
+	component: PendingToolHandle,
 	id: string,
 	name: string,
 	result: unknown = textResult("ok"),
@@ -132,12 +119,11 @@ export async function runTool(
 	args: unknown,
 	result: unknown = textResult("ok"),
 	isError = false,
-): Promise<ToolExecutionInstance> {
+): Promise<PendingToolHandle> {
 	const component = await startTool(booted, id, name, args);
 	await endTool(booted, component, id, name, result, isError);
 	return component;
 }
-
 export function beginRun(booted: BootedPlugin): Promise<void> {
 	return dispatch(booted, { type: "agent_start" });
 }
@@ -191,23 +177,28 @@ export const IDLE_POLL_MS = 80;
  * whether the row offered the click at all.
  */
 export function clickStatsRow(booted: BootedPlugin, details: unknown): boolean {
-	const row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
-		{ details },
-		{ expanded: false },
-		booted.context.ui.theme,
-	);
-	if (
-		!row ||
-		!("describe" in row) ||
-		typeof row.describe !== "function" ||
-		!("handleNativeEvent" in row) ||
-		typeof row.handleNativeEvent !== "function"
-	)
-		throw new Error("the stats row has no native view");
-	const act = objectRecord(
-		objectRecord(objectRecord(row.describe()).p).actions,
-	).click;
+	const savedTerm = Bun.env.TERM_PROGRAM;
+	Bun.env.TERM_PROGRAM = "tern";
+	let row: unknown;
+	try {
+		row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
+			{ details },
+			{ expanded: false },
+			booted.context.ui.theme,
+		);
+	} finally {
+		if (savedTerm === undefined) delete Bun.env.TERM_PROGRAM;
+		else Bun.env.TERM_PROGRAM = savedTerm;
+	}
+	if (!isUiNode(row)) throw new Error("the stats row has no native view");
+	const props = row.props() as { actions?: { click?: string } };
+	const act = props.actions?.click;
 	if (typeof act !== "string") return false;
-	row.handleNativeEvent({ type: "action", act });
+	row.handlers.onAction?.(act, {
+		type: "action",
+		key: "",
+		act,
+		mods: [],
+	});
 	return true;
 }

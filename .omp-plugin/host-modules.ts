@@ -3,7 +3,7 @@
  * a host which moved or dropped one turns off one feature instead of the
  * whole plugin.
  *
- * Since omp 18.18.9 every one of them is an export of the package root,
+ * Since omp 19.2.0 every remaining root helper is an export of the package root,
  * `@oh-my-pi/pi-coding-agent`. A static value import of a missing export is
  * a link-time error: the plugin module graph fails to link and omp loads
  * nothing of the plugin. omp 18.17 did exactly that to
@@ -74,7 +74,7 @@ export function disabledComponentsWarning(
 		// `bugs.url`; the plugin does not read package.json at runtime, so
 		// host-modules.test.ts checks both against it. omp does not enforce
 		// `engines.omp`, so an older omp loads the plugin and lands here.
-		"Update omp to 18.18.9 or later and omp-compact to its latest release, or report it at https://github.com/arksdev/omp-compact/issues",
+		"Update omp to 19.2.0 or later and omp-compact to its latest release, or report it at https://github.com/arksdev/omp-compact/issues",
 	].join("\n");
 }
 
@@ -176,59 +176,16 @@ export function loadXdGrammar(
 
 const { VERSION: hostVersion } = await hostRoot;
 
-const [dialogRoot, spansRoot, xdRoot, settingsRoot, hashlineRoot] =
-	await Promise.all([
-		rootFeature("/compact-settings dialog", [
-			"formTheme",
-			"editorKey",
-			"editorKeys",
-			"formatKeyHint",
-			"getSettingsListTheme",
-			"theme",
-		]),
-		rootFeature("styled compact rows and the clickable stats row", [
-			"compactText",
-			"rowsText",
-			"styledSpans",
-		]),
-		loadXdGrammar(hostVersion, () => hostRoot),
-		rootFeature("the transcript-presenters setting hint", [
-			"cfgExtensionTranscriptPresenters",
-		]),
-		rootFeature("hashline header paths in the write audit", [
-			"unwrapHashlineHeaderPath",
-		]),
-	]);
-
-/** What `/compact-settings` draws with: omp's settings-list chrome. */
-export interface SettingsDialogHost {
-	readonly formTheme: typeof HostRoot.formTheme;
-	readonly editorKey: typeof HostRoot.editorKey;
-	readonly editorKeys: typeof HostRoot.editorKeys;
-	readonly formatKeyHint: typeof HostRoot.formatKeyHint;
-	readonly getSettingsListTheme: typeof HostRoot.getSettingsListTheme;
-	/**
-	 * omp's active theme, read per call: omp swaps it on `/theme`. This stays
-	 * live only because `loadHostModule` returns the module namespace itself;
-	 * a copy of it would freeze the theme at load time.
-	 */
-	theme(): typeof HostRoot.theme;
-}
-
-/**
- * omp's settings-list chrome, or `undefined` when any part is missing: the
- * dialog then does not open and warns instead.
- */
-export const settingsDialogHost: SettingsDialogHost | undefined = dialogRoot
-	? {
-			formTheme: dialogRoot.formTheme,
-			editorKey: dialogRoot.editorKey,
-			editorKeys: dialogRoot.editorKeys,
-			formatKeyHint: dialogRoot.formatKeyHint,
-			getSettingsListTheme: dialogRoot.getSettingsListTheme,
-			theme: () => dialogRoot.theme,
-		}
-	: undefined;
+const [spansRoot, xdRoot, settingsRoot, hashlineRoot] = await Promise.all([
+	rootFeature("styled compact rows and the clickable stats row", ["ansiSpans"]),
+	loadXdGrammar(hostVersion, () => hostRoot),
+	rootFeature("the transcript-presenters setting hint", [
+		"cfgExtensionTranscriptPresenters",
+	]),
+	rootFeature("hashline header paths in the write audit", [
+		"unwrapHashlineHeaderPath",
+	]),
+]);
 
 /**
  * omp's ANSI-to-spans conversion, or `undefined`: rows then reach omp as

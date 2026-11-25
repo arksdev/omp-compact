@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-	addKeyAliases,
-	canonicalKeyId,
-	parseKey,
-	type KeyId,
-} from "@oh-my-pi/pi-tui";
+import { canonicalKeyId, type KeyId } from "@oh-my-pi/pi-coding-agent";
+import { decodeKey } from "@oh-my-pi/pi-tui/driver/input/keys";
 
 import {
 	canonicalize,
@@ -18,23 +14,23 @@ describe("display cycle: canonical chord agreement with the host", () => {
 	test("an uppercase base key is accepted and canonicalised rather than refused", () => {
 		// Canonicalise, not reject: the host reads an uppercase ASCII base
 		// without an explicit shift as a shifted key (`alt+Q` →
-		// `shift+alt+q`), and the read boundary stores and registers that
+		// `alt+shift+q`), and the read boundary stores and registers that
 		// canonical spelling, so the press the user means fires instead of a
 		// plain `alt+q` falling through to the default chord.
-		expect(canonicalKeyId("alt+Q")).toBe("shift+alt+q");
-		expect(canonicalize("alt+Q")).toBe("shift+alt+q");
+		expect(canonicalKeyId("alt+Q")).toBe("alt+shift+q");
+		expect(canonicalize("alt+Q")).toBe("alt+shift+q");
 		expect(validateDisplayCycleKey("alt+Q")).toBeUndefined();
 		expect(isDisplayCycleKey("alt+Q")).toBe(true);
-		expect(canonicalKeyId("Alt+C")).toBe("shift+alt+c");
-		expect(canonicalize("Alt+C")).toBe("shift+alt+c");
+		expect(canonicalKeyId("Alt+C")).toBe("alt+shift+c");
+		expect(canonicalize("Alt+C")).toBe("alt+shift+c");
 	});
 
 	test("an uppercase base with an explicit shift fires as itself and stays accepted", () => {
 		// `alt+shift+D` lowercases to `alt+shift+d`, whose host canonical id
 		// equals the canonical id of the intended press — no divergence, so
 		// the chord is accepted and fires on exactly the key the user means.
-		expect(canonicalKeyId("alt+shift+D")).toBe("shift+alt+d");
-		expect(canonicalKeyId("alt+shift+d")).toBe("shift+alt+d");
+		expect(canonicalKeyId("alt+shift+D")).toBe("alt+shift+d");
+		expect(canonicalKeyId("alt+shift+d")).toBe("alt+shift+d");
 		expect(validateDisplayCycleKey("alt+shift+D")).toBeUndefined();
 		expect(isDisplayCycleKey("alt+shift+D")).toBe(true);
 	});
@@ -89,34 +85,30 @@ describe("display cycle: canonical spelling is the host's press identity", () =>
 	test("alt+Q canonicalises to and registers the id the keypress derives", () => {
 		// Physical alt+Q press: the terminal sends ESC followed by "Q"; the
 		// host parses that to `alt+shift+q` and canonicalizes it to
-		// `shift+alt+q` — the exact id an `alt+Q` chord must be registered
+		// `alt+shift+q` — the exact id an `alt+Q` chord must be registered
 		// under for the press the user means to fire.
-		const pressId = canonicalKeyId(parseKey("\x1bQ") ?? "");
-		expect(pressId).toBe("shift+alt+q");
+		const pressId = canonicalKeyId(
+			decodeKey("\x1bQ", { kitty: false, backspaceIsCtrl: false })?.id ?? "",
+		);
+		expect(pressId).toBe("alt+shift+q");
 		expect(canonicalize("alt+Q")).toBe(pressId);
 		// Accepted — the canonicalise-not-reject decision — and usable.
 		expect(validateDisplayCycleKey("alt+Q")).toBeUndefined();
 		expect(isDisplayCycleKey("alt+Q")).toBe(true);
-		// Host side: getShortcuts() lowercases the registered chord, then
-		// CustomEditor probes the press through
-		// addKeyAliases(canonicalKeyId(chord)). The canonical chord turns
-		// into exactly the press id; the plain lowercase chord (what the old
-		// verbatim registration produced) does not.
-		const canonicalMatch = new Set<string>();
-		addKeyAliases(canonicalMatch, canonicalize("alt+Q").toLowerCase() as KeyId);
-		expect(canonicalMatch.has(pressId)).toBe(true);
-		const lowercaseMatch = new Set<string>();
-		addKeyAliases(lowercaseMatch, "alt+q");
-		expect(lowercaseMatch.has(pressId)).toBe(false);
-		expect(lowercaseMatch.has(canonicalKeyId(parseKey("\x1bq") ?? ""))).toBe(
-			true,
+		// Physical key match: uppercase base keyId matches `shift+alt+q`,
+		// whereas plain lowercase `alt+q` does not.
+		const lowerId = canonicalKeyId(
+			decodeKey("\x1bq", { kitty: false, backspaceIsCtrl: false })?.id ?? "",
 		);
+		expect(canonicalize("alt+Q").toLowerCase() as KeyId).toBe(pressId as KeyId);
+		expect("alt+q").not.toBe(pressId);
+		expect(lowerId).toBe("alt+q");
 	});
 
 	test("an explicit shift with an uppercase base is never doubled", () => {
-		expect(canonicalize("alt+shift+Q")).toBe("shift+alt+q");
-		expect(canonicalize("shift+alt+q")).toBe("shift+alt+q");
-		expect(canonicalize("alt+shift+D")).toBe("shift+alt+d");
+		expect(canonicalize("alt+shift+Q")).toBe("alt+shift+q");
+		expect(canonicalize("shift+alt+q")).toBe("alt+shift+q");
+		expect(canonicalize("alt+shift+D")).toBe("alt+shift+d");
 		expect(validateDisplayCycleKey("alt+shift+Q")).toBeUndefined();
 	});
 

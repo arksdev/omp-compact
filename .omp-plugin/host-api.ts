@@ -1,4 +1,8 @@
-import type { Component, OverlayOptions, TUI } from "@oh-my-pi/pi-tui";
+import type {
+	ExtensionRender,
+	ExtensionTheme,
+	ExtensionUiHost,
+} from "@oh-my-pi/pi-coding-agent";
 
 import {
 	DEFAULT_DISPLAY_CYCLE_KEY,
@@ -13,13 +17,18 @@ import {
 export interface SettingsUiLike {
 	custom<T>(
 		factory: (
-			tui: TUI,
-			theme: unknown,
+			ui: ExtensionUiHost,
+			theme: ExtensionTheme,
 			keybindings: unknown,
 			done: (result: T) => void,
-		) => Component,
-		options?: { overlay?: boolean; overlayOptions?: OverlayOptions },
+		) => ExtensionRender | Promise<ExtensionRender>,
+		options?: {
+			overlay?: boolean;
+			fullscreen?: boolean;
+			onHandle?: (handle: { readonly closed: boolean; close(): void }) => void;
+		},
 	): Promise<T>;
+	notify?(message: string, type?: "info" | "warning" | "error"): void;
 }
 
 export interface CommandApiLike<Ctx> {

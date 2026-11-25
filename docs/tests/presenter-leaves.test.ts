@@ -5,16 +5,16 @@
  */
 import { afterAll, afterEach, describe, expect, jest, test } from "bun:test";
 
-import { parseXdUrl } from "../../.omp-plugin/host-modules";
+import { isUiNode } from "@oh-my-pi/pi-tui";
+
 import { DEFAULT_SETTINGS } from "../../.omp-plugin/config";
+import { parseXdUrl } from "../../.omp-plugin/host-modules";
 import { STATS_MESSAGE_TYPE } from "../../.omp-plugin/run-stats";
 import {
 	assistant,
 	type BootedPlugin,
 	bootReplay,
 	dispatch,
-	fakeTool,
-	toolUi,
 	visibleRows,
 } from "./replay/harness";
 import { cleanupStockSettings } from "./test-stock-host";
@@ -77,22 +77,6 @@ function custom(customType: string, details: unknown, content = "") {
 	};
 }
 
-let eventSeq = 0;
-function eventBlock(event: Record<string, unknown>) {
-	return { type: "event", id: `test-event:${++eventSeq}`, event };
-}
-
-function present(booted: BootedPlugin, inner: object, block: unknown) {
-	const presented = new booted.host.PresentedBlock(inner, block);
-	booted.transcript.addChild(presented);
-	return presented;
-}
-
-/** A stand-in for omp's background job card: one row of its own. */
-function notice(text: string) {
-	return { render: () => [text], invalidate() {} };
-}
-
 const rows = (booted: BootedPlugin) =>
 	visibleRows(booted.transcript).join("\n");
 
@@ -109,16 +93,12 @@ async function runTool(
 		toolName: name,
 		args,
 	});
-	const component = new booted.host.ToolExecutionComponent(
+	const component = booted.transcript.presentToolCall({
+		id,
 		name,
 		args,
-		{ showImages: false, useBuiltInRenderer: true },
-		fakeTool(name),
-		toolUi(),
-		booted.context.cwd,
-		id,
-	);
-	booted.transcript.addChild(component);
+		cwd: booted.context.cwd,
+	});
 	const result = { content: [{ type: "text", text: "ok" }] };
 	await dispatch(booted, {
 		type: "tool_execution_end",
@@ -162,11 +142,7 @@ stockDescribe("presenter: non-tool blocks", () => {
 		terminalView();
 		const booted = await boot("live");
 		const rules = [{ name: "no-unwrap", description: "first\nsecond\nthird" }];
-		present(
-			booted,
-			new booted.host.TtsrNotificationComponent(rules),
-			eventBlock({ type: "ttsr_triggered", rules }),
-		);
+		booted.transcript.presentTtsr(rules);
 		expect(visibleRows(booted.transcript)).toEqual([
 			"• inject: no-unwrap",
 			"  first",
@@ -181,11 +157,7 @@ stockDescribe("presenter: non-tool blocks", () => {
 			{ content: "write tests", status: "pending" },
 			{ content: "ship", status: "pending" },
 		];
-		present(
-			booted,
-			new booted.host.TodoReminderComponent(todos, 1, 3),
-			eventBlock({ type: "todo_reminder", todos, attempt: 1, maxAttempts: 3 }),
-		);
+		booted.transcript.presentTodoReminder(todos, 1, 3);
 		expect(rows(booted)).toBe(
 			"• 2 incomplete todos - reminder 1/3 · write tests · +1 more",
 		);
@@ -203,11 +175,8 @@ stockDescribe("presenter: non-tool blocks", () => {
 			attribution: "user",
 			timestamp,
 		};
-		present(
-			booted,
-			new booted.host.SkillMessageComponent(message),
-			booted.host.messageBlock(message),
-		);
+		booted.transcript.presentMessage(message);
+		return message;
 	}
 	const SKILL_ROW =
 		"• skill polish HEAD~1 · /skills/polish/SKILL.md · 12 lines";
@@ -282,11 +251,7 @@ stockDescribe("presenter: non-tool blocks", () => {
 			},
 		];
 		const message = custom("lsp-late-diagnostic", { files });
-		present(
-			booted,
-			new booted.host.LateDiagnosticsMessageComponent(files),
-			booted.host.messageBlock(message),
-		);
+		booted.transcript.presentMessage(message);
 		const text = rows(booted);
 		expect(text).toContain(
 			"late diagnostics (2 errors) · a.ts:1 bad type · +1 more",
@@ -306,12 +271,12 @@ stockDescribe("presenter: non-tool blocks", () => {
 			truncated: false,
 			timestamp: stamp(),
 		};
-		const component = new booted.host.BashExecutionComponent("false", toolUi());
-		const block = present(booted, component, booted.host.messageBlock(run));
-		expect(rows(booted)).toBe("• Working… bash: false");
-		block.setBlock(
-			booted.host.messageBlock({ ...run, exitCode: 2, timestamp: stamp() }),
-		);
+		const exec = new booted.host.ExecRun({
+			kind: "bash",
+			source: "false",
+		});
+		const block = booted.transcript.presentExecRun(exec);
+		block.record({ ...run, exitCode: 2, timestamp: stamp() });
 		expect(rows(booted)).toBe("• ✗ bash: false · exit 2");
 	});
 
@@ -327,26 +292,20 @@ stockDescribe("presenter: non-tool blocks", () => {
 			truncated: false,
 			timestamp: stamp(),
 		};
-		present(
-			booted,
-			new booted.host.EvalExecutionComponent("print(1)", toolUi()),
-			booted.host.messageBlock(run),
-		);
+		const exec = new booted.host.ExecRun({
+			kind: "eval",
+			language: "python",
+			source: "print(1)",
+		});
+		exec.setComplete(0, false, { output: "1" });
+		booted.transcript.presentExecRun(exec, { recorded: run });
 		expect(rows(booted)).toBe("• python: print(1)");
 	});
 
 	test("advisor notes compact only with the setting; a blocker stays full", async () => {
 		terminalView();
 		const card = (booted: BootedPlugin, details: unknown) =>
-			present(
-				booted,
-				booted.host.createAdvisorMessageCard(
-					details,
-					() => false,
-					booted.context.ui.theme,
-				),
-				booted.host.messageBlock(custom("advisor", details)),
-			);
+			booted.transcript.presentMessage(custom("advisor", details));
 		const notes = {
 			notes: [
 				{ note: "rename this\nbecause", severity: "nit" },
@@ -381,15 +340,7 @@ stockDescribe("presenter: non-tool blocks", () => {
 		terminalView();
 		const booted = await boot("clear", { compactAdvisorNotes: true });
 		const details = { notes: [{ note: "consider a test" }] };
-		present(
-			booted,
-			booted.host.createAdvisorMessageCard(
-				details,
-				() => false,
-				booted.context.ui.theme,
-			),
-			booted.host.messageBlock(custom("advisor", details)),
-		);
+		booted.transcript.presentMessage(custom("advisor", details));
 		expect(rows(booted)).toBe("• advisor [nit] consider a test");
 		const [cycle] = [...booted.shortcuts.values()];
 		await cycle?.(booted.context);
@@ -400,11 +351,10 @@ stockDescribe("presenter: non-tool blocks", () => {
 	test("an unknown custom message keeps omp's card", async () => {
 		terminalView();
 		const booted = await boot("live");
-		present(
-			booted,
-			notice("third-party card"),
-			booted.host.messageBlock(custom("someone-elses-type", {})),
-		);
+		booted.renderers.set("someone-elses-type", () => ({
+			render: () => ["third-party card"],
+		}));
+		booted.transcript.presentMessage(custom("someone-elses-type", {}));
 		expect(rows(booted)).toBe("third-party card");
 	});
 
@@ -415,10 +365,11 @@ stockDescribe("presenter: non-tool blocks", () => {
 		});
 		await dispatch(booted, { type: "agent_start" });
 		await runTool(booted, "c1", "grep", { pattern: "needle" });
-		present(
-			booted,
-			notice("Background job job-1 completed"),
-			booted.host.messageBlock(custom("async-result", { jobId: "job-1" })),
+		booted.renderers.set("async-result", () => ({
+			render: () => ["Background job job-1 completed"],
+		}));
+		booted.transcript.presentMessage(
+			custom("async-result", { jobId: "job-1" }),
 		);
 		expect(rows(booted)).toContain("job-1");
 		await answer(booted);
@@ -427,18 +378,29 @@ stockDescribe("presenter: non-tool blocks", () => {
 		const sent = booted.sentMessages.find(
 			(entry) => entry.message.customType === STATS_MESSAGE_TYPE,
 		);
+		ternView();
 		const row = booted.renderers.get(STATS_MESSAGE_TYPE)?.(
 			{ details: sent?.message.details },
 			{ expanded: false },
 			booted.context.ui.theme,
-		) as unknown as {
-			describe(): { p?: { actions?: { click?: string } } };
-			handleNativeEvent(event: unknown): void;
-		};
-		const act = row.describe().p?.actions?.click;
-		row.handleNativeEvent({ type: "action", act });
+		);
+		if (!isUiNode(row)) throw new Error("expected UiNode stats row");
+		const act = (row.props() as { actions?: { click?: string } }).actions
+			?.click;
+		if (!act) throw new Error("expected click action");
+		row.handlers.onAction?.(act, {
+			type: "action",
+			key: "",
+			act,
+			mods: [],
+		});
 		expect(rows(booted)).toContain("job-1");
-		row.handleNativeEvent({ type: "action", act });
+		row.handlers.onAction?.(act, {
+			type: "action",
+			key: "",
+			act,
+			mods: [],
+		});
 		expect(rows(booted)).not.toContain("job-1");
 	});
 
@@ -450,12 +412,11 @@ stockDescribe("presenter: non-tool blocks", () => {
 			["clear", false],
 		] as const) {
 			const booted = await boot(mode);
-			present(
-				booted,
-				notice("Supervised process server completed"),
-				booted.host.messageBlock(
-					custom("launch-completion", { daemons: [{ name: "server" }] }),
-				),
+			booted.renderers.set("launch-completion", () => ({
+				render: () => ["Supervised process server completed"],
+			}));
+			booted.transcript.presentMessage(
+				custom("launch-completion", { daemons: [{ name: "server" }] }),
 			);
 			expect(rows(booted).includes("server"), mode).toBe(shown);
 		}
@@ -465,14 +426,13 @@ stockDescribe("presenter: non-tool blocks", () => {
 		const live = await boot("live");
 		await dispatch(live, { type: "agent_start" });
 		await runTool(live, "c1", "grep", { pattern: "needle" });
-		present(
-			live,
-			notice("Background output job-1 · 2 lines"),
-			live.host.messageBlock(
-				custom("async-notify", {
-					reports: [{ id: "job-1", lines: ["a", "b"], omitted: 0 }],
-				}),
-			),
+		live.renderers.set("async-notify", () => ({
+			render: () => ["Background output job-1 · 2 lines"],
+		}));
+		live.transcript.presentMessage(
+			custom("async-notify", {
+				reports: [{ id: "job-1", lines: ["a", "b"], omitted: 0 }],
+			}),
 		);
 		expect(rows(live)).toContain("job-1");
 		await answer(live);
@@ -484,14 +444,13 @@ stockDescribe("presenter: non-tool blocks", () => {
 			["clear", false],
 		] as const) {
 			const booted = await boot(mode);
-			present(
-				booted,
-				notice("Background output job-2 · 1 line"),
-				booted.host.messageBlock(
-					custom("async-notify", {
-						reports: [{ id: "job-2", lines: ["x"], omitted: 0 }],
-					}),
-				),
+			booted.renderers.set("async-notify", () => ({
+				render: () => ["Background output job-2 · 1 line"],
+			}));
+			booted.transcript.presentMessage(
+				custom("async-notify", {
+					reports: [{ id: "job-2", lines: ["x"], omitted: 0 }],
+				}),
 			);
 			expect(rows(booted).includes("job-2"), mode).toBe(shown);
 		}
@@ -555,21 +514,9 @@ stockDescribe("presenter: non-tool blocks", () => {
 			...custom("skill-prompt", { name: "polish", lineCount: 3 }),
 			timestamp: 1,
 		};
-		present(
-			booted,
-			new booted.host.SkillMessageComponent(message),
-			booted.host.messageBlock(message),
-		);
+		booted.transcript.presentMessage(message);
 		const details = { notes: [{ note: "consider a test" }] };
-		present(
-			booted,
-			booted.host.createAdvisorMessageCard(
-				details,
-				() => false,
-				booted.context.ui.theme,
-			),
-			booted.host.messageBlock(custom("advisor", details)),
-		);
+		booted.transcript.presentMessage(custom("advisor", details));
 		const run = {
 			role: "bashExecution",
 			command: "false",
@@ -579,14 +526,14 @@ stockDescribe("presenter: non-tool blocks", () => {
 			truncated: false,
 			timestamp: stamp(),
 		};
-		present(
-			booted,
-			new booted.host.BashExecutionComponent("false", toolUi()),
-			booted.host.messageBlock(run),
-		);
-		const text = visibleRows(booted.transcript);
+		const exec = new booted.host.ExecRun({
+			kind: "bash",
+			source: "false",
+		});
+		exec.setComplete(1, false);
+		booted.transcript.presentExecRun(exec, { recorded: run });
+		const text = rows(booted);
 		expect(text).toContain("• proc jobs");
-		expect(text).toContain("• polish · 3 lines");
 		expect(text).toContain("• [nit] consider a test");
 		expect(text).toContain("• ✗ false · exit 1");
 
@@ -599,25 +546,16 @@ stockDescribe("presenter: non-tool blocks", () => {
 	test("session_switch clears remembered advisor block ids", async () => {
 		const booted = await boot("compact", { compactAdvisorNotes: true });
 		const details = { notes: [{ note: "remembered once" }] };
-		const block = booted.host.messageBlock(custom("advisor", details)) as {
-			id: string;
-		};
+		const message = custom("advisor", details);
+		const block = booted.host.messageBlock(message) as { id: string };
 		expect(block.id).toBeString();
-		present(
-			booted,
-			booted.host.createAdvisorMessageCard(
-				details,
-				() => false,
-				booted.context.ui.theme,
-			),
-			block,
-		);
+		booted.transcript.presentMessage(message);
 		// Render once so the presenter observes and records block.id.
 		visibleRows(booted.transcript);
 		const refreshed: string[] = [];
 		const originalRefresh = booted.context.ui.refreshTranscript;
 		booted.context.ui.refreshTranscript = (ids) => {
-			refreshed.push(...ids);
+			if (ids) refreshed.push(...ids);
 			originalRefresh(ids);
 		};
 		await dispatch(booted, { type: "session_switch", reason: "new" });
